@@ -1,0 +1,466 @@
+import ePub, {
+  type Book,
+  type Contents,
+  type Location,
+  type NavItem,
+  type Rendition
+} from 'epubjs'
+import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
+import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
+import type {
+  ReaderAdapter,
+  ReaderCallbacks,
+  ReaderDocumentInfo,
+  ReaderRelocation
+} from './types'
+
+const EPUB_CFI_PATTERN = /^epubcfi\(.+\)$/u
+const CONTENT_BLOCK_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,dd,dt'
+const TEMPORARY_HIGHLIGHT_CLASS = 'llm-reader-temporary-highlight'
+
+interface EpubParagraph {
+  index: number
+  element: Element
+  text: string
+  leadingCharacters: number
+}
+
+interface DomPosition {
+  node: Text
+  offset: number
+}
+
+function isEpubCfi(value: string): boolean {
+  return value.length <= 16_384 && EPUB_CFI_PATTERN.test(value)
+}
+
+function isSafeInternalHref(value: string): boolean {
+  const href = value.trim()
+  return (
+    href.length > 0 &&
+    href.length <= 4_096 &&
+    !href.startsWith('//') &&
+    !href.startsWith('/') &&
+    !/^[a-z][a-z\d+.-]*:/iu.test(href) &&
+    !href.includes('\0')
+  )
+}
+
+function normalizeHref(value: string): string {
+  const withoutFragment = value.split('#', 1)[0].replace(/^\.\//u, '')
+  try {
+    return decodeURIComponent(withoutFragment)
+  } catch {
+    return withoutFragment
+  }
+}
+
+function flattenToc(items: NavItem[], depth = 0, output: TocItem[] = []): TocItem[] {
+  for (const item of items) {
+    if (isSafeInternalHref(item.href)) {
+      const label = item.label.replace(/\s+/gu, ' ').trim() || '未命名章节'
+      output.push({
+        id: item.id || `epub-toc-${output.length + 1}`,
+        label,
+        href: item.href,
+        depth
+      })
+    }
+    if (item.subitems?.length) {
+      flattenToc(item.subitems, depth + 1, output)
+    }
+  }
+  return output
+}
+
+function textNodes(element: Element): Text[] {
+  const nodes: Text[] = []
+  const walker = element.ownerDocument.createTreeWalker(element, 4)
+  let current = walker.nextNode()
+  while (current) {
+    if (current.nodeType === 3) {
+      nodes.push(current as Text)
+    }
+    current = walker.nextNode()
+  }
+  return nodes
+}
+
+function domPositionAt(element: Element, codePointOffset: number): DomPosition | null {
+  const nodes = textNodes(element)
+  let remaining = Math.max(0, codePointOffset)
+  for (const node of nodes) {
+    const value = node.data
+    const characters = Array.from(value)
+    if (remaining <= characters.length) {
+      return { node, offset: characters.slice(0, remaining).join('').length }
+    }
+    remaining -= characters.length
+  }
+
+  const last = nodes[nodes.length - 1]
+  return last ? { node: last, offset: last.data.length } : null
+}
+
+function rangeForElementSlice(
+  element: Element,
+  start: number,
+  end: number,
+  leadingCharacters = 0
+): Range {
+  const range = element.ownerDocument.createRange()
+  const startPosition = domPositionAt(element, leadingCharacters + start)
+  const endPosition = domPositionAt(element, leadingCharacters + end)
+  if (!startPosition || !endPosition) {
+    range.selectNodeContents(element)
+    return range
+  }
+  range.setStart(startPosition.node, startPosition.offset)
+  range.setEnd(endPosition.node, endPosition.offset)
+  return range
+}
+
+function extractParagraphs(contents: Contents): EpubParagraph[] {
+  const candidates = Array.from(contents.content.querySelectorAll(CONTENT_BLOCK_SELECTOR)).filter(
+    (element) => !element.querySelector(CONTENT_BLOCK_SELECTOR)
+  )
+  const source = candidates.length > 0 ? candidates : [contents.content]
+
+  return source.flatMap((element, index) => {
+    const raw = element.textContent ?? ''
+    const text = raw.trim()
+    if (text.length === 0) {
+      return []
+    }
+    const leadingUtf16 = raw.indexOf(text)
+    return [
+      {
+        index,
+        element,
+        text,
+        leadingCharacters: codePointLength(raw.slice(0, Math.max(0, leadingUtf16)))
+      }
+    ]
+  })
+}
+
+function offsetWithinElement(element: Element, node: Node, offset: number): number {
+  const range = element.ownerDocument.createRange()
+  range.selectNodeContents(element)
+  try {
+    range.setEnd(node, offset)
+  } catch {
+    return 0
+  }
+  return codePointLength(range.toString())
+}
+
+function sanitizeContents(contents: Contents): void {
+  const root = contents.content
+  root
+    .querySelectorAll('script,iframe,frame,object,embed,applet,form,meta[http-equiv="refresh"],base')
+    .forEach((element) => element.remove())
+
+  root.querySelectorAll('*').forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase()
+      if (name.startsWith('on') || name === 'srcdoc' || name === 'formaction') {
+        element.removeAttribute(attribute.name)
+      }
+    }
+
+    for (const attributeName of ['src', 'poster']) {
+      const value = element.getAttribute(attributeName)?.trim()
+      if (value && (/^https?:/iu.test(value) || value.startsWith('//'))) {
+        element.removeAttribute(attributeName)
+      }
+    }
+  })
+
+  root.querySelectorAll('a').forEach((anchor) => {
+    anchor.removeAttribute('target')
+    anchor.removeAttribute('href')
+    ;(anchor as HTMLAnchorElement).onclick = null
+    anchor.addEventListener(
+      'click',
+      (event) => {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      },
+      true
+    )
+  })
+}
+
+export class EpubReaderAdapter implements ReaderAdapter {
+  readonly format: BookFormat = 'epub'
+
+  private readonly host: HTMLElement
+  private readonly callbacks: ReaderCallbacks
+  private book: Book | null = null
+  private rendition: Rendition | null = null
+  private toc: TocItem[] = []
+  private selection: SelectionContext | null = null
+  private highlightedCfi: string | null = null
+  private spineCount = 0
+  private locationsReady = false
+
+  constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
+    this.host = host
+    this.callbacks = callbacks
+  }
+
+  async open(bytes: Uint8Array, lastLocator?: string | null): Promise<ReaderDocumentInfo> {
+    this.resetDocument()
+    if (bytes.byteLength === 0) {
+      throw new Error('EPUB 文件为空')
+    }
+
+    const book = ePub(Uint8Array.from(bytes).buffer)
+    this.book = book
+    await book.ready
+    const [metadata, navigation, spine] = await Promise.all([
+      book.loaded.metadata,
+      book.loaded.navigation,
+      book.loaded.spine
+    ])
+    this.toc = flattenToc(navigation.toc)
+    this.spineCount = spine.length
+
+    const rendition = book.renderTo(this.host, {
+      width: '100%',
+      height: '100%',
+      manager: 'continuous',
+      flow: 'scrolled-doc',
+      spread: 'none',
+      allowScriptedContent: false
+    })
+    this.rendition = rendition
+    rendition.hooks.content.register(sanitizeContents)
+    rendition.on('selected', this.handleSelected)
+    rendition.on('relocated', this.handleRelocated)
+
+    try {
+      await book.locations.generate(1_600)
+      this.locationsReady = true
+    } catch {
+      this.locationsReady = false
+    }
+
+    const initialLocator = lastLocator && isEpubCfi(lastLocator) ? lastLocator : undefined
+    if (initialLocator) {
+      try {
+        await rendition.display(initialLocator)
+      } catch {
+        await rendition.display()
+      }
+    } else {
+      await rendition.display()
+    }
+
+    return {
+      metadata: {
+        title: metadata.title?.trim() || '未命名 EPUB',
+        author: metadata.creator?.trim() || null
+      },
+      toc: this.toc
+    }
+  }
+
+  destroy(): void {
+    this.resetDocument()
+  }
+
+  async goTo(anchor: string): Promise<void> {
+    const rendition = this.requireRendition()
+    if (!isEpubCfi(anchor) && !this.toc.some((item) => item.href === anchor)) {
+      throw new Error('无效或不受信任的 EPUB 定位锚点')
+    }
+    try {
+      await rendition.display(anchor)
+    } catch {
+      throw new Error('EPUB 定位锚点无法解析')
+    }
+  }
+
+  getSelection(): SelectionContext | null {
+    return this.selection
+  }
+
+  async highlight(anchor: string): Promise<void> {
+    if (!isEpubCfi(anchor)) {
+      throw new Error('无效的 EPUB 高亮锚点')
+    }
+    const rendition = this.requireRendition()
+    this.clearHighlight()
+    rendition.annotations.highlight(
+      anchor,
+      { temporary: true },
+      undefined,
+      TEMPORARY_HIGHLIGHT_CLASS,
+      {
+        fill: '#f6be48',
+        'fill-opacity': '0.32',
+        'mix-blend-mode': 'multiply'
+      }
+    )
+    this.highlightedCfi = anchor
+  }
+
+  clearHighlight(): void {
+    if (this.highlightedCfi && this.rendition) {
+      this.rendition.annotations.remove(this.highlightedCfi, 'highlight')
+    }
+    this.highlightedCfi = null
+  }
+
+  private readonly handleSelected = (cfiRange: string, contents: Contents): void => {
+    if (!isEpubCfi(cfiRange)) {
+      this.setSelection(null)
+      return
+    }
+    const nativeSelection = contents.window.getSelection()
+    if (!nativeSelection || nativeSelection.rangeCount === 0 || nativeSelection.isCollapsed) {
+      this.setSelection(null)
+      return
+    }
+    const quote = nativeSelection.toString().trim()
+    if (quote.length === 0) {
+      this.setSelection(null)
+      return
+    }
+
+    const range = nativeSelection.getRangeAt(0)
+    const paragraphs = extractParagraphs(contents)
+    if (paragraphs.length === 0) {
+      this.setSelection(null)
+      return
+    }
+    let startBlock = paragraphs.findIndex((paragraph) => paragraph.element.contains(range.startContainer))
+    let endBlock = paragraphs.findIndex((paragraph) => paragraph.element.contains(range.endContainer))
+    if (startBlock < 0) {
+      startBlock = paragraphs.findIndex((paragraph) => range.intersectsNode(paragraph.element))
+    }
+    if (endBlock < 0) {
+      for (let index = paragraphs.length - 1; index >= 0; index -= 1) {
+        if (range.intersectsNode(paragraphs[index].element)) {
+          endBlock = index
+          break
+        }
+      }
+    }
+    startBlock = Math.max(0, startBlock)
+    endBlock = Math.max(startBlock, endBlock)
+
+    const startParagraph = paragraphs[startBlock]
+    const endParagraph = paragraphs[endBlock]
+    const startOffset = Math.max(
+      0,
+      offsetWithinElement(startParagraph.element, range.startContainer, range.startOffset) -
+        startParagraph.leadingCharacters
+    )
+    const endOffset = Math.max(
+      0,
+      offsetWithinElement(endParagraph.element, range.endContainer, range.endOffset) -
+        endParagraph.leadingCharacters
+    )
+    const blocks: ContextBlock[] = paragraphs.map((paragraph, index) => ({
+      id: `P${index + 1}`,
+      text: paragraph.text,
+      anchorForSlice: (localStart, localEnd) => {
+        const passageRange = rangeForElementSlice(
+          paragraph.element,
+          localStart,
+          localEnd,
+          paragraph.leadingCharacters
+        )
+        return contents.cfiFromRange(passageRange)
+      }
+    }))
+    const passages = buildBoundedPassages(blocks, {
+      startBlock,
+      startOffset,
+      endBlock,
+      endOffset
+    })
+
+    this.setSelection({
+      bookId: this.callbacks.bookId,
+      quote,
+      anchor: cfiRange,
+      chapterTitle: this.chapterTitle(contents.sectionIndex),
+      passages
+    })
+  }
+
+  private readonly handleRelocated = (location: Location): void => {
+    const locator = location?.start?.cfi
+    if (!locator || !isEpubCfi(locator)) {
+      return
+    }
+    const reportedPercentage = location.start.percentage
+    const fallbackPercentage =
+      this.spineCount <= 1 ? 0 : location.start.index / Math.max(1, this.spineCount - 1)
+    const progress =
+      this.locationsReady && Number.isFinite(reportedPercentage)
+        ? reportedPercentage
+        : fallbackPercentage
+    this.emitRelocation({ locator, progress })
+  }
+
+  private chapterTitle(sectionIndex: number): string {
+    const sectionHref = this.book?.spine.get(sectionIndex)?.href
+    if (sectionHref) {
+      const normalized = normalizeHref(sectionHref)
+      const match = this.toc.find((item) => normalizeHref(item.href) === normalized)
+      if (match) {
+        return match.label
+      }
+    }
+    return `第 ${sectionIndex + 1} 节`
+  }
+
+  private setSelection(selection: SelectionContext | null): void {
+    this.selection = selection
+    this.callbacks.onSelectionChanged?.(selection)
+  }
+
+  private emitRelocation(relocation: ReaderRelocation): void {
+    this.callbacks.onRelocated?.({
+      locator: relocation.locator,
+      progress: Math.min(1, Math.max(0, relocation.progress))
+    })
+  }
+
+  private requireRendition(): Rendition {
+    if (!this.rendition) {
+      throw new Error('EPUB 阅读器尚未打开文档')
+    }
+    return this.rendition
+  }
+
+  private resetDocument(): void {
+    if (this.rendition) {
+      this.rendition.off('selected', this.handleSelected)
+      this.rendition.off('relocated', this.handleRelocated)
+    }
+    this.clearHighlight()
+    this.book?.destroy()
+    this.book = null
+    this.rendition = null
+    this.toc = []
+    this.selection = null
+    this.spineCount = 0
+    this.locationsReady = false
+    this.host.replaceChildren()
+  }
+}
+
+export {
+  extractParagraphs,
+  flattenToc,
+  isEpubCfi,
+  isSafeInternalHref,
+  rangeForElementSlice,
+  sanitizeContents
+}

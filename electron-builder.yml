@@ -1,0 +1,22 @@
+appId: com.llmreader.desktop
+productName: LLM Reader
+directories:
+  buildResources: resources
+  output: release
+files:
+  - out/**
+  - package.json
+asar: true
+npmRebuild: false
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false

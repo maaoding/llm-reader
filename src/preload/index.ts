@@ -1,0 +1,35 @@
+import { contextBridge, ipcRenderer } from 'electron'
+import { IPC_CHANNELS, type LlmEvent, type ReaderApi } from '@shared/contracts'
+
+export const readerApi: ReaderApi = {
+  listBooks: () => ipcRenderer.invoke(IPC_CHANNELS.booksList),
+  importBook: () => ipcRenderer.invoke(IPC_CHANNELS.booksImport),
+  readBook: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksRead, bookId),
+  updateBookMetadata: (bookId, title, author) =>
+    ipcRenderer.invoke(IPC_CHANNELS.booksUpdateMetadata, bookId, title, author),
+  updateBookProgress: (bookId, locator, progress) =>
+    ipcRenderer.invoke(IPC_CHANNELS.booksUpdateProgress, bookId, locator, progress),
+  listInsights: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.insightsList, bookId),
+  saveInsight: (input) => ipcRenderer.invoke(IPC_CHANNELS.insightsSave, input),
+  getProviderSettings: () => ipcRenderer.invoke(IPC_CHANNELS.providerGet),
+  saveProviderSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.providerSave, input),
+  testProvider: () => ipcRenderer.invoke(IPC_CHANNELS.providerTest),
+  startLlm: (request) => ipcRenderer.invoke(IPC_CHANNELS.llmStart, request),
+  cancelLlm: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.llmCancel, requestId),
+  onLlmEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => listener(value as LlmEvent)
+    ipcRenderer.on(IPC_CHANNELS.llmEvent, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.llmEvent, handler)
+  },
+  onBeforeClose: (listener) => {
+    const handler = (): void => {
+      void Promise.resolve(listener())
+        .catch(() => undefined)
+        .finally(() => ipcRenderer.invoke(IPC_CHANNELS.appCloseReady).catch(() => undefined))
+    }
+    ipcRenderer.on(IPC_CHANNELS.appBeforeClose, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.appBeforeClose, handler)
+  }
+}
+
+contextBridge.exposeInMainWorld('readerApi', readerApi)
