@@ -12,3 +12,4 @@ test-results/
 *.sqlite-shm
 *.sqlite-wal
 *.tsbuildinfo
+AGENTS.md
