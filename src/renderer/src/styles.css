@@ -754,6 +754,10 @@ button:disabled {
   box-shadow: var(--reader-shadow);
 }
 
+.welcome-state {
+  display: none;
+}
+
 .welcome-state .welcome-symbol {
   display: grid;
   width: 70px;
