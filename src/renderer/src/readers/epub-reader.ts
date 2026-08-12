@@ -7,16 +7,25 @@ import ePub, {
 } from 'epubjs'
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
+import { normalizeReadingPreferences, readingPreferencesEqual } from './reading-preferences'
 import type {
+  ReadingPreferences,
   ReaderAdapter,
   ReaderCallbacks,
   ReaderDocumentInfo,
   ReaderRelocation
 } from './types'
+import { DEFAULT_READING_PREFERENCES } from './types'
+import { stabilizeContinuousManager } from './epub-continuous-stability'
 
 const EPUB_CFI_PATTERN = /^epubcfi\(.+\)$/u
 const CONTENT_BLOCK_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,dd,dt'
 const TEMPORARY_HIGHLIGHT_CLASS = 'llm-reader-temporary-highlight'
+const READING_PREFERENCES_STYLESHEET = 'llm-reader-reading-preferences'
+const READING_PREFERENCES_STYLE_ELEMENT_ID =
+  `epubjs-inserted-css-${READING_PREFERENCES_STYLESHEET}`
+const ORDINARY_PARAGRAPH_SELECTOR =
+  'p:not(:where(pre *, code *, blockquote *, li *, table *, figcaption *, figure *))'
 
 interface EpubParagraph {
   index: number
@@ -192,6 +201,21 @@ function sanitizeContents(contents: Contents): void {
   })
 }
 
+function readingPreferencesCss(preferences: ReadingPreferences): string {
+  const rules: string[] = []
+  if (preferences.fontScale !== DEFAULT_READING_PREFERENCES.fontScale) {
+    rules.push(`body { font-size: ${preferences.fontScale}% !important; }`)
+  }
+  if (preferences.lineHeight !== 'original') {
+    rules.push(`body, p { line-height: ${preferences.lineHeight} !important; }`)
+  }
+  if (preferences.indent !== 'original') {
+    const indent = preferences.indent === 'none' ? '0' : '2em'
+    rules.push(`${ORDINARY_PARAGRAPH_SELECTOR} { text-indent: ${indent} !important; }`)
+  }
+  return rules.join('\n')
+}
+
 export class EpubReaderAdapter implements ReaderAdapter {
   readonly format: BookFormat = 'epub'
 
@@ -204,6 +228,10 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private highlightedCfi: string | null = null
   private spineCount = 0
   private locationsReady = false
+  private preferences: ReadingPreferences = { ...DEFAULT_READING_PREFERENCES }
+  private reflowable = true
+  private latestLocator: string | null = null
+  private preferencesRevision = 0
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
     this.host = host
@@ -226,6 +254,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     ])
     this.toc = flattenToc(navigation.toc)
     this.spineCount = spine.length
+    this.reflowable = metadata.layout !== 'pre-paginated'
 
     const rendition = book.renderTo(this.host, {
       width: '100%',
@@ -236,9 +265,15 @@ export class EpubReaderAdapter implements ReaderAdapter {
       allowScriptedContent: false
     })
     this.rendition = rendition
-    rendition.hooks.content.register(sanitizeContents)
+    rendition.hooks.content.register(this.handleContents)
     rendition.on('selected', this.handleSelected)
     rendition.on('relocated', this.handleRelocated)
+
+    await rendition.started
+    if (rendition.settings?.layout === 'pre-paginated') {
+      this.reflowable = false
+    }
+    stabilizeContinuousManager(rendition)
 
     try {
       await book.locations.generate(1_600)
@@ -312,6 +347,66 @@ export class EpubReaderAdapter implements ReaderAdapter {
       this.rendition.annotations.remove(this.highlightedCfi, 'highlight')
     }
     this.highlightedCfi = null
+  }
+
+  async setPreferences(preferences: ReadingPreferences): Promise<void> {
+    const normalized = normalizeReadingPreferences(preferences)
+    if (readingPreferencesEqual(this.preferences, normalized)) {
+      return
+    }
+    this.preferences = normalized
+    const revision = ++this.preferencesRevision
+    const rendition = this.rendition
+    if (!rendition || !this.reflowable) {
+      return
+    }
+
+    const locator = this.latestLocator ?? rendition.location?.start?.cfi ?? null
+    this.currentContents(rendition).forEach((contents) => this.applyPreferences(contents))
+    if (!locator || !isEpubCfi(locator)) {
+      return
+    }
+
+    await this.waitForLayout()
+    if (this.rendition !== rendition || revision !== this.preferencesRevision) {
+      return
+    }
+    await rendition.display(locator)
+  }
+
+  private readonly handleContents = (contents: Contents): void => {
+    sanitizeContents(contents)
+    this.applyPreferences(contents)
+  }
+
+  private applyPreferences(contents: Contents): void {
+    if (!this.reflowable) {
+      return
+    }
+    contents.document.getElementById(READING_PREFERENCES_STYLE_ELEMENT_ID)?.remove()
+    const css = readingPreferencesCss(this.preferences)
+    if (css) {
+      void contents.addStylesheetCss(css, READING_PREFERENCES_STYLESHEET)
+    }
+  }
+
+  private currentContents(rendition: Rendition): Contents[] {
+    const contents = rendition.getContents() as unknown
+    if (Array.isArray(contents)) {
+      return contents as Contents[]
+    }
+    return contents ? [contents as Contents] : []
+  }
+
+  private async waitForLayout(): Promise<void> {
+    const view = this.host.ownerDocument.defaultView
+    if (!view || typeof view.requestAnimationFrame !== 'function') {
+      await Promise.resolve()
+      return
+    }
+    await new Promise<void>((resolve) => {
+      view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve()))
+    })
   }
 
   private readonly handleSelected = (cfiRange: string, contents: Contents): void => {
@@ -398,6 +493,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     if (!locator || !isEpubCfi(locator)) {
       return
     }
+    this.latestLocator = locator
     const reportedPercentage = location.start.percentage
     const fallbackPercentage =
       this.spineCount <= 1 ? 0 : location.start.index / Math.max(1, this.spineCount - 1)
@@ -452,6 +548,9 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.selection = null
     this.spineCount = 0
     this.locationsReady = false
+    this.latestLocator = null
+    this.reflowable = true
+    this.preferencesRevision += 1
     this.host.replaceChildren()
   }
 }

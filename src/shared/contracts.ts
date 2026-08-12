@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   booksUpdateProgress: 'books:update-progress',
   insightsList: 'insights:list',
   insightsSave: 'insights:save',
+  insightsDelete: 'insights:delete',
   providerGet: 'provider:get',
   providerSave: 'provider:save',
   providerTest: 'provider:test',
@@ -131,6 +132,7 @@ export interface ReaderApi {
   updateBookProgress(bookId: string, locator: string, progress: number): Promise<void>
   listInsights(bookId: string): Promise<SavedInsight[]>
   saveInsight(input: SaveInsightInput): Promise<SavedInsight>
+  deleteInsight(id: string): Promise<boolean>
   getProviderSettings(): Promise<ProviderSettings>
   saveProviderSettings(input: SaveProviderSettingsInput): Promise<ProviderSettings>
   testProvider(): Promise<ProviderTestResult>

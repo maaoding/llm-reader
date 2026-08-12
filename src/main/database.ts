@@ -265,6 +265,11 @@ export class AppDatabase {
     return { id, ...input, createdAt }
   }
 
+  deleteInsight(id: string): boolean {
+    const result = this.connection.prepare('DELETE FROM insights WHERE id = ?').run(id)
+    return result.changes > 0
+  }
+
   getProvider(): { baseUrl: string; model: string } | null {
     const row = this.connection
       .prepare('SELECT base_url, model FROM provider_settings WHERE singleton = 1')

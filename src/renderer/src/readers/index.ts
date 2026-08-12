@@ -18,10 +18,19 @@ export function createReaderAdapter(
 
 export { EpubReaderAdapter } from './epub-reader'
 export { TextReaderAdapter } from './text-reader'
+export {
+  MAX_READING_FONT_SCALE,
+  MIN_READING_FONT_SCALE,
+  normalizeReadingPreferences
+} from './reading-preferences'
 export type {
+  ReadingIndent,
+  ReadingLineHeight,
+  ReadingPreferences,
   ReaderAdapter,
   ReaderCallbacks,
   ReaderDocumentInfo,
   ReaderMetadata,
   ReaderRelocation
 } from './types'
+export { DEFAULT_READING_PREFERENCES } from './types'

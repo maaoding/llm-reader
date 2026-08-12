@@ -21,6 +21,21 @@ export interface ReaderCallbacks {
   onSelectionChanged?: (selection: SelectionContext | null) => void
 }
 
+export type ReadingLineHeight = 'original' | '1.5' | '1.7' | '1.9'
+export type ReadingIndent = 'original' | 'none' | '2em'
+
+export interface ReadingPreferences {
+  fontScale: number
+  lineHeight: ReadingLineHeight
+  indent: ReadingIndent
+}
+
+export const DEFAULT_READING_PREFERENCES: Readonly<ReadingPreferences> = Object.freeze({
+  fontScale: 100,
+  lineHeight: 'original',
+  indent: 'original'
+})
+
 export interface ReaderAdapter {
   readonly format: BookFormat
 
@@ -30,4 +45,5 @@ export interface ReaderAdapter {
   getSelection(): SelectionContext | null
   highlight(anchor: string): Promise<void>
   clearHighlight(): void
+  setPreferences(preferences: ReadingPreferences): Promise<void>
 }

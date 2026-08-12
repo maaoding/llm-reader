@@ -6,6 +6,7 @@ import JSZip from 'jszip'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AppDatabase } from '../../src/main/database'
 import { LibraryService } from '../../src/main/library-service'
+import { insightIdSchema } from '../../src/main/schemas'
 
 const temporaryDirectories: string[] = []
 
@@ -93,6 +94,51 @@ describe('LibraryService', () => {
     expect(library.listInsights(imported.book.id)).toEqual([
       expect.objectContaining({ question: 'What does this mean?', selection })
     ])
+    database.close()
+  })
+
+  it('deletes exactly one saved insight and treats an unknown id as a no-op', async () => {
+    const root = makeTemporaryDirectory()
+    const databasePath = join(root, 'reader.sqlite3')
+    const firstSource = join(root, 'first.txt')
+    const secondSource = join(root, 'second.txt')
+    await writeFile(firstSource, 'First book.', 'utf8')
+    await writeFile(secondSource, 'Second book.', 'utf8')
+
+    let database = new AppDatabase(databasePath)
+    let library = new LibraryService(database, join(root, 'library'))
+    const firstBook = (await library.importFromPath(firstSource)).book
+    const secondBook = (await library.importFromPath(secondSource)).book
+    const makeInsight = (bookId: string, answer: string) =>
+      library.saveInsight({
+        bookId,
+        selection: {
+          bookId,
+          quote: answer,
+          anchor: 'txt:0-5',
+          chapterTitle: 'book',
+          passages: [{ id: 'p-1', text: answer, anchor: 'txt:0-5' }]
+        },
+        question: 'What does this mean?',
+        answer,
+        model: 'test-model'
+      })
+
+    const deleted = makeInsight(firstBook.id, 'Delete me')
+    const retainedFromSameBook = makeInsight(firstBook.id, 'Keep me')
+    const retainedFromOtherBook = makeInsight(secondBook.id, 'Keep the other book')
+
+    expect(library.deleteInsight(deleted.id)).toBe(true)
+    expect(library.deleteInsight('00000000-0000-4000-8000-000000000000')).toBe(false)
+    expect(library.listInsights(firstBook.id)).toEqual([retainedFromSameBook])
+    expect(library.listInsights(secondBook.id)).toEqual([retainedFromOtherBook])
+
+    database.close()
+    database = new AppDatabase(databasePath)
+    library = new LibraryService(database, join(root, 'library'))
+    expect(library.listInsights(firstBook.id)).toEqual([retainedFromSameBook])
+    expect(library.listInsights(secondBook.id)).toEqual([retainedFromOtherBook])
+    expect(insightIdSchema.safeParse('not-an-insight-id').success).toBe(false)
     database.close()
   })
 

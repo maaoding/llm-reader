@@ -11,6 +11,7 @@ export const readerApi: ReaderApi = {
     ipcRenderer.invoke(IPC_CHANNELS.booksUpdateProgress, bookId, locator, progress),
   listInsights: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.insightsList, bookId),
   saveInsight: (input) => ipcRenderer.invoke(IPC_CHANNELS.insightsSave, input),
+  deleteInsight: (id) => ipcRenderer.invoke(IPC_CHANNELS.insightsDelete, id),
   getProviderSettings: () => ipcRenderer.invoke(IPC_CHANNELS.providerGet),
   saveProviderSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.providerSave, input),
   testProvider: () => ipcRenderer.invoke(IPC_CHANNELS.providerTest),

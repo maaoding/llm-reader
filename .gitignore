@@ -11,5 +11,12 @@ test-results/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+# Local app data if LLM_READER_USER_DATA points into this repository
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+api-key.bin
+/library/
+/.llm-reader-user-data/
 *.tsbuildinfo
 AGENTS.md

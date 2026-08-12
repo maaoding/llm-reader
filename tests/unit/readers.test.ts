@@ -165,6 +165,71 @@ describe('TXT adapter', () => {
 })
 
 describe('EPUB adapter safety utilities', () => {
+  it('restores the last locator once and never redisplays it for relocation events', async () => {
+    const handlers = new Map<string, (...eventArguments: unknown[]) => void>()
+    const display = vi.fn().mockResolvedValue(undefined)
+    const generateLocations = vi.fn().mockResolvedValue(['epubcfi(/6/2!/4/1:0)'])
+    const rendition = {
+      hooks: {
+        content: {
+          register: vi.fn()
+        }
+      },
+      on: vi.fn((event: string, handler: (...eventArguments: unknown[]) => void) => {
+        handlers.set(event, handler)
+      }),
+      off: vi.fn(),
+      display,
+      annotations: {
+        highlight: vi.fn(),
+        remove: vi.fn()
+      }
+    }
+    const book = {
+      ready: Promise.resolve(),
+      loaded: {
+        metadata: Promise.resolve({ title: '恢复位置测试', creator: '作者' }),
+        navigation: Promise.resolve({ toc: [] }),
+        spine: Promise.resolve([{ index: 0 }, { index: 1 }])
+      },
+      renderTo: vi.fn(() => rendition),
+      locations: { generate: generateLocations },
+      spine: { get: vi.fn(() => ({ href: 'chapter.xhtml' })) },
+      destroy: vi.fn()
+    }
+    epubFactory.mockReturnValue(book)
+    const host = document.createElement('div')
+    const onRelocated = vi.fn()
+    const adapter = createReaderAdapter('epub', host, {
+      bookId: 'epub-restore-once',
+      onRelocated
+    })
+    const restoredLocator = 'epubcfi(/6/4!/4/2/1:12)'
+
+    await adapter.open(new Uint8Array([1, 2, 3]), restoredLocator)
+
+    expect(book.renderTo).toHaveBeenCalledOnce()
+    expect(generateLocations).toHaveBeenCalledOnce()
+    expect(display).toHaveBeenCalledOnce()
+    expect(display).toHaveBeenLastCalledWith(restoredLocator)
+
+    for (let index = 0; index < 20; index += 1) {
+      handlers.get('relocated')?.({
+        start: {
+          cfi: `epubcfi(/6/4!/4/2/1:${index})`,
+          percentage: 0.7 - index / 100,
+          index: 1
+        }
+      })
+    }
+
+    expect(onRelocated).toHaveBeenCalledTimes(20)
+    expect(display).toHaveBeenCalledOnce()
+    expect(book.renderTo).toHaveBeenCalledOnce()
+
+    adapter.destroy()
+  })
+
   it('opens epub.js in continuous sandboxed mode and exposes selection/location callbacks', async () => {
     const handlers = new Map<string, (...eventArguments: unknown[]) => void>()
     const contentHooks: Array<(contents: never) => void> = []

@@ -5,6 +5,7 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleStop,
   FileText,
@@ -13,7 +14,7 @@ import {
   Library,
   LoaderCircle,
   MessageSquareText,
-  MoreHorizontal,
+  Maximize2,
   PanelLeftClose,
   RefreshCw,
   Save,
@@ -21,6 +22,7 @@ import {
   Send,
   Settings,
   Sparkles,
+  Trash2,
   Unplug,
   X
 } from 'lucide-react'
@@ -29,8 +31,10 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -45,12 +49,20 @@ import type {
   SelectionContext,
   TocItem
 } from '@shared/contracts'
-import { createReaderAdapter, type ReaderAdapter } from './readers'
+import {
+  createReaderAdapter,
+  DEFAULT_READING_PREFERENCES,
+  type ReaderAdapter,
+  type ReadingPreferences
+} from './readers'
 
 type LeftView = 'library' | 'toc'
 type RightView = 'assistant' | 'insights'
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type TurnStatus = 'streaming' | 'completed' | 'error'
+type ThemePreference = 'light' | 'system' | 'dark'
+type ResolvedTheme = Exclude<ThemePreference, 'system'>
+type InterfaceScale = 90 | 100 | 110 | 125
 
 interface ConversationTurn {
   id: string
@@ -80,6 +92,96 @@ const EMPTY_PROVIDER: ProviderSettings = {
   baseUrl: 'https://api.openai.com',
   model: '',
   hasApiKey: false
+}
+
+const THEME_STORAGE_KEY = 'llm-reader.theme'
+const INTERFACE_SCALE_STORAGE_KEY = 'llm-reader.interface-scale'
+const READING_PREFERENCES_STORAGE_KEY = 'llm-reader.reading-preferences'
+
+const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; ariaLabel: string }> = [
+  { value: 'light', label: '浅色', ariaLabel: '使用浅色主题' },
+  { value: 'system', label: '跟随系统', ariaLabel: '跟随系统主题' },
+  { value: 'dark', label: '深色', ariaLabel: '使用深色主题' }
+]
+
+function isThemePreference(value: string | null): value is ThemePreference {
+  return value === 'light' || value === 'system' || value === 'dark'
+}
+
+function readThemePreference(): ThemePreference {
+  if (typeof window === 'undefined') return 'system'
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return isThemePreference(stored) ? stored : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+function readSystemTheme(): ResolvedTheme {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function resolveTheme(preference: ThemePreference): ResolvedTheme {
+  return preference === 'system' ? readSystemTheme() : preference
+}
+
+function readInterfaceScale(): InterfaceScale {
+  try {
+    const value = Number(window.localStorage.getItem(INTERFACE_SCALE_STORAGE_KEY))
+    return value === 90 || value === 110 || value === 125 ? value : 100
+  } catch {
+    return 100
+  }
+}
+
+function readReadingPreferences(): ReadingPreferences {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(READING_PREFERENCES_STORAGE_KEY) ?? '{}') as Partial<ReadingPreferences>
+    return {
+      fontScale: typeof value.fontScale === 'number' && value.fontScale >= 80 && value.fontScale <= 140 ? value.fontScale : DEFAULT_READING_PREFERENCES.fontScale,
+      lineHeight: value.lineHeight === '1.5' || value.lineHeight === '1.7' || value.lineHeight === '1.9' ? value.lineHeight : 'original',
+      indent: value.indent === 'none' || value.indent === '2em' ? value.indent : 'original'
+    }
+  } catch {
+    return { ...DEFAULT_READING_PREFERENCES }
+  }
+}
+
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject<HTMLElement | null>, returnRef: RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    if (!open) return undefined
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : returnRef.current
+    const returnTarget = previous ?? returnRef.current
+    window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus(), 0)
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE))
+      if (!focusable.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.setTimeout(() => returnTarget?.focus(), 0)
+    }
+  }, [dialogRef, onClose, open, returnRef])
 }
 
 function createId(): string {
@@ -184,22 +286,124 @@ function CitationText({
   )
 }
 
+function ConversationPane({
+  conversationSelection,
+  turns,
+  provider,
+  activeRequestId,
+  draft,
+  canAsk,
+  followupRef,
+  onDraftChange,
+  onNavigate,
+  onSave,
+  onCancel,
+  onSubmit,
+  onComposerKey
+}: {
+  conversationSelection: SelectionContext | null
+  turns: ConversationTurn[]
+  provider: ProviderSettings
+  activeRequestId: string | null
+  draft: string
+  canAsk: boolean
+  followupRef: RefObject<HTMLTextAreaElement | null>
+  onDraftChange: (value: string) => void
+  onNavigate: (anchor: string) => void
+  onSave: (turn: ConversationTurn) => void
+  onCancel: () => void
+  onSubmit: (event: FormEvent) => void
+  onComposerKey: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
+}): ReactNode {
+  const selectedPassageCount = conversationSelection?.passages.length ?? 0
+  return (
+    <>
+      <div className="assistant-scroll">
+        {!conversationSelection && turns.length === 0 && (
+          <EmptyState icon={<Sparkles size={21} />} title="选中原文，开始理解" detail="回答会结合当前选区及附近段落。" />
+        )}
+        {conversationSelection && (
+          <div className="source-card">
+            <div className="source-card-header"><span>当前原文</span><small>{conversationSelection.chapterTitle || '当前章节'} · {selectedPassageCount} 段上下文</small></div>
+            <blockquote>“{conversationSelection.quote}”</blockquote>
+            <button type="button" onClick={() => onNavigate(conversationSelection.anchor)}><ArrowLeft size={13} />回到原文</button>
+          </div>
+        )}
+        <div className="conversation-list" aria-live="polite">
+          {turns.map((turn, index) => {
+            const isLatest = index === turns.length - 1
+            return (
+              <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
+                <div className="question-bubble"><span>{actionLabel(turn.action)}</span><p>{turn.question}</p></div>
+                <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
+                  <div className="answer-label"><span><Sparkles size={13} /></span>阅读助手</div>
+                  {turn.answer && conversationSelection ? <CitationText text={turn.answer} selection={conversationSelection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>正在结合原文思考</span></div> : null}
+                  {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label="正在生成" />}
+                  {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
+                  {turn.status === 'completed' && (
+                    <footer className="answer-footer">
+                      <span>{turn.model || provider.model || '已完成'}{turn.usage?.totalTokens ? ` · ${turn.usage.totalTokens} tokens` : ''}</span>
+                      <button data-testid={isLatest ? 'answer-save' : undefined} className={turn.saved ? 'is-saved' : ''} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
+                        {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? '已收藏' : '收藏'}
+                      </button>
+                    </footer>
+                  )}
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      </div>
+      <div className="assistant-composer">
+        {activeRequestId && <button className="cancel-generation" data-testid="cancel-request" type="button" onClick={onCancel}><CircleStop size={14} />停止生成</button>}
+        <form onSubmit={onSubmit}>
+          <textarea data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={conversationSelection ? (turns.length ? '继续追问这段原文…' : '针对这段原文提问…') : '先在正文中选中一段内容'} disabled={!canAsk} rows={2} maxLength={2000} />
+          <button type="submit" aria-label="发送问题" disabled={!canAsk || !draft.trim()}><Send size={16} /></button>
+        </form>
+        <p>Enter 发送 · Shift + Enter 换行</p>
+      </div>
+    </>
+  )
+}
+
 function SettingsModal({
   initial,
+  themePreference,
+  interfaceScale,
+  readingPreferences,
+  returnFocusRef,
   onClose,
   onSaved,
+  onThemeChange,
+  onInterfaceScaleChange,
+  onReadingPreferencesChange,
   pushToast
 }: {
   initial: ProviderSettings
+  themePreference: ThemePreference
+  interfaceScale: InterfaceScale
+  readingPreferences: ReadingPreferences
+  returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
   onSaved: (settings: ProviderSettings) => void
+  onThemeChange: (preference: ThemePreference) => void
+  onInterfaceScaleChange: (scale: InterfaceScale) => void
+  onReadingPreferencesChange: (preferences: ReadingPreferences) => void
   pushToast: (message: string, tone?: ToastState['tone']) => void
 }): ReactNode {
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl)
   const [model, setModel] = useState(initial.model)
   const [busy, setBusy] = useState<'save' | 'test' | null>(null)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
+  const [preferenceStatus, setPreferenceStatus] = useState('')
   const keyRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLElement>(null)
+
+  useDialogFocus(true, onClose, dialogRef, returnFocusRef)
+
+  const announcePreference = (message: string): void => {
+    setPreferenceStatus(message)
+  }
 
   const persist = async (): Promise<ProviderSettings> => {
     const key = keyRef.current?.value.trim()
@@ -243,28 +447,87 @@ function SettingsModal({
     }
   }
 
-  useEffect(() => {
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
-
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="settings-modal" data-testid="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section ref={dialogRef} className="settings-modal" data-testid="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="modal-header">
           <div>
-            <span className="eyebrow">模型连接</span>
-            <h2 id="settings-title">设置你的 AI 服务</h2>
+            <span className="eyebrow">LLM READER</span>
+            <h2 id="settings-title">设置</h2>
           </div>
           <button className="icon-button" data-testid="settings-close" type="button" onClick={onClose} aria-label="关闭设置">
             <X size={18} />
           </button>
         </header>
 
-        <form onSubmit={handleSave}>
+        <div className="settings-sections">
+          <section className="settings-section" aria-labelledby="appearance-settings-title">
+            <h3 id="appearance-settings-title">外观</h3>
+            <div className="settings-row">
+              <div><strong>主题</strong><small>跟随系统会响应系统外观变化</small></div>
+              <div className="theme-control" data-testid="theme-switcher" role="group" aria-label="界面主题">
+                <div className="theme-options">
+                  {THEME_OPTIONS.map((option) => (
+                    <button
+                      className={`theme-option ${themePreference === option.value ? 'is-active' : ''}`}
+                      data-testid={`theme-${option.value}`}
+                      key={option.value}
+                      type="button"
+                      aria-label={option.ariaLabel}
+                      aria-pressed={themePreference === option.value}
+                      onClick={() => { onThemeChange(option.value); announcePreference(`主题已切换为${option.label}`) }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div><strong>界面缩放</strong><small>不影响书籍正文字号</small></div>
+              <div className="segmented-control" data-testid="interface-scale" role="group" aria-label="界面缩放">
+                {([90, 100, 110, 125] as const).map((scale) => (
+                  <button
+                    className={interfaceScale === scale ? 'is-active' : ''}
+                    data-testid={`scale-${scale}`}
+                    key={scale}
+                    type="button"
+                    aria-pressed={interfaceScale === scale}
+                    onClick={() => { onInterfaceScaleChange(scale); announcePreference(`界面缩放已设为 ${scale}%`) }}
+                  >{scale}%</button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="settings-section" aria-labelledby="reading-settings-title">
+            <div className="settings-section-heading">
+              <h3 id="reading-settings-title">阅读</h3>
+              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }); announcePreference('阅读设置已恢复默认') }}>恢复默认</button>
+            </div>
+            <label className="settings-range" htmlFor="reading-font-scale">
+              <span><strong>正文字号</strong><output>{readingPreferences.fontScale}%</output></span>
+              <input
+                id="reading-font-scale"
+                data-testid="reading-font-scale"
+                type="range"
+                min="80"
+                max="140"
+                step="5"
+                aria-label="正文字号"
+                value={readingPreferences.fontScale}
+                onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, fontScale: Number(event.target.value) }); announcePreference(`正文字号已设为 ${event.target.value}%`) }}
+              />
+            </label>
+            <div className="settings-select-grid">
+              <label htmlFor="reading-line-height"><span>行间距</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] }); announcePreference('行间距已更新') }}><option value="original">跟随原书 / 默认</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
+              <label htmlFor="reading-indent"><span>首行缩进</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] }); announcePreference('首行缩进已更新') }}><option value="original">跟随原书 / 默认</option><option value="none">无缩进</option><option value="2em">2em</option></select></label>
+            </div>
+          </section>
+
+          <section className="settings-section" aria-labelledby="model-settings-title">
+            <h3 id="model-settings-title">模型</h3>
+            <form onSubmit={handleSave}>
           <label className="field-label" htmlFor="provider-base-url">Base URL</label>
           <input
             id="provider-base-url"
@@ -330,13 +593,20 @@ function SettingsModal({
               保存设置
             </button>
           </footer>
-        </form>
+            </form>
+          </section>
+        </div>
+        <div className="settings-feedback" data-testid="settings-feedback" role="status" aria-live="polite">{preferenceStatus}</div>
       </section>
     </div>
   )
 }
 
 export default function App(): ReactNode {
+  const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference)
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(themePreference))
+  const [interfaceScale, setInterfaceScale] = useState<InterfaceScale>(readInterfaceScale)
+  const [readingPreferences, setReadingPreferences] = useState<ReadingPreferences>(readReadingPreferences)
   const [books, setBooks] = useState<BookRecord[]>([])
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null)
   const [bookState, setBookState] = useState<LoadState>('idle')
@@ -345,6 +615,7 @@ export default function App(): ReactNode {
   const [libraryError, setLibraryError] = useState('')
   const [importing, setImporting] = useState(false)
   const [toc, setToc] = useState<TocItem[]>([])
+  const [collapsedTocItems, setCollapsedTocItems] = useState<Set<string>>(() => new Set())
   const [leftView, setLeftView] = useState<LeftView>('library')
   const [rightView, setRightView] = useState<RightView>('assistant')
   const [selection, setSelection] = useState<SelectionContext | null>(null)
@@ -355,6 +626,8 @@ export default function App(): ReactNode {
   const [insights, setInsights] = useState<SavedInsight[]>([])
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
+  const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
   const [toast, setToast] = useState<ToastState | null>(null)
 
@@ -370,10 +643,56 @@ export default function App(): ReactNode {
   const pendingProgressRef = useRef<{ bookId: string; locator: string; progress: number } | null>(null)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const followupRef = useRef<HTMLTextAreaElement>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement>(null)
+  const assistantExpandButtonRef = useRef<HTMLButtonElement>(null)
+  const assistantDialogRef = useRef<HTMLElement>(null)
+  const readingPreferencesRef = useRef(readingPreferences)
+  const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const closeSettings = useCallback(() => setSettingsOpen(false), [])
+  const closeAssistantDialog = useCallback(() => setAssistantDialogOpen(false), [])
+  useDialogFocus(assistantDialogOpen, closeAssistantDialog, assistantDialogRef, assistantExpandButtonRef)
 
   useEffect(() => {
     activeBookRef.current = activeBook
   }, [activeBook])
+
+  useLayoutEffect(() => {
+    try {
+      window.localStorage.setItem(INTERFACE_SCALE_STORAGE_KEY, String(interfaceScale))
+    } catch {
+      // Scaling remains active for this session when storage is unavailable.
+    }
+    document.documentElement.dataset.interfaceScale = String(interfaceScale)
+  }, [interfaceScale])
+
+  useLayoutEffect(() => {
+    const systemTheme = typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null
+
+    const applyTheme = (): void => {
+      const nextTheme = themePreference === 'system'
+        ? (systemTheme?.matches ? 'dark' : 'light')
+        : themePreference
+      setResolvedTheme(nextTheme)
+      document.documentElement.dataset.theme = nextTheme
+      document.documentElement.dataset.themePreference = themePreference
+      document.documentElement.style.colorScheme = nextTheme
+    }
+
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, themePreference)
+    } catch {
+      // Theme switching still works for this session when storage is unavailable.
+    }
+
+    applyTheme()
+    if (themePreference !== 'system' || !systemTheme) return undefined
+
+    systemTheme.addEventListener('change', applyTheme)
+    return () => systemTheme.removeEventListener('change', applyTheme)
+  }, [themePreference])
 
   useEffect(() => {
     activeRequestRef.current = activeRequestId
@@ -384,6 +703,26 @@ export default function App(): ReactNode {
     setToast({ id: Date.now(), tone, message })
     toastTimerRef.current = setTimeout(() => setToast(null), 3200)
   }, [])
+
+  useEffect(() => {
+    readingPreferencesRef.current = readingPreferences
+    try {
+      window.localStorage.setItem(READING_PREFERENCES_STORAGE_KEY, JSON.stringify(readingPreferences))
+    } catch {
+      // Reading preferences remain active for this session when storage is unavailable.
+    }
+    if (!adapterRef.current) return undefined
+    if (preferencesTimerRef.current) clearTimeout(preferencesTimerRef.current)
+    preferencesTimerRef.current = setTimeout(() => {
+      preferencesTimerRef.current = null
+      void adapterRef.current?.setPreferences(readingPreferences).catch((error) => {
+        pushToast(readableError(error, '无法应用阅读设置。'), 'error')
+      })
+    }, 220)
+    return () => {
+      if (preferencesTimerRef.current) clearTimeout(preferencesTimerRef.current)
+    }
+  }, [pushToast, readingPreferences])
 
   const refreshBooks = useCallback(async (): Promise<BookRecord[]> => {
     setLibraryState('loading')
@@ -470,6 +809,7 @@ export default function App(): ReactNode {
     setActiveRequestId(null)
     activeRequestRef.current = null
     setToc([])
+    setCollapsedTocItems(new Set())
     setInsights([])
 
     try {
@@ -481,6 +821,7 @@ export default function App(): ReactNode {
         onSelectionChanged: setSelection
       })
       adapterRef.current = adapter
+      await adapter.setPreferences(readingPreferencesRef.current)
       const result = await adapter.open(payload.bytes, book.lastLocator)
       if (sequence !== openSequenceRef.current) {
         adapter.destroy()
@@ -596,11 +937,11 @@ export default function App(): ReactNode {
         event.preventDefault()
         setSettingsOpen(true)
       }
-      if (event.key === 'Escape' && !settingsOpen) setSelection(null)
+      if (event.key === 'Escape' && !settingsOpen && !assistantDialogOpen) setSelection(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [importBook, settingsOpen])
+  }, [assistantDialogOpen, importBook, settingsOpen])
 
   const startRequest = useCallback(async (action: LlmAction, question: string, sourceSelection?: SelectionContext): Promise<void> => {
     const context = sourceSelection ?? conversationSelection ?? selection
@@ -706,6 +1047,37 @@ export default function App(): ReactNode {
     }
   }, [pushToast])
 
+  const navigateToToc = useCallback(async (href: string): Promise<void> => {
+    const adapter = adapterRef.current
+    if (!adapter) return
+    try {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current)
+        highlightTimerRef.current = null
+      }
+      adapter.clearHighlight()
+      await adapter.goTo(href)
+    } catch (error) {
+      pushToast(readableError(error, '无法跳转到这个章节。'), 'error')
+    }
+  }, [pushToast])
+
+  const deleteInsight = async (insightId: string): Promise<void> => {
+    try {
+      const target = insights.find((insight) => insight.id === insightId)
+      const deleted = await window.readerApi.deleteInsight(insightId)
+      setPendingDeleteInsightId(null)
+      setInsights((current) => current.filter((insight) => insight.id !== insightId))
+      if (target) {
+        setTurns((current) => current.map((turn) => turn.question === target.question && turn.answer === target.answer ? { ...turn, saved: false } : turn))
+      }
+      if (!deleted && activeBook) void refreshInsights(activeBook.id)
+      pushToast(deleted ? '已取消收藏。' : '这条收藏已不存在。', 'neutral')
+    } catch (error) {
+      pushToast(readableError(error, '取消收藏失败。'), 'error')
+    }
+  }
+
   const saveTurn = async (turn: ConversationTurn): Promise<void> => {
     if (!activeBook || !conversationSelection || turn.status !== 'completed' || !turn.answer || turn.saved) return
     try {
@@ -725,24 +1097,31 @@ export default function App(): ReactNode {
   }
 
   const canAsk = Boolean(conversationSelection && !activeRequestId)
-  const selectedPassageCount = conversationSelection?.passages.length ?? 0
+  const visibleToc = useMemo(() => {
+    const ancestorIds: string[] = []
+    return toc.map((item, index) => {
+      ancestorIds.length = item.depth
+      const hidden = ancestorIds.some((id) => collapsedTocItems.has(id))
+      const hasChildren = index + 1 < toc.length && toc[index + 1].depth > item.depth
+      ancestorIds[item.depth] = item.id
+      return { item, index, hidden, hasChildren }
+    }).filter((entry) => !entry.hidden)
+  }, [collapsedTocItems, toc])
 
   return (
-    <div className="app-shell" data-testid="app-shell">
+    <div
+      className="app-shell"
+      data-testid="app-shell"
+      data-theme={resolvedTheme}
+      data-theme-preference={themePreference}
+      data-interface-scale={interfaceScale}
+    >
       <aside className="left-sidebar">
         <header className="brand-row">
-          <div className="brand-mark"><BookOpen size={19} strokeWidth={2.2} /></div>
           <div className="brand-copy">
             <strong>LLM Reader</strong>
-            <span>专注理解，不离开原文</span>
           </div>
         </header>
-
-        <button className="import-button" data-testid="import-book" type="button" onClick={() => void importBook()} disabled={importing}>
-          {importing ? <LoaderCircle className="spin" size={17} /> : <Import size={17} />}
-          {importing ? '正在导入…' : '导入 EPUB / TXT'}
-          <kbd>Ctrl O</kbd>
-        </button>
 
         <nav className="sidebar-tabs" aria-label="书籍导航">
           <button className={leftView === 'library' ? 'is-active' : ''} type="button" onClick={() => setLeftView('library')}>
@@ -768,7 +1147,7 @@ export default function App(): ReactNode {
                 />
               )}
               {libraryState === 'ready' && books.length === 0 && (
-                <EmptyState icon={<BookOpen size={20} />} title="从一本书开始" detail="导入无 DRM 的 EPUB 或 UTF-8 TXT，书籍只保存在本机。" />
+                <EmptyState icon={<BookOpen size={20} />} title="书库为空" detail="可导入 EPUB 或 TXT。" />
               )}
               {books.map((book) => (
                 <button
@@ -794,33 +1173,49 @@ export default function App(): ReactNode {
 
           {leftView === 'toc' && (
             <div className="toc-list" aria-label="本书目录">
-              <div className="section-caption">本书目录</div>
               {bookState === 'loading' && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> 正在解析目录</div>}
               {bookState === 'ready' && toc.length === 0 && (
                 <EmptyState icon={<SearchX size={20} />} title="没有可用目录" detail="你仍可连续滚动阅读全文。" />
               )}
-              {toc.map((item, index) => (
-                <button
-                  className="toc-item"
-                  data-testid="toc-item"
-                  data-toc-id={item.id}
-                  style={{ '--toc-depth': Math.min(item.depth, 3) } as CSSProperties}
-                  key={`${item.id}-${index}`}
-                  type="button"
-                  onClick={() => void navigateToAnchor(item.href)}
-                  title={item.label}
-                >
-                  <span>{item.label}</span><ChevronRight size={13} />
-                </button>
+              {visibleToc.map(({ item, index, hasChildren }) => (
+                <div className="toc-row" style={{ '--toc-depth': Math.min(item.depth, 3) } as CSSProperties} key={`${item.id}-${index}`}>
+                  {hasChildren ? (
+                    <button
+                      className="toc-disclosure"
+                      data-testid="toc-disclosure"
+                      type="button"
+                      aria-label={`${collapsedTocItems.has(item.id) ? '展开' : '折叠'}${item.label}`}
+                      aria-expanded={!collapsedTocItems.has(item.id)}
+                      onClick={() => setCollapsedTocItems((current) => {
+                        const next = new Set(current)
+                        if (next.has(item.id)) next.delete(item.id)
+                        else next.add(item.id)
+                        return next
+                      })}
+                    >
+                      {collapsedTocItems.has(item.id) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    </button>
+                  ) : <span className="toc-disclosure-spacer" />}
+                  <button className="toc-item" data-testid="toc-item" data-toc-id={item.id} type="button" onClick={() => void navigateToToc(item.href)} title={item.label}>
+                    <span>{item.label}</span><ChevronRight size={13} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
         </div>
 
         <footer className="sidebar-footer">
-          <button className="settings-entry" data-testid="settings-button" type="button" onClick={() => setSettingsOpen(true)}>
+          {leftView === 'library' && (
+            <button className="import-button" data-testid="import-book" type="button" onClick={() => void importBook()} disabled={importing}>
+              {importing ? <LoaderCircle className="spin" size={17} /> : <Import size={17} />}
+              {importing ? '正在导入…' : '导入 EPUB / TXT'}
+              <kbd>Ctrl O</kbd>
+            </button>
+          )}
+          <button ref={settingsButtonRef} className="settings-entry" data-testid="settings-button" type="button" onClick={() => setSettingsOpen(true)}>
             <Settings size={16} />
-            <span>模型设置</span>
+            <span>设置</span>
             <i className={provider.hasApiKey && provider.model ? 'is-ready' : ''} />
           </button>
         </footer>
@@ -844,7 +1239,7 @@ export default function App(): ReactNode {
               </div>
             </>
           ) : (
-            <div className="reader-heading is-empty"><span>阅读空间</span></div>
+            <div className="reader-heading is-empty"><span className="visually-hidden">正文阅读区</span></div>
           )}
         </header>
 
@@ -852,16 +1247,7 @@ export default function App(): ReactNode {
           <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label="正文阅读区" />
 
           {!activeBook && libraryState !== 'loading' && (
-            <div className="reader-overlay welcome-state">
-              <div className="welcome-symbol"><BookOpen size={32} /></div>
-              <span className="eyebrow">LOCAL-FIRST READING</span>
-              <h2>把难读的内容，留在原文里读懂</h2>
-              <p>导入一本书，选中任意段落即可解释、联系上下文或继续追问。</p>
-              <button className="primary-button" type="button" onClick={() => void importBook()}>
-                <Import size={16} />导入第一本书
-              </button>
-              <div className="privacy-note"><Check size={14} />书籍与收藏默认只保存在这台电脑</div>
-            </div>
+            <div className="reader-overlay welcome-state" aria-label="尚未打开书籍"><span className="visually-hidden">从书库打开或导入一本书</span></div>
           )}
 
           {bookState === 'loading' && (
@@ -902,7 +1288,7 @@ export default function App(): ReactNode {
       <aside className="right-sidebar" data-testid="ai-panel">
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>阅读助手</strong></div>
-          <button className="icon-button" type="button" aria-label="更多选项" title="模型设置" onClick={() => setSettingsOpen(true)}><MoreHorizontal size={18} /></button>
+          <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label="展开详细对话" title="展开详细对话" onClick={() => setAssistantDialogOpen(true)}><Maximize2 size={17} /></button>
         </header>
 
         <nav className="assistant-tabs" aria-label="阅读助手视图">
@@ -912,128 +1298,76 @@ export default function App(): ReactNode {
           </button>
         </nav>
 
-        {rightView === 'assistant' && (
-          <>
-            <div className="assistant-scroll">
-              {!conversationSelection && turns.length === 0 && (
-                <EmptyState
-                  icon={<Sparkles size={21} />}
-                  title="选中原文，开始理解"
-                  detail="我只会使用你选中的内容和附近段落回答，并把引用带回原文。"
-                />
-              )}
-
-              {conversationSelection && (
-                <div className="source-card">
-                  <div className="source-card-header">
-                    <span>当前原文</span>
-                    <small>{conversationSelection.chapterTitle || '当前章节'} · {selectedPassageCount} 段上下文</small>
-                  </div>
-                  <blockquote>“{conversationSelection.quote}”</blockquote>
-                  <button type="button" onClick={() => void navigateToAnchor(conversationSelection.anchor)}><ArrowLeft size={13} />回到原文</button>
-                </div>
-              )}
-
-              <div className="conversation-list" aria-live="polite">
-                {turns.map((turn, index) => {
-                  const isLatest = index === turns.length - 1
-                  return (
-                    <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
-                      <div className="question-bubble">
-                        <span>{actionLabel(turn.action)}</span>
-                        <p>{turn.question}</p>
-                      </div>
-                      <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
-                        <div className="answer-label"><span><Sparkles size={13} /></span>阅读助手</div>
-                        {turn.answer && conversationSelection ? (
-                          <CitationText text={turn.answer} selection={conversationSelection} onNavigate={(anchor) => void navigateToAnchor(anchor)} />
-                        ) : turn.status === 'streaming' ? (
-                          <div className="answer-thinking"><i /><i /><i /><span>正在结合原文思考</span></div>
-                        ) : null}
-                        {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label="正在生成" />}
-                        {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
-                        {turn.status === 'completed' && (
-                          <footer className="answer-footer">
-                            <span>{turn.model || provider.model || '已完成'}{turn.usage?.totalTokens ? ` · ${turn.usage.totalTokens} tokens` : ''}</span>
-                            <button
-                              data-testid={isLatest ? 'answer-save' : undefined}
-                              className={turn.saved ? 'is-saved' : ''}
-                              type="button"
-                              onClick={() => void saveTurn(turn)}
-                              disabled={turn.saved}
-                            >
-                              {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
-                              {turn.saved ? '已收藏' : '收藏'}
-                            </button>
-                          </footer>
-                        )}
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="assistant-composer">
-              {activeRequestId && (
-                <button className="cancel-generation" data-testid="cancel-request" type="button" onClick={() => void cancelRequest()}>
-                  <CircleStop size={14} />停止生成
-                </button>
-              )}
-              <form onSubmit={submitQuestion}>
-                <textarea
-                  data-testid="followup-input"
-                  ref={followupRef}
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={handleComposerKey}
-                  placeholder={conversationSelection ? (turns.length ? '继续追问这段原文…' : '针对这段原文提问…') : '先在正文中选中一段内容'}
-                  disabled={!canAsk}
-                  rows={2}
-                  maxLength={2000}
-                />
-                <button type="submit" aria-label="发送问题" disabled={!canAsk || !draft.trim()}><Send size={16} /></button>
-              </form>
-              <p>Enter 发送 · Shift + Enter 换行</p>
-            </div>
-          </>
+        {rightView === 'assistant' && !assistantDialogOpen && (
+          <ConversationPane conversationSelection={conversationSelection} turns={turns} provider={provider} activeRequestId={activeRequestId} draft={draft} canAsk={canAsk} followupRef={followupRef} onDraftChange={setDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onSave={(turn) => void saveTurn(turn)} onCancel={() => void cancelRequest()} onSubmit={submitQuestion} onComposerKey={handleComposerKey} />
         )}
 
         {rightView === 'insights' && (
           <div className="insights-view">
-            <div className="insights-heading">
-              <div><span className="eyebrow">SAVED INSIGHTS</span><h2>收藏</h2></div>
-              <span>{insights.length} 条</span>
-            </div>
             {insightsLoading && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> 正在读取收藏</div>}
             {!insightsLoading && !activeBook && <EmptyState icon={<Bookmark size={20} />} title="还没有打开书籍" detail="打开一本书后，这里会显示与它相关的收藏。" />}
             {!insightsLoading && activeBook && insights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title="还没有收藏" detail="在回答下方点击“收藏”，即可保留答案和原文位置。" />}
             <div className="insight-list">
               {insights.map((insight) => (
-                <button
+                <article
                   className="insight-item"
                   data-testid="insight-item"
                   data-insight-id={insight.id}
                   key={insight.id}
-                  type="button"
-                  onClick={() => void navigateToAnchor(insight.selection.anchor)}
                 >
-                  <span className="insight-quote">“{insight.selection.quote}”</span>
-                  <strong>{insight.question}</strong>
-                  <p>{insight.answer}</p>
-                  <footer><span>{formatDate(insight.createdAt)}</span><span>回到原文 <ChevronRight size={12} /></span></footer>
-                </button>
+                  <button className="insight-content" type="button" onClick={() => void navigateToAnchor(insight.selection.anchor)}>
+                    <span className="insight-quote">“{insight.selection.quote}”</span>
+                    <strong>{insight.question}</strong>
+                    <p>{insight.answer}</p>
+                  </button>
+                  <footer>
+                    <span>{insight.selection.chapterTitle || '当前章节'} · {formatDate(insight.createdAt)}</span>
+                    {pendingDeleteInsightId === insight.id ? (
+                      <span className="insight-delete-confirmation">
+                        <span>取消收藏？</span>
+                        <button data-testid="insight-delete-confirm" type="button" onClick={() => void deleteInsight(insight.id)}>确认</button>
+                        <button data-testid="insight-delete-cancel" type="button" onClick={() => setPendingDeleteInsightId(null)}>返回</button>
+                      </span>
+                    ) : (
+                      <span className="insight-actions">
+                        <button type="button" onClick={() => void navigateToAnchor(insight.selection.anchor)}>回到原文 <ChevronRight size={12} /></button>
+                        <button data-testid="insight-delete" type="button" aria-label="取消收藏" onClick={() => setPendingDeleteInsightId(insight.id)}><Trash2 size={13} /></button>
+                      </span>
+                    )}
+                  </footer>
+                </article>
               ))}
             </div>
           </div>
         )}
       </aside>
 
+      {assistantDialogOpen && (
+        <div className="modal-backdrop assistant-dialog-backdrop" role="presentation">
+          <section ref={assistantDialogRef} className="assistant-dialog" data-testid="assistant-dialog" role="dialog" aria-modal="true" aria-labelledby="assistant-dialog-title">
+            <header className="modal-header">
+              <div><span className="eyebrow">CURRENT READING</span><h2 id="assistant-dialog-title">详细对话</h2></div>
+              <button className="icon-button" data-testid="assistant-dialog-close" type="button" onClick={closeAssistantDialog} aria-label="关闭详细对话"><X size={18} /></button>
+            </header>
+            <div className="assistant-dialog-body">
+              <ConversationPane conversationSelection={conversationSelection} turns={turns} provider={provider} activeRequestId={activeRequestId} draft={draft} canAsk={canAsk} followupRef={followupRef} onDraftChange={setDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onSave={(turn) => void saveTurn(turn)} onCancel={() => void cancelRequest()} onSubmit={submitQuestion} onComposerKey={handleComposerKey} />
+            </div>
+          </section>
+        </div>
+      )}
+
       {settingsOpen && (
         <SettingsModal
           initial={provider}
-          onClose={() => setSettingsOpen(false)}
+          themePreference={themePreference}
+          interfaceScale={interfaceScale}
+          readingPreferences={readingPreferences}
+          returnFocusRef={settingsButtonRef}
+          onClose={closeSettings}
           onSaved={setProvider}
+          onThemeChange={setThemePreference}
+          onInterfaceScaleChange={setInterfaceScale}
+          onReadingPreferencesChange={setReadingPreferences}
           pushToast={pushToast}
         />
       )}

@@ -1,4 +1,10 @@
-import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
+import {
+  expect,
+  test,
+  _electron as electron,
+  type ElectronApplication,
+  type Locator
+} from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -7,6 +13,41 @@ import JSZip from 'jszip'
 
 let mockServer: Server
 let endpoint = ''
+
+async function selectNodeContents(locator: Locator): Promise<void> {
+  await locator.evaluate((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+}
+
+function rgbChannels(value: string): [number, number, number] {
+  const channels = value.match(/[\d.]+/gu)?.slice(0, 3).map(Number)
+  if (!channels || channels.length !== 3 || channels.some((channel) => !Number.isFinite(channel))) {
+    throw new Error(`Expected an RGB color, received: ${value}`)
+  }
+  return channels as [number, number, number]
+}
+
+function relativeLuminance(value: string): number {
+  const linear = rgbChannels(value).map((channel) => {
+    const normalized = channel / 255
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4
+  })
+  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background))
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background))
+  return (lighter + 0.05) / (darker + 0.05)
+}
 
 async function createEpubFixture(path: string): Promise<void> {
   const zip = new JSZip()
@@ -86,10 +127,12 @@ test.beforeAll(async () => {
       response.write(
         `data: ${JSON.stringify({ id: 'mock-stream', model: 'mock-reader', choices: [{ index: 0, delta: { content: '这段文字提醒我们：' } }] })}\n\n`
       )
-      response.write(
-        `data: ${JSON.stringify({ id: 'mock-stream', model: 'mock-reader', choices: [{ index: 0, delta: { content: '模型必须与适用边界一起理解 [P1]。' }, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 } })}\n\n`
-      )
-      response.end('data: [DONE]\n\n')
+      setTimeout(() => {
+        response.write(
+          `data: ${JSON.stringify({ id: 'mock-stream', model: 'mock-reader', choices: [{ index: 0, delta: { content: '模型必须与适用边界一起理解 [P1]。' }, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 } })}\n\n`
+        )
+        response.end('data: [DONE]\n\n')
+      }, 250)
     })
   })
 
@@ -108,7 +151,7 @@ test.afterAll(async () => {
   })
 })
 
-test('imports, explains, cites, saves, and restores a local reading insight', async () => {
+test('keeps the home quiet and persists unified settings, reading, conversation, and insight deletion', async () => {
   const userData = await mkdtemp(join(tmpdir(), 'llm-reader-e2e-'))
   const fixture = resolve('tests/fixtures/complex-reading.txt')
   let application: ElectronApplication | undefined
@@ -124,37 +167,126 @@ test('imports, explains, cites, saves, and restores a local reading insight', as
     })
     const page = await application.firstWindow()
 
-    await expect(page.getByTestId('app-shell')).toBeVisible()
+    const appShell = page.getByTestId('app-shell')
+    const html = page.locator('html')
+    await expect(appShell).toBeVisible()
+    await expect(page.locator('.brand-row')).toHaveText('LLM Reader')
+    await expect(page.getByText('专注理解，不离开原文')).toHaveCount(0)
+    await expect(page.getByText('欢迎使用 LLM Reader')).toHaveCount(0)
+    await expect(page.getByText('本地优先')).toHaveCount(0)
+    await expect(page.getByTestId('theme-switcher')).toHaveCount(0)
+    await expect(page.getByTestId('import-book')).toBeVisible()
+    await expect(page.locator('.welcome-state')).toHaveText('从书库打开或导入一本书')
+    await expect(page.locator('.welcome-state')).not.toBeVisible()
+
+    await page.emulateMedia({ colorScheme: 'light' })
+    await expect(appShell).toHaveAttribute('data-theme-preference', 'system')
+    await expect(appShell).toHaveAttribute('data-theme', 'light')
+    await expect(html).toHaveAttribute('data-theme', 'light')
+
     const firstBook = page.getByTestId('book-item').first()
     await expect(firstBook).toBeVisible()
     await firstBook.click()
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
+    await expect(page.getByTestId('import-book')).toHaveCount(0)
 
-    await page.getByTestId('settings-button').click()
-    await expect(page.getByTestId('settings-modal')).toBeVisible()
+    const settingsButton = page.getByTestId('settings-button')
+    await settingsButton.click()
+    const settings = page.getByTestId('settings-modal')
+    const themeSwitcher = page.getByTestId('theme-switcher')
+    const lightTheme = page.getByTestId('theme-light')
+    const systemTheme = page.getByTestId('theme-system')
+    const darkTheme = page.getByTestId('theme-dark')
+    await expect(settings).toBeVisible()
+    await expect(themeSwitcher).toHaveAttribute('role', 'group')
+    await expect(themeSwitcher).toHaveAttribute('aria-label', '界面主题')
+    await expect(systemTheme).toHaveAttribute('aria-pressed', 'true')
+    await expect(lightTheme).toHaveAttribute('aria-pressed', 'false')
+    await expect(darkTheme).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('interface-scale')).toHaveAttribute('aria-label', '界面缩放')
+    await expect(page.getByTestId('scale-100')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('reading-font-scale')).toHaveValue('100')
+    await expect(page.getByTestId('reading-line-height')).toHaveValue('original')
+    await expect(page.getByTestId('reading-indent')).toHaveValue('original')
+    await expect
+      .poll(() => html.evaluate((element) => getComputedStyle(element).getPropertyValue('--ui-accent').trim()))
+      .toBe('#586f7e')
+    await expect
+      .poll(() => html.evaluate((element) => getComputedStyle(element).getPropertyValue('--ui-line').trim()))
+      .toBe('#d5dce0')
+    await darkTheme.click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('reading-font-scale').fill('125')
+    await page.getByTestId('reading-line-height').selectOption('1.7')
+    await page.getByTestId('reading-indent').selectOption('2em')
+    await expect(appShell).toHaveAttribute('data-theme-preference', 'dark')
+    await expect(appShell).toHaveAttribute('data-theme', 'dark')
+    await expect(appShell).toHaveAttribute('data-interface-scale', '125')
+    await expect(html).toHaveAttribute('data-theme-preference', 'dark')
+    await expect(html).toHaveAttribute('data-theme', 'dark')
+    await expect(html).toHaveAttribute('data-interface-scale', '125')
+    await expect(darkTheme).toHaveAttribute('aria-pressed', 'true')
+    await expect
+      .poll(() => html.evaluate((element) => getComputedStyle(element).getPropertyValue('--ui-accent').trim()))
+      .toBe('#91a7b3')
+    await expect
+      .poll(() => html.evaluate((element) => getComputedStyle(element).getPropertyValue('--ui-accent-soft').trim()))
+      .toBe('#29343a')
+    await page.emulateMedia({ colorScheme: 'light' })
+    await expect(appShell).toHaveAttribute('data-theme', 'dark')
+    await expect(html).toHaveAttribute('data-theme', 'dark')
+
     await page.getByTestId('provider-base-url').fill(endpoint)
     await page.getByTestId('provider-model').fill('mock-reader')
     await page.getByTestId('provider-api-key').fill('test-only-key')
     await page.getByTestId('provider-save').click()
-    const closeSettings = page.getByTestId('settings-close')
-    if (await closeSettings.isVisible()) await closeSettings.click()
+    await expect(settings).toHaveCount(0)
+    await expect(settingsButton).toBeFocused()
+    await expect
+      .poll(() => page.evaluate(() => Object.values(localStorage).join('\n')))
+      .not.toContain('test-only-key')
+
+    const txtDocument = page.locator('.reader-document--txt')
+    const txtParagraph = txtDocument.locator('p').first()
+    await expect.poll(() => txtDocument.evaluate((element) => element.style.fontSize)).toBe('125%')
+    await expect.poll(() => txtParagraph.evaluate((element) => element.style.lineHeight)).toBe('1.7')
+    await expect.poll(() => txtParagraph.evaluate((element) => element.style.textIndent)).toBe('2em')
+    const txtColors = await txtDocument.evaluate((element) => {
+      const styles = getComputedStyle(element)
+      return { color: styles.color, background: styles.backgroundColor }
+    })
+    expect(contrastRatio(txtColors.color, txtColors.background)).toBeGreaterThanOrEqual(4.5)
 
     const paragraph = page.getByTestId('reader-host').locator('p').nth(1)
-    await paragraph.evaluate((element) => {
-      const range = document.createRange()
-      range.selectNodeContents(element)
-      const selection = window.getSelection()
-      selection?.removeAllRanges()
-      selection?.addRange(range)
-      element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-    })
+    await selectNodeContents(paragraph)
 
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
     await page.getByTestId('action-explain').click()
+    await expect(page.getByTestId('answer-current')).toContainText('这段文字提醒我们')
+    const expandButton = page.getByTestId('assistant-expand-button')
+    await expandButton.click()
+    const assistantDialog = page.getByTestId('assistant-dialog')
+    await expect(assistantDialog).toBeVisible()
+    await expect(assistantDialog.getByTestId('answer-current')).toContainText('适用边界')
+    await assistantDialog.getByTestId('followup-input').fill('再解释一下这里的前提')
+    await assistantDialog.getByRole('button', { name: '发送问题' }).click()
+    await expect(assistantDialog.getByTestId('answer-current')).toContainText('这段文字提醒我们')
+    await page.getByTestId('assistant-dialog-close').click()
+    await expect(assistantDialog).toHaveCount(0)
+    await expect(expandButton).toBeFocused()
     await expect(page.getByTestId('answer-current')).toContainText('适用边界')
     await page.getByTestId('answer-save').click()
     await page.getByTestId('insights-tab').click()
-    await expect(page.getByTestId('insight-item')).toContainText('适用边界')
+    const insight = page.getByTestId('insight-item')
+    await expect(insight).toContainText('适用边界')
+    await expect(page.locator('.insights-heading')).toHaveCount(0)
+    await page.getByTestId('insight-delete').click()
+    await expect(page.getByTestId('insight-delete-confirm')).toBeVisible()
+    await page.getByTestId('insight-delete-cancel').click()
+    await expect(insight).toHaveCount(1)
+    await page.getByTestId('insight-delete').click()
+    await page.getByTestId('insight-delete-confirm').click()
+    await expect(insight).toHaveCount(0)
 
     const readerHost = page.getByTestId('reader-host')
     await readerHost.evaluate((element) => {
@@ -174,13 +306,54 @@ test('imports, explains, cites, saves, and restores a local reading insight', as
       }
     })
     const restoredPage = await application.firstWindow()
+    const restoredShell = restoredPage.getByTestId('app-shell')
+    const restoredHtml = restoredPage.locator('html')
+    await expect(restoredShell).toHaveAttribute('data-theme-preference', 'dark')
+    await expect(restoredShell).toHaveAttribute('data-theme', 'dark')
+    await expect(restoredShell).toHaveAttribute('data-interface-scale', '125')
+    await expect(restoredHtml).toHaveAttribute('data-theme-preference', 'dark')
+    await expect(restoredHtml).toHaveAttribute('data-theme', 'dark')
+
     await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
     await restoredPage.getByTestId('book-item').first().click()
     await expect
       .poll(() => restoredPage.getByTestId('reader-host').evaluate((element) => element.scrollTop))
       .toBeGreaterThan(50)
     await restoredPage.getByTestId('insights-tab').click()
-    await expect(restoredPage.getByTestId('insight-item')).toContainText('适用边界')
+    await expect(restoredPage.getByTestId('insight-item')).toHaveCount(0)
+
+    const restoredDocument = restoredPage.locator('.reader-document--txt')
+    await expect.poll(() => restoredDocument.evaluate((element) => element.style.fontSize)).toBe('125%')
+    await expect.poll(() => restoredDocument.locator('p').first().evaluate((element) => element.style.lineHeight)).toBe('1.7')
+    await expect.poll(() => restoredDocument.locator('p').first().evaluate((element) => element.style.textIndent)).toBe('2em')
+
+    const restoredSettingsButton = restoredPage.getByTestId('settings-button')
+    await restoredSettingsButton.click()
+    const restoredSystemTheme = restoredPage.getByTestId('theme-system')
+    const restoredDarkTheme = restoredPage.getByTestId('theme-dark')
+    await expect(restoredDarkTheme).toHaveAttribute('aria-pressed', 'true')
+    await expect(restoredPage.getByTestId('scale-125')).toHaveAttribute('aria-pressed', 'true')
+    await expect(restoredPage.getByTestId('reading-font-scale')).toHaveValue('125')
+    await expect(restoredPage.getByTestId('reading-line-height')).toHaveValue('1.7')
+    await expect(restoredPage.getByTestId('reading-indent')).toHaveValue('2em')
+    await restoredSystemTheme.click()
+    await expect(restoredSystemTheme).toHaveAttribute('aria-pressed', 'true')
+    await expect(restoredDarkTheme).toHaveAttribute('aria-pressed', 'false')
+    await expect(restoredShell).toHaveAttribute('data-theme-preference', 'system')
+    await expect(restoredHtml).toHaveAttribute('data-theme-preference', 'system')
+
+    await restoredPage.emulateMedia({ colorScheme: 'light' })
+    await expect(restoredShell).toHaveAttribute('data-theme', 'light')
+    await expect(restoredHtml).toHaveAttribute('data-theme', 'light')
+
+    await restoredPage.emulateMedia({ colorScheme: 'dark' })
+    await expect(restoredShell).toHaveAttribute('data-theme', 'dark')
+    await expect(restoredHtml).toHaveAttribute('data-theme', 'dark')
+
+    await restoredPage.getByTestId('reading-reset').click()
+    await expect(restoredPage.getByTestId('reading-font-scale')).toHaveValue('100')
+    await expect(restoredPage.getByTestId('reading-line-height')).toHaveValue('original')
+    await expect(restoredPage.getByTestId('reading-indent')).toHaveValue('original')
   } finally {
     await application?.close().catch(() => undefined)
     await rm(userData, { recursive: true, force: true })

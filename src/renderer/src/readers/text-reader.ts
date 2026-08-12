@@ -1,11 +1,14 @@
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
+import { normalizeReadingPreferences, readingPreferencesEqual } from './reading-preferences'
 import type {
+  ReadingPreferences,
   ReaderAdapter,
   ReaderCallbacks,
   ReaderDocumentInfo,
   ReaderRelocation
 } from './types'
+import { DEFAULT_READING_PREFERENCES } from './types'
 
 const TXT_ANCHOR_PATTERN = /^txt:(\d+):(\d+)$/u
 const TEXT_BLOCK_PATTERN = /[^\n]+(?:\n(?![\t ]*\n)[^\n]*)*/gu
@@ -149,6 +152,7 @@ export class TextReaderAdapter implements ReaderAdapter {
   private highlightedElements: HTMLElement[] = []
   private highlightRegistry: { delete(name: string): void; set(name: string, value: unknown): void } | null = null
   private relocationFrame: number | null = null
+  private preferences: ReadingPreferences = { ...DEFAULT_READING_PREFERENCES }
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
     this.host = host
@@ -182,6 +186,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     root.style.padding = '48px clamp(28px, 6vw, 72px) 35vh'
     root.style.whiteSpace = 'pre-wrap'
     root.style.overflowWrap = 'break-word'
+    root.style.lineHeight = '1.82'
 
     const style = this.document.createElement('style')
     style.textContent = `
@@ -201,7 +206,6 @@ export class TextReaderAdapter implements ReaderAdapter {
       if (paragraph.heading) {
         element.style.margin = paragraph.index === 0 ? '0 0 1.2em' : '2.4em 0 1.2em'
       } else {
-        element.style.lineHeight = '1.82'
         element.style.margin = '0 0 1.35em'
       }
       root.append(element)
@@ -217,6 +221,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     })
 
     this.root = root
+    this.applyPreferences()
     this.host.replaceChildren(root)
     this.document.addEventListener('selectionchange', this.handleSelectionChange)
     this.host.addEventListener('scroll', this.handleScroll, { passive: true })
@@ -328,6 +333,43 @@ export class TextReaderAdapter implements ReaderAdapter {
       element.classList.remove('llm-reader-temporary-fallback')
     )
     this.highlightedElements = []
+  }
+
+  async setPreferences(preferences: ReadingPreferences): Promise<void> {
+    const normalized = normalizeReadingPreferences(preferences)
+    if (readingPreferencesEqual(this.preferences, normalized)) {
+      return
+    }
+    this.preferences = normalized
+    this.applyPreferences()
+  }
+
+  private applyPreferences(): void {
+    if (!this.root) {
+      return
+    }
+
+    if (this.preferences.fontScale === DEFAULT_READING_PREFERENCES.fontScale) {
+      this.root.style.removeProperty('font-size')
+    } else {
+      this.root.style.fontSize = `${this.preferences.fontScale}%`
+    }
+
+    for (const paragraph of this.paragraphs) {
+      if (paragraph.element.tagName !== 'P') {
+        continue
+      }
+      if (this.preferences.lineHeight === 'original') {
+        paragraph.element.style.removeProperty('line-height')
+      } else {
+        paragraph.element.style.lineHeight = this.preferences.lineHeight
+      }
+      if (this.preferences.indent === 'original') {
+        paragraph.element.style.removeProperty('text-indent')
+      } else {
+        paragraph.element.style.textIndent = this.preferences.indent === 'none' ? '0' : '2em'
+      }
+    }
   }
 
   private readonly handleSelectionChange = (): void => {

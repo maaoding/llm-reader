@@ -7,6 +7,7 @@ import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
 import {
   bookIdSchema,
+  insightIdSchema,
   insightSchema,
   llmRequestSchema,
   metadataSchema,
@@ -95,6 +96,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   )
   handle(IPC_CHANNELS.insightsSave, dependencies, (_event, value) =>
     dependencies.library.saveInsight(parse(insightSchema, value))
+  )
+  handle(IPC_CHANNELS.insightsDelete, dependencies, (_event, value) =>
+    dependencies.library.deleteInsight(parse(insightIdSchema, value))
   )
   handle(IPC_CHANNELS.providerGet, dependencies, () => dependencies.provider.getSettings())
   handle(IPC_CHANNELS.providerSave, dependencies, (_event, value) =>

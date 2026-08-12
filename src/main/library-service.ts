@@ -298,6 +298,10 @@ export class LibraryService {
     return this.database.insertInsight(randomUUID(), input, new Date().toISOString())
   }
 
+  deleteInsight(id: string): boolean {
+    return this.database.deleteInsight(id)
+  }
+
   private resolveStoredPath(storedName: string): string {
     const root = resolve(this.libraryDirectory)
     const candidate = resolve(join(root, storedName))
