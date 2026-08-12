@@ -1864,6 +1864,12 @@ button.citation-valid:hover {
     inset 0 1px rgb(255 255 255 / 3%);
 }
 
+/* 深色框架 + 浅色书页：EPUB 正文保留原书黑字，不强制反色。
+   仅当原书自身带背景/固定版式时，其自身样式会覆盖这里，因此不会破坏图书。 */
+:root[data-theme="dark"] .reader-host iframe {
+  background: #fdfcf9;
+}
+
 :root[data-theme="dark"] .modal-backdrop {
   background: rgb(8 13 16 / 62%);
 }
