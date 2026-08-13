@@ -4,9 +4,9 @@
 
 <h1 align="center">LLM Reader</h1>
 
-本地优先、以 LLM 辅助理解复杂非虚构内容为核心的 Windows 桌面阅读器原型。
+<p align="center">本地优先、以 LLM 辅助理解复杂非虚构内容为核心的 Windows 桌面阅读器原型。</p>
 
-项目主页：<https://maaoding.github.io/llm-reader/>
+<p align="center">项目主页：<a href="https://maaoding.github.io/llm-reader/">https://maaoding.github.io/llm-reader/</a></p>
 
 ## 当前闭环
 
