@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/icon.png" alt="LLM Reader icon" width="128" />
+</p>
+
 # LLM Reader
 
 本地优先、以 LLM 辅助理解复杂非虚构内容为核心的 Windows 桌面阅读器原型。
@@ -33,4 +37,4 @@ pnpm build:win
 
 `pnpm build:win` 会在 `release/` 生成未签名的 Windows x64 NSIS 安装包。
 
-产品边界见 `PRODUCT.md`，实现约束见 `AGENTS.md`。
+产品边界见 `PRODUCT.md`。
