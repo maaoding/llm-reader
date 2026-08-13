@@ -58,13 +58,14 @@ test('nested TOC collapses via disclosure without jumping and navigates without 
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
 
-    await page.getByRole('button', { name: '目录' }).click()
+    await page.getByRole('button', { name: '目录', exact: true }).click()
 
     const tocItems = page.getByTestId('toc-item')
     const disclosure = page.getByTestId('toc-disclosure')
 
     // 默认展开：第一部 + 概念边界 + 第二章，第一部带 disclosure。
     await expect(tocItems).toHaveCount(3)
+    await expect(tocItems.locator('svg')).toHaveCount(0)
     await expect(disclosure).toHaveCount(1)
     await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
 

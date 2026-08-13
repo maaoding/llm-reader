@@ -156,7 +156,7 @@ function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject
     if (!open) return undefined
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : returnRef.current
     const returnTarget = previous ?? returnRef.current
-    window.setTimeout(() => dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus(), 0)
+    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus()
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -168,10 +168,15 @@ function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject
       if (!focusable.length) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
+      const activeElement = document.activeElement
+      if (!dialogRef.current.contains(activeElement)) {
+        event.preventDefault()
+        const boundaryTarget = event.shiftKey ? last : first
+        boundaryTarget.focus()
+      } else if (event.shiftKey && activeElement === first) {
         event.preventDefault()
         last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeElement === last) {
         event.preventDefault()
         first.focus()
       }
@@ -179,7 +184,7 @@ function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      window.setTimeout(() => returnTarget?.focus(), 0)
+      returnTarget?.focus()
     }
   }, [dialogRef, onClose, open, returnRef])
 }
@@ -1197,7 +1202,7 @@ export default function App(): ReactNode {
                     </button>
                   ) : <span className="toc-disclosure-spacer" />}
                   <button className="toc-item" data-testid="toc-item" data-toc-id={item.id} type="button" onClick={() => void navigateToToc(item.href)} title={item.label}>
-                    <span>{item.label}</span><ChevronRight size={13} />
+                    <span>{item.label}</span>
                   </button>
                 </div>
               ))}

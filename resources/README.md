@@ -1,3 +1,3 @@
 # Build resources
 
-Windows code signing and a custom application icon are intentionally outside the unsigned MVP build. Electron Builder may use its default icon until branding is defined.
+`icon.png` is the source asset and `icon.ico` is the multi-resolution Windows application icon used by Electron Builder. The MVP build remains unsigned.

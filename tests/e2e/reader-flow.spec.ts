@@ -151,6 +151,87 @@ test.afterAll(async () => {
   })
 })
 
+test('keeps escaped keyboard focus inside settings and assistant dialogs', async () => {
+  const userData = await mkdtemp(join(tmpdir(), 'llm-reader-focus-e2e-'))
+  let application: ElectronApplication | undefined
+
+  try {
+    application = await electron.launch({
+      args: ['.'],
+      env: {
+        ...process.env,
+        LLM_READER_USER_DATA: userData
+      }
+    })
+    const page = await application.firstWindow()
+    const settingsButton = page.getByTestId('settings-button')
+    const expandButton = page.getByTestId('assistant-expand-button')
+
+    await settingsButton.click()
+    const settingsDialog = page.getByTestId('settings-modal')
+    const settingsClose = page.getByTestId('settings-close')
+    await expect(settingsDialog).toBeVisible()
+    await expect(settingsClose).toBeFocused()
+
+    await settingsButton.evaluate((button) => button.focus())
+    await expect(settingsButton).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(settingsClose).toBeFocused()
+
+    await settingsButton.evaluate((button) => button.focus())
+    await expect(settingsButton).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect
+      .poll(() => settingsDialog.evaluate((dialog) => dialog.contains(document.activeElement)))
+      .toBe(true)
+    await expect
+      .poll(() => settingsDialog.evaluate((dialog) => {
+        const focusable = dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+        return document.activeElement === focusable.item(focusable.length - 1)
+      }))
+      .toBe(true)
+
+    await page.keyboard.press('Escape')
+    await expect(settingsDialog).toHaveCount(0)
+    await expect(settingsButton).toBeFocused()
+
+    await expandButton.click()
+    const assistantDialog = page.getByTestId('assistant-dialog')
+    const assistantClose = page.getByTestId('assistant-dialog-close')
+    await expect(assistantDialog).toBeVisible()
+    await expect(assistantClose).toBeFocused()
+
+    await expandButton.evaluate((button) => button.focus())
+    await expect(expandButton).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(assistantClose).toBeFocused()
+
+    await expandButton.evaluate((button) => button.focus())
+    await expect(expandButton).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect
+      .poll(() => assistantDialog.evaluate((dialog) => dialog.contains(document.activeElement)))
+      .toBe(true)
+    await expect
+      .poll(() => assistantDialog.evaluate((dialog) => {
+        const focusable = dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+        return document.activeElement === focusable.item(focusable.length - 1)
+      }))
+      .toBe(true)
+
+    await page.keyboard.press('Escape')
+    await expect(assistantDialog).toHaveCount(0)
+    await expect(expandButton).toBeFocused()
+  } finally {
+    await application?.close().catch(() => undefined)
+    await rm(userData, { recursive: true, force: true })
+  }
+})
+
 test('keeps the home quiet and persists unified settings, reading, conversation, and insight deletion', async () => {
   const userData = await mkdtemp(join(tmpdir(), 'llm-reader-e2e-'))
   const fixture = resolve('tests/fixtures/complex-reading.txt')

@@ -9,6 +9,7 @@ files:
 asar: true
 npmRebuild: false
 win:
+  icon: resources/icon.ico
   target:
     - target: nsis
       arch:

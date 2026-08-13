@@ -19,7 +19,7 @@ pnpm dev
 
 开发环境需要 Node.js 24+ 与 pnpm 11+。
 
-首次使用时在右上角“模型设置”中填写 Base URL、API Key 和 model。远程接口必须使用 HTTPS；仅 `localhost`、`127.0.0.1` 与 `::1` 允许 HTTP。
+首次使用时在左侧栏底部打开“设置”，填写 Base URL、API Key 和 model。远程接口必须使用 HTTPS；仅 `localhost`、`127.0.0.1` 与 `::1` 允许 HTTP。
 
 ## 验证
 
