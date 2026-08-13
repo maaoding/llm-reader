@@ -16,7 +16,7 @@ import type {
   ReaderDocumentInfo,
   ReaderRelocation
 } from './types'
-import { DEFAULT_READING_PREFERENCES } from './types'
+import { DEFAULT_READING_PREFERENCES, READER_SELECTION_BACKGROUND } from './types'
 import { stabilizeContinuousManager } from './epub-continuous-stability'
 
 const EPUB_CFI_PATTERN = /^epubcfi\(.+\)$/u
@@ -217,6 +217,14 @@ function readingPreferencesCss(preferences: ReadingPreferences): string {
   return rules.join('\n')
 }
 
+function readerStylesheetCss(preferences: ReadingPreferences, reflowable: boolean): string {
+  const rules = [
+    `::selection { background: ${READER_SELECTION_BACKGROUND}; color: inherit; }`,
+    reflowable ? readingPreferencesCss(preferences) : ''
+  ]
+  return rules.filter(Boolean).join('\n')
+}
+
 export class EpubReaderAdapter implements ReaderAdapter {
   readonly format: BookFormat = 'epub'
 
@@ -381,11 +389,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private applyPreferences(contents: Contents): void {
-    if (!this.reflowable) {
-      return
-    }
     contents.document.getElementById(READING_PREFERENCES_STYLE_ELEMENT_ID)?.remove()
-    const css = readingPreferencesCss(this.preferences)
+    const css = readerStylesheetCss(this.preferences, this.reflowable)
     if (css) {
       void contents.addStylesheetCss(css, READING_PREFERENCES_STYLESHEET)
     }

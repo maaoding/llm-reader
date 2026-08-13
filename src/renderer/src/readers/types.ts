@@ -36,6 +36,9 @@ export const DEFAULT_READING_PREFERENCES: Readonly<ReadingPreferences> = Object.
   indent: 'original'
 })
 
+/** Warm beige background for native text selection in the reading area (replaces the browser default blue). */
+export const READER_SELECTION_BACKGROUND = 'rgba(240, 220, 160, 0.55)'
+
 export interface ReaderAdapter {
   readonly format: BookFormat
 

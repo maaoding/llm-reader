@@ -412,6 +412,11 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
       return { color: styles.color, background: styles.backgroundColor }
     })
     expect(contrastRatio(txtColors.color, txtColors.background)).toBeGreaterThanOrEqual(4.5)
+    const txtSelectionCss = await txtDocument.evaluate(
+      (element) => element.querySelector('style')?.textContent ?? ''
+    )
+    expect(txtSelectionCss).toContain('.reader-document ::selection')
+    expect(txtSelectionCss).toContain('rgba(240, 220, 160, 0.55)')
 
     const paragraph = page.getByTestId('reader-host').locator('p').nth(1)
     await selectNodeContents(paragraph)
@@ -623,6 +628,11 @@ test('renders EPUB continuously while keeping embedded scripts disabled', async 
     const chapterFrame = page.getByTestId('reader-host').frameLocator('iframe').first()
     await expect(chapterFrame.getByText('复杂系统的行为来自关系')).toBeVisible()
     await expect(chapterFrame.locator('#script-executed')).toHaveCount(0)
+    const epubSelectionCss =
+      (await chapterFrame.locator('#epubjs-inserted-css-llm-reader-reading-preferences').textContent()) ??
+      ''
+    expect(epubSelectionCss).toContain('::selection')
+    expect(epubSelectionCss).toContain('rgba(240, 220, 160, 0.55)')
   } finally {
     await application?.close().catch(() => undefined)
     await rm(testRoot, { recursive: true, force: true })

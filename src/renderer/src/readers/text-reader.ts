@@ -9,7 +9,7 @@ import type {
   ReaderDocumentInfo,
   ReaderRelocation
 } from './types'
-import { DEFAULT_READING_PREFERENCES } from './types'
+import { DEFAULT_READING_PREFERENCES, READER_SELECTION_BACKGROUND } from './types'
 
 const TXT_ANCHOR_PATTERN = /^txt:(\d+):(\d+)$/u
 const TEXT_BLOCK_PATTERN = /[^\n]+(?:\n(?![\t ]*\n)[^\n]*)*/gu
@@ -191,6 +191,7 @@ export class TextReaderAdapter implements ReaderAdapter {
 
     const style = this.document.createElement('style')
     style.textContent = `
+      .reader-document ::selection { background: ${READER_SELECTION_BACKGROUND}; color: inherit; }
       ::highlight(llm-reader-temporary) { background: rgba(246, 190, 72, .36); }
       .llm-reader-temporary-fallback { background: rgba(246, 190, 72, .25); outline: 2px solid rgba(196, 130, 18, .45); }
     `

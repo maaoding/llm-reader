@@ -104,9 +104,13 @@ describe('reading preferences', () => {
     const adapter = new TextReaderAdapter(host, { bookId: 'txt-preferences' })
     await adapter.open(bytes('# 标题\n\n第一段\n\n第二段'))
 
+    const root = host.querySelector<HTMLElement>('.reader-document--txt')!
+    const selectionStyle = root.querySelector('style')?.textContent ?? ''
+    expect(selectionStyle).toContain('.reader-document ::selection')
+    expect(selectionStyle).toContain('rgba(240, 220, 160, 0.55)')
+
     await adapter.setPreferences({ fontScale: 125, lineHeight: '1.7', indent: '2em' })
 
-    const root = host.querySelector<HTMLElement>('.reader-document--txt')!
     const paragraphs = Array.from(root.querySelectorAll<HTMLParagraphElement>('p'))
     expect(root.style.fontSize).toBe('125%')
     expect(paragraphs).toHaveLength(2)
@@ -136,6 +140,7 @@ describe('reading preferences', () => {
     harness.currentContents.push(current)
     harness.contentHooks[0](current)
     const initialCss = current.addStylesheetCss.mock.calls.at(-1)?.[0] as string
+    expect(initialCss).toContain('::selection')
     expect(initialCss).toContain('font-size: 120%')
     expect(initialCss).toContain('line-height: 1.9')
     expect(initialCss).toContain('text-indent: 2em')
@@ -172,7 +177,11 @@ describe('reading preferences', () => {
 
     const defaultFuture = createContents('<p>恢复默认后的章节</p>')
     harness.contentHooks[0](defaultFuture)
-    expect(defaultFuture.addStylesheetCss).not.toHaveBeenCalled()
+    const defaultCss = defaultFuture.addStylesheetCss.mock.calls.at(-1)?.[0] as string
+    expect(defaultCss).toContain('::selection')
+    expect(defaultCss).not.toContain('font-size')
+    expect(defaultCss).not.toContain('line-height')
+    expect(defaultCss).not.toContain('text-indent')
 
     for (let index = 0; index < 5; index += 1) {
       harness.handlers.get('relocated')?.({
@@ -197,7 +206,11 @@ describe('reading preferences', () => {
     harness.contentHooks[0](contents)
     await adapter.setPreferences({ fontScale: 120, lineHeight: '1.7', indent: 'none' })
 
-    expect(contents.addStylesheetCss).not.toHaveBeenCalled()
+    const fixedCss = contents.addStylesheetCss.mock.calls.at(-1)?.[0] as string
+    expect(fixedCss).toContain('::selection')
+    expect(fixedCss).not.toContain('font-size')
+    expect(fixedCss).not.toContain('line-height')
+    expect(fixedCss).not.toContain('text-indent')
     expect(harness.rendition.display).toHaveBeenCalledOnce()
 
     adapter.destroy()
