@@ -2,7 +2,7 @@
   <img src="resources/icon.png" alt="LLM Reader icon" width="128" />
 </p>
 
-# LLM Reader
+<h1 align="center">LLM Reader</h1>
 
 本地优先、以 LLM 辅助理解复杂非虚构内容为核心的 Windows 桌面阅读器原型。
 
