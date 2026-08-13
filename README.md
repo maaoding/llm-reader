@@ -6,7 +6,7 @@
 
 <p align="center">本地优先、以 LLM 辅助理解复杂非虚构内容为核心的 Windows 桌面阅读器原型。</p>
 
-<p align="center">项目主页：<a href="https://maaoding.github.io/llm-reader/">https://maaoding.github.io/llm-reader/</a></p>
+<p align="center">项目主页：<a href="https://llm-reader.maaoding.icu/">https://llm-reader.maaoding.icu/</a></p>
 
 ## 当前闭环
 
