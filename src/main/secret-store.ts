@@ -7,6 +7,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { dirname, isAbsolute } from 'node:path'
+import { copy } from '@shared/copy'
 import { AppError } from './errors'
 
 const MAGIC = Buffer.from('LLMRKEY1', 'ascii')
@@ -33,21 +34,21 @@ export class FileSecretStore implements SecretStore {
     try {
       value = readFileSync(this.path)
     } catch (error) {
-      throw new AppError('KEY_READ_FAILED', '无法读取加密的 API Key。', false, { cause: error })
+      throw new AppError('KEY_READ_FAILED', copy('error.keyReadFailed'), false, { cause: error })
     }
     if (
       value.length <= MAGIC.length ||
       value.length > MAX_SECRET_BYTES ||
       !value.subarray(0, MAGIC.length).equals(MAGIC)
     ) {
-      throw new AppError('KEY_READ_FAILED', 'API Key 密文文件无效，请重新保存。')
+      throw new AppError('KEY_READ_FAILED', copy('error.keyCipherInvalid'))
     }
     return Uint8Array.from(value.subarray(MAGIC.length))
   }
 
   write(ciphertext: Uint8Array): void {
     if (ciphertext.byteLength === 0 || ciphertext.byteLength > MAX_SECRET_BYTES - MAGIC.length) {
-      throw new AppError('KEY_WRITE_FAILED', 'API Key 密文大小无效。')
+      throw new AppError('KEY_WRITE_FAILED', copy('error.keyCipherSize'))
     }
     mkdirSync(dirname(this.path), { recursive: true })
     const temporaryPath = `${this.path}.${process.pid}.${Date.now()}.tmp`
@@ -59,7 +60,7 @@ export class FileSecretStore implements SecretStore {
       renameSync(temporaryPath, this.path)
     } catch (error) {
       if (existsSync(temporaryPath)) unlinkSync(temporaryPath)
-      throw new AppError('KEY_WRITE_FAILED', '无法保存加密的 API Key。', false, { cause: error })
+      throw new AppError('KEY_WRITE_FAILED', copy('error.keyWriteFailed'), false, { cause: error })
     }
   }
 }

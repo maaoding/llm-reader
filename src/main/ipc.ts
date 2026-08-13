@@ -1,6 +1,7 @@
 import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
+import { copy } from '@shared/copy'
 import { AppError, toPublicError } from './errors'
 import { LibraryService } from './library-service'
 import { LlmService } from './llm-service'
@@ -45,7 +46,7 @@ function parse<T>(schema: ZodType<T>, value: unknown): T {
 
 function safeIpcError(error: unknown): Error {
   if (error instanceof ZodError) {
-    return new Error('[INVALID_INPUT] 输入参数无效。')
+    return new Error(`[INVALID_INPUT] ${copy('error.invalidInput')}`)
   }
   const safe = toPublicError(error)
   return new Error(`[${safe.code}] ${safe.message}`)
@@ -59,7 +60,7 @@ function handle(
   ipcMain.removeHandler(channel)
   ipcMain.handle(channel, async (event, ...values) => {
     if (!trustedSender(event, dependencies)) {
-      throw new Error('[UNTRUSTED_SENDER] 已拒绝非可信页面的请求。')
+      throw new Error(`[UNTRUSTED_SENDER] ${copy('error.untrustedSender')}`)
     }
     try {
       return await callback(event, ...values)
@@ -73,9 +74,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.booksList, dependencies, () => dependencies.library.listBooks())
   handle(IPC_CHANNELS.booksImport, dependencies, async () => {
     const result = await dialog.showOpenDialog(dependencies.window, {
-      title: '导入书籍',
+      title: copy('dialog.importTitle'),
       properties: ['openFile'],
-      filters: [{ name: 'EPUB 或 UTF-8 TXT', extensions: ['epub', 'txt'] }]
+      filters: [{ name: copy('dialog.importFilter'), extensions: ['epub', 'txt'] }]
     })
     if (result.canceled || result.filePaths.length !== 1) return null
     return dependencies.library.importFromPath(result.filePaths[0])

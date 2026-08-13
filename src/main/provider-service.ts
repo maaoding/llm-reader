@@ -3,6 +3,7 @@ import type {
   ProviderTestResult,
   SaveProviderSettingsInput
 } from '@shared/contracts'
+import { copy } from '@shared/copy'
 import { AppDatabase } from './database'
 import { AppError } from './errors'
 import { buildChatCompletionsUrl, readSafeErrorStatus } from './llm-service'
@@ -35,7 +36,7 @@ export class ProviderService {
     buildChatCompletionsUrl(input.baseUrl)
     if (input.apiKey !== undefined) {
       if (!this.keyProtector.isAvailable()) {
-        throw new AppError('KEY_STORAGE_UNAVAILABLE', '当前系统无法安全保存 API Key。')
+        throw new AppError('KEY_STORAGE_UNAVAILABLE', copy('error.keyStorageUnavailable'))
       }
       this.secretStore.write(this.keyProtector.encrypt(input.apiKey))
     }
@@ -47,10 +48,10 @@ export class ProviderService {
     const stored = this.database.getProvider()
     const encryptedApiKey = this.secretStore.read()
     if (!stored || !encryptedApiKey) {
-      throw new AppError('PROVIDER_NOT_CONFIGURED', '请先保存 API Key 和模型设置。')
+      throw new AppError('PROVIDER_NOT_CONFIGURED', copy('error.providerNotConfigured'))
     }
     if (!this.keyProtector.isAvailable()) {
-      throw new AppError('KEY_STORAGE_UNAVAILABLE', '当前系统无法读取 API Key。')
+      throw new AppError('KEY_STORAGE_UNAVAILABLE', copy('error.keyReadUnavailable'))
     }
     try {
       return {
@@ -59,7 +60,7 @@ export class ProviderService {
         apiKey: this.keyProtector.decrypt(encryptedApiKey)
       }
     } catch (error) {
-      throw new AppError('KEY_DECRYPT_FAILED', 'API Key 解密失败，请重新保存。', false, { cause: error })
+      throw new AppError('KEY_DECRYPT_FAILED', copy('error.keyDecryptFailed'), false, { cause: error })
     }
   }
 
@@ -86,14 +87,14 @@ export class ProviderService {
         if (!response.ok) {
           return { ok: false, message: await readSafeErrorStatus(response) }
         }
-        return { ok: true, message: '连接成功。' }
+        return { ok: true, message: copy('provider.testConnected') }
       } finally {
         clearTimeout(timer)
       }
     } catch (error) {
       if (error instanceof AppError) return { ok: false, message: error.message }
-      if ((error as Error).name === 'AbortError') return { ok: false, message: '连接超时。' }
-      return { ok: false, message: '无法连接到模型服务。' }
+      if ((error as Error).name === 'AbortError') return { ok: false, message: copy('provider.testTimeout') }
+      return { ok: false, message: copy('provider.testFailed') }
     }
   }
 }

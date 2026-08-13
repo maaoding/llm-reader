@@ -10,6 +10,7 @@ import type {
   SavedInsight,
   SaveInsightInput
 } from '@shared/contracts'
+import { copy } from '@shared/copy'
 import { AppDatabase, type StoredBook } from './database'
 import { AppError } from './errors'
 
@@ -62,21 +63,21 @@ function extractXmlText(xml: string, localName: string): string | null {
 function safeZipPath(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/^\.\//, '')
   if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) {
-    throw new AppError('INVALID_EPUB', 'EPUB 包含不安全的内部路径。')
+    throw new AppError('INVALID_EPUB', copy('error.epubUnsafePath'))
   }
   return normalized
 }
 
 async function readZipText(zip: JSZip, path: string): Promise<string> {
   const entry = zip.file(safeZipPath(path))
-  if (!entry) throw new AppError('INVALID_EPUB', 'EPUB 结构不完整。')
+  if (!entry) throw new AppError('INVALID_EPUB', copy('error.epubIncomplete'))
   const privateEntry = entry as unknown as { _data?: { uncompressedSize?: number } }
   if ((privateEntry._data?.uncompressedSize ?? 0) > MAX_METADATA_BYTES) {
-    throw new AppError('INVALID_EPUB', 'EPUB 元数据异常过大。')
+    throw new AppError('INVALID_EPUB', copy('error.epubMetadataTooLarge'))
   }
   const text = await entry.async('string')
   if (text.length > MAX_METADATA_BYTES) {
-    throw new AppError('INVALID_EPUB', 'EPUB 元数据异常过大。')
+    throw new AppError('INVALID_EPUB', copy('error.epubMetadataTooLarge'))
   }
   return text
 }
@@ -99,11 +100,11 @@ async function validateEpub(bytes: Buffer, fallbackTitle: string): Promise<Valid
   try {
     zip = await JSZip.loadAsync(bytes, { checkCRC32: false, createFolders: false })
   } catch (error) {
-    throw new AppError('INVALID_EPUB', '无法打开 EPUB，文件可能已损坏。', false, { cause: error })
+    throw new AppError('INVALID_EPUB', copy('error.epubOpenFailed'), false, { cause: error })
   }
 
   if (Object.keys(zip.files).length > MAX_EPUB_ENTRIES) {
-    throw new AppError('INVALID_EPUB', 'EPUB 内部文件数量异常过多。')
+    throw new AppError('INVALID_EPUB', copy('error.epubTooManyEntries'))
   }
 
   let expandedBytes = 0
@@ -121,11 +122,11 @@ async function validateEpub(bytes: Buffer, fallbackTitle: string): Promise<Valid
       entryBytes < 0 ||
       entryBytes > MAX_EPUB_ENTRY_BYTES
     ) {
-      throw new AppError('INVALID_EPUB', 'EPUB 包含异常大的内部文件。')
+      throw new AppError('INVALID_EPUB', copy('error.epubEntryTooLarge'))
     }
     expandedBytes += entryBytes
     if (expandedBytes > MAX_EPUB_EXPANDED_BYTES) {
-      throw new AppError('INVALID_EPUB', 'EPUB 解压后的内容超过安全上限。')
+      throw new AppError('INVALID_EPUB', copy('error.epubExpandedTooLarge'))
     }
   }
 
@@ -133,24 +134,24 @@ async function validateEpub(bytes: Buffer, fallbackTitle: string): Promise<Valid
   if (mimetype) {
     const value = (await mimetype.async('string')).trim()
     if (value !== 'application/epub+zip') {
-      throw new AppError('INVALID_EPUB', '文件不是有效的 EPUB。')
+      throw new AppError('INVALID_EPUB', copy('error.epubInvalid'))
     }
   }
 
   if (zip.file('META-INF/rights.xml')) {
-    throw new AppError('DRM_EPUB', '不支持受 DRM 保护的 EPUB。')
+    throw new AppError('DRM_EPUB', copy('error.epubDrm'))
   }
   const encryptionEntry = zip.file('META-INF/encryption.xml')
   if (encryptionEntry) {
     const encryptionXml = await readZipText(zip, 'META-INF/encryption.xml')
     if (hasUnsupportedEncryption(encryptionXml)) {
-      throw new AppError('DRM_EPUB', '不支持受 DRM 保护的 EPUB。')
+      throw new AppError('DRM_EPUB', copy('error.epubDrm'))
     }
   }
 
   const containerXml = await readZipText(zip, 'META-INF/container.xml')
   const rootfileMatch = containerXml.match(/<rootfile\b[^>]*\bfull-path\s*=\s*["']([^"']+)["']/i)
-  if (!rootfileMatch) throw new AppError('INVALID_EPUB', 'EPUB 缺少内容文档。')
+  if (!rootfileMatch) throw new AppError('INVALID_EPUB', copy('error.epubMissingContent'))
 
   const packageXml = await readZipText(zip, decodeXmlEntities(rootfileMatch[1]))
   return {
@@ -165,10 +166,10 @@ function validateTxt(bytes: Buffer, fallbackTitle: string): ValidatedBook {
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   } catch (error) {
-    throw new AppError('INVALID_UTF8', 'TXT 必须使用 UTF-8 编码。', false, { cause: error })
+    throw new AppError('INVALID_UTF8', copy('error.txtEncoding'), false, { cause: error })
   }
   if (text.includes('\0')) {
-    throw new AppError('INVALID_TXT', 'TXT 中包含无效的二进制内容。')
+    throw new AppError('INVALID_TXT', copy('error.txtBinary'))
   }
   return { format: 'txt', title: fallbackTitle, author: null }
 }
@@ -189,36 +190,36 @@ export class LibraryService {
 
   async importFromPath(sourcePath: string): Promise<ImportedBookResult> {
     if (!isAbsolute(sourcePath)) {
-      throw new AppError('INVALID_PATH', '只能导入绝对路径的本地文件。')
+      throw new AppError('INVALID_PATH', copy('error.importAbsolutePath'))
     }
 
     let fileInfo
     try {
       fileInfo = await stat(sourcePath)
     } catch (error) {
-      throw new AppError('FILE_NOT_FOUND', '找不到要导入的文件。', false, { cause: error })
+      throw new AppError('FILE_NOT_FOUND', copy('error.importNotFound'), false, { cause: error })
     }
-    if (!fileInfo.isFile()) throw new AppError('INVALID_FILE', '选择的路径不是文件。')
-    if (fileInfo.size <= 0) throw new AppError('EMPTY_FILE', '不能导入空文件。')
-    if (fileInfo.size > MAX_IMPORT_BYTES) throw new AppError('FILE_TOO_LARGE', '文件超过 250 MB 的导入上限。')
+    if (!fileInfo.isFile()) throw new AppError('INVALID_FILE', copy('error.importNotFile'))
+    if (fileInfo.size <= 0) throw new AppError('EMPTY_FILE', copy('error.importEmpty'))
+    if (fileInfo.size > MAX_IMPORT_BYTES) throw new AppError('FILE_TOO_LARGE', copy('error.importTooLarge'))
 
     const extension = extname(sourcePath).toLowerCase()
     if (extension !== '.epub' && extension !== '.txt') {
-      throw new AppError('UNSUPPORTED_FORMAT', '只支持导入 .epub 和 .txt 文件。')
+      throw new AppError('UNSUPPORTED_FORMAT', copy('error.importUnsupported'))
     }
     if (extension === '.txt' && fileInfo.size > MAX_TXT_BYTES) {
-      throw new AppError('FILE_TOO_LARGE', 'TXT 文件超过 64 MB 的导入上限。')
+      throw new AppError('FILE_TOO_LARGE', copy('error.txtTooLarge'))
     }
 
     const originalName = basename(sourcePath).slice(0, 255)
-    const fallbackTitle = basename(sourcePath, extension).trim().slice(0, 500) || '未命名书籍'
+    const fallbackTitle = basename(sourcePath, extension).trim().slice(0, 500) || copy('library.untitled')
     const bytes = await readFile(sourcePath)
-    if (bytes.byteLength === 0) throw new AppError('EMPTY_FILE', '不能导入空文件。')
+    if (bytes.byteLength === 0) throw new AppError('EMPTY_FILE', copy('error.importEmpty'))
     if (bytes.byteLength > MAX_IMPORT_BYTES) {
-      throw new AppError('FILE_TOO_LARGE', '文件超过 250 MB 的导入上限。')
+      throw new AppError('FILE_TOO_LARGE', copy('error.importTooLarge'))
     }
     if (extension === '.txt' && bytes.byteLength > MAX_TXT_BYTES) {
-      throw new AppError('FILE_TOO_LARGE', 'TXT 文件超过 64 MB 的导入上限。')
+      throw new AppError('FILE_TOO_LARGE', copy('error.txtTooLarge'))
     }
     const validated =
       extension === '.epub' ? await validateEpub(bytes, fallbackTitle) : validateTxt(bytes, fallbackTitle)
@@ -254,7 +255,7 @@ export class LibraryService {
 
   async readBook(bookId: string): Promise<BookPayload> {
     const stored = this.database.getStoredBook(bookId)
-    if (!stored) throw new AppError('BOOK_NOT_FOUND', '找不到这本书。')
+    if (!stored) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     const bytes = await readFile(this.resolveStoredPath(stored.storedName))
     const openedAt = new Date().toISOString()
     this.database.touchBook(bookId, openedAt)
@@ -274,26 +275,26 @@ export class LibraryService {
 
   updateBookMetadata(bookId: string, title: string, author: string | null): BookRecord {
     const book = this.database.updateBookMetadata(bookId, title, author)
-    if (!book) throw new AppError('BOOK_NOT_FOUND', '找不到这本书。')
+    if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     return book
   }
 
   updateBookProgress(bookId: string, locator: string, progress: number): void {
     if (!this.database.updateBookProgress(bookId, locator, progress, new Date().toISOString())) {
-      throw new AppError('BOOK_NOT_FOUND', '找不到这本书。')
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     }
   }
 
   listInsights(bookId: string): SavedInsight[] {
     if (!this.database.getStoredBook(bookId)) {
-      throw new AppError('BOOK_NOT_FOUND', '找不到这本书。')
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     }
     return this.database.listInsights(bookId)
   }
 
   saveInsight(input: SaveInsightInput): SavedInsight {
     if (!this.database.getStoredBook(input.bookId)) {
-      throw new AppError('BOOK_NOT_FOUND', '找不到这本书。')
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     }
     return this.database.insertInsight(randomUUID(), input, new Date().toISOString())
   }
@@ -307,7 +308,7 @@ export class LibraryService {
     const candidate = resolve(join(root, storedName))
     const pathWithinRoot = relative(root, candidate)
     if (!pathWithinRoot || pathWithinRoot.startsWith('..') || isAbsolute(pathWithinRoot)) {
-      throw new AppError('INVALID_STORAGE_PATH', '书籍存储路径无效。')
+      throw new AppError('INVALID_STORAGE_PATH', copy('error.storagePath'))
     }
     return candidate
   }

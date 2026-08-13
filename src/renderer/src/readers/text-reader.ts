@@ -1,4 +1,5 @@
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
+import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
 import { normalizeReadingPreferences, readingPreferencesEqual } from './reading-preferences'
 import type {
@@ -132,7 +133,7 @@ function titleFromParagraphs(paragraphs: ParsedTextParagraph[]): string {
   if (!first.includes('\n') && codePointLength(first) <= 100) {
     return cleanHeading(first)
   }
-  return 'TXT 文档'
+  return copy('reader.txtDefaultTitle')
 }
 
 export class TextReaderAdapter implements ReaderAdapter {
@@ -168,7 +169,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.textCharacters = Array.from(this.text)
     const parsedParagraphs = parseTextParagraphs(this.text)
     if (parsedParagraphs.length === 0) {
-      throw new Error('TXT 文件不包含可阅读的文本')
+      throw new Error(copy('reader.txtEmpty'))
     }
 
     this.host.style.overflowY = 'auto'
@@ -227,7 +228,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.host.addEventListener('scroll', this.handleScroll, { passive: true })
 
     const toc: TocItem[] = this.chapters
-      .filter((chapter) => this.chapters.length === 1 || chapter.title !== '开篇')
+      .filter((chapter) => this.chapters.length === 1 || chapter.title !== copy('reader.txtOpening'))
       .map((chapter, index) => ({
         id: `txt-toc-${index + 1}`,
         label: chapter.title,
@@ -256,12 +257,12 @@ export class TextReaderAdapter implements ReaderAdapter {
   async goTo(anchor: string): Promise<void> {
     const parsed = parseTextAnchor(anchor, this.textCharacters.length)
     if (!parsed) {
-      throw new Error('无效的 TXT 定位锚点')
+      throw new Error(copy('reader.txtInvalidAnchor'))
     }
 
     const paragraph = this.findParagraphAt(parsed.start)
     if (!paragraph) {
-      throw new Error('TXT 定位锚点不在当前文档中')
+      throw new Error(copy('reader.txtAnchorOutside'))
     }
 
     if (typeof paragraph.element.scrollIntoView === 'function') {
@@ -283,12 +284,12 @@ export class TextReaderAdapter implements ReaderAdapter {
   async highlight(anchor: string): Promise<void> {
     const parsed = parseTextAnchor(anchor, this.textCharacters.length)
     if (!parsed || parsed.end <= parsed.start) {
-      throw new Error('无效的 TXT 高亮锚点')
+      throw new Error(copy('reader.txtInvalidHighlight'))
     }
     const startParagraph = this.findParagraphAt(parsed.start)
     const endParagraph = this.findParagraphAt(Math.max(parsed.start, parsed.end - 1))
     if (!startParagraph || !endParagraph || parsed.end > endParagraph.end) {
-      throw new Error('TXT 高亮锚点不在当前文档中')
+      throw new Error(copy('reader.txtHighlightOutside'))
     }
 
     this.clearHighlight()
@@ -477,7 +478,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     if (!hasHeadings) {
       return [
         {
-          title: '全文',
+          title: copy('reader.txtFullText'),
           start: paragraphs[0].start,
           paragraphIndexes: paragraphs.map((paragraph) => paragraph.index)
         }
@@ -488,7 +489,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     for (const paragraph of paragraphs) {
       if (paragraph.heading || chapters.length === 0) {
         chapters.push({
-          title: paragraph.heading ? cleanHeading(paragraph.text) : '开篇',
+          title: paragraph.heading ? cleanHeading(paragraph.text) : copy('reader.txtOpening'),
           start: paragraph.start,
           paragraphIndexes: []
         })

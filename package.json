@@ -14,7 +14,8 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build:app": "electron-vite build",
+    "copy:check": "vitest run tests/unit/ui-copy.test.ts",
+    "build:app": "pnpm copy:check && electron-vite build",
     "build:win": "pnpm build:app && electron-builder --win nsis",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

@@ -6,6 +6,7 @@ import type {
   Passage,
   SelectionContext
 } from '@shared/contracts'
+import { copy } from '@shared/copy'
 import { AppError, toPublicError } from './errors'
 
 const PRIMARY_CONTEXT_LIMIT = 6_000
@@ -152,7 +153,7 @@ export function buildChatCompletionsUrl(baseUrl: string): string {
   try {
     url = new URL(baseUrl)
   } catch (error) {
-    throw new AppError('INVALID_BASE_URL', 'Base URL 无效。', false, { cause: error })
+    throw new AppError('INVALID_BASE_URL', copy('error.baseUrlInvalid'), false, { cause: error })
   }
   const hostname = url.hostname.toLowerCase()
   const localHttpHost = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)
@@ -162,7 +163,7 @@ export function buildChatCompletionsUrl(baseUrl: string): string {
     url.username ||
     url.password
   ) {
-    throw new AppError('INVALID_BASE_URL', 'Base URL 必须是不含账号信息的 HTTP(S) 地址。')
+    throw new AppError('INVALID_BASE_URL', copy('error.baseUrlUnsafe'))
   }
   url.search = ''
   url.hash = ''
@@ -179,13 +180,13 @@ export function buildChatCompletionsUrl(baseUrl: string): string {
 
 export async function readSafeErrorStatus(response: Response): Promise<string> {
   const messages: Record<number, string> = {
-    400: '请求被模型服务拒绝（400）。',
-    401: 'API Key 无效或无权访问（401）。',
-    403: '模型服务拒绝访问（403）。',
-    404: '找不到接口或模型（404）。',
-    429: '请求过于频繁或配额不足（429）。'
+    400: copy('error.http400'),
+    401: copy('error.http401'),
+    403: copy('error.http403'),
+    404: copy('error.http404'),
+    429: copy('error.http429')
   }
-  return messages[response.status] ?? `模型服务返回错误（${response.status}）。`
+  return messages[response.status] ?? copy('error.httpOther', { status: response.status })
 }
 
 async function readResponseTextBounded(
@@ -207,7 +208,7 @@ async function readResponseTextBounded(
     if (value.byteLength > remaining) {
       if (!truncate) {
         void reader.cancel().catch(() => undefined)
-        throw new AppError('RESPONSE_TOO_LARGE', '模型响应超过本地处理上限。')
+        throw new AppError('RESPONSE_TOO_LARGE', copy('error.responseTooLarge'))
       }
       if (remaining > 0) text += decoder.decode(value.subarray(0, remaining), { stream: true })
       void reader.cancel().catch(() => undefined)
@@ -290,14 +291,14 @@ async function parseJsonCompletion(response: Response, emit: (event: LlmEventPay
     parsed = JSON.parse(await readResponseTextBounded(response, MAX_RAW_RESPONSE_BYTES)) as unknown
   } catch (error) {
     if (error instanceof AppError) throw error
-    throw new AppError('INVALID_PROVIDER_RESPONSE', '模型服务返回了无效 JSON。', true, { cause: error })
+    throw new AppError('INVALID_PROVIDER_RESPONSE', copy('error.providerInvalidJson'), true, { cause: error })
   }
   const completion = parseCompletionObject(parsed)
   if (!completion.delta) {
-    throw new AppError('EMPTY_PROVIDER_RESPONSE', '模型服务未返回文本。', true)
+    throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyText'), true)
   }
   if (unicodeLength(completion.delta) > MAX_RESPONSE_CHARACTERS) {
-    throw new AppError('RESPONSE_TOO_LARGE', '模型回答超过本地显示上限。')
+    throw new AppError('RESPONSE_TOO_LARGE', copy('error.answerTooLarge'))
   }
   emit({ type: 'delta', delta: completion.delta })
   if (completion.usage) emit({ type: 'usage', usage: completion.usage })
@@ -309,7 +310,7 @@ async function parseSseCompletion(
   emit: (event: LlmEventPayload) => void
 ): Promise<string | undefined> {
   if (!response.body) {
-    throw new AppError('EMPTY_PROVIDER_RESPONSE', '模型服务未返回流。', true)
+    throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyStream'), true)
   }
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -339,7 +340,7 @@ async function parseSseCompletion(
     if (completion.delta) {
       receivedCharacters += unicodeLength(completion.delta)
       if (receivedCharacters > MAX_RESPONSE_CHARACTERS) {
-        throw new AppError('RESPONSE_TOO_LARGE', '模型回答超过本地显示上限。')
+        throw new AppError('RESPONSE_TOO_LARGE', copy('error.answerTooLarge'))
       }
       emit({ type: 'delta', delta: completion.delta })
     }
@@ -352,13 +353,13 @@ async function parseSseCompletion(
       receivedBytes += value.byteLength
       if (receivedBytes > MAX_RAW_RESPONSE_BYTES) {
         void reader.cancel().catch(() => undefined)
-        throw new AppError('RESPONSE_TOO_LARGE', '模型响应超过本地处理上限。')
+        throw new AppError('RESPONSE_TOO_LARGE', copy('error.responseTooLarge'))
       }
     }
     buffer += decoder.decode(value, { stream: !done })
     if (buffer.length > MAX_RAW_RESPONSE_BYTES) {
       void reader.cancel().catch(() => undefined)
-      throw new AppError('RESPONSE_TOO_LARGE', '模型流式事件超过本地处理上限。')
+      throw new AppError('RESPONSE_TOO_LARGE', copy('error.streamEventTooLarge'))
     }
     const lines = buffer.split(/\r?\n/)
     buffer = done ? '' : (lines.pop() ?? '')
@@ -369,10 +370,10 @@ async function parseSseCompletion(
     }
   }
   if (receivedCharacters === 0) {
-    throw new AppError('EMPTY_PROVIDER_RESPONSE', '模型服务未返回文本。', true)
+    throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyText'), true)
   }
   if (!streamCompleted) {
-    throw new AppError('STREAM_INTERRUPTED', '模型流式回答意外中断，请重试。', true)
+    throw new AppError('STREAM_INTERRUPTED', copy('error.streamInterrupted'), true)
   }
   return model
 }
@@ -387,7 +388,7 @@ export class LlmService {
 
   start(request: LlmRequest, emitEvent: (event: LlmEvent) => void): void {
     if (this.active.has(request.requestId)) {
-      throw new AppError('DUPLICATE_REQUEST', '已存在相同 ID 的模型请求。')
+      throw new AppError('DUPLICATE_REQUEST', copy('error.duplicateRequest'))
     }
     const active: ActiveRequest = { controller: new AbortController(), cancelled: false, timedOut: false }
     this.active.set(request.requestId, active)
@@ -426,9 +427,9 @@ export class LlmService {
       emit({ type: 'completed', model })
     } catch (error) {
       if (active.cancelled) {
-        emit({ type: 'error', code: 'CANCELLED', message: '已取消回答。', retryable: false })
+        emit({ type: 'error', code: 'CANCELLED', message: copy('error.answerCancelled'), retryable: false })
       } else if (active.timedOut || (error as Error).name === 'AbortError') {
-        emit({ type: 'error', code: 'TIMEOUT', message: '模型请求超时。', retryable: true })
+        emit({ type: 'error', code: 'TIMEOUT', message: copy('error.requestTimeout'), retryable: true })
       } else {
         const safe = toPublicError(error)
         emit({ type: 'error', code: safe.code, message: safe.message, retryable: safe.retryable })

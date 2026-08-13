@@ -6,6 +6,7 @@ import ePub, {
   type Rendition
 } from 'epubjs'
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
+import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
 import { normalizeReadingPreferences, readingPreferencesEqual } from './reading-preferences'
 import type {
@@ -67,7 +68,7 @@ function normalizeHref(value: string): string {
 function flattenToc(items: NavItem[], depth = 0, output: TocItem[] = []): TocItem[] {
   for (const item of items) {
     if (isSafeInternalHref(item.href)) {
-      const label = item.label.replace(/\s+/gu, ' ').trim() || '未命名章节'
+      const label = item.label.replace(/\s+/gu, ' ').trim() || copy('reader.epubUntitledChapter')
       output.push({
         id: item.id || `epub-toc-${output.length + 1}`,
         label,
@@ -241,7 +242,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   async open(bytes: Uint8Array, lastLocator?: string | null): Promise<ReaderDocumentInfo> {
     this.resetDocument()
     if (bytes.byteLength === 0) {
-      throw new Error('EPUB 文件为空')
+      throw new Error(copy('reader.epubEmpty'))
     }
 
     const book = ePub(Uint8Array.from(bytes).buffer)
@@ -295,7 +296,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
     return {
       metadata: {
-        title: metadata.title?.trim() || '未命名 EPUB',
+        title: metadata.title?.trim() || copy('reader.epubUntitled'),
         author: metadata.creator?.trim() || null
       },
       toc: this.toc
@@ -309,12 +310,12 @@ export class EpubReaderAdapter implements ReaderAdapter {
   async goTo(anchor: string): Promise<void> {
     const rendition = this.requireRendition()
     if (!isEpubCfi(anchor) && !this.toc.some((item) => item.href === anchor)) {
-      throw new Error('无效或不受信任的 EPUB 定位锚点')
+      throw new Error(copy('reader.epubInvalidAnchor'))
     }
     try {
       await rendition.display(anchor)
     } catch {
-      throw new Error('EPUB 定位锚点无法解析')
+      throw new Error(copy('reader.epubAnchorFailed'))
     }
   }
 
@@ -324,7 +325,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
   async highlight(anchor: string): Promise<void> {
     if (!isEpubCfi(anchor)) {
-      throw new Error('无效的 EPUB 高亮锚点')
+      throw new Error(copy('reader.epubInvalidHighlight'))
     }
     const rendition = this.requireRendition()
     this.clearHighlight()
@@ -513,7 +514,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
         return match.label
       }
     }
-    return `第 ${sectionIndex + 1} 节`
+    return copy('reader.epubSection', { number: sectionIndex + 1 })
   }
 
   private setSelection(selection: SelectionContext | null): void {
@@ -530,7 +531,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
   private requireRendition(): Rendition {
     if (!this.rendition) {
-      throw new Error('EPUB 阅读器尚未打开文档')
+      throw new Error(copy('reader.epubNotOpen'))
     }
     return this.rendition
   }

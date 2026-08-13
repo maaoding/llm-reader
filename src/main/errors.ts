@@ -1,3 +1,5 @@
+import { copy } from '@shared/copy'
+
 export class AppError extends Error {
   constructor(
     readonly code: string,
@@ -15,5 +17,5 @@ export function toPublicError(error: unknown): AppError {
     return error
   }
 
-  return new AppError('INTERNAL_ERROR', '操作失败，请稍后重试。')
+  return new AppError('INTERNAL_ERROR', copy('error.internal'))
 }

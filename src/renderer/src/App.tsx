@@ -45,10 +45,12 @@ import type {
   LlmEvent,
   LlmUsage,
   ProviderSettings,
+  ProviderTestResult,
   SavedInsight,
   SelectionContext,
   TocItem
 } from '@shared/contracts'
+import { copy } from '@shared/copy'
 import {
   createReaderAdapter,
   DEFAULT_READING_PREFERENCES,
@@ -63,6 +65,16 @@ type TurnStatus = 'streaming' | 'completed' | 'error'
 type ThemePreference = 'light' | 'system' | 'dark'
 type ResolvedTheme = Exclude<ThemePreference, 'system'>
 type InterfaceScale = 90 | 100 | 110 | 125
+type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
+
+interface ProviderConnectionState {
+  status: ProviderConnectionStatus
+  message: string
+}
+
+interface ProviderCheckOutcome extends ProviderTestResult {
+  current: boolean
+}
 
 interface ConversationTurn {
   id: string
@@ -84,8 +96,8 @@ interface ToastState {
 }
 
 const ACTION_QUESTIONS: Record<Exclude<LlmAction, 'ask'>, string> = {
-  explain: '请用清晰、准确的语言解释这段内容。',
-  context: '请结合本章上下文说明这段内容的含义与作用。'
+  explain: copy('assistant.questionExplain'),
+  context: copy('assistant.questionContext')
 }
 
 const EMPTY_PROVIDER: ProviderSettings = {
@@ -99,10 +111,21 @@ const INTERFACE_SCALE_STORAGE_KEY = 'llm-reader.interface-scale'
 const READING_PREFERENCES_STORAGE_KEY = 'llm-reader.reading-preferences'
 
 const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; ariaLabel: string }> = [
-  { value: 'light', label: '浅色', ariaLabel: '使用浅色主题' },
-  { value: 'system', label: '跟随系统', ariaLabel: '跟随系统主题' },
-  { value: 'dark', label: '深色', ariaLabel: '使用深色主题' }
+  { value: 'light', label: copy('settings.themeLight'), ariaLabel: copy('settings.themeLightAria') },
+  { value: 'system', label: copy('settings.themeSystem'), ariaLabel: copy('settings.themeSystemAria') },
+  { value: 'dark', label: copy('settings.themeDark'), ariaLabel: copy('settings.themeDarkAria') }
 ]
+
+function providerIsConfigured(provider: ProviderSettings): boolean {
+  return Boolean(provider.baseUrl.trim() && provider.model.trim() && provider.hasApiKey)
+}
+
+function providerStatusLabel(status: ProviderConnectionStatus): string {
+  if (status === 'checking') return copy('provider.statusChecking')
+  if (status === 'connected') return copy('provider.statusConnected')
+  if (status === 'disconnected') return copy('provider.statusDisconnected')
+  return copy('provider.statusNotConfigured')
+}
 
 function isThemePreference(value: string | null): value is ThemePreference {
   return value === 'light' || value === 'system' || value === 'dark'
@@ -212,9 +235,9 @@ function formatDate(iso: string): string {
 }
 
 function actionLabel(action: LlmAction): string {
-  if (action === 'explain') return '解释这段'
-  if (action === 'context') return '联系上下文'
-  return '自由提问'
+  if (action === 'explain') return copy('assistant.actionExplain')
+  if (action === 'context') return copy('assistant.actionContext')
+  return copy('assistant.actionAsk')
 }
 
 function ProgressRing({ value }: { value: number }): ReactNode {
@@ -223,7 +246,7 @@ function ProgressRing({ value }: { value: number }): ReactNode {
     <span
       className="progress-ring"
       style={{ '--progress': `${normalized * 360}deg` } as CSSProperties}
-      aria-label={`阅读进度 ${Math.round(normalized * 100)}%`}
+      aria-label={copy('reader.progressAria', { percent: Math.round(normalized * 100) })}
       title={`${Math.round(normalized * 100)}%`}
     >
       <span />
@@ -267,8 +290,8 @@ function CitationText({
               const anchor = passages.get(passageId)
               if (!anchor) {
                 return (
-                  <span className="citation citation-unknown" title="该引用不在本次上下文中" key={partIndex}>
-                    {part}<small>未验证</small>
+                  <span className="citation citation-unknown" title={copy('assistant.citationUnknownTitle')} key={partIndex}>
+                    {part}<small>{copy('assistant.citationUnverified')}</small>
                   </span>
                 )
               }
@@ -277,7 +300,7 @@ function CitationText({
                   className="citation citation-valid"
                   key={partIndex}
                   type="button"
-                  title={`跳转到 ${passageId}`}
+                  title={copy('assistant.citationJumpTitle', { passageId })}
                   onClick={() => onNavigate(anchor)}
                 >
                   {part}
@@ -325,13 +348,13 @@ function ConversationPane({
     <>
       <div className="assistant-scroll">
         {!conversationSelection && turns.length === 0 && (
-          <EmptyState icon={<Sparkles size={21} />} title="选中原文，开始理解" detail="回答会结合当前选区及附近段落。" />
+          <EmptyState icon={<Sparkles size={21} />} title={copy('assistant.emptyTitle')} detail={copy('assistant.emptyDetail')} />
         )}
         {conversationSelection && (
           <div className="source-card">
-            <div className="source-card-header"><span>当前原文</span><small>{conversationSelection.chapterTitle || '当前章节'} · {selectedPassageCount} 段上下文</small></div>
+            <div className="source-card-header"><span>{copy('assistant.sourceTitle')}</span><small>{copy('assistant.sourceSummary', { chapter: conversationSelection.chapterTitle || copy('common.currentChapter'), count: selectedPassageCount })}</small></div>
             <blockquote>“{conversationSelection.quote}”</blockquote>
-            <button type="button" onClick={() => onNavigate(conversationSelection.anchor)}><ArrowLeft size={13} />回到原文</button>
+            <button type="button" onClick={() => onNavigate(conversationSelection.anchor)}><ArrowLeft size={13} />{copy('assistant.backToSource')}</button>
           </div>
         )}
         <div className="conversation-list" aria-live="polite">
@@ -341,15 +364,15 @@ function ConversationPane({
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
                 <div className="question-bubble"><span>{actionLabel(turn.action)}</span><p>{turn.question}</p></div>
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
-                  <div className="answer-label"><span><Sparkles size={13} /></span>阅读助手</div>
-                  {turn.answer && conversationSelection ? <CitationText text={turn.answer} selection={conversationSelection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>正在结合原文思考</span></div> : null}
-                  {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label="正在生成" />}
+                  <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
+                  {turn.answer && conversationSelection ? <CitationText text={turn.answer} selection={conversationSelection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
+                  {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
                   {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
                   {turn.status === 'completed' && (
                     <footer className="answer-footer">
-                      <span>{turn.model || provider.model || '已完成'}{turn.usage?.totalTokens ? ` · ${turn.usage.totalTokens} tokens` : ''}</span>
+                      <span>{turn.usage?.totalTokens ? copy('assistant.tokenUsage', { count: turn.usage.totalTokens }) : ''}</span>
                       <button data-testid={isLatest ? 'answer-save' : undefined} className={turn.saved ? 'is-saved' : ''} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
-                        {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? '已收藏' : '收藏'}
+                        {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
                       </button>
                     </footer>
                   )}
@@ -360,12 +383,11 @@ function ConversationPane({
         </div>
       </div>
       <div className="assistant-composer">
-        {activeRequestId && <button className="cancel-generation" data-testid="cancel-request" type="button" onClick={onCancel}><CircleStop size={14} />停止生成</button>}
+        {activeRequestId && <button className="cancel-generation" data-testid="cancel-request" type="button" onClick={onCancel}><CircleStop size={14} />{copy('assistant.stop')}</button>}
         <form onSubmit={onSubmit}>
-          <textarea data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={conversationSelection ? (turns.length ? '继续追问这段原文…' : '针对这段原文提问…') : '先在正文中选中一段内容'} disabled={!canAsk} rows={2} maxLength={2000} />
-          <button type="submit" aria-label="发送问题" disabled={!canAsk || !draft.trim()}><Send size={16} /></button>
+          <textarea data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} disabled={!canAsk} rows={2} maxLength={2000} />
+          <button type="submit" aria-label={copy('assistant.sendAria')} disabled={!canAsk || !draft.trim()}><Send size={16} /></button>
         </form>
-        <p>Enter 发送 · Shift + Enter 换行</p>
       </div>
     </>
   )
@@ -379,6 +401,7 @@ function SettingsModal({
   returnFocusRef,
   onClose,
   onSaved,
+  onTest,
   onThemeChange,
   onInterfaceScaleChange,
   onReadingPreferencesChange,
@@ -391,6 +414,7 @@ function SettingsModal({
   returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
   onSaved: (settings: ProviderSettings) => void
+  onTest: (settings: ProviderSettings) => Promise<ProviderCheckOutcome>
   onThemeChange: (preference: ThemePreference) => void
   onInterfaceScaleChange: (scale: InterfaceScale) => void
   onReadingPreferencesChange: (preferences: ReadingPreferences) => void
@@ -403,8 +427,18 @@ function SettingsModal({
   const [preferenceStatus, setPreferenceStatus] = useState('')
   const keyRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
+  const mountedRef = useRef(true)
+  const testSequenceRef = useRef(0)
 
   useDialogFocus(true, onClose, dialogRef, returnFocusRef)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      testSequenceRef.current += 1
+    }
+  }, [])
 
   const announcePreference = (message: string): void => {
     setPreferenceStatus(message)
@@ -418,7 +452,6 @@ function SettingsModal({
       ...(key ? { apiKey: key } : {})
     })
     if (keyRef.current) keyRef.current.value = ''
-    onSaved(saved)
     return saved
   }
 
@@ -427,28 +460,38 @@ function SettingsModal({
     setBusy('save')
     setStatus(null)
     try {
-      await persist()
-      pushToast('模型设置已安全保存', 'success')
-      onClose()
+      const saved = await persist()
+      onSaved(saved)
+      if (mountedRef.current) {
+        pushToast(copy('settings.savedToast'), 'success')
+        onClose()
+      }
     } catch (error) {
-      setStatus({ ok: false, message: readableError(error, '保存失败，请检查输入。') })
+      if (mountedRef.current) {
+        setStatus({ ok: false, message: readableError(error, copy('settings.saveFailed')) })
+      }
     } finally {
-      setBusy(null)
+      if (mountedRef.current) setBusy(null)
     }
   }
 
   const handleTest = async (): Promise<void> => {
+    const sequence = testSequenceRef.current + 1
+    testSequenceRef.current = sequence
     setBusy('test')
     setStatus(null)
     try {
-      await persist()
-      const result = await window.readerApi.testProvider()
+      const saved = await persist()
+      const result = await onTest(saved)
+      if (!mountedRef.current || sequence !== testSequenceRef.current || !result.current) return
       setStatus(result)
-      if (result.ok) pushToast('模型连接正常', 'success')
+      if (result.ok) pushToast(copy('settings.testSuccessToast'), 'success')
     } catch (error) {
-      setStatus({ ok: false, message: readableError(error, '连接失败，请检查地址、模型与密钥。') })
+      if (mountedRef.current && sequence === testSequenceRef.current) {
+        setStatus({ ok: false, message: readableError(error, copy('settings.testFailed')) })
+      }
     } finally {
-      setBusy(null)
+      if (mountedRef.current && sequence === testSequenceRef.current) setBusy(null)
     }
   }
 
@@ -457,20 +500,20 @@ function SettingsModal({
       <section ref={dialogRef} className="settings-modal" data-testid="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="modal-header">
           <div>
-            <span className="eyebrow">LLM READER</span>
-            <h2 id="settings-title">设置</h2>
+            <span className="eyebrow">{copy('app.name')}</span>
+            <h2 id="settings-title">{copy('settings.title')}</h2>
           </div>
-          <button className="icon-button" data-testid="settings-close" type="button" onClick={onClose} aria-label="关闭设置">
+          <button className="icon-button" data-testid="settings-close" type="button" onClick={onClose} aria-label={copy('settings.closeAria')}>
             <X size={18} />
           </button>
         </header>
 
         <div className="settings-sections">
           <section className="settings-section" aria-labelledby="appearance-settings-title">
-            <h3 id="appearance-settings-title">外观</h3>
+            <h3 id="appearance-settings-title">{copy('settings.appearanceTitle')}</h3>
             <div className="settings-row">
-              <div><strong>主题</strong><small>跟随系统会响应系统外观变化</small></div>
-              <div className="theme-control" data-testid="theme-switcher" role="group" aria-label="界面主题">
+              <div><strong>{copy('settings.themeLabel')}</strong><small>{copy('settings.themeHint')}</small></div>
+              <div className="theme-control" data-testid="theme-switcher" role="group" aria-label={copy('settings.themeGroupAria')}>
                 <div className="theme-options">
                   {THEME_OPTIONS.map((option) => (
                     <button
@@ -480,7 +523,7 @@ function SettingsModal({
                       type="button"
                       aria-label={option.ariaLabel}
                       aria-pressed={themePreference === option.value}
-                      onClick={() => { onThemeChange(option.value); announcePreference(`主题已切换为${option.label}`) }}
+                      onClick={() => { onThemeChange(option.value); announcePreference(copy('settings.themeChanged', { theme: option.label })) }}
                     >
                       {option.label}
                     </button>
@@ -489,8 +532,8 @@ function SettingsModal({
               </div>
             </div>
             <div className="settings-row">
-              <div><strong>界面缩放</strong><small>不影响书籍正文字号</small></div>
-              <div className="segmented-control" data-testid="interface-scale" role="group" aria-label="界面缩放">
+              <div><strong>{copy('settings.scaleLabel')}</strong><small>{copy('settings.scaleHint')}</small></div>
+              <div className="segmented-control" data-testid="interface-scale" role="group" aria-label={copy('settings.scaleGroupAria')}>
                 {([90, 100, 110, 125] as const).map((scale) => (
                   <button
                     className={interfaceScale === scale ? 'is-active' : ''}
@@ -498,7 +541,7 @@ function SettingsModal({
                     key={scale}
                     type="button"
                     aria-pressed={interfaceScale === scale}
-                    onClick={() => { onInterfaceScaleChange(scale); announcePreference(`界面缩放已设为 ${scale}%`) }}
+                    onClick={() => { onInterfaceScaleChange(scale); announcePreference(copy('settings.scaleChanged', { scale })) }}
                   >{scale}%</button>
                 ))}
               </div>
@@ -507,11 +550,11 @@ function SettingsModal({
 
           <section className="settings-section" aria-labelledby="reading-settings-title">
             <div className="settings-section-heading">
-              <h3 id="reading-settings-title">阅读</h3>
-              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }); announcePreference('阅读设置已恢复默认') }}>恢复默认</button>
+              <h3 id="reading-settings-title">{copy('settings.readingTitle')}</h3>
+              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }); announcePreference(copy('settings.readingRestored')) }}>{copy('settings.restoreDefaults')}</button>
             </div>
             <label className="settings-range" htmlFor="reading-font-scale">
-              <span><strong>正文字号</strong><output>{readingPreferences.fontScale}%</output></span>
+              <span><strong>{copy('settings.fontLabel')}</strong><output>{readingPreferences.fontScale}%</output></span>
               <input
                 id="reading-font-scale"
                 data-testid="reading-font-scale"
@@ -519,46 +562,48 @@ function SettingsModal({
                 min="80"
                 max="140"
                 step="5"
-                aria-label="正文字号"
+                aria-label={copy('settings.fontAria')}
                 value={readingPreferences.fontScale}
-                onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, fontScale: Number(event.target.value) }); announcePreference(`正文字号已设为 ${event.target.value}%`) }}
+                onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, fontScale: Number(event.target.value) }); announcePreference(copy('settings.fontChanged', { scale: event.target.value })) }}
               />
             </label>
             <div className="settings-select-grid">
-              <label htmlFor="reading-line-height"><span>行间距</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] }); announcePreference('行间距已更新') }}><option value="original">跟随原书 / 默认</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
-              <label htmlFor="reading-indent"><span>首行缩进</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] }); announcePreference('首行缩进已更新') }}><option value="original">跟随原书 / 默认</option><option value="none">无缩进</option><option value="2em">2em</option></select></label>
+              <label htmlFor="reading-line-height"><span>{copy('settings.lineHeight')}</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] }); announcePreference(copy('settings.lineHeightUpdated')) }}><option value="original">{copy('settings.followBookDefault')}</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
+              <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] }); announcePreference(copy('settings.indentUpdated')) }}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
             </div>
           </section>
 
           <section className="settings-section" aria-labelledby="model-settings-title">
-            <h3 id="model-settings-title">模型</h3>
+            <h3 id="model-settings-title">{copy('settings.modelTitle')}</h3>
             <form onSubmit={handleSave}>
-          <label className="field-label" htmlFor="provider-base-url">Base URL</label>
+          <label className="field-label" htmlFor="provider-base-url">{copy('settings.baseUrlLabel')}</label>
           <input
             id="provider-base-url"
             data-testid="provider-base-url"
             value={baseUrl}
             onChange={(event) => setBaseUrl(event.target.value)}
-            placeholder="https://api.openai.com"
+            disabled={busy !== null}
+            placeholder={copy('settings.baseUrlPlaceholder')}
             spellCheck={false}
             required
           />
-          <p className="field-hint">应用会请求此地址下的 <code>/v1/chat/completions</code>。</p>
+          <p className="field-hint">{copy('settings.baseUrlHint', { path: '/v1/chat/completions' })}</p>
 
-          <label className="field-label" htmlFor="provider-model">Model</label>
+          <label className="field-label" htmlFor="provider-model">{copy('settings.modelLabel')}</label>
           <input
             id="provider-model"
             data-testid="provider-model"
             value={model}
             onChange={(event) => setModel(event.target.value)}
-            placeholder="例如 gpt-5-mini"
+            disabled={busy !== null}
+            placeholder={copy('settings.modelPlaceholder')}
             spellCheck={false}
             required
           />
 
           <div className="label-row">
-            <label className="field-label" htmlFor="provider-api-key">API Key</label>
-            {initial.hasApiKey && <span className="saved-key"><Check size={12} /> 已安全保存</span>}
+            <label className="field-label" htmlFor="provider-api-key">{copy('settings.apiKeyLabel')}</label>
+            {initial.hasApiKey && <span className="saved-key"><Check size={12} /> {copy('settings.apiKeySaved')}</span>}
           </div>
           <input
             id="provider-api-key"
@@ -566,9 +611,10 @@ function SettingsModal({
             ref={keyRef}
             type="password"
             autoComplete="off"
-            placeholder={initial.hasApiKey ? '留空以继续使用已保存的密钥' : '输入 API Key'}
+            disabled={busy !== null}
+            placeholder={initial.hasApiKey ? copy('settings.apiKeyPlaceholderSaved') : copy('settings.apiKeyPlaceholderEmpty')}
           />
-          <p className="field-hint">密钥只交给主进程加密保存，不写入书库数据库。</p>
+          <p className="field-hint">{copy('settings.apiKeyHint')}</p>
 
           {status && (
             <div className={`provider-status ${status.ok ? 'is-success' : 'is-error'}`} data-testid="provider-status" role="status">
@@ -586,7 +632,7 @@ function SettingsModal({
               onClick={handleTest}
             >
               {busy === 'test' ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}
-              测试连接
+              {copy('settings.testConnection')}
             </button>
             <button
               className="primary-button"
@@ -595,7 +641,7 @@ function SettingsModal({
               disabled={busy !== null || !baseUrl.trim() || !model.trim()}
             >
               {busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
-              保存设置
+              {copy('settings.save')}
             </button>
           </footer>
             </form>
@@ -634,6 +680,10 @@ export default function App(): ReactNode {
   const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
+  const [providerConnection, setProviderConnection] = useState<ProviderConnectionState>({
+    status: 'not-configured',
+    message: providerStatusLabel('not-configured')
+  })
   const [toast, setToast] = useState<ToastState | null>(null)
 
   const hostRef = useRef<HTMLDivElement>(null)
@@ -653,6 +703,9 @@ export default function App(): ReactNode {
   const assistantDialogRef = useRef<HTMLElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
   const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const providerRevisionRef = useRef(0)
+  const providerCheckSequenceRef = useRef(0)
+  const requestProviderRevisionRef = useRef(new Map<string, number>())
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const closeAssistantDialog = useCallback(() => setAssistantDialogOpen(false), [])
@@ -709,6 +762,56 @@ export default function App(): ReactNode {
     toastTimerRef.current = setTimeout(() => setToast(null), 3200)
   }, [])
 
+  const commitProviderSettings = useCallback((settings: ProviderSettings): number => {
+    const revision = providerRevisionRef.current + 1
+    providerRevisionRef.current = revision
+    providerCheckSequenceRef.current += 1
+    setProvider(settings)
+    const status: ProviderConnectionStatus = providerIsConfigured(settings) ? 'checking' : 'not-configured'
+    setProviderConnection({ status, message: providerStatusLabel(status) })
+    return revision
+  }, [])
+
+  const runProviderCheck = useCallback(async (revision: number): Promise<ProviderCheckOutcome> => {
+    const sequence = providerCheckSequenceRef.current + 1
+    providerCheckSequenceRef.current = sequence
+    if (revision === providerRevisionRef.current) {
+      setProviderConnection({ status: 'checking', message: providerStatusLabel('checking') })
+    }
+    let result: ProviderTestResult
+    try {
+      result = await window.readerApi.testProvider()
+    } catch (error) {
+      result = { ok: false, message: readableError(error, copy('provider.backgroundTestFailed')) }
+    }
+    const current = revision === providerRevisionRef.current && sequence === providerCheckSequenceRef.current
+    if (current) {
+      const status: ProviderConnectionStatus = result.ok ? 'connected' : 'disconnected'
+      setProviderConnection({ status, message: result.message || providerStatusLabel(status) })
+    }
+    return { ...result, current }
+  }, [])
+
+  const handleProviderSaved = useCallback((settings: ProviderSettings): void => {
+    const revision = commitProviderSettings(settings)
+    if (!providerIsConfigured(settings)) return
+    const check = runProviderCheck(revision)
+    const sequence = providerCheckSequenceRef.current
+    void check.then((result) => {
+      if (!result.ok && revision === providerRevisionRef.current && sequence === providerCheckSequenceRef.current) {
+        pushToast(result.message || copy('provider.backgroundTestFailed'), 'error')
+      }
+    })
+  }, [commitProviderSettings, pushToast, runProviderCheck])
+
+  const handleProviderTest = useCallback(async (settings: ProviderSettings): Promise<ProviderCheckOutcome> => {
+    const revision = commitProviderSettings(settings)
+    if (!providerIsConfigured(settings)) {
+      return { ok: false, message: providerStatusLabel('not-configured'), current: true }
+    }
+    return runProviderCheck(revision)
+  }, [commitProviderSettings, runProviderCheck])
+
   useEffect(() => {
     readingPreferencesRef.current = readingPreferences
     try {
@@ -721,7 +824,7 @@ export default function App(): ReactNode {
     preferencesTimerRef.current = setTimeout(() => {
       preferencesTimerRef.current = null
       void adapterRef.current?.setPreferences(readingPreferences).catch((error) => {
-        pushToast(readableError(error, '无法应用阅读设置。'), 'error')
+        pushToast(readableError(error, copy('reader.preferencesFailed')), 'error')
       })
     }, 220)
     return () => {
@@ -739,7 +842,7 @@ export default function App(): ReactNode {
       return records
     } catch (error) {
       setLibraryState('error')
-      setLibraryError(readableError(error, '无法读取本地书库。'))
+      setLibraryError(readableError(error, copy('library.readFailed')))
       return []
     }
   }, [])
@@ -750,7 +853,7 @@ export default function App(): ReactNode {
       const records = await window.readerApi.listInsights(bookId)
       if (activeBookRef.current?.id === bookId) setInsights(records)
     } catch (error) {
-      pushToast(readableError(error, '无法读取收藏。'), 'error')
+      pushToast(readableError(error, copy('insights.readFailed')), 'error')
     } finally {
       setInsightsLoading(false)
     }
@@ -855,7 +958,7 @@ export default function App(): ReactNode {
       adapterRef.current = null
       if (hostRef.current) hostRef.current.replaceChildren()
       setBookState('error')
-      setBookError(readableError(error, '无法打开这本书。文件可能已损坏或包含 DRM。'))
+      setBookError(readableError(error, copy('reader.openFailed')))
     }
   }, [destroyReader, refreshInsights, scheduleProgress])
 
@@ -864,15 +967,16 @@ export default function App(): ReactNode {
     const initialize = async (): Promise<void> => {
       if (!window.readerApi) {
         setLibraryState('error')
-        setLibraryError('应用安全桥接未能加载。请重新启动 LLM Reader。')
+        setLibraryError(copy('reader.bridgeFailed'))
         return
       }
       const [, settings] = await Promise.all([
         refreshBooks(),
         window.readerApi.getProviderSettings().catch(() => EMPTY_PROVIDER)
       ])
-      if (!alive) return
-      setProvider(settings)
+      if (!alive || providerRevisionRef.current !== 0) return
+      const revision = commitProviderSettings(settings)
+      if (providerIsConfigured(settings)) void runProviderCheck(revision)
     }
     void initialize()
     return () => {
@@ -883,7 +987,7 @@ export default function App(): ReactNode {
       destroyReader()
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
-  }, [destroyReader, refreshBooks])
+  }, [commitProviderSettings, destroyReader, refreshBooks, runProviderCheck])
 
   useEffect(() => {
     if (!window.readerApi) return undefined
@@ -896,6 +1000,17 @@ export default function App(): ReactNode {
         return { ...turn, status: 'error', error: event.message }
       }))
       if (event.type === 'completed' || event.type === 'error') {
+        const requestRevision = requestProviderRevisionRef.current.get(event.requestId)
+        if (requestRevision === providerRevisionRef.current) {
+          if (event.type === 'completed') {
+            providerCheckSequenceRef.current += 1
+            setProviderConnection({ status: 'connected', message: providerStatusLabel('connected') })
+          } else if (event.code !== 'CANCELLED') {
+            providerCheckSequenceRef.current += 1
+            setProviderConnection({ status: 'disconnected', message: event.message })
+          }
+        }
+        requestProviderRevisionRef.current.delete(event.requestId)
         if (activeRequestRef.current === event.requestId) {
           activeRequestRef.current = null
           setActiveRequestId(null)
@@ -923,10 +1038,10 @@ export default function App(): ReactNode {
       const result = await window.readerApi.importBook()
       if (!result) return
       await refreshBooks()
-      pushToast(result.duplicate ? '这本书已在书库中，已为你打开。' : '书籍已导入本地书库。', result.duplicate ? 'neutral' : 'success')
+      pushToast(result.duplicate ? copy('library.duplicateToast') : copy('library.importedToast'), result.duplicate ? 'neutral' : 'success')
       await openBook(result.book)
     } catch (error) {
-      pushToast(readableError(error, '导入失败。仅支持无 DRM 的 EPUB 与 UTF-8 TXT。'), 'error')
+      pushToast(readableError(error, copy('library.importFailed')), 'error')
     } finally {
       setImporting(false)
     }
@@ -934,19 +1049,11 @@ export default function App(): ReactNode {
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
-        event.preventDefault()
-        void importBook()
-      }
-      if ((event.ctrlKey || event.metaKey) && event.key === ',') {
-        event.preventDefault()
-        setSettingsOpen(true)
-      }
       if (event.key === 'Escape' && !settingsOpen && !assistantDialogOpen) setSelection(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [assistantDialogOpen, importBook, settingsOpen])
+  }, [assistantDialogOpen, settingsOpen])
 
   const startRequest = useCallback(async (action: LlmAction, question: string, sourceSelection?: SelectionContext): Promise<void> => {
     const context = sourceSelection ?? conversationSelection ?? selection
@@ -962,7 +1069,7 @@ export default function App(): ReactNode {
       action,
       question: cleanQuestion,
       answer: '',
-      model: '',
+      model: provider.model,
       status: 'streaming'
     }
 
@@ -973,6 +1080,8 @@ export default function App(): ReactNode {
     setRightView('assistant')
     setActiveRequestId(requestId)
     activeRequestRef.current = requestId
+    const providerRevision = providerRevisionRef.current
+    requestProviderRevisionRef.current.set(requestId, providerRevision)
 
     try {
       await window.readerApi.startLlm({
@@ -986,12 +1095,17 @@ export default function App(): ReactNode {
         ])
       })
     } catch (error) {
-      const message = readableError(error, '请求未能启动，请检查模型设置。')
+      const message = readableError(error, copy('error.requestStartFailed'))
       setTurns((current) => current.map((item) => item.requestId === requestId ? { ...item, status: 'error', error: message } : item))
       activeRequestRef.current = null
       setActiveRequestId(null)
+      requestProviderRevisionRef.current.delete(requestId)
+      if (providerRevision === providerRevisionRef.current) {
+        providerCheckSequenceRef.current += 1
+        setProviderConnection({ status: 'disconnected', message })
+      }
     }
-  }, [conversationSelection, selection, turns])
+  }, [conversationSelection, provider.model, selection, turns])
 
   const handleSelectionAction = (action: LlmAction): void => {
     if (!selection) return
@@ -1016,7 +1130,7 @@ export default function App(): ReactNode {
       setTurns((current) => current.map((turn) => turn.requestId === requestId ? {
         ...turn,
         status: 'error',
-        error: turn.answer ? '已停止生成' : '请求已取消'
+        error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty')
       } : turn))
       activeRequestRef.current = null
       setActiveRequestId(null)
@@ -1048,7 +1162,7 @@ export default function App(): ReactNode {
         highlightTimerRef.current = null
       }, 2_800)
     } catch (error) {
-      pushToast(readableError(error, '无法跳转到这处原文。'), 'error')
+      pushToast(readableError(error, copy('reader.navigateSourceFailed')), 'error')
     }
   }, [pushToast])
 
@@ -1063,7 +1177,7 @@ export default function App(): ReactNode {
       adapter.clearHighlight()
       await adapter.goTo(href)
     } catch (error) {
-      pushToast(readableError(error, '无法跳转到这个章节。'), 'error')
+      pushToast(readableError(error, copy('reader.navigateChapterFailed')), 'error')
     }
   }, [pushToast])
 
@@ -1077,9 +1191,9 @@ export default function App(): ReactNode {
         setTurns((current) => current.map((turn) => turn.question === target.question && turn.answer === target.answer ? { ...turn, saved: false } : turn))
       }
       if (!deleted && activeBook) void refreshInsights(activeBook.id)
-      pushToast(deleted ? '已取消收藏。' : '这条收藏已不存在。', 'neutral')
+      pushToast(deleted ? copy('insights.removed') : copy('insights.alreadyRemoved'), 'neutral')
     } catch (error) {
-      pushToast(readableError(error, '取消收藏失败。'), 'error')
+      pushToast(readableError(error, copy('insights.removeFailed')), 'error')
     }
   }
 
@@ -1095,9 +1209,9 @@ export default function App(): ReactNode {
       })
       setTurns((current) => current.map((item) => item.id === turn.id ? { ...item, saved: true } : item))
       await refreshInsights(activeBook.id)
-      pushToast('已收藏，并保留原文位置。', 'success')
+      pushToast(copy('insights.savedToast'), 'success')
     } catch (error) {
-      pushToast(readableError(error, '收藏失败。'), 'error')
+      pushToast(readableError(error, copy('insights.saveFailed')), 'error')
     }
   }
 
@@ -1124,16 +1238,16 @@ export default function App(): ReactNode {
       <aside className="left-sidebar">
         <header className="brand-row">
           <div className="brand-copy">
-            <strong>LLM Reader</strong>
+            <strong>{copy('app.name')}</strong>
           </div>
         </header>
 
-        <nav className="sidebar-tabs" aria-label="书籍导航">
+        <nav className="sidebar-tabs" aria-label={copy('library.navAria')}>
           <button className={leftView === 'library' ? 'is-active' : ''} type="button" onClick={() => setLeftView('library')}>
-            <Library size={15} />书库<span>{books.length}</span>
+            <Library size={15} />{copy('library.tabLibrary')}<span>{books.length}</span>
           </button>
           <button className={leftView === 'toc' ? 'is-active' : ''} type="button" onClick={() => setLeftView('toc')} disabled={!activeBook}>
-            <PanelLeftClose size={15} />目录
+            <PanelLeftClose size={15} />{copy('library.tabToc')}
           </button>
         </nav>
 
@@ -1141,18 +1255,18 @@ export default function App(): ReactNode {
           {leftView === 'library' && (
             <div className="library-list" data-testid="library-list">
               {libraryState === 'loading' && (
-                <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> 正在读取书库</div>
+                <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('library.loading')}</div>
               )}
               {libraryState === 'error' && (
                 <EmptyState
                   icon={<AlertCircle size={20} />}
-                  title="书库暂不可用"
+                  title={copy('library.unavailableTitle')}
                   detail={libraryError}
-                  action={<button className="text-button" type="button" onClick={() => void refreshBooks()}><RefreshCw size={14} />重试</button>}
+                  action={<button className="text-button" type="button" onClick={() => void refreshBooks()}><RefreshCw size={14} />{copy('common.retry')}</button>}
                 />
               )}
               {libraryState === 'ready' && books.length === 0 && (
-                <EmptyState icon={<BookOpen size={20} />} title="书库为空" detail="可导入 EPUB 或 TXT。" />
+                <EmptyState icon={<BookOpen size={20} />} title={copy('library.emptyTitle')} detail={copy('library.emptyDetail')} />
               )}
               {books.map((book) => (
                 <button
@@ -1168,7 +1282,7 @@ export default function App(): ReactNode {
                   </span>
                   <span className="book-meta">
                     <strong title={book.title}>{book.title}</strong>
-                    <small>{book.author || (book.format === 'epub' ? 'EPUB 电子书' : 'TXT 文档')}</small>
+                    <small>{book.author || (book.format === 'epub' ? copy('library.epubDescription') : copy('library.txtDescription'))}</small>
                   </span>
                   <ProgressRing value={book.progress} />
                 </button>
@@ -1177,10 +1291,10 @@ export default function App(): ReactNode {
           )}
 
           {leftView === 'toc' && (
-            <div className="toc-list" aria-label="本书目录">
-              {bookState === 'loading' && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> 正在解析目录</div>}
+            <div className="toc-list" aria-label={copy('library.tocAria')}>
+              {bookState === 'loading' && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('library.tocLoading')}</div>}
               {bookState === 'ready' && toc.length === 0 && (
-                <EmptyState icon={<SearchX size={20} />} title="没有可用目录" detail="你仍可连续滚动阅读全文。" />
+                <EmptyState icon={<SearchX size={20} />} title={copy('library.tocEmptyTitle')} detail={copy('library.tocEmptyDetail')} />
               )}
               {visibleToc.map(({ item, index, hasChildren }) => (
                 <div className="toc-row" style={{ '--toc-depth': Math.min(item.depth, 3) } as CSSProperties} key={`${item.id}-${index}`}>
@@ -1189,7 +1303,7 @@ export default function App(): ReactNode {
                       className="toc-disclosure"
                       data-testid="toc-disclosure"
                       type="button"
-                      aria-label={`${collapsedTocItems.has(item.id) ? '展开' : '折叠'}${item.label}`}
+                      aria-label={copy(collapsedTocItems.has(item.id) ? 'library.tocExpandAria' : 'library.tocCollapseAria', { title: item.label })}
                       aria-expanded={!collapsedTocItems.has(item.id)}
                       onClick={() => setCollapsedTocItems((current) => {
                         const next = new Set(current)
@@ -1214,14 +1328,19 @@ export default function App(): ReactNode {
           {leftView === 'library' && (
             <button className="import-button" data-testid="import-book" type="button" onClick={() => void importBook()} disabled={importing}>
               {importing ? <LoaderCircle className="spin" size={17} /> : <Import size={17} />}
-              {importing ? '正在导入…' : '导入 EPUB / TXT'}
-              <kbd>Ctrl O</kbd>
+              <span>{importing ? copy('library.importing') : copy('library.import')}</span>
             </button>
           )}
           <button ref={settingsButtonRef} className="settings-entry" data-testid="settings-button" type="button" onClick={() => setSettingsOpen(true)}>
             <Settings size={16} />
-            <span>设置</span>
-            <i className={provider.hasApiKey && provider.model ? 'is-ready' : ''} />
+            <span>{copy('settings.title')}</span>
+            <i
+              className={`connection-status-dot is-${providerConnection.status}`}
+              data-testid="provider-connection-status"
+              role="status"
+              aria-label={providerStatusLabel(providerConnection.status)}
+              title={providerConnection.message || providerStatusLabel(providerConnection.status)}
+            />
           </button>
         </footer>
       </aside>
@@ -1234,41 +1353,41 @@ export default function App(): ReactNode {
                 <span className="format-chip">{activeBook.format.toUpperCase()}</span>
                 <div>
                   <h1>{activeBook.title}</h1>
-                  <p>{activeBook.author || '未知作者'}</p>
+                  <p>{activeBook.author || copy('common.unknownAuthor')}</p>
                 </div>
               </div>
               <div className="reading-progress">
-                <span>阅读进度</span>
+                <span>{copy('reader.progress')}</span>
                 <strong>{Math.round(activeBook.progress * 100)}%</strong>
                 <div><i style={{ width: `${Math.max(0, Math.min(100, activeBook.progress * 100))}%` }} /></div>
               </div>
             </>
           ) : (
-            <div className="reader-heading is-empty"><span className="visually-hidden">正文阅读区</span></div>
+            <div className="reader-heading is-empty"><span className="visually-hidden">{copy('reader.areaAria')}</span></div>
           )}
         </header>
 
         <section className={`reader-surface is-${bookState}`}>
-          <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label="正文阅读区" />
+          <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label={copy('reader.areaAria')} />
 
           {!activeBook && libraryState !== 'loading' && (
-            <div className="reader-overlay welcome-state" aria-label="尚未打开书籍"><span className="visually-hidden">从书库打开或导入一本书</span></div>
+            <div className="reader-overlay welcome-state" aria-label={copy('reader.emptyAria')}><span className="visually-hidden">{copy('reader.emptyText')}</span></div>
           )}
 
           {bookState === 'loading' && (
             <div className="reader-overlay loading-state">
               <LoaderCircle className="spin" size={25} />
-              <strong>正在打开《{activeBook?.title}》</strong>
-              <span>解析内容与上次阅读位置…</span>
+              <strong>{copy('reader.opening', { title: activeBook?.title ?? '' })}</strong>
+              <span>{copy('reader.openingDetail')}</span>
             </div>
           )}
 
           {bookState === 'error' && (
             <div className="reader-overlay error-state">
               <div className="empty-icon is-error"><AlertCircle size={22} /></div>
-              <strong>这本书暂时打不开</strong>
+              <strong>{copy('reader.openFailedTitle')}</strong>
               <p>{bookError}</p>
-              {activeBook && <button className="secondary-button" type="button" onClick={() => void openBook(activeBook)}><RefreshCw size={15} />重新打开</button>}
+              {activeBook && <button className="secondary-button" type="button" onClick={() => void openBook(activeBook)}><RefreshCw size={15} />{copy('reader.openAgain')}</button>}
             </div>
           )}
 
@@ -1277,14 +1396,14 @@ export default function App(): ReactNode {
               className="selection-toolbar"
               data-testid="selection-toolbar"
               role="toolbar"
-              aria-label="选区操作"
+              aria-label={copy('assistant.selectionToolbarAria')}
               onMouseDown={(event) => event.preventDefault()}
             >
               <span className="selection-spark"><Sparkles size={15} /></span>
-              <button data-testid="action-explain" type="button" onClick={() => handleSelectionAction('explain')}><Highlighter size={15} />解释这段</button>
-              <button data-testid="action-context" type="button" onClick={() => handleSelectionAction('context')}><BookOpen size={15} />联系上下文</button>
-              <button data-testid="action-ask" type="button" onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />自由提问</button>
-              <button className="toolbar-close" type="button" onClick={() => setSelection(null)} aria-label="关闭选区工具"><X size={14} /></button>
+              <button data-testid="action-explain" type="button" onClick={() => handleSelectionAction('explain')}><Highlighter size={15} />{copy('assistant.actionExplain')}</button>
+              <button data-testid="action-context" type="button" onClick={() => handleSelectionAction('context')}><BookOpen size={15} />{copy('assistant.actionContext')}</button>
+              <button data-testid="action-ask" type="button" onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />{copy('assistant.actionAsk')}</button>
+              <button className="toolbar-close" type="button" onClick={() => setSelection(null)} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
             </div>
           )}
         </section>
@@ -1292,14 +1411,14 @@ export default function App(): ReactNode {
 
       <aside className="right-sidebar" data-testid="ai-panel">
         <header className="assistant-header">
-          <div className="assistant-title"><span><Sparkles size={16} /></span><strong>阅读助手</strong></div>
-          <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label="展开详细对话" title="展开详细对话" onClick={() => setAssistantDialogOpen(true)}><Maximize2 size={17} /></button>
+          <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
+          <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => setAssistantDialogOpen(true)}><Maximize2 size={17} /></button>
         </header>
 
-        <nav className="assistant-tabs" aria-label="阅读助手视图">
-          <button className={rightView === 'assistant' ? 'is-active' : ''} type="button" onClick={() => setRightView('assistant')}>对话</button>
+        <nav className="assistant-tabs" aria-label={copy('assistant.viewsAria')}>
+          <button className={rightView === 'assistant' ? 'is-active' : ''} type="button" onClick={() => setRightView('assistant')}>{copy('assistant.tabConversation')}</button>
           <button className={rightView === 'insights' ? 'is-active' : ''} data-testid="insights-tab" type="button" onClick={() => setRightView('insights')}>
-            收藏{insights.length > 0 && <span>{insights.length}</span>}
+            {copy('assistant.tabInsights')}{insights.length > 0 && <span>{insights.length}</span>}
           </button>
         </nav>
 
@@ -1309,9 +1428,9 @@ export default function App(): ReactNode {
 
         {rightView === 'insights' && (
           <div className="insights-view">
-            {insightsLoading && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> 正在读取收藏</div>}
-            {!insightsLoading && !activeBook && <EmptyState icon={<Bookmark size={20} />} title="还没有打开书籍" detail="打开一本书后，这里会显示与它相关的收藏。" />}
-            {!insightsLoading && activeBook && insights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title="还没有收藏" detail="在回答下方点击“收藏”，即可保留答案和原文位置。" />}
+            {insightsLoading && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('insights.loading')}</div>}
+            {!insightsLoading && !activeBook && <EmptyState icon={<Bookmark size={20} />} title={copy('insights.noBookTitle')} detail={copy('insights.noBookDetail')} />}
+            {!insightsLoading && activeBook && insights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title={copy('insights.emptyTitle')} detail={copy('insights.emptyDetail')} />}
             <div className="insight-list">
               {insights.map((insight) => (
                 <article
@@ -1326,17 +1445,17 @@ export default function App(): ReactNode {
                     <p>{insight.answer}</p>
                   </button>
                   <footer>
-                    <span>{insight.selection.chapterTitle || '当前章节'} · {formatDate(insight.createdAt)}</span>
+                    <span>{insight.selection.chapterTitle || copy('common.currentChapter')} · {formatDate(insight.createdAt)}</span>
                     {pendingDeleteInsightId === insight.id ? (
                       <span className="insight-delete-confirmation">
-                        <span>取消收藏？</span>
-                        <button data-testid="insight-delete-confirm" type="button" onClick={() => void deleteInsight(insight.id)}>确认</button>
-                        <button data-testid="insight-delete-cancel" type="button" onClick={() => setPendingDeleteInsightId(null)}>返回</button>
+                        <span>{copy('insights.removeQuestion')}</span>
+                        <button data-testid="insight-delete-confirm" type="button" onClick={() => void deleteInsight(insight.id)}>{copy('common.confirm')}</button>
+                        <button data-testid="insight-delete-cancel" type="button" onClick={() => setPendingDeleteInsightId(null)}>{copy('common.back')}</button>
                       </span>
                     ) : (
                       <span className="insight-actions">
-                        <button type="button" onClick={() => void navigateToAnchor(insight.selection.anchor)}>回到原文 <ChevronRight size={12} /></button>
-                        <button data-testid="insight-delete" type="button" aria-label="取消收藏" onClick={() => setPendingDeleteInsightId(insight.id)}><Trash2 size={13} /></button>
+                        <button type="button" onClick={() => void navigateToAnchor(insight.selection.anchor)}>{copy('insights.backToSource')} <ChevronRight size={12} /></button>
+                        <button data-testid="insight-delete" type="button" aria-label={copy('insights.removeAria')} onClick={() => setPendingDeleteInsightId(insight.id)}><Trash2 size={13} /></button>
                       </span>
                     )}
                   </footer>
@@ -1351,8 +1470,8 @@ export default function App(): ReactNode {
         <div className="modal-backdrop assistant-dialog-backdrop" role="presentation">
           <section ref={assistantDialogRef} className="assistant-dialog" data-testid="assistant-dialog" role="dialog" aria-modal="true" aria-labelledby="assistant-dialog-title">
             <header className="modal-header">
-              <div><span className="eyebrow">CURRENT READING</span><h2 id="assistant-dialog-title">详细对话</h2></div>
-              <button className="icon-button" data-testid="assistant-dialog-close" type="button" onClick={closeAssistantDialog} aria-label="关闭详细对话"><X size={18} /></button>
+              <div><h2 id="assistant-dialog-title">{copy('assistant.dialogTitle')}</h2></div>
+              <button className="icon-button" data-testid="assistant-dialog-close" type="button" onClick={closeAssistantDialog} aria-label={copy('assistant.closeDialog')}><X size={18} /></button>
             </header>
             <div className="assistant-dialog-body">
               <ConversationPane conversationSelection={conversationSelection} turns={turns} provider={provider} activeRequestId={activeRequestId} draft={draft} canAsk={canAsk} followupRef={followupRef} onDraftChange={setDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onSave={(turn) => void saveTurn(turn)} onCancel={() => void cancelRequest()} onSubmit={submitQuestion} onComposerKey={handleComposerKey} />
@@ -1369,7 +1488,8 @@ export default function App(): ReactNode {
           readingPreferences={readingPreferences}
           returnFocusRef={settingsButtonRef}
           onClose={closeSettings}
-          onSaved={setProvider}
+          onSaved={handleProviderSaved}
+          onTest={handleProviderTest}
           onThemeChange={setThemePreference}
           onInterfaceScaleChange={setInterfaceScale}
           onReadingPreferencesChange={setReadingPreferences}

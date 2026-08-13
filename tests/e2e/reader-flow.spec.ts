@@ -13,6 +13,7 @@ import JSZip from 'jszip'
 
 let mockServer: Server
 let endpoint = ''
+let providerTestRequests = 0
 
 async function selectNodeContents(locator: Locator): Promise<void> {
   await locator.evaluate((element) => {
@@ -106,16 +107,25 @@ test.beforeAll(async () => {
       rawBody += chunk
     })
     request.on('end', () => {
-      const body = JSON.parse(rawBody) as { stream?: boolean }
+      const body = JSON.parse(rawBody) as { stream?: boolean; model?: string }
       if (!body.stream) {
-        response.writeHead(200, { 'content-type': 'application/json' })
-        response.end(
-          JSON.stringify({
-            id: 'mock-test',
-            model: 'mock-reader',
-            choices: [{ index: 0, message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }]
-          })
-        )
+        providerTestRequests += 1
+        const finishTest = (): void => {
+          if (body.model === 'failing-reader' || body.model === 'slow-fail') {
+            response.writeHead(500, { 'content-type': 'application/json' })
+            response.end(JSON.stringify({ error: { message: 'test failure' } }))
+            return
+          }
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(
+            JSON.stringify({
+              id: 'mock-test',
+              model: 'mock-reader',
+              choices: [{ index: 0, message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }]
+            })
+          )
+        }
+        setTimeout(finishTest, body.model === 'slow-fail' || body.model === 'slow-ok' ? 500 : 120)
         return
       }
 
@@ -132,7 +142,7 @@ test.beforeAll(async () => {
           `data: ${JSON.stringify({ id: 'mock-stream', model: 'mock-reader', choices: [{ index: 0, delta: { content: '模型必须与适用边界一起理解 [P1]。' }, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 } })}\n\n`
         )
         response.end('data: [DONE]\n\n')
-      }, 250)
+      }, 650)
     })
   })
 
@@ -235,6 +245,7 @@ test('keeps escaped keyboard focus inside settings and assistant dialogs', async
 test('keeps the home quiet and persists unified settings, reading, conversation, and insight deletion', async () => {
   const userData = await mkdtemp(join(tmpdir(), 'llm-reader-e2e-'))
   const fixture = resolve('tests/fixtures/complex-reading.txt')
+  const visualDirectory = process.env.LLM_READER_VISUAL_DIR
   let application: ElectronApplication | undefined
 
   try {
@@ -247,16 +258,73 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
       }
     })
     const page = await application.firstWindow()
+    await application.evaluate(({ BrowserWindow, dialog }) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      window.setContentSize(1536, 864)
+      const runtime = globalThis as typeof globalThis & { __llmReaderDialogCalls?: number }
+      runtime.__llmReaderDialogCalls = 0
+      dialog.showOpenDialog = (async () => {
+        runtime.__llmReaderDialogCalls = (runtime.__llmReaderDialogCalls ?? 0) + 1
+        return { canceled: true, filePaths: [], bookmarks: [] }
+      }) as typeof dialog.showOpenDialog
+    })
+    if (visualDirectory) {
+      const displays = await application.evaluate(({ screen }) => screen.getAllDisplays().map((display) => ({
+        bounds: display.bounds,
+        scaleFactor: display.scaleFactor,
+        workArea: display.workArea
+      })))
+      await writeFile(join(visualDirectory, 'display-topology.json'), JSON.stringify(displays, null, 2), 'utf8')
+    }
 
     const appShell = page.getByTestId('app-shell')
     const html = page.locator('html')
+    const providerStatus = page.getByTestId('provider-connection-status')
     await expect(appShell).toBeVisible()
+    await page.emulateMedia({ colorScheme: 'light' })
     await expect(page.locator('.brand-row')).toHaveText('LLM Reader')
     await expect(page.getByText('专注理解，不离开原文')).toHaveCount(0)
     await expect(page.getByText('欢迎使用 LLM Reader')).toHaveCount(0)
     await expect(page.getByText('本地优先')).toHaveCount(0)
     await expect(page.getByTestId('theme-switcher')).toHaveCount(0)
     await expect(page.getByTestId('import-book')).toBeVisible()
+    await expect(providerStatus).toHaveAttribute('aria-label', 'API 未配置')
+    await expect(providerStatus).not.toHaveClass(/is-connected/u)
+    const initialStatusColor = await providerStatus.evaluate((element) => getComputedStyle(element).backgroundColor)
+    expect(initialStatusColor).toBe('rgb(174, 74, 65)')
+    await page.keyboard.press('Control+,')
+    await expect(page.getByTestId('settings-modal')).toHaveCount(0)
+    await page.keyboard.press('Control+O')
+    await page.waitForTimeout(100)
+    await expect.poll(() => application?.evaluate(() => (globalThis as typeof globalThis & { __llmReaderDialogCalls?: number }).__llmReaderDialogCalls ?? 0)).toBe(0)
+    await expect(page.locator('kbd')).toHaveCount(0)
+    await expect(page.getByText('Enter 发送 · Shift + Enter 换行')).toHaveCount(0)
+    const importLayout = await page.getByTestId('import-book').evaluate((button) => {
+      const label = button.querySelector('span')
+      const styles = getComputedStyle(button)
+      return {
+        fits: button.scrollWidth <= button.clientWidth,
+        labelLines: label?.getClientRects().length ?? 0,
+        whiteSpace: label ? getComputedStyle(label).whiteSpace : '',
+        background: styles.backgroundColor,
+        boxShadow: styles.boxShadow,
+        transform: styles.transform
+      }
+    })
+    expect(importLayout).toEqual({
+      fits: true,
+      labelLines: 1,
+      whiteSpace: 'nowrap',
+      background: 'rgba(0, 0, 0, 0)',
+      boxShadow: 'none',
+      transform: 'none'
+    })
+    if (visualDirectory) {
+      await page.screenshot({ path: join(visualDirectory, 'library-light-1536x864.png') })
+    }
+    await expect.poll(() => page.locator('.assistant-title').evaluate((element) => getComputedStyle(element).fontSize)).toBe('13px')
+    await expect.poll(() => page.locator('.right-sidebar .empty-state strong').evaluate((element) => getComputedStyle(element).fontSize)).toBe('13px')
+    await expect.poll(() => page.locator('.right-sidebar .empty-state p').evaluate((element) => getComputedStyle(element).fontSize)).toBe('12px')
     await expect(page.locator('.welcome-state')).toHaveText('从书库打开或导入一本书')
     await expect(page.locator('.welcome-state')).not.toBeVisible()
 
@@ -318,11 +386,18 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect(html).toHaveAttribute('data-theme', 'dark')
 
     await page.getByTestId('provider-base-url').fill(endpoint)
-    await page.getByTestId('provider-model').fill('mock-reader')
+    await page.getByTestId('provider-model').fill('configured-alias')
     await page.getByTestId('provider-api-key').fill('test-only-key')
+    await page.getByTestId('provider-test').click()
+    await expect(page.getByTestId('provider-status')).toContainText('连接成功。')
+    await expect(providerStatus).toHaveAttribute('aria-label', 'API 连接正常')
     await page.getByTestId('provider-save').click()
     await expect(settings).toHaveCount(0)
     await expect(settingsButton).toBeFocused()
+    await expect(providerStatus).toHaveAttribute('aria-label', '正在检测 API 连接')
+    await expect(providerStatus).toHaveAttribute('aria-label', 'API 连接正常')
+    await expect(providerStatus).toHaveClass(/is-connected/u)
+    await expect.poll(() => providerStatus.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe('rgb(157, 204, 173)')
     await expect
       .poll(() => page.evaluate(() => Object.values(localStorage).join('\n')))
       .not.toContain('test-only-key')
@@ -343,23 +418,74 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
 
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
     await page.getByTestId('action-explain').click()
+    await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('configured-alias')
     await expect(page.getByTestId('answer-current')).toContainText('这段文字提醒我们')
+    await expect(page.getByTestId('answer-current')).toContainText('适用边界')
+    await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('mock-reader')
+    await expect(page.getByTestId('answer-current').locator('.answer-footer')).toContainText('32 tokens')
+    await expect(page.getByTestId('answer-current').locator('.answer-footer')).not.toContainText('mock-reader')
+    const assistantFontSizes = await page.evaluate(() => ({
+      title: getComputedStyle(document.querySelector('.assistant-title')!).fontSize,
+      question: getComputedStyle(document.querySelector('.question-bubble p')!).fontSize,
+      answer: getComputedStyle(document.querySelector('.answer-text')!).fontSize,
+      input: getComputedStyle(document.querySelector('.assistant-composer textarea')!).fontSize,
+      model: getComputedStyle(document.querySelector('.answer-model')!).fontSize,
+      tokens: getComputedStyle(document.querySelector('.answer-footer > span')!).fontSize,
+      source: getComputedStyle(document.querySelector('.source-card-header small')!).fontSize
+    }))
+    expect(assistantFontSizes).toEqual({
+      title: '16.25px',
+      question: '15px',
+      answer: '15px',
+      input: '15px',
+      model: '12.5px',
+      tokens: '12.5px',
+      source: '12.5px'
+    })
+    if (visualDirectory) {
+      await page.screenshot({ path: join(visualDirectory, 'assistant-dark-1536x864.png') })
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 960))
+      await page.screenshot({ path: join(visualDirectory, 'assistant-dark-1440x960.png') })
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1536, 864))
+    }
     const expandButton = page.getByTestId('assistant-expand-button')
     await expandButton.click()
     const assistantDialog = page.getByTestId('assistant-dialog')
     await expect(assistantDialog).toBeVisible()
+    await expect(assistantDialog.getByText('CURRENT READING')).toHaveCount(0)
+    await expect.poll(() => assistantDialog.locator('.modal-header h2').evaluate((element) => getComputedStyle(element).fontSize)).toBe('16.25px')
     await expect(assistantDialog.getByTestId('answer-current')).toContainText('适用边界')
-    await assistantDialog.getByTestId('followup-input').fill('再解释一下这里的前提')
-    await assistantDialog.getByRole('button', { name: '发送问题' }).click()
+    if (visualDirectory) {
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: join(visualDirectory, 'assistant-dialog-dark-1536x864.png') })
+    }
+    const dialogInput = assistantDialog.getByTestId('followup-input')
+    await dialogInput.fill('第一行')
+    await dialogInput.press('Shift+Enter')
+    await expect(dialogInput).toHaveValue('第一行\n')
+    await dialogInput.type('再解释一下这里的前提')
+    await dialogInput.press('Enter')
+    await expect(dialogInput).toHaveValue('')
     await expect(assistantDialog.getByTestId('answer-current')).toContainText('这段文字提醒我们')
     await page.getByTestId('assistant-dialog-close').click()
     await expect(assistantDialog).toHaveCount(0)
     await expect(expandButton).toBeFocused()
     await expect(page.getByTestId('answer-current')).toContainText('适用边界')
+    if (visualDirectory) {
+      await settingsButton.click()
+      await lightTheme.click()
+      await page.getByTestId('settings-close').click()
+      await page.screenshot({ path: join(visualDirectory, 'assistant-light-1536x864.png') })
+      await settingsButton.click()
+      await darkTheme.click()
+      await page.getByTestId('settings-close').click()
+    }
     await page.getByTestId('answer-save').click()
+    await expect.poll(() => page.locator('.assistant-tabs button span').evaluate((element) => getComputedStyle(element).fontSize)).toBe('11.25px')
     await page.getByTestId('insights-tab').click()
     const insight = page.getByTestId('insight-item')
     await expect(insight).toContainText('适用边界')
+    await expect.poll(() => insight.locator('strong').evaluate((element) => getComputedStyle(element).fontSize)).toBe('15px')
     await expect(page.locator('.insights-heading')).toHaveCount(0)
     await page.getByTestId('insight-delete').click()
     await expect(page.getByTestId('insight-delete-confirm')).toBeVisible()
@@ -376,6 +502,7 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     })
     await expect.poll(() => readerHost.evaluate((element) => element.scrollTop)).toBeGreaterThan(50)
 
+    const providerTestsBeforeRestart = providerTestRequests
     await application.close()
     application = undefined
 
@@ -389,6 +516,9 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     const restoredPage = await application.firstWindow()
     const restoredShell = restoredPage.getByTestId('app-shell')
     const restoredHtml = restoredPage.locator('html')
+    const restoredProviderStatus = restoredPage.getByTestId('provider-connection-status')
+    await expect.poll(() => providerTestRequests).toBe(providerTestsBeforeRestart + 1)
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 连接正常')
     await expect(restoredShell).toHaveAttribute('data-theme-preference', 'dark')
     await expect(restoredShell).toHaveAttribute('data-theme', 'dark')
     await expect(restoredShell).toHaveAttribute('data-interface-scale', '125')
@@ -435,6 +565,34 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect(restoredPage.getByTestId('reading-font-scale')).toHaveValue('100')
     await expect(restoredPage.getByTestId('reading-line-height')).toHaveValue('original')
     await expect(restoredPage.getByTestId('reading-indent')).toHaveValue('original')
+
+    await restoredPage.getByTestId('provider-model').fill('slow-ok')
+    await restoredPage.getByTestId('provider-test').click()
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', '正在检测 API 连接')
+    await restoredPage.getByTestId('settings-close').click()
+    await restoredSettingsButton.click()
+    await restoredPage.getByTestId('provider-model').fill('failing-reader')
+    await restoredPage.getByTestId('provider-save').click()
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 未连接')
+    await restoredPage.waitForTimeout(600)
+    await expect(restoredPage.getByText('模型连接正常')).toHaveCount(0)
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 未连接')
+
+    await restoredSettingsButton.click()
+    await restoredPage.getByTestId('provider-model').fill('slow-fail')
+    await restoredPage.getByTestId('provider-save').click()
+    await restoredSettingsButton.click()
+    await restoredPage.getByTestId('provider-model').fill('configured-alias')
+    await restoredPage.getByTestId('provider-save').click()
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 连接正常')
+    await restoredPage.waitForTimeout(600)
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 连接正常')
+
+    await restoredSettingsButton.click()
+    await restoredPage.getByTestId('provider-model').fill('failing-reader')
+    await restoredPage.getByTestId('provider-save').click()
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 未连接')
+    await expect(restoredProviderStatus).not.toHaveClass(/is-connected/u)
   } finally {
     await application?.close().catch(() => undefined)
     await rm(userData, { recursive: true, force: true })
