@@ -74,7 +74,7 @@ export const providerSettingsSchema = z.object({
       } catch {
         return false
       }
-    }, 'Base URL 必须是 HTTP(S) 地址'),
+    }, '接口地址必须是 HTTP(S) 地址'),
   model: shortText(256),
   apiKey: z.string().trim().min(1).max(10_000).optional()
 })

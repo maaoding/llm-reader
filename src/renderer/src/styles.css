@@ -210,7 +210,7 @@ button:disabled {
   margin-top: 3px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--interface-scale));
   letter-spacing: 0.025em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -292,7 +292,7 @@ button:disabled {
   color: var(--muted);
   background: var(--line);
   border-radius: 9px;
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
 }
 
 .sidebar-content {
@@ -314,7 +314,7 @@ button:disabled {
 .section-caption {
   padding: 6px 8px 7px;
   color: var(--faint);
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -327,7 +327,7 @@ button:disabled {
   gap: 7px;
   min-height: 60px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--interface-scale));
 }
 
 .book-item {
@@ -388,7 +388,7 @@ button:disabled {
 
 .book-meta strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: calc(11px * var(--interface-scale));
   font-weight: 650;
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -399,7 +399,7 @@ button:disabled {
   margin-top: 3px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -432,7 +432,7 @@ button:disabled {
   text-align: left;
   background: transparent;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: calc(10px * var(--interface-scale));
   line-height: 1.35;
 }
 
@@ -501,7 +501,7 @@ button:disabled {
   flex: 0 0 auto;
   margin-left: 1px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: calc(8px * var(--interface-scale));
   font-weight: 700;
   letter-spacing: 0.06em;
 }
@@ -530,7 +530,7 @@ button:disabled {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 3px;
-  font-size: 8px;
+  font-size: calc(8px * var(--interface-scale));
   font-weight: 650;
   white-space: nowrap;
 }
@@ -615,7 +615,7 @@ button:disabled {
 
 .reader-header {
   display: flex;
-  height: 66px;
+  height: calc(66px * var(--interface-scale));
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
@@ -645,7 +645,7 @@ button:disabled {
   margin: 0;
   overflow: hidden;
   font-family: ui-serif, "Iowan Old Style", "Noto Serif SC", "Songti SC", serif;
-  font-size: 14px;
+  font-size: calc(14px * var(--interface-scale));
   font-weight: 650;
   letter-spacing: 0.01em;
   line-height: 1.35;
@@ -656,13 +656,13 @@ button:disabled {
 .reader-heading p {
   margin: 2px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
 }
 
 .reader-heading.is-empty {
   color: var(--muted);
   font-family: ui-serif, "Noto Serif SC", serif;
-  font-size: 12px;
+  font-size: calc(12px * var(--interface-scale));
 }
 
 .format-chip {
@@ -671,7 +671,7 @@ button:disabled {
   background: var(--accent-soft);
   border: 1px solid var(--line);
   border-radius: 3px;
-  font-size: 8px;
+  font-size: calc(8px * var(--interface-scale));
   font-weight: 800;
   letter-spacing: 0.05em;
 }
@@ -684,13 +684,13 @@ button:disabled {
   align-items: center;
   gap: 3px 8px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: calc(8px * var(--interface-scale));
 }
 
 .reading-progress strong {
   justify-self: end;
   color: var(--ink-soft);
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
 }
 
 .reading-progress > div {
@@ -810,13 +810,6 @@ button:disabled {
   box-shadow: 0 6px 18px rgb(39 55 64 / 8%);
 }
 
-.eyebrow {
-  color: var(--accent);
-  font-size: 9px;
-  font-weight: 750;
-  letter-spacing: 0.11em;
-}
-
 .welcome-state h2 {
   max-width: 430px;
   margin: 9px 0 10px;
@@ -858,18 +851,18 @@ button:disabled {
 .error-state strong {
   color: var(--ink);
   font-family: ui-serif, "Noto Serif SC", serif;
-  font-size: 15px;
+  font-size: calc(15px * var(--interface-scale));
 }
 
 .loading-state span {
-  font-size: 10px;
+  font-size: calc(10px * var(--interface-scale));
 }
 
 .error-state p {
   max-width: 390px;
   margin: 8px 0 17px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--interface-scale));
   line-height: 1.7;
 }
 
@@ -914,7 +907,7 @@ button:disabled {
   color: inherit;
   background: transparent;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: calc(10px * var(--interface-scale));
   white-space: nowrap;
 }
 
@@ -1085,14 +1078,14 @@ button:disabled {
 
 .empty-state strong {
   font-family: ui-serif, "Noto Serif SC", serif;
-  font-size: 12px;
+  font-size: calc(12px * var(--interface-scale));
 }
 
 .empty-state p {
   max-width: 245px;
   margin: 7px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--interface-scale));
   line-height: 1.65;
 }
 
@@ -1701,7 +1694,7 @@ button.citation-valid:hover {
 
 .settings-row small {
   color: var(--muted);
-  font-size: 8px;
+  font-size: calc(8px * var(--interface-scale));
   line-height: 1.45;
 }
 
@@ -1736,7 +1729,7 @@ button.citation-valid:hover {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 3px;
-  font-size: 8px;
+  font-size: calc(8px * var(--interface-scale));
   font-weight: 650;
 }
 
@@ -1765,7 +1758,7 @@ button.citation-valid:hover {
   align-items: center;
   justify-content: space-between;
   color: var(--muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
 }
 
 .settings-range output {
@@ -1790,7 +1783,7 @@ button.citation-valid:hover {
   flex-direction: column;
   gap: 5px;
   color: var(--ink-soft);
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
   font-weight: 700;
 }
 
@@ -1803,7 +1796,7 @@ button.citation-valid:hover {
   border: 1px solid var(--line-strong);
   border-radius: 4px;
   font: inherit;
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
 }
 
 .settings-select-grid select:focus {
@@ -1826,7 +1819,7 @@ button.citation-valid:hover {
 .modal-header h2 {
   margin: 3px 0 0;
   font-family: ui-serif, "Noto Serif SC", serif;
-  font-size: 19px;
+  font-size: calc(19px * var(--interface-scale));
   font-weight: 650;
 }
 
@@ -1834,7 +1827,7 @@ button.citation-valid:hover {
   display: block;
   margin: 13px 0 5px;
   color: var(--ink-soft);
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
   font-weight: 700;
 }
 
@@ -1847,7 +1840,7 @@ button.citation-valid:hover {
   background: var(--paper);
   border: 1px solid var(--line-strong);
   border-radius: 4px;
-  font-size: 10px;
+  font-size: calc(10px * var(--interface-scale));
 }
 
 .settings-modal input:focus {
@@ -1901,7 +1894,7 @@ button.citation-valid:hover {
 .field-hint {
   margin: 5px 1px 0;
   color: var(--muted);
-  font-size: 8px;
+  font-size: calc(8px * var(--interface-scale));
   line-height: 1.5;
 }
 
@@ -1922,7 +1915,7 @@ button.citation-valid:hover {
   align-items: center;
   gap: 3px;
   color: var(--accent);
-  font-size: 8px;
+  font-size: calc(8px * var(--interface-scale));
 }
 
 .provider-status {
@@ -1933,7 +1926,7 @@ button.citation-valid:hover {
   padding: 9px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
   line-height: 1.5;
 }
 
@@ -1971,7 +1964,7 @@ button.citation-valid:hover {
   min-height: 34px;
   padding: 0 11px;
   border-radius: 7px;
-  font-size: 10px;
+  font-size: calc(10px * var(--interface-scale));
   font-weight: 650;
 }
 
@@ -2025,7 +2018,7 @@ button.citation-valid:hover {
   border: 1px solid rgb(255 255 255 / 10%);
   border-radius: 4px;
   box-shadow: var(--shadow-md);
-  font-size: 9px;
+  font-size: calc(9px * var(--interface-scale));
   animation: toast-in 180ms ease-out;
 }
 

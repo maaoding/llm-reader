@@ -500,7 +500,6 @@ function SettingsModal({
       <section ref={dialogRef} className="settings-modal" data-testid="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="modal-header">
           <div>
-            <span className="eyebrow">{copy('app.name')}</span>
             <h2 id="settings-title">{copy('settings.title')}</h2>
           </div>
           <button className="icon-button" data-testid="settings-close" type="button" onClick={onClose} aria-label={copy('settings.closeAria')}>

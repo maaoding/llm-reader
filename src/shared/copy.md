@@ -106,15 +106,15 @@
 | settings.followBookDefault | 跟随原书 / 默认 |
 | settings.noIndent | 无缩进 |
 | settings.modelTitle | 模型 |
-| settings.baseUrlLabel | Base URL |
+| settings.baseUrlLabel | 接口地址 |
 | settings.baseUrlPlaceholder | https://api.openai.com |
 | settings.baseUrlHint | 应用会请求此地址下的 {path}。 |
-| settings.modelLabel | Model |
+| settings.modelLabel | 模型名称 |
 | settings.modelPlaceholder | 例如 gpt-5-mini |
-| settings.apiKeyLabel | API Key |
+| settings.apiKeyLabel | API 密钥 |
 | settings.apiKeySaved | 已安全保存 |
 | settings.apiKeyPlaceholderSaved | 留空以继续使用已保存的密钥 |
-| settings.apiKeyPlaceholderEmpty | 输入 API Key |
+| settings.apiKeyPlaceholderEmpty | 输入 API 密钥 |
 | settings.apiKeyHint | 密钥只交给主进程加密保存，不写入书库数据库。 |
 | settings.testConnection | 测试连接 |
 | settings.save | 保存设置 |
@@ -220,10 +220,10 @@
 
 | key | text |
 | --- | --- |
-| error.baseUrlInvalid | Base URL 无效。 |
-| error.baseUrlUnsafe | Base URL 必须是不含账号信息的 HTTP(S) 地址。 |
+| error.baseUrlInvalid | 接口地址无效。 |
+| error.baseUrlUnsafe | 接口地址必须是不含账号信息的 HTTP(S) 地址。 |
 | error.http400 | 请求被模型服务拒绝（400）。 |
-| error.http401 | API Key 无效或无权访问（401）。 |
+| error.http401 | API 密钥无效或无权访问（401）。 |
 | error.http403 | 模型服务拒绝访问（403）。 |
 | error.http404 | 找不到接口或模型（404）。 |
 | error.http429 | 请求过于频繁或配额不足（429）。 |
@@ -239,14 +239,14 @@
 | error.answerCancelled | 已取消回答。 |
 | error.requestTimeout | 模型请求超时。 |
 | error.requestStartFailed | 请求未能启动，请检查模型设置。 |
-| error.keyStorageUnavailable | 当前系统无法安全保存 API Key。 |
-| error.providerNotConfigured | 请先保存 API Key 和模型设置。 |
-| error.keyReadUnavailable | 当前系统无法读取 API Key。 |
-| error.keyDecryptFailed | API Key 解密失败，请重新保存。 |
+| error.keyStorageUnavailable | 当前系统无法安全保存 API 密钥。 |
+| error.providerNotConfigured | 请先保存 API 密钥和模型设置。 |
+| error.keyReadUnavailable | 当前系统无法读取 API 密钥。 |
+| error.keyDecryptFailed | API 密钥解密失败，请重新保存。 |
 | provider.testConnected | 连接成功。 |
 | provider.testTimeout | 连接超时。 |
 | provider.testFailed | 无法连接到模型服务。 |
-| error.keyReadFailed | 无法读取加密的 API Key。 |
-| error.keyCipherInvalid | API Key 密文文件无效，请重新保存。 |
-| error.keyCipherSize | API Key 密文大小无效。 |
-| error.keyWriteFailed | 无法保存加密的 API Key。 |
+| error.keyReadFailed | 无法读取加密的 API 密钥。 |
+| error.keyCipherInvalid | API 密钥密文文件无效，请重新保存。 |
+| error.keyCipherSize | API 密钥密文大小无效。 |
+| error.keyWriteFailed | 无法保存加密的 API 密钥。 |
