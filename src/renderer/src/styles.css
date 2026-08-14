@@ -1622,10 +1622,12 @@ button.citation-valid:hover {
 @keyframes fade-in { from { opacity: 0; } }
 
 .settings-modal {
-  width: min(calc(450px * var(--interface-scale)), calc(100vw - 48px));
+  display: flex;
+  width: min(calc(620px * var(--interface-scale)), calc(100vw - 48px));
   max-height: calc(100vh - 48px);
-  padding: 20px;
-  overflow: auto;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
   color: var(--ink);
   background: var(--panel-solid);
   border: 1px solid var(--line);
@@ -1634,10 +1636,68 @@ button.citation-valid:hover {
   animation: modal-in 160ms ease-out;
 }
 
-.settings-sections {
+.settings-modal .modal-header {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-body {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: calc(144px * var(--interface-scale)) minmax(0, 1fr);
+}
+
+.settings-nav {
   display: flex;
+  min-height: 0;
   flex-direction: column;
-  gap: 17px;
+  gap: 3px;
+  padding: 12px 10px;
+  overflow: auto;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+}
+
+.settings-nav button {
+  display: flex;
+  width: 100%;
+  min-height: calc(32px * var(--interface-scale));
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: transparent;
+  border-radius: 4px;
+  font-size: calc(10px * var(--interface-scale));
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.settings-nav button svg {
+  flex: 0 0 auto;
+}
+
+.settings-nav button:hover:not(.is-active) {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--panel-solid) 72%, transparent);
+}
+
+.settings-nav button.is-active {
+  color: var(--ink);
+  background: var(--panel-solid);
+  box-shadow: inset 0 0 0 1px var(--line), var(--shadow-sm);
+}
+
+.settings-panel {
+  min-height: 0;
+  padding: 17px 20px 18px;
+  overflow: auto;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .settings-section {

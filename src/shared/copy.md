@@ -78,6 +78,7 @@
 | --- | --- |
 | settings.title | 设置 |
 | settings.closeAria | 关闭设置 |
+| settings.sectionsAria | 设置栏目 |
 | settings.appearanceTitle | 外观 |
 | settings.themeLabel | 主题 |
 | settings.themeHint | 跟随系统会响应系统外观变化 |
@@ -88,21 +89,15 @@
 | settings.themeSystemAria | 跟随系统主题 |
 | settings.themeDark | 深色 |
 | settings.themeDarkAria | 使用深色主题 |
-| settings.themeChanged | 主题已切换为{theme} |
 | settings.scaleLabel | 界面缩放 |
 | settings.scaleHint | 不影响书籍正文字号 |
 | settings.scaleGroupAria | 界面缩放 |
-| settings.scaleChanged | 界面缩放已设为 {scale}% |
 | settings.readingTitle | 阅读 |
 | settings.restoreDefaults | 恢复默认 |
-| settings.readingRestored | 阅读设置已恢复默认 |
 | settings.fontLabel | 正文字号 |
 | settings.fontAria | 正文字号 |
-| settings.fontChanged | 正文字号已设为 {scale}% |
 | settings.lineHeight | 行间距 |
-| settings.lineHeightUpdated | 行间距已更新 |
 | settings.indent | 首行缩进 |
-| settings.indentUpdated | 首行缩进已更新 |
 | settings.followBookDefault | 跟随原书 / 默认 |
 | settings.noIndent | 无缩进 |
 | settings.modelTitle | 模型 |

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleStop,
+  Cpu,
   FileText,
   Highlighter,
   Import,
@@ -16,6 +17,7 @@ import {
   MessageSquareText,
   Maximize2,
   PanelLeftClose,
+  Palette,
   RefreshCw,
   Save,
   SearchX,
@@ -65,6 +67,7 @@ type TurnStatus = 'streaming' | 'completed' | 'error'
 type ThemePreference = 'light' | 'system' | 'dark'
 type ResolvedTheme = Exclude<ThemePreference, 'system'>
 type InterfaceScale = 90 | 100 | 110 | 125
+type SettingsSectionId = 'appearance' | 'reading' | 'model'
 type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
 
 interface ProviderConnectionState {
@@ -424,13 +427,24 @@ function SettingsModal({
   const [model, setModel] = useState(initial.model)
   const [busy, setBusy] = useState<'save' | 'test' | null>(null)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
-  const [preferenceStatus, setPreferenceStatus] = useState('')
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('appearance')
   const keyRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(true)
   const testSequenceRef = useRef(0)
 
   useDialogFocus(true, onClose, dialogRef, returnFocusRef)
+
+  useEffect(() => {
+    panelRef.current?.scrollTo(0, 0)
+  }, [activeSection])
+
+  const settingsSections: ReadonlyArray<{ id: SettingsSectionId; label: string; icon: ReactNode }> = [
+    { id: 'appearance', label: copy('settings.appearanceTitle'), icon: <Palette size={14} /> },
+    { id: 'reading', label: copy('settings.readingTitle'), icon: <BookOpen size={14} /> },
+    { id: 'model', label: copy('settings.modelTitle'), icon: <Cpu size={14} /> }
+  ]
 
   useEffect(() => {
     mountedRef.current = true
@@ -439,10 +453,6 @@ function SettingsModal({
       testSequenceRef.current += 1
     }
   }, [])
-
-  const announcePreference = (message: string): void => {
-    setPreferenceStatus(message)
-  }
 
   const persist = async (): Promise<ProviderSettings> => {
     const key = keyRef.current?.value.trim()
@@ -507,9 +517,28 @@ function SettingsModal({
           </button>
         </header>
 
-        <div className="settings-sections">
-          <section className="settings-section" aria-labelledby="appearance-settings-title">
-            <h3 id="appearance-settings-title">{copy('settings.appearanceTitle')}</h3>
+        <div className="settings-body">
+          <nav className="settings-nav" role="tablist" aria-label={copy('settings.sectionsAria')} aria-orientation="vertical">
+            {settingsSections.map((section) => (
+              <button
+                className={activeSection === section.id ? 'is-active' : ''}
+                data-testid={`settings-nav-${section.id}`}
+                id={`settings-tab-${section.id}`}
+                key={section.id}
+                type="button"
+                role="tab"
+                aria-selected={activeSection === section.id}
+                aria-controls={`settings-panel-${section.id}`}
+                onClick={() => setActiveSection(section.id)}
+              >
+                {section.icon}{section.label}
+              </button>
+            ))}
+          </nav>
+          <div className="settings-panel" ref={panelRef}>
+            {activeSection === 'appearance' && (
+              <section className="settings-section" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
+                <h3 id="appearance-settings-title">{copy('settings.appearanceTitle')}</h3>
             <div className="settings-row">
               <div><strong>{copy('settings.themeLabel')}</strong><small>{copy('settings.themeHint')}</small></div>
               <div className="theme-control" data-testid="theme-switcher" role="group" aria-label={copy('settings.themeGroupAria')}>
@@ -522,7 +551,7 @@ function SettingsModal({
                       type="button"
                       aria-label={option.ariaLabel}
                       aria-pressed={themePreference === option.value}
-                      onClick={() => { onThemeChange(option.value); announcePreference(copy('settings.themeChanged', { theme: option.label })) }}
+                      onClick={() => onThemeChange(option.value)}
                     >
                       {option.label}
                     </button>
@@ -540,17 +569,19 @@ function SettingsModal({
                     key={scale}
                     type="button"
                     aria-pressed={interfaceScale === scale}
-                    onClick={() => { onInterfaceScaleChange(scale); announcePreference(copy('settings.scaleChanged', { scale })) }}
+                    onClick={() => onInterfaceScaleChange(scale)}
                   >{scale}%</button>
                 ))}
               </div>
             </div>
-          </section>
+              </section>
+            )}
 
-          <section className="settings-section" aria-labelledby="reading-settings-title">
-            <div className="settings-section-heading">
-              <h3 id="reading-settings-title">{copy('settings.readingTitle')}</h3>
-              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }); announcePreference(copy('settings.readingRestored')) }}>{copy('settings.restoreDefaults')}</button>
+            {activeSection === 'reading' && (
+              <section className="settings-section" id="settings-panel-reading" role="tabpanel" aria-labelledby="settings-tab-reading">
+                <div className="settings-section-heading">
+                  <h3 id="reading-settings-title">{copy('settings.readingTitle')}</h3>
+              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES })}>{copy('settings.restoreDefaults')}</button>
             </div>
             <label className="settings-range" htmlFor="reading-font-scale">
               <span><strong>{copy('settings.fontLabel')}</strong><output>{readingPreferences.fontScale}%</output></span>
@@ -563,18 +594,20 @@ function SettingsModal({
                 step="5"
                 aria-label={copy('settings.fontAria')}
                 value={readingPreferences.fontScale}
-                onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, fontScale: Number(event.target.value) }); announcePreference(copy('settings.fontChanged', { scale: event.target.value })) }}
+                onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, fontScale: Number(event.target.value) })}
               />
             </label>
             <div className="settings-select-grid">
-              <label htmlFor="reading-line-height"><span>{copy('settings.lineHeight')}</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] }); announcePreference(copy('settings.lineHeightUpdated')) }}><option value="original">{copy('settings.followBookDefault')}</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
-              <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => { onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] }); announcePreference(copy('settings.indentUpdated')) }}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
+              <label htmlFor="reading-line-height"><span>{copy('settings.lineHeight')}</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
+              <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
             </div>
-          </section>
+              </section>
+            )}
 
-          <section className="settings-section" aria-labelledby="model-settings-title">
-            <h3 id="model-settings-title">{copy('settings.modelTitle')}</h3>
-            <form onSubmit={handleSave}>
+            {activeSection === 'model' && (
+              <section className="settings-section" id="settings-panel-model" role="tabpanel" aria-labelledby="settings-tab-model">
+                <h3 id="model-settings-title">{copy('settings.modelTitle')}</h3>
+                <form onSubmit={handleSave}>
           <label className="field-label" htmlFor="provider-base-url">{copy('settings.baseUrlLabel')}</label>
           <input
             id="provider-base-url"
@@ -644,9 +677,10 @@ function SettingsModal({
             </button>
           </footer>
             </form>
-          </section>
+              </section>
+            )}
+          </div>
         </div>
-        <div className="settings-feedback" data-testid="settings-feedback" role="status" aria-live="polite">{preferenceStatus}</div>
       </section>
     </div>
   )
