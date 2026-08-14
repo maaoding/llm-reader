@@ -56,32 +56,13 @@ a {
 .brand-mark {
   width: 32px;
   height: 32px;
-  display: grid;
-  place-items: center;
-  color: #f8faf9;
-  background: #586f7e;
   border-radius: 7px;
-  font-family: Georgia, "Songti SC", "SimSun", serif;
-  font-size: 19px;
-}
-
-.brand-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  line-height: 1.1;
+  object-fit: cover;
 }
 
 .brand-copy strong {
   font-size: 14px;
   letter-spacing: -0.01em;
-}
-
-.brand-copy small {
-  color: #71818a;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.11em;
 }
 
 .nav-link {
@@ -97,24 +78,6 @@ a {
   padding: 106px 0 88px;
 }
 
-.eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 24px;
-  color: #586f7e;
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.eyebrow span {
-  width: 24px;
-  height: 1px;
-  background: currentColor;
-}
-
 h1 {
   margin: 0;
   color: #29383f;
@@ -123,14 +86,6 @@ h1 {
   font-weight: 500;
   letter-spacing: -0.055em;
   line-height: 1.02;
-}
-
-.lead {
-  max-width: 650px;
-  margin: 32px 0 0;
-  color: #4e616b;
-  font-size: clamp(16px, 2vw, 19px);
-  line-height: 1.8;
 }
 
 .actions {
@@ -160,21 +115,6 @@ h1 {
 .button:hover {
   background: #465d6c;
   transform: translateY(-1px);
-}
-
-.availability {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #71818a;
-  font-size: 13px;
-}
-
-.availability span {
-  width: 7px;
-  height: 7px;
-  background: #586f7e;
-  border-radius: 50%;
 }
 
 .features {
@@ -276,17 +216,6 @@ h1 {
   line-height: 1.75;
 }
 
-footer {
-  min-height: 86px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  color: #71818a;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-}
-
 .brand:focus-visible,
 .nav-link:focus-visible,
 .button:focus-visible {
@@ -337,13 +266,6 @@ footer {
     margin-top: 16px;
   }
 
-  footer {
-    min-height: 0;
-    padding: 24px 0;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 5px;
-  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -363,7 +285,6 @@ footer {
     border-color: #3c4a51;
   }
 
-  .brand-mark,
   .button {
     color: #1e282d;
     background: #b9c8cf;
@@ -380,22 +301,9 @@ footer {
     color: #e8edf0;
   }
 
-  .brand-copy small,
   .nav-link,
-  .lead,
-  .availability,
-  .feature-card p,
-  footer {
+  .feature-card p {
     color: #aebdc4;
-  }
-
-  .eyebrow,
-  .availability span {
-    color: #b9c8cf;
-  }
-
-  .availability span {
-    background: #b9c8cf;
   }
 
   .features {
