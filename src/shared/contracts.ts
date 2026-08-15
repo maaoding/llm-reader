@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   providerGet: 'provider:get',
   providerSave: 'provider:save',
   providerTest: 'provider:test',
+  fontsList: 'fonts:list',
   llmStart: 'llm:start',
   llmCancel: 'llm:cancel',
   llmEvent: 'llm:event'
@@ -136,6 +137,7 @@ export interface ReaderApi {
   getProviderSettings(): Promise<ProviderSettings>
   saveProviderSettings(input: SaveProviderSettingsInput): Promise<ProviderSettings>
   testProvider(): Promise<ProviderTestResult>
+  listSystemFonts(): Promise<string[]>
   startLlm(request: LlmRequest): Promise<void>
   cancelLlm(requestId: string): Promise<void>
   onLlmEvent(listener: (event: LlmEvent) => void): () => void

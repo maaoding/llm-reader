@@ -96,6 +96,12 @@
 | settings.restoreDefaults | 恢复默认 |
 | settings.fontLabel | 正文字号 |
 | settings.fontAria | 正文字号 |
+| settings.fontFamilyLabel | 字体 |
+| settings.commonChineseFonts | 常用中文 |
+| settings.allFonts | 全部字体 |
+| settings.fontsLoading | 正在读取系统字体… |
+| settings.fontsUnavailable | 未能读取系统字体，可在列表可用后重试。 |
+| settings.fontUnavailableHint | 该字体当前无法被应用加载，请重启应用或重新安装字体后再试。 |
 | settings.lineHeight | 行间距 |
 | settings.indent | 首行缩进 |
 | settings.followBookDefault | 跟随原书 / 默认 |

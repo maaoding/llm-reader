@@ -28,12 +28,14 @@ export interface ReadingPreferences {
   fontScale: number
   lineHeight: ReadingLineHeight
   indent: ReadingIndent
+  fontFamily: string | null
 }
 
 export const DEFAULT_READING_PREFERENCES: Readonly<ReadingPreferences> = Object.freeze({
   fontScale: 100,
   lineHeight: 'original',
-  indent: 'original'
+  indent: 'original',
+  fontFamily: null
 })
 
 /** Warm beige background for native text selection in the reading area (replaces the browser default blue). */

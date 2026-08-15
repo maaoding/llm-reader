@@ -1838,6 +1838,16 @@ button.citation-valid:hover {
   gap: 10px;
 }
 
+.settings-select-grid label.settings-select-full {
+  grid-column: 1 / -1;
+}
+
+.settings-font-note {
+  color: var(--muted);
+  font-weight: 400;
+  min-height: 1.2em;
+}
+
 .settings-select-grid label {
   display: flex;
   flex-direction: column;

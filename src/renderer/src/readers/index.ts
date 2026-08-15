@@ -19,6 +19,7 @@ export function createReaderAdapter(
 export { EpubReaderAdapter } from './epub-reader'
 export { TextReaderAdapter } from './text-reader'
 export {
+  fontFamilyStack,
   MAX_READING_FONT_SCALE,
   MIN_READING_FONT_SCALE,
   normalizeReadingPreferences

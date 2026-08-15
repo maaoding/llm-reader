@@ -3,6 +3,7 @@ import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppError, toPublicError } from './errors'
+import { listSystemFonts } from './fonts'
 import { LibraryService } from './library-service'
 import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
@@ -106,6 +107,7 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     dependencies.provider.saveSettings(parse(providerSettingsSchema, value))
   )
   handle(IPC_CHANNELS.providerTest, dependencies, () => dependencies.provider.testConnection())
+  handle(IPC_CHANNELS.fontsList, dependencies, () => listSystemFonts())
   handle(IPC_CHANNELS.llmStart, dependencies, (event, value) => {
     const request = parse(llmRequestSchema, value)
     const emit = (llmEvent: LlmEvent): void => {

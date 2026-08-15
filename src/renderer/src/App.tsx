@@ -119,6 +119,46 @@ const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; aria
   { value: 'dark', label: copy('settings.themeDark'), ariaLabel: copy('settings.themeDarkAria') }
 ]
 
+/**
+ * Localized family names, in display order, for the fonts that are pinned to the
+ * top of the reading font picker. Installed fonts are matched against this list.
+ */
+const COMMON_READING_FONTS = [
+  '微软雅黑',
+  'Microsoft YaHei',
+  '宋体',
+  'SimSun',
+  '新宋体',
+  'NSimSun',
+  '黑体',
+  'SimHei',
+  '楷体',
+  'KaiTi',
+  '仿宋',
+  'FangSong',
+  '等线',
+  'DengXian',
+  '隶书',
+  'LiSu',
+  '幼圆',
+  'YouYuan'
+] as const
+
+interface FontGroups {
+  common: string[]
+  others: string[]
+}
+
+function groupReadingFonts(fonts: ReadonlyArray<string>): FontGroups {
+  const available = new Set(fonts)
+  const common = COMMON_READING_FONTS.filter((name) => available.has(name))
+  const commonSet = new Set<string>(common)
+  const others = fonts
+    .filter((name) => !commonSet.has(name))
+    .sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'))
+  return { common, others }
+}
+
 function providerIsConfigured(provider: ProviderSettings): boolean {
   return Boolean(provider.baseUrl.trim() && provider.model.trim() && provider.hasApiKey)
 }
@@ -165,10 +205,17 @@ function readInterfaceScale(): InterfaceScale {
 function readReadingPreferences(): ReadingPreferences {
   try {
     const value = JSON.parse(window.localStorage.getItem(READING_PREFERENCES_STORAGE_KEY) ?? '{}') as Partial<ReadingPreferences>
+    const fontFamily =
+      typeof value.fontFamily === 'string' &&
+      value.fontFamily.trim().length > 0 &&
+      value.fontFamily.trim().length <= 128
+        ? value.fontFamily.trim()
+        : null
     return {
       fontScale: typeof value.fontScale === 'number' && value.fontScale >= 80 && value.fontScale <= 140 ? value.fontScale : DEFAULT_READING_PREFERENCES.fontScale,
       lineHeight: value.lineHeight === '1.5' || value.lineHeight === '1.7' || value.lineHeight === '1.9' ? value.lineHeight : 'original',
-      indent: value.indent === 'none' || value.indent === '2em' ? value.indent : 'original'
+      indent: value.indent === 'none' || value.indent === '2em' ? value.indent : 'original',
+      fontFamily
     }
   } catch {
     return { ...DEFAULT_READING_PREFERENCES }
@@ -428,6 +475,7 @@ function SettingsModal({
   const [busy, setBusy] = useState<'save' | 'test' | null>(null)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('appearance')
+  const [fonts, setFonts] = useState<string[] | null>(null)
   const keyRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -439,6 +487,42 @@ function SettingsModal({
   useEffect(() => {
     panelRef.current?.scrollTo(0, 0)
   }, [activeSection])
+
+  useEffect(() => {
+    let alive = true
+    const loadFonts = async (): Promise<void> => {
+      try {
+        const list = await window.readerApi.listSystemFonts()
+        if (alive) setFonts(list)
+      } catch {
+        if (alive) setFonts([])
+      }
+    }
+    void loadFonts()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const fontGroups = useMemo(() => groupReadingFonts(fonts ?? []), [fonts])
+
+  const selectedFontUsable = useMemo(() => {
+    const selected = readingPreferences.fontFamily
+    if (!selected || fonts === null || !fonts.includes(selected)) return true
+    try {
+      return document.fonts.check(`12px "${selected}"`)
+    } catch {
+      return true
+    }
+  }, [fonts, readingPreferences.fontFamily])
+
+  const fontNote = fonts === null
+    ? copy('settings.fontsLoading')
+    : fonts.length === 0
+      ? copy('settings.fontsUnavailable')
+      : selectedFontUsable
+        ? ''
+        : copy('settings.fontUnavailableHint')
 
   const settingsSections: ReadonlyArray<{ id: SettingsSectionId; label: string; icon: ReactNode }> = [
     { id: 'appearance', label: copy('settings.appearanceTitle'), icon: <Palette size={14} /> },
@@ -598,6 +682,50 @@ function SettingsModal({
               />
             </label>
             <div className="settings-select-grid">
+              <label className="settings-select-full" htmlFor="reading-font-family">
+                <span>{copy('settings.fontFamilyLabel')}</span>
+                <select
+                  id="reading-font-family"
+                  data-testid="reading-font-family"
+                  value={readingPreferences.fontFamily ?? ''}
+                  onChange={(event) =>
+                    onReadingPreferencesChange({
+                      ...readingPreferences,
+                      fontFamily: event.target.value.trim() || null
+                    })
+                  }
+                >
+                  <option value="">{copy('settings.followBookDefault')}</option>
+                  {readingPreferences.fontFamily &&
+                    fonts !== null &&
+                    !fonts.includes(readingPreferences.fontFamily) && (
+                      <option value={readingPreferences.fontFamily} style={{ fontFamily: readingPreferences.fontFamily }}>
+                        {readingPreferences.fontFamily}
+                      </option>
+                    )}
+                  {fonts !== null && fonts.length > 0 && (
+                    <>
+                      {fontGroups.common.length > 0 && (
+                        <optgroup label={copy('settings.commonChineseFonts')}>
+                          {fontGroups.common.map((name) => (
+                            <option key={name} value={name} style={{ fontFamily: name }}>{name}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {fontGroups.others.length > 0 && (
+                        <optgroup label={copy('settings.allFonts')}>
+                          {fontGroups.others.map((name) => (
+                            <option key={name} value={name} style={{ fontFamily: name }}>{name}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </>
+                  )}
+                </select>
+                <small className="settings-font-note">
+                  {fontNote}
+                </small>
+              </label>
               <label htmlFor="reading-line-height"><span>{copy('settings.lineHeight')}</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
               <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
             </div>

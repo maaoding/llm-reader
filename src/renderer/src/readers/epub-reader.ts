@@ -8,7 +8,12 @@ import ePub, {
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
-import { normalizeReadingPreferences, readingPreferencesEqual } from './reading-preferences'
+import {
+  cssFontFamily,
+  fontFamilyStack,
+  normalizeReadingPreferences,
+  readingPreferencesEqual
+} from './reading-preferences'
 import type {
   ReadingPreferences,
   ReaderAdapter,
@@ -27,6 +32,35 @@ const READING_PREFERENCES_STYLE_ELEMENT_ID =
   `epubjs-inserted-css-${READING_PREFERENCES_STYLESHEET}`
 const ORDINARY_PARAGRAPH_SELECTOR =
   'p:not(:where(pre *, code *, blockquote *, li *, table *, figcaption *, figure *))'
+const CODE_BLOCK_SELECTOR = 'pre, code, kbd, samp, var'
+const MONOSPACE_STACK = "ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace"
+const READER_FONT_FACE_FAMILY = 'llm-reader-selected-font'
+
+interface FontFamilyCss {
+  faceRule: string
+  stack: string
+}
+
+/**
+ * Wraps an installed font in a document-level @font-face whose src is the
+ * local family name. Chromium's DirectWrite fallback can otherwise keep
+ * rendering the EPUB iframe's original font when a per-user font is applied
+ * after the iframe has already loaded; registering it as a document font
+ * forces the iframe to rematch the family and use the installed glyphs.
+ */
+function readingFontFamilyCss(family: string): FontFamilyCss {
+  const localSources = fontFamilyStack(family)
+    .map((name) => `local(${cssFontFamily(name)})`)
+    .join(', ')
+  const stack = [
+    cssFontFamily(READER_FONT_FACE_FAMILY),
+    ...fontFamilyStack(family).map(cssFontFamily)
+  ].join(', ')
+  return {
+    faceRule: `@font-face { font-family: ${cssFontFamily(READER_FONT_FACE_FAMILY)}; src: ${localSources}; }`,
+    stack
+  }
+}
 
 interface EpubParagraph {
   index: number
@@ -213,6 +247,14 @@ function readingPreferencesCss(preferences: ReadingPreferences): string {
   if (preferences.indent !== 'original') {
     const indent = preferences.indent === 'none' ? '0' : '2em'
     rules.push(`${ORDINARY_PARAGRAPH_SELECTOR} { text-indent: ${indent} !important; }`)
+  }
+  if (preferences.fontFamily) {
+    const fontFamily = readingFontFamilyCss(preferences.fontFamily)
+    rules.push(fontFamily.faceRule)
+    rules.push(
+      `body, body :not(${CODE_BLOCK_SELECTOR}) { font-family: ${fontFamily.stack} !important; }`
+    )
+    rules.push(`${CODE_BLOCK_SELECTOR} { font-family: ${MONOSPACE_STACK} !important; }`)
   }
   return rules.join('\n')
 }

@@ -1,7 +1,12 @@
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
-import { normalizeReadingPreferences, readingPreferencesEqual } from './reading-preferences'
+import {
+  cssFontFamily,
+  fontFamilyStack,
+  normalizeReadingPreferences,
+  readingPreferencesEqual
+} from './reading-preferences'
 import type {
   ReadingPreferences,
   ReaderAdapter,
@@ -355,6 +360,15 @@ export class TextReaderAdapter implements ReaderAdapter {
       this.root.style.removeProperty('font-size')
     } else {
       this.root.style.fontSize = `${this.preferences.fontScale}%`
+    }
+
+    if (this.preferences.fontFamily === null) {
+      this.root.style.removeProperty('font-family')
+    } else {
+      const stack = fontFamilyStack(this.preferences.fontFamily)
+        .map(cssFontFamily)
+        .join(', ')
+      this.root.style.fontFamily = stack
     }
 
     for (const paragraph of this.paragraphs) {

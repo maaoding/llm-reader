@@ -15,6 +15,7 @@ export const readerApi: ReaderApi = {
   getProviderSettings: () => ipcRenderer.invoke(IPC_CHANNELS.providerGet),
   saveProviderSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.providerSave, input),
   testProvider: () => ipcRenderer.invoke(IPC_CHANNELS.providerTest),
+  listSystemFonts: () => ipcRenderer.invoke(IPC_CHANNELS.fontsList),
   startLlm: (request) => ipcRenderer.invoke(IPC_CHANNELS.llmStart, request),
   cancelLlm: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.llmCancel, requestId),
   onLlmEvent: (listener) => {

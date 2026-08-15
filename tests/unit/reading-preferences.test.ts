@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_READING_PREFERENCES,
   EpubReaderAdapter,
+  fontFamilyStack,
   normalizeReadingPreferences,
   TextReaderAdapter,
   type ReadingPreferences
@@ -88,14 +89,37 @@ describe('reading preferences', () => {
         lineHeight: 'invalid',
         indent: 'invalid'
       } as unknown as ReadingPreferences)
-    ).toEqual({ fontScale: 140, lineHeight: 'original', indent: 'original' })
+    ).toEqual({ fontScale: 140, lineHeight: 'original', indent: 'original', fontFamily: null })
     expect(
       normalizeReadingPreferences({
         fontScale: 79.6,
         lineHeight: '1.7',
-        indent: '2em'
+        indent: '2em',
+        fontFamily: ' 微软雅黑 '
       })
-    ).toEqual({ fontScale: 80, lineHeight: '1.7', indent: '2em' })
+    ).toEqual({ fontScale: 80, lineHeight: '1.7', indent: '2em', fontFamily: '微软雅黑' })
+    expect(
+      normalizeReadingPreferences({
+        fontScale: 100,
+        lineHeight: 'original',
+        indent: 'original',
+        fontFamily: '   '
+      })
+    ).toEqual({ fontScale: 100, lineHeight: 'original', indent: 'original', fontFamily: null })
+    expect(
+      normalizeReadingPreferences({
+        fontScale: 100,
+        lineHeight: 'original',
+        indent: 'original',
+        fontFamily: 'x'.repeat(129)
+      })
+    ).toEqual({ fontScale: 100, lineHeight: 'original', indent: 'original', fontFamily: null })
+  })
+
+  it('builds font family stacks with compact fallback variants', () => {
+    expect(fontFamilyStack('宋体')).toEqual(['宋体'])
+    expect(fontFamilyStack('仓耳今楷05 W04')).toEqual(['仓耳今楷05 W04', '仓耳今楷05W04'])
+    expect(fontFamilyStack('O\'Reilly Serif')).toEqual(['O\'Reilly Serif', 'O\'ReillySerif'])
   })
 
   it('updates TXT typography immediately and restores its existing defaults', async () => {
@@ -109,10 +133,11 @@ describe('reading preferences', () => {
     expect(selectionStyle).toContain('.reader-document ::selection')
     expect(selectionStyle).toContain('rgba(240, 220, 160, 0.55)')
 
-    await adapter.setPreferences({ fontScale: 125, lineHeight: '1.7', indent: '2em' })
+    await adapter.setPreferences({ fontScale: 125, lineHeight: '1.7', indent: '2em', fontFamily: '微软雅黑' })
 
     const paragraphs = Array.from(root.querySelectorAll<HTMLParagraphElement>('p'))
     expect(root.style.fontSize).toBe('125%')
+    expect(root.style.fontFamily).toBe('"微软雅黑"')
     expect(paragraphs).toHaveLength(2)
     expect(paragraphs.every((paragraph) => paragraph.style.lineHeight === '1.7')).toBe(true)
     expect(paragraphs.every((paragraph) => paragraph.style.textIndent === '2em')).toBe(true)
@@ -120,6 +145,7 @@ describe('reading preferences', () => {
 
     await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES })
     expect(root.style.fontSize).toBe('')
+    expect(root.style.fontFamily).toBe('')
     expect(root.style.lineHeight).toBe('1.82')
     expect(paragraphs.every((paragraph) => paragraph.style.lineHeight === '')).toBe(true)
     expect(paragraphs.every((paragraph) => paragraph.style.textIndent === '')).toBe(true)
@@ -133,7 +159,7 @@ describe('reading preferences', () => {
     const host = document.createElement('div')
     document.body.append(host)
     const adapter = new EpubReaderAdapter(host, { bookId: 'epub-preferences' })
-    await adapter.setPreferences({ fontScale: 120, lineHeight: '1.9', indent: '2em' })
+    await adapter.setPreferences({ fontScale: 120, lineHeight: '1.9', indent: '2em', fontFamily: '宋体' })
     await adapter.open(new Uint8Array([1, 2, 3]))
 
     const current = createContents('<p>普通正文</p><blockquote><p>引文</p></blockquote>')
@@ -145,6 +171,10 @@ describe('reading preferences', () => {
     expect(initialCss).toContain('line-height: 1.9')
     expect(initialCss).toContain('text-indent: 2em')
     expect(initialCss).toContain('blockquote *')
+    expect(initialCss).toContain('body, body :not(pre, code, kbd, samp, var)')
+    expect(initialCss).toContain("@font-face { font-family: 'llm-reader-selected-font'; src: local('宋体'); }")
+    expect(initialCss).toContain("font-family: 'llm-reader-selected-font', '宋体' !important")
+    expect(initialCss).toContain('ui-monospace')
 
     harness.handlers.get('relocated')?.({
       start: { cfi: LATER_CFI, percentage: 0.6, index: 1 }
@@ -157,6 +187,7 @@ describe('reading preferences', () => {
     expect(updatedCss).toContain('font-size: 110%')
     expect(updatedCss).not.toContain('line-height')
     expect(updatedCss).toContain('text-indent: 0')
+    expect(updatedCss).not.toContain('font-family')
 
     const future = createContents('<p>下一章</p>')
     harness.contentHooks[0](future)
@@ -194,6 +225,54 @@ describe('reading preferences', () => {
     host.remove()
   })
 
+  it('escapes font family names when injecting EPUB CSS', async () => {
+    const harness = createEpubHarness()
+    const host = document.createElement('div')
+    const adapter = new EpubReaderAdapter(host, { bookId: 'epub-font-escape' })
+    await adapter.open(new Uint8Array([1, 2, 3]))
+
+    const contents = createContents('<p>正文</p>')
+    harness.currentContents.push(contents)
+    harness.contentHooks[0](contents)
+    await adapter.setPreferences({
+      fontScale: 100,
+      lineHeight: 'original',
+      indent: 'original',
+      fontFamily: "O'Reilly Serif"
+    })
+
+    const css = contents.addStylesheetCss.mock.calls.at(-1)?.[0] as string
+    expect(css).toContain("src: local('O\\'Reilly Serif'), local('O\\'ReillySerif')")
+    expect(css).toContain("font-family: 'llm-reader-selected-font', 'O\\'Reilly Serif', 'O\\'ReillySerif' !important")
+
+    adapter.destroy()
+    host.remove()
+  })
+
+  it('writes spaced font family names with a compact fallback variant', async () => {
+    const harness = createEpubHarness()
+    const host = document.createElement('div')
+    const adapter = new EpubReaderAdapter(host, { bookId: 'epub-font-stack' })
+    await adapter.open(new Uint8Array([1, 2, 3]))
+
+    const contents = createContents('<p>正文</p>')
+    harness.currentContents.push(contents)
+    harness.contentHooks[0](contents)
+    await adapter.setPreferences({
+      fontScale: 100,
+      lineHeight: 'original',
+      indent: 'original',
+      fontFamily: '仓耳今楷05 W04'
+    })
+
+    const css = contents.addStylesheetCss.mock.calls.at(-1)?.[0] as string
+    expect(css).toContain("src: local('仓耳今楷05 W04'), local('仓耳今楷05W04')")
+    expect(css).toContain("font-family: 'llm-reader-selected-font', '仓耳今楷05 W04', '仓耳今楷05W04' !important")
+
+    adapter.destroy()
+    host.remove()
+  })
+
   it('does not override or reflow fixed-layout EPUB contents', async () => {
     const harness = createEpubHarness('pre-paginated')
     const host = document.createElement('div')
@@ -211,6 +290,7 @@ describe('reading preferences', () => {
     expect(fixedCss).not.toContain('font-size')
     expect(fixedCss).not.toContain('line-height')
     expect(fixedCss).not.toContain('text-indent')
+    expect(fixedCss).not.toContain('font-family')
     expect(harness.rendition.display).toHaveBeenCalledOnce()
 
     adapter.destroy()
