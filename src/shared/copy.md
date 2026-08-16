@@ -94,6 +94,14 @@
 | settings.scaleLabel | 界面缩放 |
 | settings.scaleHint | 不影响书籍正文字号 |
 | settings.scaleGroupAria | 界面缩放 |
+| settings.assistantTitle | 助手 |
+| settings.assistantHint | 自定义划词按钮的名称和发送给模型的固定提示词；选区与当前章节上下文仍会一并发送。 |
+| settings.assistantExplainName | “解释”按钮名称 |
+| settings.assistantExplainPrompt | “解释”按钮提示词 |
+| settings.assistantContextName | “联系上下文”按钮名称 |
+| settings.assistantContextPrompt | “联系上下文”按钮提示词 |
+| settings.assistantAskName | “自由提问”按钮名称 |
+| settings.assistantAskHint | 自由提问不使用预设提示词，点击后由你输入问题。 |
 | settings.readingTitle | 阅读 |
 | settings.restoreDefaults | 恢复默认 |
 | settings.fontLabel | 正文字号 |

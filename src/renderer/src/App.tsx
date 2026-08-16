@@ -58,6 +58,16 @@ import type {
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { CitationText } from './CitationText'
+import {
+  assistantActionLabel,
+  createDefaultAssistantActionSettings,
+  MAX_ASSISTANT_ACTION_LABEL_LENGTH,
+  MAX_ASSISTANT_ACTION_PROMPT_LENGTH,
+  normalizeAssistantActionSettings,
+  persistAssistantActionSettings,
+  readAssistantActionSettings,
+  type AssistantActionSettings
+} from './assistant-actions'
 import { formatCitationTextForDisplay } from './citations'
 import {
   createReaderAdapter,
@@ -74,7 +84,7 @@ type TurnStatus = 'streaming' | 'completed' | 'error'
 type ThemePreference = 'light' | 'system' | 'dark'
 type ResolvedTheme = Exclude<ThemePreference, 'system'>
 type InterfaceScale = 90 | 100 | 110 | 125
-type SettingsSectionId = 'appearance' | 'reading' | 'model'
+type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'model'
 type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
 
 interface ProviderConnectionState {
@@ -91,6 +101,7 @@ interface ConversationTurn {
   requestId: string
   selection: SelectionContext
   action: LlmAction
+  actionLabel: string
   question: string
   answer: string
   model: string
@@ -104,11 +115,6 @@ interface ToastState {
   id: number
   tone: 'success' | 'error' | 'neutral'
   message: string
-}
-
-const ACTION_QUESTIONS: Record<Exclude<LlmAction, 'ask'>, string> = {
-  explain: copy('assistant.questionExplain'),
-  context: copy('assistant.questionContext')
 }
 
 const EMPTY_PROVIDER: ProviderSettings = {
@@ -280,12 +286,6 @@ function formatDate(iso: string): string {
   } catch {
     return ''
   }
-}
-
-function actionLabel(action: LlmAction): string {
-  if (action === 'explain') return copy('assistant.actionExplain')
-  if (action === 'context') return copy('assistant.actionContext')
-  return copy('assistant.actionAsk')
 }
 
 function useBookCoverUrl(book: BookRecord): string | null {
@@ -605,7 +605,7 @@ function ConversationPane({
             const isLatest = index === turns.length - 1
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
-                <div className="question-bubble"><span>{actionLabel(turn.action)}</span><p>{turn.question}</p></div>
+                <div className="question-bubble"><span>{turn.actionLabel}</span><p>{turn.question}</p></div>
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
                   {turn.answer ? <CitationText text={turn.answer} selection={turn.selection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
@@ -636,12 +636,111 @@ function ConversationPane({
   )
 }
 
+function AssistantActionFields({
+  settings,
+  onChange
+}: {
+  settings: AssistantActionSettings
+  onChange: (settings: AssistantActionSettings) => void
+}): ReactNode {
+  const defaults = useMemo(() => createDefaultAssistantActionSettings(), [])
+  return (
+    <>
+      <p className="settings-section-hint">{copy('settings.assistantHint')}</p>
+      <div className="assistant-action-fields">
+        <div className="assistant-action-card">
+          <label className="field-label" htmlFor="assistant-explain-label">{copy('settings.assistantExplainName')}</label>
+          <input
+            id="assistant-explain-label"
+            data-testid="assistant-explain-label"
+            value={settings.explain.label}
+            maxLength={MAX_ASSISTANT_ACTION_LABEL_LENGTH}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, explain: { ...settings.explain, label: event.target.value } })}
+            onBlur={(event) => {
+              const label = event.target.value.trim()
+              onChange({ ...settings, explain: { ...settings.explain, label: label || defaults.explain.label } })
+            }}
+          />
+          <label className="field-label" htmlFor="assistant-explain-prompt">{copy('settings.assistantExplainPrompt')}</label>
+          <textarea
+            id="assistant-explain-prompt"
+            data-testid="assistant-explain-prompt"
+            value={settings.explain.prompt}
+            maxLength={MAX_ASSISTANT_ACTION_PROMPT_LENGTH}
+            rows={3}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, explain: { ...settings.explain, prompt: event.target.value } })}
+            onBlur={(event) => {
+              const prompt = event.target.value.trim()
+              onChange({ ...settings, explain: { ...settings.explain, prompt: prompt || defaults.explain.prompt } })
+            }}
+          />
+        </div>
+
+        <div className="assistant-action-card">
+          <label className="field-label" htmlFor="assistant-context-label">{copy('settings.assistantContextName')}</label>
+          <input
+            id="assistant-context-label"
+            data-testid="assistant-context-label"
+            value={settings.context.label}
+            maxLength={MAX_ASSISTANT_ACTION_LABEL_LENGTH}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, context: { ...settings.context, label: event.target.value } })}
+            onBlur={(event) => {
+              const label = event.target.value.trim()
+              onChange({ ...settings, context: { ...settings.context, label: label || defaults.context.label } })
+            }}
+          />
+          <label className="field-label" htmlFor="assistant-context-prompt">{copy('settings.assistantContextPrompt')}</label>
+          <textarea
+            id="assistant-context-prompt"
+            data-testid="assistant-context-prompt"
+            value={settings.context.prompt}
+            maxLength={MAX_ASSISTANT_ACTION_PROMPT_LENGTH}
+            rows={3}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, context: { ...settings.context, prompt: event.target.value } })}
+            onBlur={(event) => {
+              const prompt = event.target.value.trim()
+              onChange({ ...settings, context: { ...settings.context, prompt: prompt || defaults.context.prompt } })
+            }}
+          />
+        </div>
+
+        <div className="assistant-action-card">
+          <label className="field-label" htmlFor="assistant-ask-label">{copy('settings.assistantAskName')}</label>
+          <input
+            id="assistant-ask-label"
+            data-testid="assistant-ask-label"
+            value={settings.ask.label}
+            maxLength={MAX_ASSISTANT_ACTION_LABEL_LENGTH}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, ask: { label: event.target.value } })}
+            onBlur={(event) => {
+              const label = event.target.value.trim()
+              onChange({ ...settings, ask: { label: label || defaults.ask.label } })
+            }}
+          />
+          <p className="field-hint">{copy('settings.assistantAskHint')}</p>
+        </div>
+      </div>
+    </>
+  )
+}
+
 function SettingsModal({
   initial,
   initialSection,
   themePreference,
   interfaceScale,
   readingPreferences,
+  assistantActions,
   returnFocusRef,
   onClose,
   onSaved,
@@ -649,6 +748,7 @@ function SettingsModal({
   onThemeChange,
   onInterfaceScaleChange,
   onReadingPreferencesChange,
+  onAssistantActionsChange,
   pushToast
 }: {
   initial: ProviderSettings
@@ -656,6 +756,7 @@ function SettingsModal({
   themePreference: ThemePreference
   interfaceScale: InterfaceScale
   readingPreferences: ReadingPreferences
+  assistantActions: AssistantActionSettings
   returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
   onSaved: (settings: ProviderSettings) => void
@@ -663,6 +764,7 @@ function SettingsModal({
   onThemeChange: (preference: ThemePreference) => void
   onInterfaceScaleChange: (scale: InterfaceScale) => void
   onReadingPreferencesChange: (preferences: ReadingPreferences) => void
+  onAssistantActionsChange: (settings: AssistantActionSettings) => void
   pushToast: (message: string, tone?: ToastState['tone']) => void
 }): ReactNode {
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl)
@@ -722,6 +824,7 @@ function SettingsModal({
   const settingsSections: ReadonlyArray<{ id: SettingsSectionId; label: string; icon: ReactNode }> = [
     { id: 'appearance', label: copy('settings.appearanceTitle'), icon: <Palette size={14} /> },
     { id: 'reading', label: copy('settings.readingTitle'), icon: <BookOpen size={14} /> },
+    { id: 'assistant', label: copy('settings.assistantTitle'), icon: <MessageSquareText size={14} /> },
     { id: 'model', label: copy('settings.modelTitle'), icon: <Cpu size={14} /> }
   ]
 
@@ -929,6 +1032,23 @@ function SettingsModal({
               </section>
             )}
 
+            {activeSection === 'assistant' && (
+              <section className="settings-section" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
+                <div className="settings-section-heading">
+                  <h3 id="assistant-settings-title">{copy('settings.assistantTitle')}</h3>
+                  <button
+                    className="text-button"
+                    data-testid="assistant-actions-reset"
+                    type="button"
+                    onClick={() => onAssistantActionsChange(createDefaultAssistantActionSettings())}
+                  >
+                    {copy('settings.restoreDefaults')}
+                  </button>
+                </div>
+                <AssistantActionFields settings={assistantActions} onChange={onAssistantActionsChange} />
+              </section>
+            )}
+
             {activeSection === 'model' && (
               <section className="settings-section" id="settings-panel-model" role="tabpanel" aria-labelledby="settings-tab-model">
                 <h3 id="model-settings-title">{copy('settings.modelTitle')}</h3>
@@ -1016,6 +1136,7 @@ export default function App(): ReactNode {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(themePreference))
   const [interfaceScale, setInterfaceScale] = useState<InterfaceScale>(readInterfaceScale)
   const [readingPreferences, setReadingPreferences] = useState<ReadingPreferences>(readReadingPreferences)
+  const [assistantActions, setAssistantActions] = useState<AssistantActionSettings>(readAssistantActionSettings)
   const [books, setBooks] = useState<BookRecord[]>([])
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null)
   const [bookState, setBookState] = useState<LoadState>('idle')
@@ -1203,6 +1324,10 @@ export default function App(): ReactNode {
       if (preferencesTimerRef.current) clearTimeout(preferencesTimerRef.current)
     }
   }, [pushToast, readingPreferences])
+
+  useEffect(() => {
+    persistAssistantActionSettings(normalizeAssistantActionSettings(assistantActions))
+  }, [assistantActions])
 
   const refreshBooks = useCallback(async (): Promise<BookRecord[]> => {
     setLibraryState('loading')
@@ -1440,6 +1565,7 @@ export default function App(): ReactNode {
       requestId,
       selection: context,
       action,
+      actionLabel: assistantActionLabel(assistantActions, action),
       question: cleanQuestion,
       answer: '',
       model: provider.model,
@@ -1478,7 +1604,7 @@ export default function App(): ReactNode {
         setProviderConnection({ status: 'disconnected', message })
       }
     }
-  }, [conversationSelection, provider.model, selection, turns])
+  }, [assistantActions, conversationSelection, provider.model, selection, turns])
 
   const handleSelectionAction = (action: LlmAction): void => {
     if (!selection) return
@@ -1491,7 +1617,7 @@ export default function App(): ReactNode {
       window.setTimeout(() => followupRef.current?.focus(), 0)
       return
     }
-    void startRequest(action, ACTION_QUESTIONS[action], selection)
+    void startRequest(action, assistantActions[action].prompt, selection)
   }
 
   const cancelRequest = async (): Promise<void> => {
@@ -1786,9 +1912,9 @@ export default function App(): ReactNode {
               onMouseDown={(event) => event.preventDefault()}
             >
               <span className="selection-spark"><Sparkles size={15} /></span>
-              <button data-testid="action-explain" type="button" onClick={() => handleSelectionAction('explain')}><Highlighter size={15} />{copy('assistant.actionExplain')}</button>
-              <button data-testid="action-context" type="button" onClick={() => handleSelectionAction('context')}><BookOpen size={15} />{copy('assistant.actionContext')}</button>
-              <button data-testid="action-ask" type="button" onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />{copy('assistant.actionAsk')}</button>
+              <button data-testid="action-explain" type="button" title={assistantActions.explain.label} onClick={() => handleSelectionAction('explain')}><Highlighter size={15} />{assistantActions.explain.label}</button>
+              <button data-testid="action-context" type="button" title={assistantActions.context.label} onClick={() => handleSelectionAction('context')}><BookOpen size={15} />{assistantActions.context.label}</button>
+              <button data-testid="action-ask" type="button" title={assistantActions.ask.label} onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />{assistantActions.ask.label}</button>
               <button className="toolbar-close" type="button" onClick={() => setSelection(null)} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
             </div>
           )}
@@ -1873,6 +1999,7 @@ export default function App(): ReactNode {
           themePreference={themePreference}
           interfaceScale={interfaceScale}
           readingPreferences={readingPreferences}
+          assistantActions={assistantActions}
           returnFocusRef={settingsReturnFocusRef}
           onClose={closeSettings}
           onSaved={handleProviderSaved}
@@ -1880,6 +2007,7 @@ export default function App(): ReactNode {
           onThemeChange={setThemePreference}
           onInterfaceScaleChange={setInterfaceScale}
           onReadingPreferencesChange={setReadingPreferences}
+          onAssistantActionsChange={setAssistantActions}
           pushToast={pushToast}
         />
       )}

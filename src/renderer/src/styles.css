@@ -2029,6 +2029,55 @@ button.citation-valid:hover {
   font-size: 0.95em;
 }
 
+.settings-section-hint {
+  margin: 2px 0 12px;
+  color: var(--muted);
+  font-size: calc(8px * var(--interface-scale));
+  line-height: 1.6;
+}
+
+.assistant-action-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.assistant-action-card {
+  padding: 11px 12px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.assistant-action-card .field-label {
+  margin-top: 0;
+}
+
+.assistant-action-card .field-label:not(:first-child) {
+  margin-top: 11px;
+}
+
+.settings-modal textarea {
+  display: block;
+  width: 100%;
+  min-height: 78px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font: inherit;
+  font-size: calc(10px * var(--interface-scale));
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.settings-modal textarea:focus {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .label-row {
   display: flex;
   align-items: center;
