@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   ArrowLeft,
+  BookMarked,
   BookOpen,
   Bookmark,
   BookmarkCheck,
@@ -12,14 +13,19 @@ import {
   FileText,
   Highlighter,
   Import,
+  Info,
   Library,
+  Lightbulb,
   LoaderCircle,
   MessageSquareText,
   Maximize2,
   PanelLeftClose,
   Palette,
+  PenLine,
+  Quote,
   RefreshCw,
   Save,
+  Search,
   SearchX,
   Send,
   Settings,
@@ -27,7 +33,8 @@ import {
   Sparkles,
   Trash2,
   Unplug,
-  X
+  X,
+  type LucideIcon
 } from 'lucide-react'
 import {
   type CSSProperties,
@@ -43,6 +50,8 @@ import {
   useState
 } from 'react'
 import type {
+  BookCoverPayload,
+  BookDetails,
   BookRecord,
   HighlightRecord,
   LlmAction,
@@ -56,6 +65,17 @@ import type {
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { CitationText } from './CitationText'
+import {
+  assistantActionLabel,
+  createDefaultAssistantActionSettings,
+  MAX_ASSISTANT_ACTION_LABEL_LENGTH,
+  MAX_ASSISTANT_ACTION_PROMPT_LENGTH,
+  normalizeAssistantActionSettings,
+  persistAssistantActionSettings,
+  readAssistantActionSettings,
+  type AssistantActionIcon,
+  type AssistantActionSettings
+} from './assistant-actions'
 import { formatCitationTextForDisplay } from './citations'
 import {
   createReaderAdapter,
@@ -73,7 +93,7 @@ type TurnStatus = 'streaming' | 'completed' | 'error'
 type ThemePreference = 'light' | 'system' | 'dark'
 type ResolvedTheme = Exclude<ThemePreference, 'system'>
 type InterfaceScale = 90 | 100 | 110 | 125
-type SettingsSectionId = 'appearance' | 'reading' | 'model'
+type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'model'
 type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
 
 interface ProviderConnectionState {
@@ -90,6 +110,7 @@ interface ConversationTurn {
   requestId: string
   selection: SelectionContext
   action: LlmAction
+  actionLabel: string
   question: string
   answer: string
   model: string
@@ -103,11 +124,6 @@ interface ToastState {
   id: number
   tone: 'success' | 'error' | 'neutral'
   message: string
-}
-
-const ACTION_QUESTIONS: Record<Exclude<LlmAction, 'ask'>, string> = {
-  explain: copy('assistant.questionExplain'),
-  context: copy('assistant.questionContext')
 }
 
 const EMPTY_PROVIDER: ProviderSettings = {
@@ -125,6 +141,54 @@ const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; aria
   { value: 'system', label: copy('settings.themeSystem'), ariaLabel: copy('settings.themeSystemAria') },
   { value: 'dark', label: copy('settings.themeDark'), ariaLabel: copy('settings.themeDarkAria') }
 ]
+
+const ASSISTANT_ACTION_ICON_VIEWS: Readonly<Record<AssistantActionIcon, LucideIcon>> = {
+  'highlighter': Highlighter,
+  'book-open': BookOpen,
+  'message-square-text': MessageSquareText,
+  'search': Search,
+  'lightbulb': Lightbulb,
+  'pen-line': PenLine,
+  'quote': Quote,
+  'book-marked': BookMarked
+}
+
+const ASSISTANT_ACTION_ICON_OPTIONS: ReadonlyArray<{ value: AssistantActionIcon; label: string }> = [
+  { value: 'highlighter', label: copy('settings.assistantIconHighlighter') },
+  { value: 'book-open', label: copy('settings.assistantIconBookOpen') },
+  { value: 'message-square-text', label: copy('settings.assistantIconMessageSquareText') },
+  { value: 'search', label: copy('settings.assistantIconSearch') },
+  { value: 'lightbulb', label: copy('settings.assistantIconLightbulb') },
+  { value: 'pen-line', label: copy('settings.assistantIconPenLine') },
+  { value: 'quote', label: copy('settings.assistantIconQuote') },
+  { value: 'book-marked', label: copy('settings.assistantIconBookMarked') }
+]
+
+function AssistantActionIconView({ icon, size = 15 }: { icon: AssistantActionIcon; size?: number }): ReactNode {
+  const Icon = ASSISTANT_ACTION_ICON_VIEWS[icon]
+  return <Icon size={size} />
+}
+
+function AssistantActionIconPicker({
+  id,
+  value,
+  onChange
+}: {
+  id: string
+  value: AssistantActionIcon
+  onChange: (icon: AssistantActionIcon) => void
+}): ReactNode {
+  return (
+    <div className="assistant-icon-select">
+      <label htmlFor={id}><AssistantActionIconView icon={value} size={14} /><span>{copy('settings.assistantIconLabel')}</span></label>
+      <select id={id} data-testid={id} value={value} onChange={(event) => onChange(event.target.value as AssistantActionIcon)}>
+        {ASSISTANT_ACTION_ICON_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
 
 /**
  * Localized family names, in display order, for the fonts that are pinned to the
@@ -281,23 +345,261 @@ function formatDate(iso: string): string {
   }
 }
 
-function actionLabel(action: LlmAction): string {
-  if (action === 'explain') return copy('assistant.actionExplain')
-  if (action === 'context') return copy('assistant.actionContext')
-  return copy('assistant.actionAsk')
+function useBookCoverUrl(book: BookRecord): string | null {
+  const [loaded, setLoaded] = useState<{ bookId: string; url: string } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    let objectUrl: string | null = null
+    if (book.format !== 'epub' || !window.readerApi) return undefined
+
+    void window.readerApi
+      .getBookCover(book.id)
+      .then((cover) => {
+        if (!alive || !cover) return
+        try {
+          const blob = new Blob([cover.bytes as BlobPart], { type: cover.mimeType })
+          objectUrl = URL.createObjectURL(blob)
+          if (alive) setLoaded({ bookId: book.id, url: objectUrl })
+        } catch {
+          // Keep the format placeholder when the cover cannot be rendered.
+        }
+      })
+      .catch(() => undefined)
+
+    return () => {
+      alive = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [book.format, book.id])
+
+  return loaded?.bookId === book.id ? loaded.url : null
 }
 
-function ProgressRing({ value }: { value: number }): ReactNode {
-  const normalized = Math.max(0, Math.min(1, value || 0))
+function useCoverPayloadUrl(cover: BookCoverPayload | null | undefined): string | null {
+  const [loaded, setLoaded] = useState<{ cover: BookCoverPayload; url: string } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    let objectUrl: string | null = null
+    if (!cover) return undefined
+
+    void Promise.resolve().then(() => {
+      if (!alive) return
+      try {
+        const blob = new Blob([cover.bytes as BlobPart], { type: cover.mimeType })
+        objectUrl = URL.createObjectURL(blob)
+        setLoaded({ cover, url: objectUrl })
+      } catch {
+        // The details modal falls back to the placeholder below.
+      }
+    })
+
+    return () => {
+      alive = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [cover])
+
+  return loaded !== null && loaded.cover === cover ? loaded.url : null
+}
+
+function BookCoverView({
+  url,
+  book,
+  size
+}: {
+  url: string | null
+  book: BookRecord
+  size: 'small' | 'large'
+}): ReactNode {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+
+  const failed = Boolean(url && failedUrl === url)
+  const showImage = Boolean(url && !failed)
+  const iconSize = size === 'large' ? 24 : 17
+  const alt = size === 'large' ? copy('bookDetails.coverAlt', { title: book.title }) : ''
+
   return (
     <span
-      className="progress-ring"
-      style={{ '--progress': `${normalized * 360}deg` } as CSSProperties}
-      aria-label={copy('reader.progressAria', { percent: Math.round(normalized * 100) })}
-      title={`${Math.round(normalized * 100)}%`}
+      className={'book-cover is-' + book.format + ' is-' + size}
+      data-testid="book-cover"
+      data-has-cover={showImage ? 'true' : 'false'}
     >
-      <span />
+      {showImage && url ? (
+        <img src={url} alt={alt} onError={() => setFailedUrl(url)} />
+      ) : book.format === 'epub' ? (
+        <BookOpen size={iconSize} />
+      ) : (
+        <FileText size={iconSize} />
+      )}
     </span>
+  )
+}
+
+function BookCover({ book, size = 'small' }: { book: BookRecord; size?: 'small' | 'large' }): ReactNode {
+  const url = useBookCoverUrl(book)
+  return <BookCoverView url={url} book={book} size={size} />
+}
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB'] as const
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  const text = unit === 0 ? String(value) : value >= 100 ? String(Math.round(value)) : value.toFixed(1)
+  return text + ' ' + units[unit]
+}
+
+function formatFullDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date(iso))
+  } catch {
+    return iso
+  }
+}
+
+function BookDetailRow({
+  label,
+  value,
+  wide = false
+}: {
+  label: string
+  value: string
+  wide?: boolean
+}): ReactNode {
+  return (
+    <div className={wide ? 'book-details-row is-wide' : 'book-details-row'}>
+      <dt>{label}</dt>
+      <dd title={value}>{value}</dd>
+    </div>
+  )
+}
+
+function BookProgressRow({ progress }: { progress: number }): ReactNode {
+  const percent = Math.round(Math.max(0, Math.min(1, progress || 0)) * 100)
+  return (
+    <div className="book-details-row is-progress">
+      <dt>{copy('bookDetails.progressLabel')}</dt>
+      <dd>
+        <span className="book-details-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-label={copy('reader.progressAria', { percent })}>
+          <i style={{ width: percent + '%' }} />
+        </span>
+        <strong>{percent}%</strong>
+      </dd>
+    </div>
+  )
+}
+
+function BookDetailsModal({
+  book,
+  returnFocusRef,
+  onClose
+}: {
+  book: BookRecord
+  returnFocusRef: RefObject<HTMLButtonElement | null>
+  onClose: () => void
+}): ReactNode {
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [details, setDetails] = useState<BookDetails | null>(null)
+  const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+  const dialogRef = useRef<HTMLElement>(null)
+  const coverUrl = useCoverPayloadUrl(details?.cover ?? null)
+
+  useDialogFocus(true, onClose, dialogRef, returnFocusRef)
+
+  useEffect(() => {
+    let alive = true
+
+    void window.readerApi
+      .getBookDetails(book.id)
+      .then((result) => {
+        if (alive) {
+          setDetails(result)
+          setState('ready')
+        }
+      })
+      .catch((cause) => {
+        if (alive) {
+          setError(readableError(cause, copy('bookDetails.readFailed')))
+          setState('error')
+        }
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [attempt, book.id])
+
+  const retry = (): void => {
+    setState('loading')
+    setError('')
+    setDetails(null)
+    setAttempt((current) => current + 1)
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section ref={dialogRef} className="book-details-modal" data-testid="book-details-modal" role="dialog" aria-modal="true" aria-labelledby="book-details-title">
+        <header className="modal-header">
+          <div><h2 id="book-details-title">{copy('bookDetails.title')}</h2></div>
+          <button className="icon-button" data-testid="book-details-close" type="button" onClick={onClose} aria-label={copy('bookDetails.closeAria')}><X size={18} /></button>
+        </header>
+
+        {state === 'loading' && (
+          <div className="book-details-state"><LoaderCircle className="spin" size={22} />{copy('bookDetails.loading')}</div>
+        )}
+
+        {state === 'error' && (
+          <div className="book-details-state is-error">
+            <AlertCircle size={20} />
+            <span>{error}</span>
+            <button className="text-button" type="button" onClick={retry}><RefreshCw size={14} />{copy('common.retry')}</button>
+          </div>
+        )}
+
+        {state === 'ready' && details && (
+          <div className="book-details-body">
+            <div className="book-details-cover" data-testid="book-details-cover">
+              <BookCoverView url={coverUrl} book={details.book} size="large" />
+              {!coverUrl && <small>{copy('bookDetails.coverMissing')}</small>}
+            </div>
+            <div className="book-details-panel">
+              <div className="book-details-heading">
+                <h3>{details.book.title}</h3>
+                <p>{details.book.author || copy('common.unknownAuthor')}</p>
+              </div>
+              <dl className="book-details-list">
+                <BookDetailRow label={copy('bookDetails.titleLabel')} value={details.book.title} />
+                <BookDetailRow label={copy('bookDetails.authorLabel')} value={details.book.author || copy('common.unknownAuthor')} />
+                <BookDetailRow label={copy('bookDetails.formatLabel')} value={details.book.format === 'epub' ? copy('bookDetails.formatEpub') : copy('bookDetails.formatTxt')} />
+                <BookDetailRow label={copy('bookDetails.originalNameLabel')} value={details.book.originalName} />
+                <BookDetailRow label={copy('bookDetails.fileSizeLabel')} value={formatFileSize(details.fileSizeBytes)} />
+                <BookDetailRow label={copy('bookDetails.languageLabel')} value={details.metadata.language || copy('bookDetails.notProvided')} />
+                <BookDetailRow label={copy('bookDetails.publisherLabel')} value={details.metadata.publisher || copy('bookDetails.notProvided')} />
+                <BookDetailRow label={copy('bookDetails.publishedAtLabel')} value={details.metadata.publishedAt || copy('bookDetails.notProvided')} />
+                <BookDetailRow label={copy('bookDetails.identifierLabel')} value={details.metadata.identifier || copy('bookDetails.notProvided')} />
+                <BookDetailRow label={copy('bookDetails.importedAtLabel')} value={formatFullDate(details.book.importedAt)} />
+                <BookDetailRow label={copy('bookDetails.lastOpenedAtLabel')} value={details.book.lastOpenedAt ? formatFullDate(details.book.lastOpenedAt) : copy('bookDetails.neverOpened')} />
+                <BookProgressRow progress={details.book.progress} />
+                <BookDetailRow label={copy('bookDetails.descriptionLabel')} value={details.metadata.description || copy('bookDetails.notProvided')} wide />
+              </dl>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }
 
@@ -360,7 +662,7 @@ function ConversationPane({
             const isLatest = index === turns.length - 1
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
-                <div className="question-bubble"><span>{actionLabel(turn.action)}</span><p>{turn.question}</p></div>
+                <div className="question-bubble"><span>{turn.actionLabel}</span><p>{turn.question}</p></div>
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
                   {turn.answer ? <CitationText text={turn.answer} selection={turn.selection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
@@ -391,12 +693,126 @@ function ConversationPane({
   )
 }
 
+function AssistantActionFields({
+  settings,
+  onChange
+}: {
+  settings: AssistantActionSettings
+  onChange: (settings: AssistantActionSettings) => void
+}): ReactNode {
+  const defaults = useMemo(() => createDefaultAssistantActionSettings(), [])
+  return (
+    <>
+      <p className="settings-section-hint">{copy('settings.assistantHint')}</p>
+      <div className="assistant-action-fields">
+        <div className="assistant-action-card">
+          <AssistantActionIconPicker
+            id="assistant-explain-icon"
+            value={settings.explain.icon}
+            onChange={(icon) => onChange({ ...settings, explain: { ...settings.explain, icon } })}
+          />
+          <label className="field-label" htmlFor="assistant-explain-label">{copy('settings.assistantExplainName')}</label>
+          <input
+            id="assistant-explain-label"
+            data-testid="assistant-explain-label"
+            value={settings.explain.label}
+            maxLength={MAX_ASSISTANT_ACTION_LABEL_LENGTH}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, explain: { ...settings.explain, label: event.target.value } })}
+            onBlur={(event) => {
+              const label = event.target.value.trim()
+              onChange({ ...settings, explain: { ...settings.explain, label: label || defaults.explain.label } })
+            }}
+          />
+          <label className="field-label" htmlFor="assistant-explain-prompt">{copy('settings.assistantExplainPrompt')}</label>
+          <textarea
+            id="assistant-explain-prompt"
+            data-testid="assistant-explain-prompt"
+            value={settings.explain.prompt}
+            maxLength={MAX_ASSISTANT_ACTION_PROMPT_LENGTH}
+            rows={3}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, explain: { ...settings.explain, prompt: event.target.value } })}
+            onBlur={(event) => {
+              const prompt = event.target.value.trim()
+              onChange({ ...settings, explain: { ...settings.explain, prompt: prompt || defaults.explain.prompt } })
+            }}
+          />
+        </div>
+
+        <div className="assistant-action-card">
+          <AssistantActionIconPicker
+            id="assistant-context-icon"
+            value={settings.context.icon}
+            onChange={(icon) => onChange({ ...settings, context: { ...settings.context, icon } })}
+          />
+          <label className="field-label" htmlFor="assistant-context-label">{copy('settings.assistantContextName')}</label>
+          <input
+            id="assistant-context-label"
+            data-testid="assistant-context-label"
+            value={settings.context.label}
+            maxLength={MAX_ASSISTANT_ACTION_LABEL_LENGTH}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, context: { ...settings.context, label: event.target.value } })}
+            onBlur={(event) => {
+              const label = event.target.value.trim()
+              onChange({ ...settings, context: { ...settings.context, label: label || defaults.context.label } })
+            }}
+          />
+          <label className="field-label" htmlFor="assistant-context-prompt">{copy('settings.assistantContextPrompt')}</label>
+          <textarea
+            id="assistant-context-prompt"
+            data-testid="assistant-context-prompt"
+            value={settings.context.prompt}
+            maxLength={MAX_ASSISTANT_ACTION_PROMPT_LENGTH}
+            rows={3}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, context: { ...settings.context, prompt: event.target.value } })}
+            onBlur={(event) => {
+              const prompt = event.target.value.trim()
+              onChange({ ...settings, context: { ...settings.context, prompt: prompt || defaults.context.prompt } })
+            }}
+          />
+        </div>
+
+        <div className="assistant-action-card">
+          <AssistantActionIconPicker
+            id="assistant-ask-icon"
+            value={settings.ask.icon}
+            onChange={(icon) => onChange({ ...settings, ask: { ...settings.ask, icon } })}
+          />
+          <label className="field-label" htmlFor="assistant-ask-label">{copy('settings.assistantAskName')}</label>
+          <input
+            id="assistant-ask-label"
+            data-testid="assistant-ask-label"
+            value={settings.ask.label}
+            maxLength={MAX_ASSISTANT_ACTION_LABEL_LENGTH}
+            spellCheck={false}
+            required
+            onChange={(event) => onChange({ ...settings, ask: { ...settings.ask, label: event.target.value } })}
+            onBlur={(event) => {
+              const label = event.target.value.trim()
+              onChange({ ...settings, ask: { ...settings.ask, label: label || defaults.ask.label } })
+            }}
+          />
+          <p className="field-hint">{copy('settings.assistantAskHint')}</p>
+        </div>
+      </div>
+    </>
+  )
+}
+
 function SettingsModal({
   initial,
   initialSection,
   themePreference,
   interfaceScale,
   readingPreferences,
+  assistantActions,
   returnFocusRef,
   onClose,
   onSaved,
@@ -404,6 +820,7 @@ function SettingsModal({
   onThemeChange,
   onInterfaceScaleChange,
   onReadingPreferencesChange,
+  onAssistantActionsChange,
   pushToast
 }: {
   initial: ProviderSettings
@@ -411,6 +828,7 @@ function SettingsModal({
   themePreference: ThemePreference
   interfaceScale: InterfaceScale
   readingPreferences: ReadingPreferences
+  assistantActions: AssistantActionSettings
   returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
   onSaved: (settings: ProviderSettings) => void
@@ -418,6 +836,7 @@ function SettingsModal({
   onThemeChange: (preference: ThemePreference) => void
   onInterfaceScaleChange: (scale: InterfaceScale) => void
   onReadingPreferencesChange: (preferences: ReadingPreferences) => void
+  onAssistantActionsChange: (settings: AssistantActionSettings) => void
   pushToast: (message: string, tone?: ToastState['tone']) => void
 }): ReactNode {
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl)
@@ -477,6 +896,7 @@ function SettingsModal({
   const settingsSections: ReadonlyArray<{ id: SettingsSectionId; label: string; icon: ReactNode }> = [
     { id: 'appearance', label: copy('settings.appearanceTitle'), icon: <Palette size={14} /> },
     { id: 'reading', label: copy('settings.readingTitle'), icon: <BookOpen size={14} /> },
+    { id: 'assistant', label: copy('settings.assistantTitle'), icon: <MessageSquareText size={14} /> },
     { id: 'model', label: copy('settings.modelTitle'), icon: <Cpu size={14} /> }
   ]
 
@@ -693,6 +1113,23 @@ function SettingsModal({
               </section>
             )}
 
+            {activeSection === 'assistant' && (
+              <section className="settings-section" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
+                <div className="settings-section-heading">
+                  <h3 id="assistant-settings-title">{copy('settings.assistantTitle')}</h3>
+                  <button
+                    className="text-button"
+                    data-testid="assistant-actions-reset"
+                    type="button"
+                    onClick={() => onAssistantActionsChange(createDefaultAssistantActionSettings())}
+                  >
+                    {copy('settings.restoreDefaults')}
+                  </button>
+                </div>
+                <AssistantActionFields settings={assistantActions} onChange={onAssistantActionsChange} />
+              </section>
+            )}
+
             {activeSection === 'model' && (
               <section className="settings-section" id="settings-panel-model" role="tabpanel" aria-labelledby="settings-tab-model">
                 <h3 id="model-settings-title">{copy('settings.modelTitle')}</h3>
@@ -780,6 +1217,7 @@ export default function App(): ReactNode {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(themePreference))
   const [interfaceScale, setInterfaceScale] = useState<InterfaceScale>(readInterfaceScale)
   const [readingPreferences, setReadingPreferences] = useState<ReadingPreferences>(readReadingPreferences)
+  const [assistantActions, setAssistantActions] = useState<AssistantActionSettings>(readAssistantActionSettings)
   const [books, setBooks] = useState<BookRecord[]>([])
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null)
   const [bookState, setBookState] = useState<LoadState>('idle')
@@ -808,6 +1246,7 @@ export default function App(): ReactNode {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
+  const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
   const [providerConnection, setProviderConnection] = useState<ProviderConnectionState>({
@@ -831,6 +1270,7 @@ export default function App(): ReactNode {
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
   const settingsReturnFocusRef = useRef<HTMLButtonElement>(null)
   const assistantExpandButtonRef = useRef<HTMLButtonElement>(null)
+  const detailsReturnFocusRef = useRef<HTMLButtonElement>(null)
   const assistantDialogRef = useRef<HTMLElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
   const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -847,6 +1287,11 @@ export default function App(): ReactNode {
     setSettingsOpen(true)
   }, [])
   const closeAssistantDialog = useCallback(() => setAssistantDialogOpen(false), [])
+  const closeBookDetails = useCallback(() => setDetailsBook(null), [])
+  const openBookDetails = useCallback((book: BookRecord, trigger: HTMLButtonElement): void => {
+    detailsReturnFocusRef.current = trigger
+    setDetailsBook(book)
+  }, [])
   useDialogFocus(assistantDialogOpen, closeAssistantDialog, assistantDialogRef, assistantExpandButtonRef)
 
   useEffect(() => {
@@ -969,6 +1414,10 @@ export default function App(): ReactNode {
       if (preferencesTimerRef.current) clearTimeout(preferencesTimerRef.current)
     }
   }, [pushToast, readingPreferences])
+
+  useEffect(() => {
+    persistAssistantActionSettings(normalizeAssistantActionSettings(assistantActions))
+  }, [assistantActions])
 
   const refreshBooks = useCallback(async (): Promise<BookRecord[]> => {
     setLibraryState('loading')
@@ -1229,11 +1678,11 @@ export default function App(): ReactNode {
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape' && !settingsOpen && !assistantDialogOpen) setSelection(null)
+      if (event.key === 'Escape' && !settingsOpen && !assistantDialogOpen && !detailsBook) setSelection(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [assistantDialogOpen, settingsOpen])
+  }, [assistantDialogOpen, detailsBook, settingsOpen])
 
   const startRequest = useCallback(async (action: LlmAction, question: string, sourceSelection?: SelectionContext): Promise<void> => {
     const context = sourceSelection ?? conversationSelection ?? selection
@@ -1248,6 +1697,7 @@ export default function App(): ReactNode {
       requestId,
       selection: context,
       action,
+      actionLabel: assistantActionLabel(assistantActions, action),
       question: cleanQuestion,
       answer: '',
       model: provider.model,
@@ -1286,7 +1736,7 @@ export default function App(): ReactNode {
         setProviderConnection({ status: 'disconnected', message })
       }
     }
-  }, [conversationSelection, provider.model, selection, turns])
+  }, [assistantActions, conversationSelection, provider.model, selection, turns])
 
   const handleSelectionAction = (action: LlmAction): void => {
     if (!selection) return
@@ -1299,7 +1749,7 @@ export default function App(): ReactNode {
       window.setTimeout(() => followupRef.current?.focus(), 0)
       return
     }
-    void startRequest(action, ACTION_QUESTIONS[action], selection)
+    void startRequest(action, assistantActions[action].prompt, selection)
   }
 
   const cancelRequest = async (): Promise<void> => {
@@ -1505,23 +1955,32 @@ export default function App(): ReactNode {
                 <EmptyState icon={<BookOpen size={20} />} title={copy('library.emptyTitle')} detail={copy('library.emptyDetail')} />
               )}
               {books.map((book) => (
-                <button
-                  className={`book-item ${activeBook?.id === book.id ? 'is-active' : ''}`}
-                  data-testid="book-item"
-                  data-book-id={book.id}
-                  key={book.id}
-                  type="button"
-                  onClick={() => void openBook(book)}
-                >
-                  <span className={`book-cover is-${book.format}`}>
-                    {book.format === 'epub' ? <BookOpen size={17} /> : <FileText size={17} />}
-                  </span>
-                  <span className="book-meta">
-                    <strong title={book.title}>{book.title}</strong>
-                    <small>{book.author || (book.format === 'epub' ? copy('library.epubDescription') : copy('library.txtDescription'))}</small>
-                  </span>
-                  <ProgressRing value={book.progress} />
-                </button>
+                <div className={'book-item ' + (activeBook?.id === book.id ? 'is-active' : '')} key={book.id}>
+                  <button
+                    className="book-item-open"
+                    data-testid="book-item"
+                    data-book-id={book.id}
+                    type="button"
+                    onClick={() => void openBook(book)}
+                  >
+                    <BookCover book={book} />
+                    <span className="book-meta">
+                      <strong title={book.title}>{book.title}</strong>
+                      <small>{book.author || (book.format === 'epub' ? copy('library.epubDescription') : copy('library.txtDescription'))}</small>
+                    </span>
+                  </button>
+                  <button
+                    className="book-item-info"
+                    data-testid="book-info"
+                    data-book-id={book.id}
+                    type="button"
+                    aria-label={copy('bookDetails.openAria', { title: book.title })}
+                    title={copy('bookDetails.openAria', { title: book.title })}
+                    onClick={(event) => openBookDetails(book, event.currentTarget)}
+                  >
+                    <Info size={14} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -1625,6 +2084,7 @@ export default function App(): ReactNode {
                 </div>
               </div>
               <div className="reader-header-actions">
+                <button className="icon-button" data-testid="book-details-button" type="button" aria-label={copy('bookDetails.openAria', { title: activeBook.title })} title={copy('bookDetails.openAria', { title: activeBook.title })} onClick={(event) => openBookDetails(activeBook, event.currentTarget)}><Info size={17} /></button>
                 <button className="icon-button reader-settings-button" data-testid="reader-return-button" type="button" aria-label={copy('reader.returnToReading')} title={copy('reader.returnToReading')} disabled={bookState !== 'ready' || !naturalLocator || currentLocator === naturalLocator} onClick={() => void returnToReading()}><ArrowLeft size={17} /></button>
                 <button className="icon-button reader-settings-button" data-testid="reader-settings-button" type="button" aria-label={copy('reader.readingSettings')} title={copy('reader.readingSettings')} onClick={(event) => openSettings('reading', event.currentTarget)}><SlidersHorizontal size={17} /></button>
                 <div className="reading-progress">
@@ -1672,9 +2132,9 @@ export default function App(): ReactNode {
               onMouseDown={(event) => event.preventDefault()}
             >
               <span className="selection-spark"><Sparkles size={15} /></span>
-              <button data-testid="action-explain" type="button" onClick={() => handleSelectionAction('explain')}><Highlighter size={15} />{copy('assistant.actionExplain')}</button>
-              <button data-testid="action-context" type="button" onClick={() => handleSelectionAction('context')}><BookOpen size={15} />{copy('assistant.actionContext')}</button>
-              <button data-testid="action-ask" type="button" onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />{copy('assistant.actionAsk')}</button>
+              <button data-testid="action-explain" data-icon={assistantActions.explain.icon} type="button" title={assistantActions.explain.label} onClick={() => handleSelectionAction('explain')}><AssistantActionIconView icon={assistantActions.explain.icon} size={15} />{assistantActions.explain.label}</button>
+              <button data-testid="action-context" data-icon={assistantActions.context.icon} type="button" title={assistantActions.context.label} onClick={() => handleSelectionAction('context')}><AssistantActionIconView icon={assistantActions.context.icon} size={15} />{assistantActions.context.label}</button>
+              <button data-testid="action-ask" data-icon={assistantActions.ask.icon} type="button" title={assistantActions.ask.label} onClick={() => handleSelectionAction('ask')}><AssistantActionIconView icon={assistantActions.ask.icon} size={15} />{assistantActions.ask.label}</button>
               <button data-testid="action-save-highlight" type="button" onClick={() => void saveSelectionHighlight()}><Bookmark size={15} />{copy('assistant.actionSaveHighlight')}</button>
               <button className="toolbar-close" type="button" onClick={() => setSelection(null)} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
             </div>
@@ -1760,6 +2220,7 @@ export default function App(): ReactNode {
           themePreference={themePreference}
           interfaceScale={interfaceScale}
           readingPreferences={readingPreferences}
+          assistantActions={assistantActions}
           returnFocusRef={settingsReturnFocusRef}
           onClose={closeSettings}
           onSaved={handleProviderSaved}
@@ -1767,7 +2228,17 @@ export default function App(): ReactNode {
           onThemeChange={setThemePreference}
           onInterfaceScaleChange={setInterfaceScale}
           onReadingPreferencesChange={setReadingPreferences}
+          onAssistantActionsChange={setAssistantActions}
           pushToast={pushToast}
+        />
+      )}
+
+      {detailsBook && (
+        <BookDetailsModal
+          key={detailsBook.id}
+          book={detailsBook}
+          returnFocusRef={detailsReturnFocusRef}
+          onClose={closeBookDetails}
         />
       )}
 

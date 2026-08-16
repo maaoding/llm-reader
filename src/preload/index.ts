@@ -5,6 +5,8 @@ export const readerApi: ReaderApi = {
   listBooks: () => ipcRenderer.invoke(IPC_CHANNELS.booksList),
   importBook: () => ipcRenderer.invoke(IPC_CHANNELS.booksImport),
   readBook: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksRead, bookId),
+  getBookCover: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksCover, bookId),
+  getBookDetails: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksDetails, bookId),
   updateBookMetadata: (bookId, title, author) =>
     ipcRenderer.invoke(IPC_CHANNELS.booksUpdateMetadata, bookId, title, author),
   updateBookProgress: (bookId, locator, progress) =>

@@ -50,6 +50,18 @@ describe('preload ReaderApi', () => {
     electronMocks.invoke.mockReset()
   })
 
+  it('exposes book cover and details through their dedicated IPC channels', async () => {
+    const id = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
+    electronMocks.invoke.mockResolvedValueOnce(null)
+    electronMocks.invoke.mockResolvedValueOnce({ book: null })
+
+    await expect(readerApi.getBookCover(id)).resolves.toBeNull()
+    await expect(readerApi.getBookDetails(id)).resolves.toEqual({ book: null })
+
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.booksCover, id)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.booksDetails, id)
+  })
+
   it('exposes insight deletion through its dedicated IPC channel', async () => {
     const id = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
     electronMocks.invoke.mockResolvedValueOnce(true)

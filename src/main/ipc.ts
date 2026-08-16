@@ -87,6 +87,12 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.booksRead, dependencies, (_event, value) =>
     dependencies.library.readBook(parse(bookIdSchema, value))
   )
+  handle(IPC_CHANNELS.booksCover, dependencies, (_event, value) =>
+    dependencies.library.getBookCover(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.booksDetails, dependencies, (_event, value) =>
+    dependencies.library.getBookDetails(parse(bookIdSchema, value))
+  )
   handle(IPC_CHANNELS.booksUpdateMetadata, dependencies, (_event, ...values) => {
     const input = parse(metadataSchema, { bookId: values[0], title: values[1], author: values[2] })
     return dependencies.library.updateBookMetadata(input.bookId, input.title, input.author)
