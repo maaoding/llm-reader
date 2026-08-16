@@ -102,6 +102,15 @@
 | settings.assistantContextPrompt | “联系上下文”按钮提示词 |
 | settings.assistantAskName | “自由提问”按钮名称 |
 | settings.assistantAskHint | 自由提问不使用预设提示词，点击后由你输入问题。 |
+| settings.assistantIconLabel | 按钮图标 |
+| settings.assistantIconHighlighter | 荧光笔 |
+| settings.assistantIconBookOpen | 打开的书 |
+| settings.assistantIconMessageSquareText | 对话气泡 |
+| settings.assistantIconSearch | 搜索 |
+| settings.assistantIconLightbulb | 灯泡 |
+| settings.assistantIconPenLine | 钢笔 |
+| settings.assistantIconQuote | 引号 |
+| settings.assistantIconBookMarked | 带书签的书 |
 | settings.readingTitle | 阅读 |
 | settings.restoreDefaults | 恢复默认 |
 | settings.fontLabel | 正文字号 |

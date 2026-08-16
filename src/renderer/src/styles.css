@@ -2049,6 +2049,47 @@ button.citation-valid:hover {
   border-radius: 5px;
 }
 
+.assistant-icon-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.assistant-icon-select label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: calc(9px * var(--interface-scale));
+  font-weight: 700;
+}
+
+.assistant-icon-select label svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.assistant-icon-select select {
+  width: min(190px, 62%);
+  height: 30px;
+  padding: 0 7px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font: inherit;
+  font-size: calc(9px * var(--interface-scale));
+}
+
+.assistant-icon-select select:focus {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .assistant-action-card .field-label {
   margin-top: 0;
 }

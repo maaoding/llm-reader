@@ -10,7 +10,8 @@ import {
   MAX_ASSISTANT_ACTION_PROMPT_LENGTH,
   normalizeAssistantActionSettings,
   persistAssistantActionSettings,
-  readAssistantActionSettings
+  readAssistantActionSettings,
+  type AssistantActionSettings
 } from '../../src/renderer/src/assistant-actions'
 
 describe('assistant action settings', () => {
@@ -18,18 +19,21 @@ describe('assistant action settings', () => {
     window.localStorage.clear()
   })
 
-  it('uses the shared copy text as defaults', () => {
+  it('uses the shared copy text and default icons', () => {
     expect(createDefaultAssistantActionSettings()).toEqual({
       explain: {
         label: copy('assistant.actionExplain'),
-        prompt: copy('assistant.questionExplain')
+        prompt: copy('assistant.questionExplain'),
+        icon: 'highlighter'
       },
       context: {
         label: copy('assistant.actionContext'),
-        prompt: copy('assistant.questionContext')
+        prompt: copy('assistant.questionContext'),
+        icon: 'book-open'
       },
       ask: {
-        label: copy('assistant.actionAsk')
+        label: copy('assistant.actionAsk'),
+        icon: 'message-square-text'
       }
     })
   })
@@ -37,27 +41,28 @@ describe('assistant action settings', () => {
   it('normalizes untrusted persisted values field by field', () => {
     expect(
       normalizeAssistantActionSettings({
-        explain: { label: '  通俗解释  ', prompt: '  请用通俗语言解释。  ' },
-        context: { label: 42, prompt: '' },
-        ask: {}
+        explain: { label: '  通俗解释  ', prompt: '  请用通俗语言解释。  ', icon: 'lightbulb' },
+        context: { label: 42, prompt: '', icon: 'unknown-icon' },
+        ask: { label: '直接问', icon: null }
       })
     ).toEqual({
-      explain: { label: '通俗解释', prompt: '请用通俗语言解释。' },
+      explain: { label: '通俗解释', prompt: '请用通俗语言解释。', icon: 'lightbulb' },
       context: {
         label: copy('assistant.actionContext'),
-        prompt: copy('assistant.questionContext')
+        prompt: copy('assistant.questionContext'),
+        icon: 'book-open'
       },
-      ask: { label: copy('assistant.actionAsk') }
+      ask: { label: '直接问', icon: 'message-square-text' }
     })
   })
 
-  it('rejects empty or oversized labels and prompts', () => {
+  it('rejects empty or oversized labels and prompts and invalid icons', () => {
     const longLabel = '很'.repeat(MAX_ASSISTANT_ACTION_LABEL_LENGTH + 1)
     const longPrompt = '问'.repeat(MAX_ASSISTANT_ACTION_PROMPT_LENGTH + 1)
     const normalized = normalizeAssistantActionSettings({
-      explain: { label: longLabel, prompt: longPrompt },
-      context: { label: '  ', prompt: '  ' },
-      ask: { label: null }
+      explain: { label: longLabel, prompt: longPrompt, icon: 'sparkles' },
+      context: { label: '  ', prompt: '  ', icon: 42 },
+      ask: { label: null, icon: '' }
     })
     const defaults = createDefaultAssistantActionSettings()
 
@@ -78,10 +83,10 @@ describe('assistant action settings', () => {
   })
 
   it('persists and restores valid settings and resolves action labels', () => {
-    const settings = {
-      explain: { label: '通俗解释', prompt: '请用通俗语言解释这段内容。' },
-      context: { label: '看上下文', prompt: '请结合本章上下文分析这段内容。' },
-      ask: { label: '直接问' }
+    const settings: AssistantActionSettings = {
+      explain: { label: '通俗解释', prompt: '请用通俗语言解释这段内容。', icon: 'lightbulb' },
+      context: { label: '看上下文', prompt: '请结合本章上下文分析这段内容。', icon: 'quote' },
+      ask: { label: '直接问', icon: 'pen-line' }
     }
     persistAssistantActionSettings(settings)
     expect(readAssistantActionSettings()).toEqual(settings)

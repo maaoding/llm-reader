@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   ArrowLeft,
+  BookMarked,
   BookOpen,
   Bookmark,
   BookmarkCheck,
@@ -14,13 +15,17 @@ import {
   Import,
   Info,
   Library,
+  Lightbulb,
   LoaderCircle,
   MessageSquareText,
   Maximize2,
   PanelLeftClose,
   Palette,
+  PenLine,
+  Quote,
   RefreshCw,
   Save,
+  Search,
   SearchX,
   Send,
   Settings,
@@ -28,7 +33,8 @@ import {
   Sparkles,
   Trash2,
   Unplug,
-  X
+  X,
+  type LucideIcon
 } from 'lucide-react'
 import {
   type CSSProperties,
@@ -66,6 +72,7 @@ import {
   normalizeAssistantActionSettings,
   persistAssistantActionSettings,
   readAssistantActionSettings,
+  type AssistantActionIcon,
   type AssistantActionSettings
 } from './assistant-actions'
 import { formatCitationTextForDisplay } from './citations'
@@ -132,6 +139,54 @@ const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; aria
   { value: 'system', label: copy('settings.themeSystem'), ariaLabel: copy('settings.themeSystemAria') },
   { value: 'dark', label: copy('settings.themeDark'), ariaLabel: copy('settings.themeDarkAria') }
 ]
+
+const ASSISTANT_ACTION_ICON_VIEWS: Readonly<Record<AssistantActionIcon, LucideIcon>> = {
+  'highlighter': Highlighter,
+  'book-open': BookOpen,
+  'message-square-text': MessageSquareText,
+  'search': Search,
+  'lightbulb': Lightbulb,
+  'pen-line': PenLine,
+  'quote': Quote,
+  'book-marked': BookMarked
+}
+
+const ASSISTANT_ACTION_ICON_OPTIONS: ReadonlyArray<{ value: AssistantActionIcon; label: string }> = [
+  { value: 'highlighter', label: copy('settings.assistantIconHighlighter') },
+  { value: 'book-open', label: copy('settings.assistantIconBookOpen') },
+  { value: 'message-square-text', label: copy('settings.assistantIconMessageSquareText') },
+  { value: 'search', label: copy('settings.assistantIconSearch') },
+  { value: 'lightbulb', label: copy('settings.assistantIconLightbulb') },
+  { value: 'pen-line', label: copy('settings.assistantIconPenLine') },
+  { value: 'quote', label: copy('settings.assistantIconQuote') },
+  { value: 'book-marked', label: copy('settings.assistantIconBookMarked') }
+]
+
+function AssistantActionIconView({ icon, size = 15 }: { icon: AssistantActionIcon; size?: number }): ReactNode {
+  const Icon = ASSISTANT_ACTION_ICON_VIEWS[icon]
+  return <Icon size={size} />
+}
+
+function AssistantActionIconPicker({
+  id,
+  value,
+  onChange
+}: {
+  id: string
+  value: AssistantActionIcon
+  onChange: (icon: AssistantActionIcon) => void
+}): ReactNode {
+  return (
+    <div className="assistant-icon-select">
+      <label htmlFor={id}><AssistantActionIconView icon={value} size={14} /><span>{copy('settings.assistantIconLabel')}</span></label>
+      <select id={id} data-testid={id} value={value} onChange={(event) => onChange(event.target.value as AssistantActionIcon)}>
+        {ASSISTANT_ACTION_ICON_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
 
 /**
  * Localized family names, in display order, for the fonts that are pinned to the
@@ -649,6 +704,11 @@ function AssistantActionFields({
       <p className="settings-section-hint">{copy('settings.assistantHint')}</p>
       <div className="assistant-action-fields">
         <div className="assistant-action-card">
+          <AssistantActionIconPicker
+            id="assistant-explain-icon"
+            value={settings.explain.icon}
+            onChange={(icon) => onChange({ ...settings, explain: { ...settings.explain, icon } })}
+          />
           <label className="field-label" htmlFor="assistant-explain-label">{copy('settings.assistantExplainName')}</label>
           <input
             id="assistant-explain-label"
@@ -681,6 +741,11 @@ function AssistantActionFields({
         </div>
 
         <div className="assistant-action-card">
+          <AssistantActionIconPicker
+            id="assistant-context-icon"
+            value={settings.context.icon}
+            onChange={(icon) => onChange({ ...settings, context: { ...settings.context, icon } })}
+          />
           <label className="field-label" htmlFor="assistant-context-label">{copy('settings.assistantContextName')}</label>
           <input
             id="assistant-context-label"
@@ -713,6 +778,11 @@ function AssistantActionFields({
         </div>
 
         <div className="assistant-action-card">
+          <AssistantActionIconPicker
+            id="assistant-ask-icon"
+            value={settings.ask.icon}
+            onChange={(icon) => onChange({ ...settings, ask: { ...settings.ask, icon } })}
+          />
           <label className="field-label" htmlFor="assistant-ask-label">{copy('settings.assistantAskName')}</label>
           <input
             id="assistant-ask-label"
@@ -721,10 +791,10 @@ function AssistantActionFields({
             maxLength={MAX_ASSISTANT_ACTION_LABEL_LENGTH}
             spellCheck={false}
             required
-            onChange={(event) => onChange({ ...settings, ask: { label: event.target.value } })}
+            onChange={(event) => onChange({ ...settings, ask: { ...settings.ask, label: event.target.value } })}
             onBlur={(event) => {
               const label = event.target.value.trim()
-              onChange({ ...settings, ask: { label: label || defaults.ask.label } })
+              onChange({ ...settings, ask: { ...settings.ask, label: label || defaults.ask.label } })
             }}
           />
           <p className="field-hint">{copy('settings.assistantAskHint')}</p>
@@ -1912,9 +1982,9 @@ export default function App(): ReactNode {
               onMouseDown={(event) => event.preventDefault()}
             >
               <span className="selection-spark"><Sparkles size={15} /></span>
-              <button data-testid="action-explain" type="button" title={assistantActions.explain.label} onClick={() => handleSelectionAction('explain')}><Highlighter size={15} />{assistantActions.explain.label}</button>
-              <button data-testid="action-context" type="button" title={assistantActions.context.label} onClick={() => handleSelectionAction('context')}><BookOpen size={15} />{assistantActions.context.label}</button>
-              <button data-testid="action-ask" type="button" title={assistantActions.ask.label} onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />{assistantActions.ask.label}</button>
+              <button data-testid="action-explain" data-icon={assistantActions.explain.icon} type="button" title={assistantActions.explain.label} onClick={() => handleSelectionAction('explain')}><AssistantActionIconView icon={assistantActions.explain.icon} size={15} />{assistantActions.explain.label}</button>
+              <button data-testid="action-context" data-icon={assistantActions.context.icon} type="button" title={assistantActions.context.label} onClick={() => handleSelectionAction('context')}><AssistantActionIconView icon={assistantActions.context.icon} size={15} />{assistantActions.context.label}</button>
+              <button data-testid="action-ask" data-icon={assistantActions.ask.icon} type="button" title={assistantActions.ask.label} onClick={() => handleSelectionAction('ask')}><AssistantActionIconView icon={assistantActions.ask.icon} size={15} />{assistantActions.ask.label}</button>
               <button className="toolbar-close" type="button" onClick={() => setSelection(null)} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
             </div>
           )}
