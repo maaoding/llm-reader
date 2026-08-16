@@ -137,7 +137,7 @@ describe('TXT adapter', () => {
     const adapter = new TextReaderAdapter(host, { bookId: 'book-3', onRelocated })
     await adapter.open(bytes('第一段\n\n第二段'), 'txt:5:5')
 
-    expect(onRelocated).toHaveBeenCalledWith({ locator: 'txt:5:5', progress: 0.625, chapterProgress: 0.625, chapterTitle: '全文', reason: 'restore' })
+    expect(onRelocated).toHaveBeenCalledWith({ locator: 'txt:5:5', progress: 0.625, chapterProgress: 0.625, chapterTitle: '全文', chapterHref: 'txt:0:0', reason: 'restore' })
     await adapter.highlight('txt:5:8')
     expect(
       host.querySelector('[data-reader-paragraph="1"]')?.classList.contains(
@@ -327,6 +327,7 @@ describe('EPUB adapter safety utilities', () => {
       progress: 0.25,
       chapterProgress: 0.25,
       chapterTitle: '第一章',
+      chapterHref: 'chapter.xhtml',
       reason: 'restore'
     })
 

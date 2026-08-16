@@ -267,6 +267,7 @@ describe('reading preferences', () => {
       progress: 0,
       chapterProgress: 0,
       chapterTitle: '第一章',
+      chapterHref: 'txt:0:0',
       reason: 'navigation'
     })
 

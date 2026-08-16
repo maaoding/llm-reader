@@ -17,6 +17,7 @@ export interface ReaderRelocation {
   progress: number
   chapterProgress: number
   chapterTitle: string
+  chapterHref?: string | null
   reason: ReaderRelocationReason
 }
 

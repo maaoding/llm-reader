@@ -1,6 +1,12 @@
 export const IPC_CHANNELS = {
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
+  appInfo: 'app:info',
+  windowMinimize: 'window:minimize',
+  windowToggleMaximize: 'window:toggle-maximize',
+  windowClose: 'window:close',
+  windowIsMaximized: 'window:is-maximized',
+  windowMaximizedChange: 'window:maximized-change',
   booksList: 'books:list',
   booksImport: 'books:import',
   booksRead: 'books:read',
@@ -24,6 +30,10 @@ export const IPC_CHANNELS = {
 } as const
 
 export type BookFormat = 'epub' | 'txt'
+
+export interface AppInfo {
+  version: string
+}
 
 export interface BookRecord {
   id: string
@@ -169,6 +179,7 @@ export interface SaveHighlightInput {
 }
 
 export interface ReaderApi {
+  getAppInfo(): Promise<AppInfo>
   listBooks(): Promise<BookRecord[]>
   importBook(): Promise<ImportedBookResult | null>
   readBook(bookId: string): Promise<BookPayload>
@@ -190,4 +201,9 @@ export interface ReaderApi {
   cancelLlm(requestId: string): Promise<void>
   onLlmEvent(listener: (event: LlmEvent) => void): () => void
   onBeforeClose(listener: () => void | Promise<void>): () => void
+  minimizeWindow(): Promise<void>
+  toggleMaximizeWindow(): Promise<void>
+  closeWindow(): Promise<void>
+  isWindowMaximized(): Promise<boolean>
+  onWindowMaximizedChange(listener: (maximized: boolean) => void): () => void
 }

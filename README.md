@@ -58,4 +58,14 @@ pnpm build:win
 
 `pnpm test:e2e` 会先构建应用再运行 Playwright；`pnpm test:all` 依次执行 lint、typecheck、test 与 test:e2e。`pnpm build:win` 会在 `release/` 生成未签名的 Windows x64 NSIS 安装包。
 
+## 许可证
+
+LLM Reader 依据 [GPL-3.0-or-later](https://spdx.org/licenses/GPL-3.0-or-later.html) 发布。
+
+Copyright (C) 2026 wrh37
+
+完整条款见 `LICENSE`；第三方组件许可见 `THIRD_PARTY_NOTICES.md`。
+
+源码仓库：https://github.com/maaoding/llm-reader
+
 产品边界见 `PRODUCT.md`。

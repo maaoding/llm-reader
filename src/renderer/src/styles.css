@@ -1,7 +1,7 @@
 :root {
   color-scheme: light dark;
   font-family:
-    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Microsoft YaHei", "PingFang SC", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -353,7 +353,6 @@ button:disabled {
 .book-item.is-active {
   background: var(--accent-faint);
   border-color: var(--line-strong);
-  box-shadow: inset 3px 0 var(--accent);
 }
 
 .book-item.is-active::before {
@@ -1087,9 +1086,48 @@ button:disabled {
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px 0 16px;
+  padding: 0 0 0 16px;
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
+}
+
+.assistant-header-actions {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls {
+  display: flex;
+  height: 100%;
+  align-self: stretch;
+  border-left: 1px solid var(--line);
+}
+
+.window-controls button {
+  display: grid;
+  width: 46px;
+  height: 100%;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border-radius: 0;
+  -webkit-app-region: no-drag;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.window-controls button:hover {
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.window-controls button.is-close:hover {
+  color: #fff;
+  background: #c42b1c;
 }
 
 .assistant-title {
@@ -1978,6 +2016,121 @@ button.citation-valid:hover {
   font-family: ui-serif, "Noto Serif SC", serif;
   font-size: calc(13px * var(--interface-scale));
   font-weight: 650;
+}
+
+.about-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.about-brand {
+  width: 52px;
+  height: 52px;
+  margin: 4px 0 12px;
+  overflow: hidden;
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.about-brand img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.about-panel h3 {
+  margin-bottom: 4px;
+  font-size: calc(16px * var(--interface-scale));
+}
+
+.about-copyright {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: calc(10px * var(--interface-scale));
+}
+
+.about-facts {
+  display: grid;
+  margin: 0;
+  gap: 8px;
+}
+
+.about-facts > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.about-facts dt {
+  color: var(--muted);
+  font-size: calc(10px * var(--interface-scale));
+}
+
+.about-facts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: calc(10px * var(--interface-scale));
+  font-weight: 650;
+}
+
+.about-facts .about-repository {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.about-license-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  color: var(--ink-soft);
+  background: var(--accent-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: calc(9px * var(--interface-scale));
+  line-height: 1.6;
+}
+
+.about-notices {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.about-notices h4 {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: calc(11px * var(--interface-scale));
+  font-weight: 700;
+}
+
+.about-notices p {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: calc(9px * var(--interface-scale));
+  line-height: 1.6;
+}
+
+.about-notices ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 3px;
+  list-style: none;
+}
+
+.about-notices li {
+  color: var(--ink-soft);
+  font-size: calc(9px * var(--interface-scale));
+}
+
+.about-notices li::before {
+  content: "·";
+  margin-right: 7px;
+  color: var(--faint);
 }
 
 .settings-section-heading {

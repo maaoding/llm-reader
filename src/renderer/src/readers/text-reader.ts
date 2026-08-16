@@ -268,6 +268,7 @@ export class TextReaderAdapter implements ReaderAdapter {
         progress: 0,
         chapterProgress: this.chapterProgressAt(0),
         chapterTitle: this.chapters[0]?.title ?? copy('reader.txtFullText'),
+        chapterHref: this.chapters[0] ? makeTextAnchor(this.chapters[0].start) : null,
         reason: 'restore'
       })
       this.scheduleProgrammaticScrollRelease()
@@ -312,6 +313,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       progress: this.textCharacters.length === 0 ? 0 : parsed.start / this.textCharacters.length,
       chapterProgress: this.chapterProgressAt(parsed.start),
       chapterTitle: this.chapters[paragraph.chapterIndex]?.title ?? copy('reader.txtFullText'),
+      chapterHref: makeTextAnchor(this.chapters[paragraph.chapterIndex]?.start ?? paragraph.start),
       reason
     })
     this.scheduleProgrammaticScrollRelease()
@@ -525,6 +527,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       progress: Math.min(1, Math.max(0, progress)),
       chapterProgress: this.chapterProgressFor(firstVisible, visibleFraction),
       chapterTitle: this.chapters[firstVisible.chapterIndex]?.title ?? copy('reader.txtFullText'),
+      chapterHref: makeTextAnchor(this.chapters[firstVisible.chapterIndex]?.start ?? firstVisible.start),
       reason: 'natural'
     })
   }
@@ -732,6 +735,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       progress: Math.min(1, Math.max(0, relocation.progress)),
       chapterProgress: Math.min(1, Math.max(0, relocation.chapterProgress)),
       chapterTitle: relocation.chapterTitle,
+      chapterHref: relocation.chapterHref ?? null,
       reason: relocation.reason
     })
   }

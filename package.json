@@ -4,8 +4,12 @@
   "private": true,
   "description": "A local-first desktop reader centered on grounded LLM-assisted reading.",
   "main": "out/main/index.js",
-  "author": "LLM Reader contributors",
-  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maaoding/llm-reader.git"
+  },
+  "author": "wrh37",
+  "license": "GPL-3.0-or-later",
   "packageManager": "pnpm@11.16.0",
   "engines": {
     "node": ">=24",

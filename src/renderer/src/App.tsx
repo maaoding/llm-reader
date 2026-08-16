@@ -19,6 +19,8 @@ import {
   LoaderCircle,
   MessageSquareText,
   Maximize2,
+  Minimize2,
+  Minus,
   PanelLeftClose,
   Palette,
   PenLine,
@@ -31,6 +33,7 @@ import {
   Settings,
   SlidersHorizontal,
   Sparkles,
+  Square,
   Trash2,
   Unplug,
   X,
@@ -63,6 +66,7 @@ import type {
   SelectionContext,
   TocItem
 } from '@shared/contracts'
+import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
 import { CitationText } from './CitationText'
 import {
@@ -93,7 +97,7 @@ type TurnStatus = 'streaming' | 'completed' | 'error'
 type ThemePreference = 'light' | 'system' | 'dark'
 type ResolvedTheme = Exclude<ThemePreference, 'system'>
 type InterfaceScale = 90 | 100 | 110 | 125
-type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'model'
+type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'model' | 'about'
 type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
 
 interface ProviderConnectionState {
@@ -228,6 +232,61 @@ function groupReadingFonts(fonts: ReadonlyArray<string>): FontGroups {
     .filter((name) => !commonSet.has(name))
     .sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'))
   return { common, others }
+}
+
+function WindowControls(): ReactNode {
+  const [maximized, setMaximized] = useState(false)
+
+  useEffect(() => {
+    if (!window.readerApi) return undefined
+    let alive = true
+
+    void window.readerApi.isWindowMaximized().then((value) => {
+      if (alive) setMaximized(value)
+    })
+    const unsubscribe = window.readerApi.onWindowMaximizedChange(setMaximized)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [])
+
+  return (
+    <div className="window-controls" role="group" aria-label={copy('window.controlsAria')}>
+      <button
+        data-testid="window-minimize"
+        type="button"
+        aria-label={copy('window.minimizeAria')}
+        title={copy('window.minimizeAria')}
+        onClick={() => void window.readerApi.minimizeWindow()}
+      >
+        <Minus size={14} />
+      </button>
+      <button
+        data-testid="window-toggle-maximize"
+        type="button"
+        aria-label={copy(maximized ? 'window.restoreAria' : 'window.maximizeAria')}
+        title={copy(maximized ? 'window.restoreAria' : 'window.maximizeAria')}
+        onClick={() => void window.readerApi.toggleMaximizeWindow()}
+      >
+        {maximized ? <Minimize2 size={13} /> : <Square size={12} />}
+      </button>
+      <button
+        className="is-close"
+        data-testid="window-close"
+        type="button"
+        aria-label={copy('window.closeAria')}
+        title={copy('window.closeAria')}
+        onClick={() => void window.readerApi.closeWindow()}
+      >
+        <X size={15} />
+      </button>
+    </div>
+  )
+}
+
+function tocHrefMatchesCurrent(itemHref: string, currentHref: string | null): boolean {
+  return Boolean(currentHref && itemHref.trim() === currentHref.trim())
 }
 
 function providerIsConfigured(provider: ProviderSettings): boolean {
@@ -806,6 +865,69 @@ function AssistantActionFields({
   )
 }
 
+const ABOUT_THIRD_PARTY_NOTICE_KEYS = [
+  'about.noticeElectron',
+  'about.noticeEpubjs',
+  'about.noticeJszip',
+  'about.noticeLocalforage',
+  'about.noticeLucide',
+  'about.noticeReact',
+  'about.noticeZod'
+] as const
+
+function AboutPanel(): ReactNode {
+  const [version, setVersion] = useState('')
+
+  useEffect(() => {
+    if (!window.readerApi) return undefined
+    let alive = true
+    void window.readerApi
+      .getAppInfo()
+      .then((info) => {
+        if (alive) setVersion(info.version)
+      })
+      .catch(() => {
+        if (alive) setVersion(copy('about.versionUnknown'))
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  return (
+    <section className="settings-section about-panel" id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about">
+      <div className="about-brand" aria-hidden="true"><img src={appIcon} alt="" draggable={false} /></div>
+      <h3 id="about-settings-title">{copy('app.name')}</h3>
+      <p className="about-copyright">{copy('about.copyright')}</p>
+      <dl className="about-facts">
+        <div>
+          <dt>{copy('about.versionLabel')}</dt>
+          <dd data-testid="about-version">{version || copy('about.versionUnknown')}</dd>
+        </div>
+        <div>
+          <dt>{copy('about.licenseLabel')}</dt>
+          <dd>{copy('about.licenseValue')}</dd>
+        </div>
+        <div>
+          <dt>{copy('about.repositoryLabel')}</dt>
+          <dd className="about-repository">{copy('about.repositoryUrl')}</dd>
+        </div>
+      </dl>
+      <p className="about-license-note">{copy('about.licenseNotice')}</p>
+      <div className="about-notices">
+        <h4>{copy('about.thirdPartyNoticesTitle')}</h4>
+        <p>{copy('about.thirdPartyNoticesIntro')}</p>
+        <ul>
+          {ABOUT_THIRD_PARTY_NOTICE_KEYS.map((key) => (
+            <li key={key}>{copy(key)}</li>
+          ))}
+        </ul>
+        <p>{copy('about.thirdPartyNoticesFull')}</p>
+      </div>
+    </section>
+  )
+}
+
 function SettingsModal({
   initial,
   initialSection,
@@ -897,7 +1019,8 @@ function SettingsModal({
     { id: 'appearance', label: copy('settings.appearanceTitle'), icon: <Palette size={14} /> },
     { id: 'reading', label: copy('settings.readingTitle'), icon: <BookOpen size={14} /> },
     { id: 'assistant', label: copy('settings.assistantTitle'), icon: <MessageSquareText size={14} /> },
-    { id: 'model', label: copy('settings.modelTitle'), icon: <Cpu size={14} /> }
+    { id: 'model', label: copy('settings.modelTitle'), icon: <Cpu size={14} /> },
+    { id: 'about', label: copy('about.title'), icon: <Info size={14} /> }
   ]
 
   useEffect(() => {
@@ -1205,6 +1328,8 @@ function SettingsModal({
             </form>
               </section>
             )}
+
+            {activeSection === 'about' && <AboutPanel />}
           </div>
         </div>
       </section>
@@ -1243,6 +1368,7 @@ export default function App(): ReactNode {
   const [naturalLocator, setNaturalLocator] = useState<string | null>(null)
   const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
   const [currentChapterTitle, setCurrentChapterTitle] = useState('')
+  const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
@@ -1529,6 +1655,7 @@ export default function App(): ReactNode {
     setNaturalLocator(book.lastLocator)
     setCurrentChapterProgress(0)
     setCurrentChapterTitle('')
+    setCurrentChapterHref(null)
     naturalPositionRef.current = { locator: book.lastLocator, progress: book.progress }
 
     try {
@@ -1536,14 +1663,16 @@ export default function App(): ReactNode {
       if (sequence !== openSequenceRef.current || !hostRef.current) return
       const adapter = createReaderAdapter(book.format, hostRef.current, {
         bookId: book.id,
-        onRelocated: ({ locator, progress, chapterProgress, chapterTitle, reason }) => {
+        onRelocated: ({ locator, progress, chapterProgress, chapterTitle, chapterHref, reason }) => {
           setCurrentLocator(locator)
           setCurrentChapterProgress(chapterProgress)
           if (reason === 'natural') {
             chapterTitleOverrideRef.current = null
             setCurrentChapterTitle(chapterTitle)
+            setCurrentChapterHref(chapterHref ?? null)
           } else if (!chapterTitleOverrideRef.current) {
             setCurrentChapterTitle(chapterTitle)
+            setCurrentChapterHref(chapterHref ?? null)
           }
           if (reason === 'natural') {
             naturalPositionRef.current = { locator, progress }
@@ -1810,6 +1939,7 @@ export default function App(): ReactNode {
       if (chapterTitle) {
         chapterTitleOverrideRef.current = chapterTitle
         setCurrentChapterTitle(chapterTitle)
+        setCurrentChapterHref(href)
         setCurrentChapterProgress(0)
       }
     } catch (error) {
@@ -1904,11 +2034,13 @@ export default function App(): ReactNode {
       ancestorIds.length = item.depth
       const hidden = ancestorIds.some((id) => collapsedTocItems.has(id))
       const hasChildren = index + 1 < toc.length && toc[index + 1].depth > item.depth
-      const isCurrent = Boolean(currentChapterTitle) && item.label === currentChapterTitle
+      const isCurrent = currentChapterHref
+        ? tocHrefMatchesCurrent(item.href, currentChapterHref)
+        : Boolean(currentChapterTitle) && item.label === currentChapterTitle
       ancestorIds[item.depth] = item.id
       return { item, index, hidden, hasChildren, isCurrent }
     }).filter((entry) => !entry.hidden)
-  }, [collapsedTocItems, currentChapterTitle, toc])
+  }, [collapsedTocItems, currentChapterHref, currentChapterTitle, toc])
 
   return (
     <div
@@ -2145,7 +2277,10 @@ export default function App(): ReactNode {
       <aside className="right-sidebar" data-testid="ai-panel">
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
-          <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => setAssistantDialogOpen(true)}><Maximize2 size={17} /></button>
+          <div className="assistant-header-actions">
+            <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => setAssistantDialogOpen(true)}><Maximize2 size={17} /></button>
+            <WindowControls />
+          </div>
         </header>
 
         <nav className="assistant-tabs" aria-label={copy('assistant.viewsAria')}>

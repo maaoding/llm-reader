@@ -29,6 +29,7 @@ export function createMainWindow(): CreatedWindow {
     height: 900,
     minWidth: 940,
     minHeight: 600,
+    frame: false,
     show: false,
     backgroundColor: '#f5f3ee',
     webPreferences: {
@@ -65,6 +66,14 @@ export function createMainWindow(): CreatedWindow {
   window.on('closed', () => {
     if (closeFallback) clearTimeout(closeFallback)
   })
+
+  const sendMaximizedChange = (): void => {
+    if (!window.webContents.isDestroyed()) {
+      window.webContents.send(IPC_CHANNELS.windowMaximizedChange, window.isMaximized())
+    }
+  }
+  window.on('maximize', sendMaximizedChange)
+  window.on('unmaximize', sendMaximizedChange)
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event, target) => {

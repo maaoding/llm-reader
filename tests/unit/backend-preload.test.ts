@@ -46,6 +46,13 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.highlightsDelete, highlight.id)
   })
 
+  it('exposes app info through its dedicated IPC channel', async () => {
+    electronMocks.invoke.mockResolvedValueOnce({ version: '0.2.0' })
+
+    await expect(readerApi.getAppInfo()).resolves.toEqual({ version: '0.2.0' })
+    expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.appInfo)
+  })
+
   beforeEach(() => {
     electronMocks.invoke.mockReset()
   })

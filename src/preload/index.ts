@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_CHANNELS, type LlmEvent, type ReaderApi } from '@shared/contracts'
 
 export const readerApi: ReaderApi = {
+  getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
   listBooks: () => ipcRenderer.invoke(IPC_CHANNELS.booksList),
   importBook: () => ipcRenderer.invoke(IPC_CHANNELS.booksImport),
   readBook: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksRead, bookId),
@@ -36,6 +37,16 @@ export const readerApi: ReaderApi = {
     }
     ipcRenderer.on(IPC_CHANNELS.appBeforeClose, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.appBeforeClose, handler)
+  },
+  minimizeWindow: () => ipcRenderer.invoke(IPC_CHANNELS.windowMinimize),
+  toggleMaximizeWindow: () => ipcRenderer.invoke(IPC_CHANNELS.windowToggleMaximize),
+  closeWindow: () => ipcRenderer.invoke(IPC_CHANNELS.windowClose),
+  isWindowMaximized: () => ipcRenderer.invoke(IPC_CHANNELS.windowIsMaximized),
+  onWindowMaximizedChange: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void =>
+      listener(value as boolean)
+    ipcRenderer.on(IPC_CHANNELS.windowMaximizedChange, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.windowMaximizedChange, handler)
   }
 }
 

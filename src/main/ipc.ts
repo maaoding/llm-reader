@@ -1,4 +1,4 @@
-import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -74,6 +74,7 @@ function handle(
 }
 
 export function registerIpcHandlers(dependencies: IpcDependencies): void {
+  handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
   handle(IPC_CHANNELS.booksList, dependencies, () => dependencies.library.listBooks())
   handle(IPC_CHANNELS.booksImport, dependencies, async () => {
     const result = await dialog.showOpenDialog(dependencies.window, {
@@ -135,6 +136,20 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.llmCancel, dependencies, (_event, value) => {
     dependencies.llm.cancel(parse(requestIdSchema, value))
   })
+  handle(IPC_CHANNELS.windowMinimize, dependencies, () => {
+    dependencies.window.minimize()
+  })
+  handle(IPC_CHANNELS.windowToggleMaximize, dependencies, () => {
+    if (dependencies.window.isMaximized()) {
+      dependencies.window.unmaximize()
+    } else {
+      dependencies.window.maximize()
+    }
+  })
+  handle(IPC_CHANNELS.windowClose, dependencies, () => {
+    dependencies.window.close()
+  })
+  handle(IPC_CHANNELS.windowIsMaximized, dependencies, () => dependencies.window.isMaximized())
   handle(IPC_CHANNELS.appCloseReady, dependencies, () => {
     setTimeout(dependencies.completeClose, 0)
   })
@@ -143,7 +158,10 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
 export function unregisterIpcHandlers(): void {
   Object.values(IPC_CHANNELS)
     .filter(
-      (channel) => channel !== IPC_CHANNELS.llmEvent && channel !== IPC_CHANNELS.appBeforeClose
+      (channel) =>
+        channel !== IPC_CHANNELS.llmEvent &&
+        channel !== IPC_CHANNELS.appBeforeClose &&
+        channel !== IPC_CHANNELS.windowMaximizedChange
     )
     .forEach((channel) => ipcMain.removeHandler(channel))
 }

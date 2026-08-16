@@ -12,6 +12,35 @@
 | common.back | 返回 |
 | common.currentChapter | 当前章节 |
 | common.unknownAuthor | 未知作者 |
+| window.controlsAria | 窗口控制 |
+| window.minimizeAria | 最小化 |
+| window.maximizeAria | 最大化 |
+| window.restoreAria | 还原 |
+| window.closeAria | 关闭 |
+
+## 关于
+
+| key | text |
+| --- | --- |
+| about.title | 关于 |
+| about.versionLabel | 版本 |
+| about.versionUnknown | 未知 |
+| about.licenseLabel | 许可证 |
+| about.licenseValue | GPL-3.0-or-later |
+| about.licenseNotice | 本软件按 GNU General Public License v3 或更高版本发布。 |
+| about.copyright | © 2026 wrh37 |
+| about.repositoryLabel | 源码仓库 |
+| about.repositoryUrl | https://github.com/maaoding/llm-reader |
+| about.thirdPartyNoticesTitle | 第三方许可证 |
+| about.thirdPartyNoticesIntro | 本软件使用了以下开源组件： |
+| about.noticeElectron | Electron（MIT） |
+| about.noticeEpubjs | epub.js（BSD-2-Clause） |
+| about.noticeJszip | JSZip（MIT OR GPL-3.0-or-later） |
+| about.noticeLocalforage | localforage（Apache-2.0） |
+| about.noticeLucide | lucide-react（ISC） |
+| about.noticeReact | React、React DOM（MIT） |
+| about.noticeZod | Zod（MIT） |
+| about.thirdPartyNoticesFull | 完整许可文本见仓库中的 THIRD_PARTY_NOTICES.md。 |
 
 ## 助手与对话
 

@@ -41,6 +41,8 @@ const ORDINARY_PARAGRAPH_SELECTOR =
 const CODE_BLOCK_SELECTOR = 'pre, code, kbd, samp, var'
 const MONOSPACE_STACK = "ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace"
 const READER_FONT_FACE_FAMILY = 'llm-reader-selected-font'
+const CONTINUOUS_REFLOW_CSS =
+  'html, body { height: auto !important; max-height: none !important; min-height: 0 !important; }'
 
 interface FontFamilyCss {
   faceRule: string
@@ -287,6 +289,7 @@ function readingPreferencesCss(preferences: ReadingPreferences): string {
 function readerStylesheetCss(preferences: ReadingPreferences, reflowable: boolean): string {
   const rules = [
     `::selection { background: ${READER_SELECTION_BACKGROUND}; color: inherit; }`,
+    reflowable ? CONTINUOUS_REFLOW_CSS : '',
     reflowable ? readingPreferencesCss(preferences) : ''
   ]
   return rules.filter(Boolean).join('\n')
@@ -344,8 +347,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
     const rendition = book.renderTo(this.host, {
       width: '100%',
       height: '100%',
-      manager: 'continuous',
-      flow: 'scrolled-doc',
+      manager: this.reflowable ? 'continuous' : 'default',
+      flow: this.reflowable ? 'scrolled-doc' : 'paginated',
       spread: 'none',
       allowScriptedContent: false
     })
@@ -358,7 +361,9 @@ export class EpubReaderAdapter implements ReaderAdapter {
     if (rendition.settings?.layout === 'pre-paginated') {
       this.reflowable = false
     }
-    stabilizeContinuousManager(rendition)
+    if (this.reflowable) {
+      stabilizeContinuousManager(rendition)
+    }
     this.bindRendererScrollInput(rendition)
 
     try {
@@ -600,7 +605,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private emitNaturalScrollState(): void {
-    if (this.programmaticScroll || !this.latestLocator || !this.rendition) return
+    if (this.programmaticScroll || !this.latestLocator || !this.rendition || !this.reflowable) return
     const container = this.managerContainer(this.rendition)
     if (!container) return
     const sectionIndex = this.sectionIndexAtContainerScroll(container)
@@ -612,6 +617,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       progress,
       chapterProgress: this.chapterProgressFromDom(sectionIndex as number) ?? 0,
       chapterTitle: this.chapterTitle(sectionIndex),
+      chapterHref: this.chapterHref(sectionIndex),
       reason: 'natural'
     })
   }
@@ -859,6 +865,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       progress,
       chapterProgress: this.chapterProgressFor(location),
       chapterTitle: this.chapterTitle(this.currentSectionIndex, location.start.href),
+      chapterHref: this.chapterHref(this.currentSectionIndex, location.start.href),
       reason
     })
   }
@@ -875,8 +882,17 @@ export class EpubReaderAdapter implements ReaderAdapter {
     return null
   }
 
+  private chapterHref(sectionIndex: number, directHref?: string): string | null {
+    const sectionHref = directHref || this.book?.spine.get(sectionIndex)?.href || null
+    if (!sectionHref) return null
+    const normalized = normalizeHref(sectionHref)
+    const matches = this.toc.filter((item) => normalizeHref(item.href) === normalized)
+    if (matches.length === 0) return sectionHref
+    return (matches.find((item) => !item.href.includes('#')) ?? matches[0]).href
+  }
+
   private chapterTitle(sectionIndex: number, directHref?: string): string {
-    const sectionHref = directHref || this.book?.spine.get(sectionIndex)?.href
+    const sectionHref = this.chapterHref(sectionIndex, directHref)
     if (sectionHref) {
       const normalized = normalizeHref(sectionHref)
       const match = this.toc.find((item) => normalizeHref(item.href) === normalized)
@@ -898,6 +914,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       progress: Math.min(1, Math.max(0, relocation.progress)),
       chapterProgress: Math.min(1, Math.max(0, relocation.chapterProgress)),
       chapterTitle: relocation.chapterTitle,
+      chapterHref: relocation.chapterHref ?? null,
       reason: relocation.reason
     })
   }
