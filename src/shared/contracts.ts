@@ -5,6 +5,8 @@ export const IPC_CHANNELS = {
   booksImport: 'books:import',
   booksRead: 'books:read',
   booksUpdateMetadata: 'books:update-metadata',
+  booksCover: 'books:cover',
+  booksDetails: 'books:details',
   booksUpdateProgress: 'books:update-progress',
   insightsList: 'insights:list',
   insightsSave: 'insights:save',
@@ -40,6 +42,28 @@ export interface ImportedBookResult {
 export interface BookPayload {
   book: BookRecord
   bytes: Uint8Array
+}
+
+export type BookCoverMimeType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+
+export interface BookCoverPayload {
+  mimeType: BookCoverMimeType
+  bytes: Uint8Array
+}
+
+export interface BookMetadata {
+  language: string | null
+  publisher: string | null
+  publishedAt: string | null
+  identifier: string | null
+  description: string | null
+}
+
+export interface BookDetails {
+  book: BookRecord
+  fileSizeBytes: number
+  metadata: BookMetadata
+  cover: BookCoverPayload | null
 }
 
 export interface TocItem {
@@ -129,6 +153,8 @@ export interface ReaderApi {
   listBooks(): Promise<BookRecord[]>
   importBook(): Promise<ImportedBookResult | null>
   readBook(bookId: string): Promise<BookPayload>
+  getBookCover(bookId: string): Promise<BookCoverPayload | null>
+  getBookDetails(bookId: string): Promise<BookDetails>
   updateBookMetadata(bookId: string, title: string, author: string | null): Promise<BookRecord>
   updateBookProgress(bookId: string, locator: string, progress: number): Promise<void>
   listInsights(bookId: string): Promise<SavedInsight[]>

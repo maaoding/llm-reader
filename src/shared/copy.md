@@ -164,6 +164,30 @@
 | library.importedToast | 书籍已导入本地书库。 |
 | library.importFailed | 导入失败。仅支持无 DRM 的 EPUB 与 UTF-8 TXT。 |
 | library.readFailed | 无法读取本地书库。 |
+| bookDetails.title | 书籍信息 |
+| bookDetails.closeAria | 关闭书籍信息 |
+| bookDetails.openAria | 查看《{title}》信息 |
+| bookDetails.coverAlt | 《{title}》封面 |
+| bookDetails.loading | 正在读取书籍信息 |
+| bookDetails.readFailed | 无法读取这本书的信息。文件可能已损坏或已被移动。 |
+| bookDetails.coverMissing | 暂无封面 |
+| bookDetails.titleLabel | 书名 |
+| bookDetails.authorLabel | 作者 |
+| bookDetails.formatLabel | 格式 |
+| bookDetails.formatEpub | EPUB |
+| bookDetails.formatTxt | TXT |
+| bookDetails.originalNameLabel | 原文件名 |
+| bookDetails.fileSizeLabel | 文件大小 |
+| bookDetails.importedAtLabel | 导入时间 |
+| bookDetails.lastOpenedAtLabel | 上次打开 |
+| bookDetails.neverOpened | 尚未打开 |
+| bookDetails.progressLabel | 阅读进度 |
+| bookDetails.languageLabel | 语言 |
+| bookDetails.publisherLabel | 出版社 |
+| bookDetails.publishedAtLabel | 出版日期 |
+| bookDetails.identifierLabel | 标识符 |
+| bookDetails.descriptionLabel | 简介 |
+| bookDetails.notProvided | 未提供 |
 | reader.progress | 阅读进度 |
 | reader.progressAria | 阅读进度 {percent}% |
 | reader.readingSettings | 阅读设置 |

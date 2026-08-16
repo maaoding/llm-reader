@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
@@ -195,4 +195,139 @@ describe('LibraryService', () => {
     expect(copiedBytes.length).toBeGreaterThan(0)
     database.close()
   })
+  it('extracts EPUB covers and reading metadata without exposing storage details', async () => {
+    const root = makeTemporaryDirectory()
+    const database = new AppDatabase(join(root, 'reader.sqlite3'))
+    const library = new LibraryService(database, join(root, 'library'))
+    const coverPng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X8xUowAAAABJRU5ErkJggg==',
+      'base64'
+    )
+
+    const epub = new JSZip()
+    epub.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
+    epub.file(
+      'META-INF/container.xml',
+      '<container><rootfiles><rootfile full-path="OPS/content.opf"/></rootfiles></container>'
+    )
+    epub.file(
+      'OPS/content.opf',
+      '<package version="3.0"><metadata><dc:title>封面书</dc:title><dc:creator>测试作者</dc:creator><dc:language>zh-CN</dc:language><dc:publisher>示例出版社</dc:publisher><dc:date>2024-03-01</dc:date><dc:identifier>urn:isbn:9780000000000</dc:identifier><dc:description>用于验证<strong>封面</strong>与阅读元数据。</dc:description></metadata><manifest><item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>'
+    )
+    epub.file('OPS/cover.png', coverPng)
+    epub.file('OPS/chapter.xhtml', '<html><body><p>正文</p></body></html>')
+    const epubPath = join(root, 'cover.epub')
+    await writeFile(epubPath, await epub.generateAsync({ type: 'nodebuffer' }))
+
+    const imported = await library.importFromPath(epubPath)
+    const cover = await library.getBookCover(imported.book.id)
+    expect(cover?.mimeType).toBe('image/png')
+    expect(Array.from(cover?.bytes ?? [])).toEqual(Array.from(coverPng))
+
+    const details = await library.getBookDetails(imported.book.id)
+    expect(details.book).toEqual(imported.book)
+    expect(details.fileSizeBytes).toBe((await stat(epubPath)).size)
+    expect(details.metadata).toEqual({
+      language: 'zh-CN',
+      publisher: '示例出版社',
+      publishedAt: '2024-03-01',
+      identifier: 'urn:isbn:9780000000000',
+      description: '用于验证 封面 与阅读元数据。'
+    })
+    expect(details.cover?.mimeType).toBe('image/png')
+    expect(details.book).not.toHaveProperty('sha256')
+    expect(details.book).not.toHaveProperty('storedName')
+
+    const cached = await readdir(join(root, 'library', 'covers'))
+    expect(cached).toContain(imported.book.id + '.png')
+
+    await rm(join(root, 'library', 'covers'), { recursive: true, force: true })
+    const recachedCover = await library.getBookCover(imported.book.id)
+    expect(recachedCover?.mimeType).toBe('image/png')
+    expect(Array.from(recachedCover?.bytes ?? [])).toEqual(Array.from(coverPng))
+    const recachedDetails = await library.getBookDetails(imported.book.id)
+    expect(recachedDetails.metadata.publisher).toBe('示例出版社')
+    expect(recachedDetails.cover?.mimeType).toBe('image/png')
+    database.close()
+  })
+
+  it('supports OPF2 cover metadata, skips SVG covers, and ignores unsafe cover paths', async () => {
+    const root = makeTemporaryDirectory()
+    const database = new AppDatabase(join(root, 'reader.sqlite3'))
+    const library = new LibraryService(database, join(root, 'library'))
+
+    const svg = new JSZip()
+    svg.file('mimetype', 'application/epub+zip')
+    svg.file(
+      'META-INF/container.xml',
+      '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>'
+    )
+    svg.file(
+      'book.opf',
+      '<package><metadata><meta name="cover" content="cover-image"/></metadata><manifest><item id="cover-image" href="cover.svg" media-type="image/svg+xml"/></manifest></package>'
+    )
+    svg.file('cover.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>')
+    const svgPath = join(root, 'svg-cover.epub')
+    await writeFile(svgPath, await svg.generateAsync({ type: 'nodebuffer' }))
+    const svgBook = await library.importFromPath(svgPath)
+    expect(await library.getBookCover(svgBook.book.id)).toBeNull()
+
+    const unsafe = new JSZip()
+    unsafe.file('mimetype', 'application/epub+zip')
+    unsafe.file(
+      'META-INF/container.xml',
+      '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>'
+    )
+    unsafe.file(
+      'OPS/book.opf',
+      '<package><metadata><meta name="cover" content="cover-image"/></metadata><manifest><item id="cover-image" href="../cover.png" media-type="image/png"/></manifest></package>'
+    )
+    const unsafePath = join(root, 'unsafe-cover.epub')
+    await writeFile(unsafePath, await unsafe.generateAsync({ type: 'nodebuffer' }))
+    const unsafeBook = await library.importFromPath(unsafePath)
+    expect(await library.getBookCover(unsafeBook.book.id)).toBeNull()
+
+    const opf2 = new JSZip()
+    opf2.file('mimetype', 'application/epub+zip')
+    opf2.file(
+      'META-INF/container.xml',
+      '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>'
+    )
+    opf2.file(
+      'OPS/book.opf',
+      '<package><metadata><meta name="cover" content="cover-image"/></metadata><manifest><item id="cover-image" href="images/cover.jpg" media-type="image/jpeg"/></manifest></package>'
+    )
+    opf2.file('OPS/images/cover.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+    const opf2Path = join(root, 'opf2-cover.epub')
+    await writeFile(opf2Path, await opf2.generateAsync({ type: 'nodebuffer' }))
+    const opf2Book = await library.importFromPath(opf2Path)
+    expect(await library.getBookCover(opf2Book.book.id)).toEqual({
+      mimeType: 'image/jpeg',
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+    })
+    database.close()
+  })
+
+  it('returns TXT details without cover or EPUB metadata', async () => {
+    const root = makeTemporaryDirectory()
+    const source = join(root, 'plain.txt')
+    await writeFile(source, '只有文字。', 'utf8')
+    const database = new AppDatabase(join(root, 'reader.sqlite3'))
+    const library = new LibraryService(database, join(root, 'library'))
+    const imported = await library.importFromPath(source)
+
+    expect(await library.getBookCover(imported.book.id)).toBeNull()
+    const details = await library.getBookDetails(imported.book.id)
+    expect(details.fileSizeBytes).toBe((await stat(source)).size)
+    expect(details.metadata).toEqual({
+      language: null,
+      publisher: null,
+      publishedAt: null,
+      identifier: null,
+      description: null
+    })
+    expect(details.cover).toBeNull()
+    database.close()
+  })
+
 })

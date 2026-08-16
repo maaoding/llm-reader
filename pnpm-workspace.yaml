@@ -20,3 +20,9 @@ minimumReleaseAgeExclude:
 onlyBuiltDependencies:
   - electron
   - esbuild
+
+allowBuilds:
+  core-js: true
+  electron-winstaller: true
+  es5-ext: true
+  esbuild: true
