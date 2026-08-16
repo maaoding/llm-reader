@@ -22,11 +22,15 @@ export {
   fontFamilyStack,
   MAX_READING_FONT_SCALE,
   MIN_READING_FONT_SCALE,
-  normalizeReadingPreferences
+  normalizeReadingPreferences,
+  READING_CONTENT_WIDTH_PIXELS,
+  READING_PARAGRAPH_SPACING_EM
 } from './reading-preferences'
 export type {
+  ReadingContentWidth,
   ReadingIndent,
   ReadingLineHeight,
+  ReadingParagraphSpacing,
   ReadingPreferences,
   ReaderAdapter,
   ReaderCallbacks,

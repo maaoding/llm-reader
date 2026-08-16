@@ -5,6 +5,8 @@ import {
   cssFontFamily,
   fontFamilyStack,
   normalizeReadingPreferences,
+  READING_CONTENT_WIDTH_PIXELS,
+  READING_PARAGRAPH_SPACING_EM,
   readingPreferencesEqual
 } from './reading-preferences'
 import type {
@@ -371,6 +373,10 @@ export class TextReaderAdapter implements ReaderAdapter {
       this.root.style.fontFamily = stack
     }
 
+    this.root.style.maxWidth = this.preferences.contentWidth === 'original'
+      ? '760px'
+      : `${READING_CONTENT_WIDTH_PIXELS[this.preferences.contentWidth]}px`
+
     for (const paragraph of this.paragraphs) {
       if (paragraph.element.tagName !== 'P') {
         continue
@@ -385,6 +391,9 @@ export class TextReaderAdapter implements ReaderAdapter {
       } else {
         paragraph.element.style.textIndent = this.preferences.indent === 'none' ? '0' : '2em'
       }
+      paragraph.element.style.marginBottom = this.preferences.paragraphSpacing === 'original'
+        ? '1.35em'
+        : `${READING_PARAGRAPH_SPACING_EM[this.preferences.paragraphSpacing]}em`
     }
   }
 

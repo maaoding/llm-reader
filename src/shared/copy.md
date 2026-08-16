@@ -48,8 +48,10 @@
 | assistant.dialogTitle | 详细对话 |
 | assistant.closeDialog | 关闭详细对话 |
 | assistant.citationUnknownTitle | 该引用不在本次上下文中 |
-| assistant.citationUnverified | 未验证 |
-| assistant.citationJumpTitle | 跳转到 {passageId} |
+| assistant.citationUnverified | 未验证引用 |
+| assistant.citationSourceFallback | 原文片段 |
+| assistant.citationExcerpt | 原文：{excerpt} |
+| assistant.citationJumpTitle | 跳转到原文：{excerpt} |
 | assistant.selectionToolbarAria | 选区操作 |
 | assistant.selectionCloseAria | 关闭选区工具 |
 
@@ -104,6 +106,14 @@
 | settings.fontUnavailableHint | 该字体当前无法被应用加载，请重启应用或重新安装字体后再试。 |
 | settings.lineHeight | 行间距 |
 | settings.indent | 首行缩进 |
+| settings.contentWidth | 正文宽度 |
+| settings.contentWidthNarrow | 窄（640 px） |
+| settings.contentWidthStandard | 标准（760 px） |
+| settings.contentWidthWide | 宽（920 px） |
+| settings.paragraphSpacing | 段落间距 |
+| settings.spacingCompact | 紧凑 |
+| settings.spacingStandard | 标准 |
+| settings.spacingRelaxed | 宽松 |
 | settings.followBookDefault | 跟随原书 / 默认 |
 | settings.noIndent | 无缩进 |
 | settings.modelTitle | 模型 |
@@ -156,6 +166,7 @@
 | library.readFailed | 无法读取本地书库。 |
 | reader.progress | 阅读进度 |
 | reader.progressAria | 阅读进度 {percent}% |
+| reader.readingSettings | 阅读设置 |
 | reader.areaAria | 正文阅读区 |
 | reader.emptyAria | 尚未打开书籍 |
 | reader.emptyText | 从书库打开或导入一本书 |

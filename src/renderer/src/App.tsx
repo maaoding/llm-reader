@@ -23,6 +23,7 @@ import {
   SearchX,
   Send,
   Settings,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Unplug,
@@ -53,9 +54,12 @@ import type {
   TocItem
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
+import { CitationText } from './CitationText'
+import { formatCitationTextForDisplay } from './citations'
 import {
   createReaderAdapter,
   DEFAULT_READING_PREFERENCES,
+  normalizeReadingPreferences,
   type ReaderAdapter,
   type ReadingPreferences
 } from './readers'
@@ -82,6 +86,7 @@ interface ProviderCheckOutcome extends ProviderTestResult {
 interface ConversationTurn {
   id: string
   requestId: string
+  selection: SelectionContext
   action: LlmAction
   question: string
   answer: string
@@ -204,19 +209,9 @@ function readInterfaceScale(): InterfaceScale {
 
 function readReadingPreferences(): ReadingPreferences {
   try {
-    const value = JSON.parse(window.localStorage.getItem(READING_PREFERENCES_STORAGE_KEY) ?? '{}') as Partial<ReadingPreferences>
-    const fontFamily =
-      typeof value.fontFamily === 'string' &&
-      value.fontFamily.trim().length > 0 &&
-      value.fontFamily.trim().length <= 128
-        ? value.fontFamily.trim()
-        : null
-    return {
-      fontScale: typeof value.fontScale === 'number' && value.fontScale >= 80 && value.fontScale <= 140 ? value.fontScale : DEFAULT_READING_PREFERENCES.fontScale,
-      lineHeight: value.lineHeight === '1.5' || value.lineHeight === '1.7' || value.lineHeight === '1.9' ? value.lineHeight : 'original',
-      indent: value.indent === 'none' || value.indent === '2em' ? value.indent : 'original',
-      fontFamily
-    }
+    const stored = JSON.parse(window.localStorage.getItem(READING_PREFERENCES_STORAGE_KEY) ?? '{}') as unknown
+    const value = stored && typeof stored === 'object' ? stored : {}
+    return normalizeReadingPreferences(value as ReadingPreferences)
   } catch {
     return { ...DEFAULT_READING_PREFERENCES }
   }
@@ -315,55 +310,6 @@ function EmptyState({ icon, title, detail, action }: { icon: ReactNode; title: s
   )
 }
 
-function CitationText({
-  text,
-  selection,
-  onNavigate
-}: {
-  text: string
-  selection: SelectionContext
-  onNavigate: (anchor: string) => void
-}): ReactNode {
-  const passages = useMemo(() => new Map(selection.passages.map((passage) => [passage.id, passage.anchor])), [selection])
-  const lines = text.split('\n')
-
-  return (
-    <div className="answer-text">
-      {lines.map((line, lineIndex) => {
-        const parts = line.split(/(\[P\d+\])/g)
-        return (
-          <p key={`${lineIndex}-${line.slice(0, 10)}`}>
-            {parts.map((part, partIndex) => {
-              const match = /^\[(P\d+)\]$/.exec(part)
-              if (!match) return <span key={partIndex}>{part}</span>
-              const passageId = match[1]
-              const anchor = passages.get(passageId)
-              if (!anchor) {
-                return (
-                  <span className="citation citation-unknown" title={copy('assistant.citationUnknownTitle')} key={partIndex}>
-                    {part}<small>{copy('assistant.citationUnverified')}</small>
-                  </span>
-                )
-              }
-              return (
-                <button
-                  className="citation citation-valid"
-                  key={partIndex}
-                  type="button"
-                  title={copy('assistant.citationJumpTitle', { passageId })}
-                  onClick={() => onNavigate(anchor)}
-                >
-                  {part}
-                </button>
-              )
-            })}
-          </p>
-        )
-      })}
-    </div>
-  )
-}
-
 function ConversationPane({
   conversationSelection,
   turns,
@@ -415,7 +361,7 @@ function ConversationPane({
                 <div className="question-bubble"><span>{actionLabel(turn.action)}</span><p>{turn.question}</p></div>
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                  {turn.answer && conversationSelection ? <CitationText text={turn.answer} selection={conversationSelection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
+                  {turn.answer ? <CitationText text={turn.answer} selection={turn.selection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
                   {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
                   {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
                   {turn.status === 'completed' && (
@@ -445,6 +391,7 @@ function ConversationPane({
 
 function SettingsModal({
   initial,
+  initialSection,
   themePreference,
   interfaceScale,
   readingPreferences,
@@ -458,6 +405,7 @@ function SettingsModal({
   pushToast
 }: {
   initial: ProviderSettings
+  initialSection: SettingsSectionId
   themePreference: ThemePreference
   interfaceScale: InterfaceScale
   readingPreferences: ReadingPreferences
@@ -474,7 +422,7 @@ function SettingsModal({
   const [model, setModel] = useState(initial.model)
   const [busy, setBusy] = useState<'save' | 'test' | null>(null)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>('appearance')
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
   const [fonts, setFonts] = useState<string[] | null>(null)
   const keyRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
@@ -728,6 +676,8 @@ function SettingsModal({
               </label>
               <label htmlFor="reading-line-height"><span>{copy('settings.lineHeight')}</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
               <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
+              <label htmlFor="reading-content-width"><span>{copy('settings.contentWidth')}</span><select id="reading-content-width" data-testid="reading-content-width" value={readingPreferences.contentWidth} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, contentWidth: event.target.value as ReadingPreferences['contentWidth'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="narrow">{copy('settings.contentWidthNarrow')}</option><option value="standard">{copy('settings.contentWidthStandard')}</option><option value="wide">{copy('settings.contentWidthWide')}</option></select></label>
+              <label htmlFor="reading-paragraph-spacing"><span>{copy('settings.paragraphSpacing')}</span><select id="reading-paragraph-spacing" data-testid="reading-paragraph-spacing" value={readingPreferences.paragraphSpacing} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, paragraphSpacing: event.target.value as ReadingPreferences['paragraphSpacing'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="compact">{copy('settings.spacingCompact')}</option><option value="standard">{copy('settings.spacingStandard')}</option><option value="relaxed">{copy('settings.spacingRelaxed')}</option></select></label>
             </div>
               </section>
             )}
@@ -838,6 +788,7 @@ export default function App(): ReactNode {
   const [insights, setInsights] = useState<SavedInsight[]>([])
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
@@ -860,6 +811,7 @@ export default function App(): ReactNode {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const followupRef = useRef<HTMLTextAreaElement>(null)
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
+  const settingsReturnFocusRef = useRef<HTMLButtonElement>(null)
   const assistantExpandButtonRef = useRef<HTMLButtonElement>(null)
   const assistantDialogRef = useRef<HTMLElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
@@ -869,6 +821,11 @@ export default function App(): ReactNode {
   const requestProviderRevisionRef = useRef(new Map<string, number>())
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
+  const openSettings = useCallback((section: SettingsSectionId, trigger: HTMLButtonElement): void => {
+    settingsReturnFocusRef.current = trigger
+    setSettingsInitialSection(section)
+    setSettingsOpen(true)
+  }, [])
   const closeAssistantDialog = useCallback(() => setAssistantDialogOpen(false), [])
   useDialogFocus(assistantDialogOpen, closeAssistantDialog, assistantDialogRef, assistantExpandButtonRef)
 
@@ -1227,6 +1184,7 @@ export default function App(): ReactNode {
     const turn: ConversationTurn = {
       id: createId(),
       requestId,
+      selection: context,
       action,
       question: cleanQuestion,
       answer: '',
@@ -1359,11 +1317,11 @@ export default function App(): ReactNode {
   }
 
   const saveTurn = async (turn: ConversationTurn): Promise<void> => {
-    if (!activeBook || !conversationSelection || turn.status !== 'completed' || !turn.answer || turn.saved) return
+    if (!activeBook || turn.status !== 'completed' || !turn.answer || turn.saved) return
     try {
       await window.readerApi.saveInsight({
         bookId: activeBook.id,
-        selection: conversationSelection,
+        selection: turn.selection,
         question: turn.question,
         answer: turn.answer,
         model: turn.model || provider.model
@@ -1492,7 +1450,7 @@ export default function App(): ReactNode {
               <span>{importing ? copy('library.importing') : copy('library.import')}</span>
             </button>
           )}
-          <button ref={settingsButtonRef} className="settings-entry" data-testid="settings-button" type="button" onClick={() => setSettingsOpen(true)}>
+          <button ref={settingsButtonRef} className="settings-entry" data-testid="settings-button" type="button" onClick={(event) => openSettings('appearance', event.currentTarget)}>
             <Settings size={16} />
             <span>{copy('settings.title')}</span>
             <i
@@ -1517,10 +1475,13 @@ export default function App(): ReactNode {
                   <p>{activeBook.author || copy('common.unknownAuthor')}</p>
                 </div>
               </div>
-              <div className="reading-progress">
-                <span>{copy('reader.progress')}</span>
-                <strong>{Math.round(activeBook.progress * 100)}%</strong>
-                <div><i style={{ width: `${Math.max(0, Math.min(100, activeBook.progress * 100))}%` }} /></div>
+              <div className="reader-header-actions">
+                <button className="icon-button reader-settings-button" data-testid="reader-settings-button" type="button" aria-label={copy('reader.readingSettings')} title={copy('reader.readingSettings')} onClick={(event) => openSettings('reading', event.currentTarget)}><SlidersHorizontal size={17} /></button>
+                <div className="reading-progress">
+                  <span>{copy('reader.progress')}</span>
+                  <strong>{Math.round(activeBook.progress * 100)}%</strong>
+                  <div><i style={{ width: `${Math.max(0, Math.min(100, activeBook.progress * 100))}%` }} /></div>
+                </div>
               </div>
             </>
           ) : (
@@ -1603,7 +1564,7 @@ export default function App(): ReactNode {
                   <button className="insight-content" type="button" onClick={() => void navigateToAnchor(insight.selection.anchor)}>
                     <span className="insight-quote">“{insight.selection.quote}”</span>
                     <strong>{insight.question}</strong>
-                    <p>{insight.answer}</p>
+                    <p>{formatCitationTextForDisplay(insight.answer, insight.selection.passages)}</p>
                   </button>
                   <footer>
                     <span>{insight.selection.chapterTitle || copy('common.currentChapter')} · {formatDate(insight.createdAt)}</span>
@@ -1644,10 +1605,11 @@ export default function App(): ReactNode {
       {settingsOpen && (
         <SettingsModal
           initial={provider}
+          initialSection={settingsInitialSection}
           themePreference={themePreference}
           interfaceScale={interfaceScale}
           readingPreferences={readingPreferences}
-          returnFocusRef={settingsButtonRef}
+          returnFocusRef={settingsReturnFocusRef}
           onClose={closeSettings}
           onSaved={handleProviderSaved}
           onTest={handleProviderTest}

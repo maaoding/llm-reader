@@ -89,7 +89,14 @@ describe('reading preferences', () => {
         lineHeight: 'invalid',
         indent: 'invalid'
       } as unknown as ReadingPreferences)
-    ).toEqual({ fontScale: 140, lineHeight: 'original', indent: 'original', fontFamily: null })
+    ).toEqual({
+      fontScale: 140,
+      lineHeight: 'original',
+      indent: 'original',
+      fontFamily: null,
+      contentWidth: 'original',
+      paragraphSpacing: 'original'
+    })
     expect(
       normalizeReadingPreferences({
         fontScale: 79.6,
@@ -97,7 +104,14 @@ describe('reading preferences', () => {
         indent: '2em',
         fontFamily: ' 微软雅黑 '
       })
-    ).toEqual({ fontScale: 80, lineHeight: '1.7', indent: '2em', fontFamily: '微软雅黑' })
+    ).toEqual({
+      fontScale: 80,
+      lineHeight: '1.7',
+      indent: '2em',
+      fontFamily: '微软雅黑',
+      contentWidth: 'original',
+      paragraphSpacing: 'original'
+    })
     expect(
       normalizeReadingPreferences({
         fontScale: 100,
@@ -105,7 +119,14 @@ describe('reading preferences', () => {
         indent: 'original',
         fontFamily: '   '
       })
-    ).toEqual({ fontScale: 100, lineHeight: 'original', indent: 'original', fontFamily: null })
+    ).toEqual({
+      fontScale: 100,
+      lineHeight: 'original',
+      indent: 'original',
+      fontFamily: null,
+      contentWidth: 'original',
+      paragraphSpacing: 'original'
+    })
     expect(
       normalizeReadingPreferences({
         fontScale: 100,
@@ -113,7 +134,43 @@ describe('reading preferences', () => {
         indent: 'original',
         fontFamily: 'x'.repeat(129)
       })
-    ).toEqual({ fontScale: 100, lineHeight: 'original', indent: 'original', fontFamily: null })
+    ).toEqual({
+      fontScale: 100,
+      lineHeight: 'original',
+      indent: 'original',
+      fontFamily: null,
+      contentWidth: 'original',
+      paragraphSpacing: 'original'
+    })
+  })
+
+  it('keeps older persisted preferences compatible and validates the new layout choices', () => {
+    expect(
+      normalizeReadingPreferences({
+        fontScale: 110,
+        lineHeight: '1.7',
+        indent: 'none',
+        fontFamily: null
+      } as ReadingPreferences)
+    ).toEqual({
+      fontScale: 110,
+      lineHeight: '1.7',
+      indent: 'none',
+      fontFamily: null,
+      contentWidth: 'original',
+      paragraphSpacing: 'original'
+    })
+    expect(
+      normalizeReadingPreferences({
+        ...DEFAULT_READING_PREFERENCES,
+        contentWidth: 'wide',
+        paragraphSpacing: 'relaxed'
+      })
+    ).toEqual({
+      ...DEFAULT_READING_PREFERENCES,
+      contentWidth: 'wide',
+      paragraphSpacing: 'relaxed'
+    })
   })
 
   it('builds font family stacks with compact fallback variants', () => {
@@ -133,22 +190,35 @@ describe('reading preferences', () => {
     expect(selectionStyle).toContain('.reader-document ::selection')
     expect(selectionStyle).toContain('rgba(240, 220, 160, 0.55)')
 
-    await adapter.setPreferences({ fontScale: 125, lineHeight: '1.7', indent: '2em', fontFamily: '微软雅黑' })
+    await adapter.setPreferences({
+      ...DEFAULT_READING_PREFERENCES,
+      fontScale: 125,
+      lineHeight: '1.7',
+      indent: '2em',
+      fontFamily: '微软雅黑',
+      contentWidth: 'narrow',
+      paragraphSpacing: 'compact'
+    })
 
     const paragraphs = Array.from(root.querySelectorAll<HTMLParagraphElement>('p'))
     expect(root.style.fontSize).toBe('125%')
     expect(root.style.fontFamily).toBe('"微软雅黑"')
+    expect(root.style.maxWidth).toBe('640px')
     expect(paragraphs).toHaveLength(2)
     expect(paragraphs.every((paragraph) => paragraph.style.lineHeight === '1.7')).toBe(true)
     expect(paragraphs.every((paragraph) => paragraph.style.textIndent === '2em')).toBe(true)
+    expect(paragraphs.every((paragraph) => paragraph.style.marginBottom === '0.8em')).toBe(true)
     expect(root.querySelector('h2')?.getAttribute('style')).not.toContain('text-indent')
+    expect(root.querySelector('h2')?.style.marginBottom).toBe('1.2em')
 
     await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES })
     expect(root.style.fontSize).toBe('')
     expect(root.style.fontFamily).toBe('')
+    expect(root.style.maxWidth).toBe('760px')
     expect(root.style.lineHeight).toBe('1.82')
     expect(paragraphs.every((paragraph) => paragraph.style.lineHeight === '')).toBe(true)
     expect(paragraphs.every((paragraph) => paragraph.style.textIndent === '')).toBe(true)
+    expect(paragraphs.every((paragraph) => paragraph.style.marginBottom === '1.35em')).toBe(true)
 
     adapter.destroy()
     host.remove()
@@ -159,7 +229,15 @@ describe('reading preferences', () => {
     const host = document.createElement('div')
     document.body.append(host)
     const adapter = new EpubReaderAdapter(host, { bookId: 'epub-preferences' })
-    await adapter.setPreferences({ fontScale: 120, lineHeight: '1.9', indent: '2em', fontFamily: '宋体' })
+    await adapter.setPreferences({
+      ...DEFAULT_READING_PREFERENCES,
+      fontScale: 120,
+      lineHeight: '1.9',
+      indent: '2em',
+      fontFamily: '宋体',
+      contentWidth: 'standard',
+      paragraphSpacing: 'relaxed'
+    })
     await adapter.open(new Uint8Array([1, 2, 3]))
 
     const current = createContents('<p>普通正文</p><blockquote><p>引文</p></blockquote>')
@@ -170,6 +248,10 @@ describe('reading preferences', () => {
     expect(initialCss).toContain('font-size: 120%')
     expect(initialCss).toContain('line-height: 1.9')
     expect(initialCss).toContain('text-indent: 2em')
+    expect(initialCss).toContain('max-width: 760px')
+    expect(initialCss).toContain('margin-inline: auto')
+    expect(initialCss).toContain('margin-block-start: 0')
+    expect(initialCss).toContain('margin-block-end: 1.8em')
     expect(initialCss).toContain('blockquote *')
     expect(initialCss).toContain('body, body :not(pre, code, kbd, samp, var)')
     expect(initialCss).toContain("@font-face { font-family: 'llm-reader-selected-font'; src: local('宋体'); }")
@@ -179,7 +261,13 @@ describe('reading preferences', () => {
     harness.handlers.get('relocated')?.({
       start: { cfi: LATER_CFI, percentage: 0.6, index: 1 }
     })
-    await adapter.setPreferences({ fontScale: 110, lineHeight: 'original', indent: 'none' })
+    await adapter.setPreferences({
+      ...DEFAULT_READING_PREFERENCES,
+      fontScale: 110,
+      indent: 'none',
+      contentWidth: 'wide',
+      paragraphSpacing: 'compact'
+    })
 
     expect(harness.rendition.display).toHaveBeenCalledTimes(2)
     expect(harness.rendition.display).toHaveBeenLastCalledWith(LATER_CFI)
@@ -187,6 +275,8 @@ describe('reading preferences', () => {
     expect(updatedCss).toContain('font-size: 110%')
     expect(updatedCss).not.toContain('line-height')
     expect(updatedCss).toContain('text-indent: 0')
+    expect(updatedCss).toContain('max-width: 920px')
+    expect(updatedCss).toContain('margin-block-end: 0.8em')
     expect(updatedCss).not.toContain('font-family')
 
     const future = createContents('<p>下一章</p>')
@@ -213,6 +303,8 @@ describe('reading preferences', () => {
     expect(defaultCss).not.toContain('font-size')
     expect(defaultCss).not.toContain('line-height')
     expect(defaultCss).not.toContain('text-indent')
+    expect(defaultCss).not.toContain('max-width')
+    expect(defaultCss).not.toContain('margin-block')
 
     for (let index = 0; index < 5; index += 1) {
       harness.handlers.get('relocated')?.({
@@ -235,6 +327,7 @@ describe('reading preferences', () => {
     harness.currentContents.push(contents)
     harness.contentHooks[0](contents)
     await adapter.setPreferences({
+      ...DEFAULT_READING_PREFERENCES,
       fontScale: 100,
       lineHeight: 'original',
       indent: 'original',
@@ -259,6 +352,7 @@ describe('reading preferences', () => {
     harness.currentContents.push(contents)
     harness.contentHooks[0](contents)
     await adapter.setPreferences({
+      ...DEFAULT_READING_PREFERENCES,
       fontScale: 100,
       lineHeight: 'original',
       indent: 'original',
@@ -277,13 +371,27 @@ describe('reading preferences', () => {
     const harness = createEpubHarness('pre-paginated')
     const host = document.createElement('div')
     const adapter = new EpubReaderAdapter(host, { bookId: 'fixed-layout' })
-    await adapter.setPreferences({ fontScale: 140, lineHeight: '1.5', indent: '2em' })
+    await adapter.setPreferences({
+      ...DEFAULT_READING_PREFERENCES,
+      fontScale: 140,
+      lineHeight: '1.5',
+      indent: '2em',
+      contentWidth: 'narrow',
+      paragraphSpacing: 'relaxed'
+    })
     await adapter.open(new Uint8Array([1, 2, 3]))
 
     const contents = createContents('<img src="cover.jpg" alt="封面">')
     harness.currentContents.push(contents)
     harness.contentHooks[0](contents)
-    await adapter.setPreferences({ fontScale: 120, lineHeight: '1.7', indent: 'none' })
+    await adapter.setPreferences({
+      ...DEFAULT_READING_PREFERENCES,
+      fontScale: 120,
+      lineHeight: '1.7',
+      indent: 'none',
+      contentWidth: 'wide',
+      paragraphSpacing: 'compact'
+    })
 
     const fixedCss = contents.addStylesheetCss.mock.calls.at(-1)?.[0] as string
     expect(fixedCss).toContain('::selection')
@@ -291,6 +399,8 @@ describe('reading preferences', () => {
     expect(fixedCss).not.toContain('line-height')
     expect(fixedCss).not.toContain('text-indent')
     expect(fixedCss).not.toContain('font-family')
+    expect(fixedCss).not.toContain('max-width')
+    expect(fixedCss).not.toContain('margin-block')
     expect(harness.rendition.display).toHaveBeenCalledOnce()
 
     adapter.destroy()

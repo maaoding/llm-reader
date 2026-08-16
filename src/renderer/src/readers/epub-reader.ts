@@ -12,6 +12,8 @@ import {
   cssFontFamily,
   fontFamilyStack,
   normalizeReadingPreferences,
+  READING_CONTENT_WIDTH_PIXELS,
+  READING_PARAGRAPH_SPACING_EM,
   readingPreferencesEqual
 } from './reading-preferences'
 import type {
@@ -247,6 +249,18 @@ function readingPreferencesCss(preferences: ReadingPreferences): string {
   if (preferences.indent !== 'original') {
     const indent = preferences.indent === 'none' ? '0' : '2em'
     rules.push(`${ORDINARY_PARAGRAPH_SELECTOR} { text-indent: ${indent} !important; }`)
+  }
+  if (preferences.contentWidth !== 'original') {
+    const maximumWidth = READING_CONTENT_WIDTH_PIXELS[preferences.contentWidth]
+    rules.push(
+      `body { box-sizing: border-box !important; max-width: ${maximumWidth}px !important; margin-inline: auto !important; }`
+    )
+  }
+  if (preferences.paragraphSpacing !== 'original') {
+    const spacing = READING_PARAGRAPH_SPACING_EM[preferences.paragraphSpacing]
+    rules.push(
+      `${ORDINARY_PARAGRAPH_SELECTOR} { margin-block-start: 0 !important; margin-block-end: ${spacing}em !important; }`
+    )
   }
   if (preferences.fontFamily) {
     const fontFamily = readingFontFamilyCss(preferences.fontFamily)

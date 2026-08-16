@@ -3,7 +3,8 @@ import {
   test,
   _electron as electron,
   type ElectronApplication,
-  type Locator
+  type Locator,
+  type Page
 } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -23,6 +24,27 @@ async function selectNodeContents(locator: Locator): Promise<void> {
     selection?.removeAllRanges()
     selection?.addRange(range)
     element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+}
+
+async function topVisibleEpubParagraph(page: Page): Promise<string> {
+  return page.getByTestId('reader-host').evaluate((host) => {
+    const hostRect = host.getBoundingClientRect()
+    let nearest: { id: string; distance: number } | null = null
+    for (const frame of host.querySelectorAll('iframe')) {
+      const document = frame.contentDocument
+      if (!document) continue
+      const frameTop = frame.getBoundingClientRect().top
+      for (const paragraph of document.querySelectorAll<HTMLElement>('p[id]')) {
+        const rect = paragraph.getBoundingClientRect()
+        const top = frameTop + rect.top
+        const bottom = frameTop + rect.bottom
+        if (bottom <= hostRect.top + 12 || top >= hostRect.bottom) continue
+        const distance = Math.abs(top - hostRect.top)
+        if (!nearest || distance < nearest.distance) nearest = { id: paragraph.id, distance }
+      }
+    }
+    return nearest?.id ?? ''
   })
 }
 
@@ -87,6 +109,7 @@ async function createEpubFixture(path: string): Promise<void> {
     `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml"><head><title>第一章</title></head><body>
   <h1>复杂系统与边界</h1><p>复杂系统的行为来自关系，而不只是组成部分的简单相加。</p>
+  ${Array.from({ length: 48 }, (_, index) => `<p id="reading-marker-${index + 1}">连续阅读位置 ${index + 1}：调整正文宽度和段落间距后，阅读器仍应停留在当前原文附近。</p>`).join('\n  ')}
   <script>document.body.insertAdjacentHTML('beforeend', '<p id="script-executed">SCRIPT_EXECUTED</p>')</script>
 </body></html>`
   )
@@ -139,7 +162,7 @@ test.beforeAll(async () => {
       )
       setTimeout(() => {
         response.write(
-          `data: ${JSON.stringify({ id: 'mock-stream', model: 'mock-reader', choices: [{ index: 0, delta: { content: '模型必须与适用边界一起理解 [P1]。' }, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 } })}\n\n`
+          `data: ${JSON.stringify({ id: 'mock-stream', model: 'mock-reader', choices: [{ index: 0, delta: { content: '模型必须与适用边界一起理解 [P1]，未知依据 [P999]。' }, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 } })}\n\n`
         )
         response.end('data: [DONE]\n\n')
       }, 650)
@@ -340,6 +363,15 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect(page.getByTestId('import-book')).toHaveCount(0)
 
     const settingsButton = page.getByTestId('settings-button')
+    const readerSettingsButton = page.getByTestId('reader-settings-button')
+    await expect(readerSettingsButton).toHaveAttribute('aria-label', '阅读设置')
+    await readerSettingsButton.click()
+    await expect(page.getByTestId('settings-nav-reading')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByTestId('reading-content-width')).toHaveValue('original')
+    await expect(page.getByTestId('reading-paragraph-spacing')).toHaveValue('original')
+    await page.getByTestId('settings-close').click()
+    await expect(readerSettingsButton).toBeFocused()
+
     await settingsButton.click()
     const settings = page.getByTestId('settings-modal')
     const themeSwitcher = page.getByTestId('theme-switcher')
@@ -368,9 +400,13 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect(page.getByTestId('reading-font-scale')).toHaveValue('100')
     await expect(page.getByTestId('reading-line-height')).toHaveValue('original')
     await expect(page.getByTestId('reading-indent')).toHaveValue('original')
+    await expect(page.getByTestId('reading-content-width')).toHaveValue('original')
+    await expect(page.getByTestId('reading-paragraph-spacing')).toHaveValue('original')
     await page.getByTestId('reading-font-scale').fill('125')
     await page.getByTestId('reading-line-height').selectOption('1.7')
     await page.getByTestId('reading-indent').selectOption('2em')
+    await page.getByTestId('reading-content-width').selectOption('narrow')
+    await page.getByTestId('reading-paragraph-spacing').selectOption('compact')
     await expect(appShell).toHaveAttribute('data-theme-preference', 'dark')
     await expect(appShell).toHaveAttribute('data-theme', 'dark')
     await expect(appShell).toHaveAttribute('data-interface-scale', '125')
@@ -386,6 +422,9 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await page.emulateMedia({ colorScheme: 'light' })
     await expect(appShell).toHaveAttribute('data-theme', 'dark')
     await expect(html).toHaveAttribute('data-theme', 'dark')
+    if (visualDirectory) {
+      await page.screenshot({ path: join(visualDirectory, 'reading-settings-dark-1536x864.png') })
+    }
 
     await page.getByTestId('settings-nav-model').click()
     await page.getByTestId('provider-base-url').fill(endpoint)
@@ -408,8 +447,10 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     const txtDocument = page.locator('.reader-document--txt')
     const txtParagraph = txtDocument.locator('p').first()
     await expect.poll(() => txtDocument.evaluate((element) => element.style.fontSize)).toBe('125%')
+    await expect.poll(() => txtDocument.evaluate((element) => element.style.maxWidth)).toBe('640px')
     await expect.poll(() => txtParagraph.evaluate((element) => element.style.lineHeight)).toBe('1.7')
     await expect.poll(() => txtParagraph.evaluate((element) => element.style.textIndent)).toBe('2em')
+    await expect.poll(() => txtParagraph.evaluate((element) => element.style.marginBottom)).toBe('0.8em')
     const txtColors = await txtDocument.evaluate((element) => {
       const styles = getComputedStyle(element)
       return { color: styles.color, background: styles.backgroundColor }
@@ -429,6 +470,24 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('configured-alias')
     await expect(page.getByTestId('answer-current')).toContainText('这段文字提醒我们')
     await expect(page.getByTestId('answer-current')).toContainText('适用边界')
+    const answerText = page.getByTestId('answer-current').locator('.answer-text')
+    const validCitation = answerText.getByTestId('citation-valid')
+    const unverifiedCitation = answerText.getByTestId('citation-unverified')
+    await expect(validCitation).toContainText('原文：')
+    await expect(unverifiedCitation).toHaveText('未验证引用')
+    await expect(answerText).not.toContainText('P1')
+    await expect(answerText).not.toContainText('P999')
+    await expect(unverifiedCitation).not.toHaveAttribute('role', 'button')
+    await expect
+      .poll(() => validCitation.evaluate((element) => element.scrollWidth <= element.clientWidth))
+      .toBe(true)
+    await validCitation.click()
+    await expect
+      .poll(() => page.evaluate(() => {
+        const highlights = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights
+        return highlights?.has('llm-reader-temporary') ?? false
+      }))
+      .toBe(true)
     await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('mock-reader')
     await expect(page.getByTestId('answer-current').locator('.answer-footer')).toContainText('32 tokens')
     await expect(page.getByTestId('answer-current').locator('.answer-footer')).not.toContainText('mock-reader')
@@ -482,6 +541,8 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     if (visualDirectory) {
       await settingsButton.click()
       await lightTheme.click()
+      await page.getByTestId('settings-nav-reading').click()
+      await page.screenshot({ path: join(visualDirectory, 'reading-settings-light-1536x864.png') })
       await page.getByTestId('settings-close').click()
       await page.screenshot({ path: join(visualDirectory, 'assistant-light-1536x864.png') })
       await settingsButton.click()
@@ -493,6 +554,10 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await page.getByTestId('insights-tab').click()
     const insight = page.getByTestId('insight-item')
     await expect(insight).toContainText('适用边界')
+    await expect(insight).toContainText('原文：')
+    await expect(insight).toContainText('未验证引用')
+    await expect(insight).not.toContainText('P1')
+    await expect(insight).not.toContainText('P999')
     await expect.poll(() => insight.locator('strong').evaluate((element) => getComputedStyle(element).fontSize)).toBe('15px')
     await expect(page.locator('.insights-heading')).toHaveCount(0)
     await page.getByTestId('insight-delete').click()
@@ -543,8 +608,10 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
 
     const restoredDocument = restoredPage.locator('.reader-document--txt')
     await expect.poll(() => restoredDocument.evaluate((element) => element.style.fontSize)).toBe('125%')
+    await expect.poll(() => restoredDocument.evaluate((element) => element.style.maxWidth)).toBe('640px')
     await expect.poll(() => restoredDocument.locator('p').first().evaluate((element) => element.style.lineHeight)).toBe('1.7')
     await expect.poll(() => restoredDocument.locator('p').first().evaluate((element) => element.style.textIndent)).toBe('2em')
+    await expect.poll(() => restoredDocument.locator('p').first().evaluate((element) => element.style.marginBottom)).toBe('0.8em')
 
     const restoredSettingsButton = restoredPage.getByTestId('settings-button')
     await restoredSettingsButton.click()
@@ -570,10 +637,14 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect(restoredPage.getByTestId('reading-font-scale')).toHaveValue('125')
     await expect(restoredPage.getByTestId('reading-line-height')).toHaveValue('1.7')
     await expect(restoredPage.getByTestId('reading-indent')).toHaveValue('2em')
+    await expect(restoredPage.getByTestId('reading-content-width')).toHaveValue('narrow')
+    await expect(restoredPage.getByTestId('reading-paragraph-spacing')).toHaveValue('compact')
     await restoredPage.getByTestId('reading-reset').click()
     await expect(restoredPage.getByTestId('reading-font-scale')).toHaveValue('100')
     await expect(restoredPage.getByTestId('reading-line-height')).toHaveValue('original')
     await expect(restoredPage.getByTestId('reading-indent')).toHaveValue('original')
+    await expect(restoredPage.getByTestId('reading-content-width')).toHaveValue('original')
+    await expect(restoredPage.getByTestId('reading-paragraph-spacing')).toHaveValue('original')
 
     await restoredPage.getByTestId('settings-nav-model').click()
     await restoredPage.getByTestId('provider-model').fill('slow-ok')
@@ -642,6 +713,41 @@ test('renders EPUB continuously while keeping embedded scripts disabled', async 
       ''
     expect(epubSelectionCss).toContain('::selection')
     expect(epubSelectionCss).toContain('rgba(240, 220, 160, 0.55)')
+
+    const epubScroller = page.getByTestId('reader-host').locator('.epub-container')
+    await expect
+      .poll(() => epubScroller.evaluate((element) => element.scrollHeight - element.clientHeight))
+      .toBeGreaterThan(300)
+    await epubScroller.evaluate((element) => {
+      element.scrollTop = (element.scrollHeight - element.clientHeight) * 0.55
+      element.dispatchEvent(new Event('scroll'))
+    })
+    await expect.poll(() => topVisibleEpubParagraph(page)).not.toBe('')
+    const visibleBeforeLayoutChange = await topVisibleEpubParagraph(page)
+
+    await page.getByTestId('reader-settings-button').click()
+    await expect(page.getByTestId('settings-nav-reading')).toHaveAttribute('aria-selected', 'true')
+    await page.getByTestId('reading-content-width').selectOption('wide')
+    await page.getByTestId('reading-paragraph-spacing').selectOption('relaxed')
+    await page.getByTestId('settings-close').click()
+
+    await expect
+      .poll(async () => {
+        const frame = page.getByTestId('reader-host').frameLocator('iframe').first()
+        return (await frame.locator('#epubjs-inserted-css-llm-reader-reading-preferences').textContent()) ?? ''
+      })
+      .toContain('max-width: 920px')
+    const updatedEpubCss =
+      (await page.getByTestId('reader-host').frameLocator('iframe').first()
+        .locator('#epubjs-inserted-css-llm-reader-reading-preferences').textContent()) ?? ''
+    expect(updatedEpubCss).toContain('margin-block-end: 1.8em')
+    const markerBefore = Number(visibleBeforeLayoutChange.replace('reading-marker-', ''))
+    await expect
+      .poll(async () => {
+        const markerAfter = Number((await topVisibleEpubParagraph(page)).replace('reading-marker-', ''))
+        return Number.isFinite(markerAfter) && Math.abs(markerAfter - markerBefore) <= 1
+      })
+      .toBe(true)
   } finally {
     await application?.close().catch(() => undefined)
     await rm(testRoot, { recursive: true, force: true })

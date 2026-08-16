@@ -23,19 +23,25 @@ export interface ReaderCallbacks {
 
 export type ReadingLineHeight = 'original' | '1.5' | '1.7' | '1.9'
 export type ReadingIndent = 'original' | 'none' | '2em'
+export type ReadingContentWidth = 'original' | 'narrow' | 'standard' | 'wide'
+export type ReadingParagraphSpacing = 'original' | 'compact' | 'standard' | 'relaxed'
 
 export interface ReadingPreferences {
   fontScale: number
   lineHeight: ReadingLineHeight
   indent: ReadingIndent
   fontFamily: string | null
+  contentWidth: ReadingContentWidth
+  paragraphSpacing: ReadingParagraphSpacing
 }
 
 export const DEFAULT_READING_PREFERENCES: Readonly<ReadingPreferences> = Object.freeze({
   fontScale: 100,
   lineHeight: 'original',
   indent: 'original',
-  fontFamily: null
+  fontFamily: null,
+  contentWidth: 'original',
+  paragraphSpacing: 'original'
 })
 
 /** Warm beige background for native text selection in the reading area (replaces the browser default blue). */

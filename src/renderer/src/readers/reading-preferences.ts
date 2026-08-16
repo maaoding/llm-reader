@@ -1,7 +1,9 @@
 import {
   DEFAULT_READING_PREFERENCES,
+  type ReadingContentWidth,
   type ReadingIndent,
   type ReadingLineHeight,
+  type ReadingParagraphSpacing,
   type ReadingPreferences
 } from './types'
 
@@ -11,6 +13,20 @@ export const MAX_FONT_FAMILY_LENGTH = 128
 
 const LINE_HEIGHTS = new Set<ReadingLineHeight>(['original', '1.5', '1.7', '1.9'])
 const INDENTS = new Set<ReadingIndent>(['original', 'none', '2em'])
+const CONTENT_WIDTHS = new Set<ReadingContentWidth>(['original', 'narrow', 'standard', 'wide'])
+const PARAGRAPH_SPACINGS = new Set<ReadingParagraphSpacing>(['original', 'compact', 'standard', 'relaxed'])
+
+export const READING_CONTENT_WIDTH_PIXELS: Readonly<Record<Exclude<ReadingContentWidth, 'original'>, number>> = Object.freeze({
+  narrow: 640,
+  standard: 760,
+  wide: 920
+})
+
+export const READING_PARAGRAPH_SPACING_EM: Readonly<Record<Exclude<ReadingParagraphSpacing, 'original'>, number>> = Object.freeze({
+  compact: 0.8,
+  standard: 1.35,
+  relaxed: 1.8
+})
 
 export function normalizeFontFamily(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -48,7 +64,13 @@ export function normalizeReadingPreferences(
     indent: INDENTS.has(preferences.indent)
       ? preferences.indent
       : DEFAULT_READING_PREFERENCES.indent,
-    fontFamily: normalizeFontFamily(preferences.fontFamily)
+    fontFamily: normalizeFontFamily(preferences.fontFamily),
+    contentWidth: CONTENT_WIDTHS.has(preferences.contentWidth)
+      ? preferences.contentWidth
+      : DEFAULT_READING_PREFERENCES.contentWidth,
+    paragraphSpacing: PARAGRAPH_SPACINGS.has(preferences.paragraphSpacing)
+      ? preferences.paragraphSpacing
+      : DEFAULT_READING_PREFERENCES.paragraphSpacing
   }
 }
 
@@ -60,6 +82,8 @@ export function readingPreferencesEqual(
     left.fontScale === right.fontScale &&
     left.lineHeight === right.lineHeight &&
     left.indent === right.indent &&
-    left.fontFamily === right.fontFamily
+    left.fontFamily === right.fontFamily &&
+    left.contentWidth === right.contentWidth &&
+    left.paragraphSpacing === right.paragraphSpacing
   )
 }

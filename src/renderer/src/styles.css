@@ -687,6 +687,24 @@ button:disabled {
   font-size: calc(8px * var(--interface-scale));
 }
 
+.reader-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.reader-settings-button {
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--paper) 76%, transparent);
+  border: 1px solid var(--line);
+}
+
+.reader-settings-button:hover {
+  background: var(--paper);
+}
+
 .reading-progress strong {
   justify-self: end;
   color: var(--ink-soft);
@@ -1252,15 +1270,20 @@ button:disabled {
 
 .citation {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   margin: 0 1px;
-  padding: 0 3px;
+  padding: 1px 5px;
+  overflow: hidden;
   vertical-align: 1px;
   border-radius: 2px;
   font-family: ui-sans-serif, sans-serif;
   font-size: var(--assistant-aux-size);
-  font-weight: 750;
-  line-height: 15px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
 }
 
 button.citation-valid {
@@ -1276,12 +1299,6 @@ button.citation-valid:hover {
 .citation-unknown {
   color: var(--warning);
   background: var(--warning-soft);
-}
-
-.citation-unknown small {
-  margin-left: 2px;
-  font-size: var(--assistant-aux-size);
-  font-weight: 600;
 }
 
 .answer-thinking {
