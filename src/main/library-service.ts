@@ -6,8 +6,10 @@ import type {
   BookFormat,
   BookPayload,
   BookRecord,
+  HighlightRecord,
   ImportedBookResult,
   SavedInsight,
+  SaveHighlightInput,
   SaveInsightInput
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -301,6 +303,26 @@ export class LibraryService {
 
   deleteInsight(id: string): boolean {
     return this.database.deleteInsight(id)
+  }
+
+  listHighlights(bookId: string): HighlightRecord[] {
+    if (!this.database.getStoredBook(bookId)) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    return this.database.listHighlights(bookId)
+  }
+
+  saveHighlight(input: SaveHighlightInput): HighlightRecord {
+    if (!this.database.getStoredBook(input.bookId)) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    const existing = this.database.findHighlightByAnchor(input.bookId, input.anchor)
+    if (existing) return existing
+    return this.database.insertHighlight(randomUUID(), input, new Date().toISOString())
+  }
+
+  deleteHighlight(id: string): boolean {
+    return this.database.deleteHighlight(id)
   }
 
   private resolveStoredPath(storedName: string): string {

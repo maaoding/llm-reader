@@ -9,6 +9,8 @@ import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
 import {
   bookIdSchema,
+  highlightIdSchema,
+  highlightSchema,
   insightIdSchema,
   insightSchema,
   llmRequestSchema,
@@ -93,6 +95,15 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     const input = parse(progressSchema, { bookId: values[0], locator: values[1], progress: values[2] })
     dependencies.library.updateBookProgress(input.bookId, input.locator, input.progress)
   })
+  handle(IPC_CHANNELS.highlightsList, dependencies, (_event, value) =>
+    dependencies.library.listHighlights(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.highlightsSave, dependencies, (_event, value) =>
+    dependencies.library.saveHighlight(parse(highlightSchema, value))
+  )
+  handle(IPC_CHANNELS.highlightsDelete, dependencies, (_event, value) =>
+    dependencies.library.deleteHighlight(parse(highlightIdSchema, value))
+  )
   handle(IPC_CHANNELS.insightsList, dependencies, (_event, value) =>
     dependencies.library.listInsights(parse(bookIdSchema, value))
   )

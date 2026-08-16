@@ -1,7 +1,14 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
-import type { BookFormat, BookRecord, SavedInsight, SaveInsightInput } from '@shared/contracts'
+import type {
+  BookFormat,
+  BookRecord,
+  HighlightRecord,
+  SavedInsight,
+  SaveHighlightInput,
+  SaveInsightInput
+} from '@shared/contracts'
 
 interface BookRow {
   id: string
@@ -24,6 +31,15 @@ interface InsightRow {
   question: string
   answer: string
   model: string
+  created_at: string
+}
+
+interface HighlightRow {
+  id: string
+  book_id: string
+  quote: string
+  anchor: string
+  chapter_title: string
   created_at: string
 }
 
@@ -76,7 +92,35 @@ const migrations = [
       SELECT singleton, base_url, model FROM provider_settings;
     DROP TABLE provider_settings;
     ALTER TABLE provider_settings_v2 RENAME TO provider_settings;
-  `
+  `,
+    `
+      CREATE TABLE bookmarks (
+        id TEXT PRIMARY KEY,
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        locator TEXT NOT NULL,
+        chapter_title TEXT NOT NULL,
+        excerpt TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(book_id, locator)
+      ) STRICT;
+
+      CREATE INDEX bookmarks_book_created_idx ON bookmarks(book_id, created_at DESC);
+    `,
+    `
+      DROP TABLE bookmarks;
+
+      CREATE TABLE highlights (
+        id TEXT PRIMARY KEY,
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        quote TEXT NOT NULL,
+        anchor TEXT NOT NULL,
+        chapter_title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(book_id, anchor)
+      ) STRICT;
+
+      CREATE INDEX highlights_book_created_idx ON highlights(book_id, created_at DESC);
+    `
 ] as const
 
 function asBookRow(row: Record<string, SQLOutputValue> | undefined): BookRow | undefined {
@@ -267,6 +311,53 @@ export class AppDatabase {
 
   deleteInsight(id: string): boolean {
     const result = this.connection.prepare('DELETE FROM insights WHERE id = ?').run(id)
+    return result.changes > 0
+  }
+
+  listHighlights(bookId: string): HighlightRecord[] {
+    const rows = this.connection
+      .prepare('SELECT * FROM highlights WHERE book_id = ? ORDER BY created_at DESC')
+      .all(bookId) as unknown as HighlightRow[]
+
+    return rows.map((row) => ({
+      id: row.id,
+      bookId: row.book_id,
+      quote: row.quote,
+      anchor: row.anchor,
+      chapterTitle: row.chapter_title,
+      createdAt: row.created_at
+    }))
+  }
+
+  findHighlightByAnchor(bookId: string, anchor: string): HighlightRecord | null {
+    const row = this.connection
+      .prepare('SELECT * FROM highlights WHERE book_id = ? AND anchor = ?')
+      .get(bookId, anchor) as unknown as HighlightRow | undefined
+    if (!row) return null
+    return {
+      id: row.id,
+      bookId: row.book_id,
+      quote: row.quote,
+      anchor: row.anchor,
+      chapterTitle: row.chapter_title,
+      createdAt: row.created_at
+    }
+  }
+
+  insertHighlight(id: string, input: SaveHighlightInput, createdAt: string): HighlightRecord {
+    this.connection
+      .prepare(
+        `INSERT INTO highlights(
+          id, book_id, quote, anchor, chapter_title, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, input.bookId, input.quote, input.anchor, input.chapterTitle, createdAt)
+
+    return { id, ...input, createdAt }
+  }
+
+  deleteHighlight(id: string): boolean {
+    const result = this.connection.prepare('DELETE FROM highlights WHERE id = ?').run(id)
     return result.changes > 0
   }
 

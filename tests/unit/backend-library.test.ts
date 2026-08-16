@@ -6,7 +6,7 @@ import JSZip from 'jszip'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AppDatabase } from '../../src/main/database'
 import { LibraryService } from '../../src/main/library-service'
-import { insightIdSchema } from '../../src/main/schemas'
+import { highlightIdSchema, insightIdSchema } from '../../src/main/schemas'
 
 const temporaryDirectories: string[] = []
 
@@ -139,6 +139,67 @@ describe('LibraryService', () => {
     expect(library.listInsights(firstBook.id)).toEqual([retainedFromSameBook])
     expect(library.listInsights(secondBook.id)).toEqual([retainedFromOtherBook])
     expect(insightIdSchema.safeParse('not-an-insight-id').success).toBe(false)
+    database.close()
+  })
+
+  it('persists per-book highlights, deduplicates identical anchors and deletes by id', async () => {
+    const root = makeTemporaryDirectory()
+    const databasePath = join(root, 'reader.sqlite3')
+    const firstSource = join(root, 'first.txt')
+    const secondSource = join(root, 'second.txt')
+    await writeFile(firstSource, 'First book.', 'utf8')
+    await writeFile(secondSource, 'Second book.', 'utf8')
+
+    let database = new AppDatabase(databasePath)
+    let library = new LibraryService(database, join(root, 'library'))
+    const firstBook = (await library.importFromPath(firstSource)).book
+    const secondBook = (await library.importFromPath(secondSource)).book
+
+    const first = library.saveHighlight({
+      bookId: firstBook.id,
+      quote: 'First',
+      anchor: 'txt:0:5',
+      chapterTitle: '第一章'
+    })
+    const duplicate = library.saveHighlight({
+      bookId: firstBook.id,
+      quote: 'First',
+      anchor: 'txt:0:5',
+      chapterTitle: '第一章'
+    })
+    const second = library.saveHighlight({
+      bookId: firstBook.id,
+      quote: 'book',
+      anchor: 'txt:6:10',
+      chapterTitle: '第二章'
+    })
+    const otherBook = library.saveHighlight({
+      bookId: secondBook.id,
+      quote: 'Second',
+      anchor: 'txt:0:6',
+      chapterTitle: '另一本'
+    })
+
+    expect(duplicate.id).toBe(first.id)
+    expect(library.listHighlights(firstBook.id)).toEqual([second, first])
+    expect(library.listHighlights(secondBook.id)).toEqual([otherBook])
+    expect(library.deleteHighlight(second.id)).toBe(true)
+    expect(library.deleteHighlight('00000000-0000-4000-8000-000000000000')).toBe(false)
+    expect(() =>
+      library.saveHighlight({
+        bookId: '00000000-0000-4000-8000-000000000000',
+        quote: 'missing',
+        anchor: 'txt:0:0',
+        chapterTitle: ''
+      })
+    ).toThrow('找不到这本书')
+    expect(highlightIdSchema.safeParse('not-a-highlight-id').success).toBe(false)
+    database.close()
+
+    database = new AppDatabase(databasePath)
+    library = new LibraryService(database, join(root, 'library'))
+    expect(library.listHighlights(firstBook.id)).toEqual([first])
+    expect(library.listHighlights(secondBook.id)).toEqual([otherBook])
     database.close()
   })
 

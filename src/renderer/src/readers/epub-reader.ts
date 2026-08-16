@@ -14,6 +14,7 @@ import {
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
   READING_PARAGRAPH_SPACING_EM,
+  READING_PAPER_THEME_TOKENS,
   readingPreferencesEqual
 } from './reading-preferences'
 import type {
@@ -21,7 +22,9 @@ import type {
   ReaderAdapter,
   ReaderCallbacks,
   ReaderDocumentInfo,
-  ReaderRelocation
+  ReaderHighlightAnchor,
+  ReaderRelocation,
+  ReaderRelocationReason
 } from './types'
 import { DEFAULT_READING_PREFERENCES, READER_SELECTION_BACKGROUND } from './types'
 import { stabilizeContinuousManager } from './epub-continuous-stability'
@@ -29,6 +32,7 @@ import { stabilizeContinuousManager } from './epub-continuous-stability'
 const EPUB_CFI_PATTERN = /^epubcfi\(.+\)$/u
 const CONTENT_BLOCK_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,dd,dt'
 const TEMPORARY_HIGHLIGHT_CLASS = 'llm-reader-temporary-highlight'
+const PERSISTENT_HIGHLIGHT_CLASS = 'llm-reader-persistent-highlight'
 const READING_PREFERENCES_STYLESHEET = 'llm-reader-reading-preferences'
 const READING_PREFERENCES_STYLE_ELEMENT_ID =
   `epubjs-inserted-css-${READING_PREFERENCES_STYLESHEET}`
@@ -240,6 +244,13 @@ function sanitizeContents(contents: Contents): void {
 
 function readingPreferencesCss(preferences: ReadingPreferences): string {
   const rules: string[] = []
+  if (preferences.paperTheme !== 'light') {
+    const paper = READING_PAPER_THEME_TOKENS[preferences.paperTheme]
+    rules.push(
+      `html { color-scheme: ${paper.colorScheme}; background-color: ${paper.background} !important; }`,
+      `body { background-color: ${paper.background} !important; color: ${paper.color} !important; }`
+    )
+  }
   if (preferences.fontScale !== DEFAULT_READING_PREFERENCES.fontScale) {
     rules.push(`body { font-size: ${preferences.fontScale}% !important; }`)
   }
@@ -291,12 +302,21 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private toc: TocItem[] = []
   private selection: SelectionContext | null = null
   private highlightedCfi: string | null = null
+  private persistentHighlightAnchors: ReaderHighlightAnchor[] = []
+  private persistentHighlightedCfi: string[] = []
   private spineCount = 0
   private locationsReady = false
   private preferences: ReadingPreferences = { ...DEFAULT_READING_PREFERENCES }
   private reflowable = true
   private latestLocator: string | null = null
+  private currentSectionIndex = 0
   private preferencesRevision = 0
+  private programmaticScroll = false
+  private programmaticReleaseTimer: ReturnType<typeof setTimeout> | null = null
+  private containerScrollFrame: number | null = null
+  private scrollInputContainer: HTMLElement | null = null
+  private relocationReason: ReaderRelocationReason = 'navigation'
+  private sectionPercentageBounds = new Map<number, { start: number; end: number }>()
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
     this.host = host
@@ -339,14 +359,19 @@ export class EpubReaderAdapter implements ReaderAdapter {
       this.reflowable = false
     }
     stabilizeContinuousManager(rendition)
+    this.bindRendererScrollInput(rendition)
 
     try {
-      await book.locations.generate(1_600)
+      const generatedLocations = await book.locations.generate(1_600)
       this.locationsReady = true
+      this.buildSectionPercentageBounds(generatedLocations)
     } catch {
       this.locationsReady = false
+      this.sectionPercentageBounds.clear()
     }
 
+    this.programmaticScroll = true
+    this.relocationReason = 'restore'
     const initialLocator = lastLocator && isEpubCfi(lastLocator) ? lastLocator : undefined
     if (initialLocator) {
       try {
@@ -357,6 +382,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     } else {
       await rendition.display()
     }
+    this.scheduleProgrammaticScrollRelease()
 
     return {
       metadata: {
@@ -376,11 +402,14 @@ export class EpubReaderAdapter implements ReaderAdapter {
     if (!isEpubCfi(anchor) && !this.toc.some((item) => item.href === anchor)) {
       throw new Error(copy('reader.epubInvalidAnchor'))
     }
+    this.programmaticScroll = true
+    this.relocationReason = 'navigation'
     try {
       await rendition.display(anchor)
     } catch {
       throw new Error(copy('reader.epubAnchorFailed'))
     }
+    this.scheduleProgrammaticScrollRelease()
   }
 
   getSelection(): SelectionContext | null {
@@ -414,6 +443,11 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.highlightedCfi = null
   }
 
+  async setHighlights(highlights: ReadonlyArray<ReaderHighlightAnchor>): Promise<void> {
+    this.persistentHighlightAnchors = highlights.map((highlight) => ({ anchor: highlight.anchor }))
+    this.applyPersistentHighlights()
+  }
+
   async setPreferences(preferences: ReadingPreferences): Promise<void> {
     const normalized = normalizeReadingPreferences(preferences)
     if (readingPreferencesEqual(this.preferences, normalized)) {
@@ -436,12 +470,20 @@ export class EpubReaderAdapter implements ReaderAdapter {
     if (this.rendition !== rendition || revision !== this.preferencesRevision) {
       return
     }
+    this.programmaticScroll = true
+    this.relocationReason = 'navigation'
     await rendition.display(locator)
+    this.scheduleProgrammaticScrollRelease()
   }
 
   private readonly handleContents = (contents: Contents): void => {
     sanitizeContents(contents)
     this.applyPreferences(contents)
+    this.bindContentsScrollInput(contents)
+    this.attachContainerScrollInput(
+      this.rendition ? this.managerContainer(this.rendition) : null
+    )
+    this.applyPersistentHighlights()
   }
 
   private applyPreferences(contents: Contents): void {
@@ -453,11 +495,255 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private currentContents(rendition: Rendition): Contents[] {
-    const contents = rendition.getContents() as unknown
+    const getContents = (rendition as Rendition & { getContents?: () => unknown }).getContents
+    if (typeof getContents !== 'function') return []
+    const contents = getContents.call(rendition) as unknown
     if (Array.isArray(contents)) {
       return contents as Contents[]
     }
     return contents ? [contents as Contents] : []
+  }
+
+  private readonly handleUserScrollInput = (): void => {
+    this.cancelProgrammaticScrollRelease()
+    this.programmaticScroll = false
+  }
+
+  private scheduleProgrammaticScrollRelease(): void {
+    this.cancelProgrammaticScrollRelease()
+    this.programmaticReleaseTimer = setTimeout(() => {
+      this.programmaticReleaseTimer = null
+      this.programmaticScroll = false
+    }, 320)
+  }
+
+  private cancelProgrammaticScrollRelease(): void {
+    if (this.programmaticReleaseTimer) {
+      clearTimeout(this.programmaticReleaseTimer)
+      this.programmaticReleaseTimer = null
+    }
+  }
+
+  private bindRendererScrollInput(rendition: Rendition): void {
+    this.host.addEventListener('wheel', this.handleUserScrollInput, { passive: true })
+    this.host.addEventListener('touchmove', this.handleUserScrollInput, { passive: true })
+    this.host.addEventListener('pointerdown', this.handleUserScrollInput)
+    this.host.addEventListener('keydown', this.handleUserScrollInput)
+
+    const manager = (rendition as { manager?: { container?: HTMLElement } } | null)?.manager
+    const container = manager?.container ?? this.host.querySelector<HTMLElement>(':scope > .epub-container')
+    if (container) this.attachContainerScrollInput(container)
+  }
+
+  private attachContainerScrollInput(container: HTMLElement | null): void {
+    if (!container || container === this.scrollInputContainer) return
+    if (this.scrollInputContainer) {
+      this.scrollInputContainer.removeEventListener('wheel', this.handleUserScrollInput)
+      this.scrollInputContainer.removeEventListener('touchmove', this.handleUserScrollInput)
+      this.scrollInputContainer.removeEventListener('pointerdown', this.handleUserScrollInput)
+      this.scrollInputContainer.removeEventListener('scroll', this.handleContainerScroll)
+    }
+    this.scrollInputContainer = container
+    container.addEventListener('wheel', this.handleUserScrollInput, { passive: true })
+    container.addEventListener('touchmove', this.handleUserScrollInput, { passive: true })
+    container.addEventListener('pointerdown', this.handleUserScrollInput)
+    container.addEventListener('scroll', this.handleContainerScroll, { passive: true })
+  }
+
+  private readonly handleContainerScroll = (): void => {
+    if (this.containerScrollFrame !== null) return
+    const view = this.host.ownerDocument.defaultView
+    if (!view || typeof view.requestAnimationFrame !== 'function') {
+      this.emitNaturalScrollState()
+      return
+    }
+    this.containerScrollFrame = view.requestAnimationFrame(() => {
+      this.containerScrollFrame = null
+      this.emitNaturalScrollState()
+    })
+  }
+
+  private managerContainer(rendition: Rendition): HTMLElement | null {
+    const container = (rendition as { manager?: { container?: HTMLElement } } | null)
+      ?.manager?.container
+    return container ?? this.host.querySelector<HTMLElement>(':scope > .epub-container')
+  }
+
+  private sectionIndexAtContainerScroll(container: HTMLElement): number | null {
+    const rendition = this.rendition
+    if (!rendition) return null
+    const contents = this.currentContents(rendition)
+    if (contents.length === 0) return null
+    const containerRect = container.getBoundingClientRect()
+    const readingLine = containerRect.top + Math.min(24, containerRect.height * 0.5)
+    let nearestIndex: number | null = null
+    let nearestDistance = Number.POSITIVE_INFINITY
+
+    for (const item of contents) {
+      const frame = (item.window as Window & { frameElement?: HTMLElement | null })
+        .frameElement
+      if (!frame) continue
+      const frameRect = frame.getBoundingClientRect()
+      if (frameRect.top <= readingLine && frameRect.bottom > readingLine) {
+        return item.sectionIndex
+      }
+      const distance = Math.min(
+        Math.abs(frameRect.top - readingLine),
+        Math.abs(frameRect.bottom - readingLine)
+      )
+      if (distance < nearestDistance) {
+        nearestDistance = distance
+        nearestIndex = item.sectionIndex
+      }
+    }
+    return nearestIndex
+  }
+
+  private emitNaturalScrollState(): void {
+    if (this.programmaticScroll || !this.latestLocator || !this.rendition) return
+    const container = this.managerContainer(this.rendition)
+    if (!container) return
+    const sectionIndex = this.sectionIndexAtContainerScroll(container)
+    if (sectionIndex === null) return
+    const scrollable = Math.max(0, container.scrollHeight - container.clientHeight)
+    const progress = scrollable === 0 ? 0 : container.scrollTop / scrollable
+    this.emitRelocation({
+      locator: this.latestLocator,
+      progress,
+      chapterProgress: this.chapterProgressFromDom(sectionIndex as number) ?? 0,
+      chapterTitle: this.chapterTitle(sectionIndex),
+      reason: 'natural'
+    })
+  }
+
+  private bindContentsScrollInput(contents: Contents): void {
+    contents.window.addEventListener('wheel', this.handleUserScrollInput, { passive: true })
+    contents.window.addEventListener('touchmove', this.handleUserScrollInput, { passive: true })
+    contents.window.addEventListener('pointerdown', this.handleUserScrollInput)
+    contents.window.addEventListener('keydown', this.handleUserScrollInput)
+  }
+
+  private unbindRendererScrollInput(): void {
+    this.host.removeEventListener('wheel', this.handleUserScrollInput)
+    this.host.removeEventListener('touchmove', this.handleUserScrollInput)
+    this.host.removeEventListener('pointerdown', this.handleUserScrollInput)
+    this.host.removeEventListener('keydown', this.handleUserScrollInput)
+    if (this.scrollInputContainer) {
+      this.scrollInputContainer.removeEventListener('wheel', this.handleUserScrollInput)
+      this.scrollInputContainer.removeEventListener('touchmove', this.handleUserScrollInput)
+      this.scrollInputContainer.removeEventListener('pointerdown', this.handleUserScrollInput)
+      this.scrollInputContainer.removeEventListener('scroll', this.handleContainerScroll)
+      this.scrollInputContainer = null
+    }
+    if (this.containerScrollFrame !== null && this.host.ownerDocument.defaultView) {
+      this.host.ownerDocument.defaultView.cancelAnimationFrame(this.containerScrollFrame)
+    }
+    this.containerScrollFrame = null
+  }
+
+  private buildSectionPercentageBounds(locations: string[]): void {
+    const bounds = new Map<number, { minimum: number; maximum: number }>()
+    const lastIndex = Math.max(0, locations.length - 1)
+    locations.forEach((cfi, index) => {
+      const sectionIndex = this.spineIndexFromCfi(cfi)
+      if (sectionIndex < 0) return
+      const percentage = lastIndex === 0 ? 0 : index / lastIndex
+      const current = bounds.get(sectionIndex)
+      if (!current) {
+        bounds.set(sectionIndex, { minimum: percentage, maximum: percentage })
+      } else {
+        current.minimum = Math.min(current.minimum, percentage)
+        current.maximum = Math.max(current.maximum, percentage)
+      }
+    })
+
+    this.sectionPercentageBounds.clear()
+    for (const [sectionIndex, bound] of bounds) {
+      this.sectionPercentageBounds.set(sectionIndex, {
+        start: bound.minimum,
+        end: bound.maximum
+      })
+    }
+  }
+
+  private spineIndexFromCfi(value: string): number {
+    const match = /epubcfi\(\/6\/(\d+)/u.exec(value)
+    if (!match) return -1
+    const index = Number(match[1]) - 1
+    return Number.isSafeInteger(index) && index >= 0 ? index : -1
+  }
+
+  private chapterProgressFor(location: Location): number {
+    const sectionIndex = Number.isFinite(location.start.index) ? location.start.index : 0
+    const domProgress = this.chapterProgressFromDom(sectionIndex)
+    if (domProgress !== null) {
+      return domProgress
+    }
+
+    const bounds = this.sectionPercentageBounds.get(sectionIndex)
+    const percentage = location.start.percentage
+    if (!bounds || !Number.isFinite(percentage) || bounds.end <= bounds.start) {
+      return this.spineCount <= 1
+        ? (Number.isFinite(percentage) ? percentage : 0)
+        : sectionIndex / Math.max(1, this.spineCount - 1)
+    }
+    return Math.min(1, Math.max(0, (percentage - bounds.start) / (bounds.end - bounds.start)))
+  }
+
+  private chapterProgressFromDom(sectionIndex: number): number | null {
+    const rendition = this.rendition
+    if (!rendition) return null
+    const contents = this.currentContents(rendition).find(
+      (item) => item.sectionIndex === sectionIndex
+    ) ?? this.currentContents(rendition)[0]
+    if (!contents) return null
+    const frame = (contents.window as Window & { frameElement?: HTMLElement | null })
+      .frameElement
+    const managerContainer = (rendition as { manager?: { container?: HTMLElement } } | null)
+      ?.manager?.container
+    const container = managerContainer ?? this.host.querySelector<HTMLElement>(':scope > .epub-container')
+    if (!frame || !container) return null
+    const frameRect = frame.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const frameTopInContent = frameRect.top - containerRect.top + container.scrollTop
+    const localScroll = container.scrollTop - frameTopInContent
+    const maximumLocalScroll = Math.max(0, frameRect.height - containerRect.height)
+    if (maximumLocalScroll <= 0) return 0
+    return Math.min(1, Math.max(0, localScroll / maximumLocalScroll))
+  }
+
+  private applyPersistentHighlights(): void {
+    const rendition = this.rendition
+    if (!rendition) return
+    for (const cfi of this.persistentHighlightedCfi) {
+      rendition.annotations.remove(cfi, 'highlight')
+    }
+    this.persistentHighlightedCfi = []
+    for (const { anchor } of this.persistentHighlightAnchors) {
+      if (!isEpubCfi(anchor)) continue
+      rendition.annotations.highlight(
+        anchor,
+        { persistent: true },
+        undefined,
+        PERSISTENT_HIGHLIGHT_CLASS,
+        {
+          fill: '#7cbd9a',
+          'fill-opacity': '0.30',
+          'mix-blend-mode': 'multiply'
+        }
+      )
+      this.persistentHighlightedCfi.push(anchor)
+    }
+  }
+
+  private clearPersistentHighlights(): void {
+    const rendition = this.rendition
+    if (rendition) {
+      for (const cfi of this.persistentHighlightedCfi) {
+        rendition.annotations.remove(cfi, 'highlight')
+      }
+    }
+    this.persistentHighlightedCfi = []
   }
 
   private async waitForLayout(): Promise<void> {
@@ -556,6 +842,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
       return
     }
     this.latestLocator = locator
+    const hrefSectionIndex = this.sectionIndexFromHref(location.start.href)
+    this.currentSectionIndex = hrefSectionIndex ?? (Number.isFinite(location.start.index) ? location.start.index : 0)
     const reportedPercentage = location.start.percentage
     const fallbackPercentage =
       this.spineCount <= 1 ? 0 : location.start.index / Math.max(1, this.spineCount - 1)
@@ -563,11 +851,32 @@ export class EpubReaderAdapter implements ReaderAdapter {
       this.locationsReady && Number.isFinite(reportedPercentage)
         ? reportedPercentage
         : fallbackPercentage
-    this.emitRelocation({ locator, progress })
+    const reason: ReaderRelocationReason = this.programmaticScroll
+      ? this.relocationReason
+      : 'natural'
+    this.emitRelocation({
+      locator,
+      progress,
+      chapterProgress: this.chapterProgressFor(location),
+      chapterTitle: this.chapterTitle(this.currentSectionIndex, location.start.href),
+      reason
+    })
   }
 
-  private chapterTitle(sectionIndex: number): string {
-    const sectionHref = this.book?.spine.get(sectionIndex)?.href
+  private sectionIndexFromHref(href?: string): number | null {
+    if (!href || !this.book) return null
+    const normalized = normalizeHref(href)
+    for (let index = 0; index < this.spineCount; index += 1) {
+      const sectionHref = this.book.spine.get(index)?.href
+      if (sectionHref && normalizeHref(sectionHref) === normalized) {
+        return index
+      }
+    }
+    return null
+  }
+
+  private chapterTitle(sectionIndex: number, directHref?: string): string {
+    const sectionHref = directHref || this.book?.spine.get(sectionIndex)?.href
     if (sectionHref) {
       const normalized = normalizeHref(sectionHref)
       const match = this.toc.find((item) => normalizeHref(item.href) === normalized)
@@ -586,7 +895,10 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private emitRelocation(relocation: ReaderRelocation): void {
     this.callbacks.onRelocated?.({
       locator: relocation.locator,
-      progress: Math.min(1, Math.max(0, relocation.progress))
+      progress: Math.min(1, Math.max(0, relocation.progress)),
+      chapterProgress: Math.min(1, Math.max(0, relocation.chapterProgress)),
+      chapterTitle: relocation.chapterTitle,
+      reason: relocation.reason
     })
   }
 
@@ -603,6 +915,9 @@ export class EpubReaderAdapter implements ReaderAdapter {
       this.rendition.off('relocated', this.handleRelocated)
     }
     this.clearHighlight()
+    this.clearPersistentHighlights()
+    this.cancelProgrammaticScrollRelease()
+    this.unbindRendererScrollInput()
     this.book?.destroy()
     this.book = null
     this.rendition = null
@@ -611,7 +926,11 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.spineCount = 0
     this.locationsReady = false
     this.latestLocator = null
+    this.currentSectionIndex = 0
     this.reflowable = true
+    this.persistentHighlightAnchors = []
+    this.sectionPercentageBounds.clear()
+    this.programmaticScroll = false
     this.preferencesRevision += 1
     this.host.replaceChildren()
   }

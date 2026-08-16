@@ -6,6 +6,9 @@ export const IPC_CHANNELS = {
   booksRead: 'books:read',
   booksUpdateMetadata: 'books:update-metadata',
   booksUpdateProgress: 'books:update-progress',
+  highlightsList: 'highlights:list',
+  highlightsSave: 'highlights:save',
+  highlightsDelete: 'highlights:delete',
   insightsList: 'insights:list',
   insightsSave: 'insights:save',
   insightsDelete: 'insights:delete',
@@ -125,12 +128,31 @@ export interface SaveInsightInput {
   model: string
 }
 
+export interface HighlightRecord {
+  id: string
+  bookId: string
+  quote: string
+  anchor: string
+  chapterTitle: string
+  createdAt: string
+}
+
+export interface SaveHighlightInput {
+  bookId: string
+  quote: string
+  anchor: string
+  chapterTitle: string
+}
+
 export interface ReaderApi {
   listBooks(): Promise<BookRecord[]>
   importBook(): Promise<ImportedBookResult | null>
   readBook(bookId: string): Promise<BookPayload>
   updateBookMetadata(bookId: string, title: string, author: string | null): Promise<BookRecord>
   updateBookProgress(bookId: string, locator: string, progress: number): Promise<void>
+  listHighlights(bookId: string): Promise<HighlightRecord[]>
+  saveHighlight(input: SaveHighlightInput): Promise<HighlightRecord>
+  deleteHighlight(id: string): Promise<boolean>
   listInsights(bookId: string): Promise<SavedInsight[]>
   saveInsight(input: SaveInsightInput): Promise<SavedInsight>
   deleteInsight(id: string): Promise<boolean>

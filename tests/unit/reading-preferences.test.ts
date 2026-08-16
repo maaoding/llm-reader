@@ -95,6 +95,7 @@ describe('reading preferences', () => {
       indent: 'original',
       fontFamily: null,
       contentWidth: 'original',
+      paperTheme: 'light',
       paragraphSpacing: 'original'
     })
     expect(
@@ -110,6 +111,7 @@ describe('reading preferences', () => {
       indent: '2em',
       fontFamily: '微软雅黑',
       contentWidth: 'original',
+      paperTheme: 'light',
       paragraphSpacing: 'original'
     })
     expect(
@@ -125,6 +127,7 @@ describe('reading preferences', () => {
       indent: 'original',
       fontFamily: null,
       contentWidth: 'original',
+      paperTheme: 'light',
       paragraphSpacing: 'original'
     })
     expect(
@@ -140,6 +143,7 @@ describe('reading preferences', () => {
       indent: 'original',
       fontFamily: null,
       contentWidth: 'original',
+      paperTheme: 'light',
       paragraphSpacing: 'original'
     })
   })
@@ -158,6 +162,7 @@ describe('reading preferences', () => {
       indent: 'none',
       fontFamily: null,
       contentWidth: 'original',
+      paperTheme: 'light',
       paragraphSpacing: 'original'
     })
     expect(
@@ -177,6 +182,121 @@ describe('reading preferences', () => {
     expect(fontFamilyStack('宋体')).toEqual(['宋体'])
     expect(fontFamilyStack('仓耳今楷05 W04')).toEqual(['仓耳今楷05 W04', '仓耳今楷05W04'])
     expect(fontFamilyStack('O\'Reilly Serif')).toEqual(['O\'Reilly Serif', 'O\'ReillySerif'])
+  })
+
+  it('normalizes paper themes and applies independent paper colors to TXT', async () => {
+    expect(
+      normalizeReadingPreferences({
+        fontScale: 100,
+        lineHeight: 'original',
+        indent: 'original',
+        fontFamily: null,
+        contentWidth: 'original',
+        paragraphSpacing: 'original',
+        paperTheme: 'sepia'
+      })
+    ).toEqual({
+      ...DEFAULT_READING_PREFERENCES,
+      paperTheme: 'sepia'
+    })
+    expect(
+      normalizeReadingPreferences({
+        ...DEFAULT_READING_PREFERENCES,
+        paperTheme: 'invalid'
+      } as unknown as ReadingPreferences)
+    ).toEqual(DEFAULT_READING_PREFERENCES)
+
+    const host = document.createElement('div')
+    document.body.append(host)
+    const adapter = new TextReaderAdapter(host, { bookId: 'txt-paper' })
+    await adapter.open(bytes(['# 第一章', '', '第一段'].join(String.fromCharCode(10))))
+
+    const root = host.querySelector<HTMLElement>('.reader-document--txt')!
+    expect(root.style.backgroundColor).toBe('rgb(253, 252, 249)')
+    expect(root.style.color).toBe('rgb(41, 54, 60)')
+
+    await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES, paperTheme: 'dark' })
+    expect(root.style.backgroundColor).toBe('rgb(34, 41, 45)')
+    expect(root.style.color).toBe('rgb(231, 233, 230)')
+    expect(root.style.colorScheme).toBe('dark')
+
+    adapter.destroy()
+    host.remove()
+  })
+
+  it('injects the selected EPUB paper theme into the current chapter', async () => {
+    const harness = createEpubHarness()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const adapter = new EpubReaderAdapter(host, { bookId: 'epub-paper' })
+    await adapter.open(new Uint8Array([1, 2, 3]))
+
+    const contents = createContents('<p>当前章节正文</p>')
+    harness.currentContents.push(contents)
+    harness.contentHooks[0](contents)
+
+    await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES, paperTheme: 'sepia' })
+    let css = contents.addStylesheetCss.mock.calls.at(-1)?.[0] as string
+    expect(css).toContain('color-scheme: light')
+    expect(css).toContain('background-color: #f6ecd8 !important')
+    expect(css).toContain('color: #433c2e !important')
+
+    await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES, paperTheme: 'dark' })
+    css = contents.addStylesheetCss.mock.calls.at(-1)?.[0] as string
+    expect(css).toContain('color-scheme: dark')
+    expect(css).toContain('background-color: #22292d !important')
+    expect(css).toContain('color: #e7e9e6 !important')
+
+    adapter.destroy()
+    host.remove()
+  })
+
+  it('applies and clears persistent TXT highlights and tags navigation relocations', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const onRelocated = vi.fn()
+    const adapter = new TextReaderAdapter(host, { bookId: 'txt-highlights', onRelocated })
+    await adapter.open(bytes(['# 第一章', '', '第一段'].join(String.fromCharCode(10))))
+
+    await adapter.setHighlights([{ anchor: 'txt:7:10' }])
+    expect(host.querySelector('.llm-reader-persistent-fallback')).not.toBeNull()
+
+    await adapter.goTo('txt:0:0')
+    expect(onRelocated).toHaveBeenLastCalledWith({
+      locator: 'txt:0:0',
+      progress: 0,
+      chapterProgress: 0,
+      chapterTitle: '第一章',
+      reason: 'navigation'
+    })
+
+    await adapter.setHighlights([])
+    expect(host.querySelector('.llm-reader-persistent-fallback')).toBeNull()
+    adapter.destroy()
+    host.remove()
+  })
+
+  it('reapplies and removes persistent EPUB highlights through rendition annotations', async () => {
+    const harness = createEpubHarness()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const adapter = new EpubReaderAdapter(host, { bookId: 'epub-highlights' })
+    await adapter.open(new Uint8Array([1, 2, 3]))
+
+    await adapter.setHighlights([{ anchor: FIRST_CFI }])
+    expect(harness.rendition.annotations.highlight).toHaveBeenCalledWith(
+      FIRST_CFI,
+      { persistent: true },
+      undefined,
+      'llm-reader-persistent-highlight',
+      expect.objectContaining({ fill: '#7cbd9a' })
+    )
+
+    await adapter.setHighlights([])
+    expect(harness.rendition.annotations.remove).toHaveBeenCalledWith(FIRST_CFI, 'highlight')
+
+    adapter.destroy()
+    host.remove()
   })
 
   it('updates TXT typography immediately and restores its existing defaults', async () => {

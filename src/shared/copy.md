@@ -40,6 +40,7 @@
 | assistant.actionExplain | 解释这段 |
 | assistant.actionContext | 联系上下文 |
 | assistant.actionAsk | 自由提问 |
+| assistant.actionSaveHighlight | 收藏 |
 | assistant.questionExplain | 请用清晰、准确的语言解释这段内容。 |
 | assistant.questionContext | 请结合本章上下文说明这段内容的含义与作用。 |
 | assistant.cancelledPartial | 已停止生成 |
@@ -73,6 +74,26 @@
 | insights.savedToast | 已收藏，并保留原文位置。 |
 | insights.saveFailed | 收藏失败。 |
 | insights.readFailed | 无法读取收藏。 |
+
+## 句段收藏
+
+| key | text |
+| --- | --- |
+| highlights.loading | 正在读取句段收藏 |
+| highlights.noBookTitle | 还没有打开书籍 |
+| highlights.noBookDetail | 打开一本书后，这里会显示划词收藏的句段。 |
+| highlights.emptyTitle | 还没有收藏句段 |
+| highlights.emptyDetail | 选中原文后，在划词控件中点“收藏”。 |
+| highlights.title | 收藏 |
+| highlights.count | 收藏 · {count} |
+| highlights.backToSource | 回到原文 |
+| highlights.removeQuestion | 删除收藏？ |
+| highlights.removeAria | 删除句段收藏 |
+| highlights.removed | 已删除收藏。 |
+| highlights.removeFailed | 删除收藏失败。 |
+| highlights.savedToast | 已收藏句段，并保留原文高亮。 |
+| highlights.saveFailed | 收藏句段失败。 |
+| highlights.readFailed | 无法读取句段收藏。 |
 
 ## 设置与连接
 
@@ -114,6 +135,11 @@
 | settings.spacingCompact | 紧凑 |
 | settings.spacingStandard | 标准 |
 | settings.spacingRelaxed | 宽松 |
+| settings.paperTheme | 纸张主题 |
+| settings.paperThemeHint | 阅读区纸张独立于界面主题。 |
+| settings.paperThemeLight | 浅色 |
+| settings.paperThemeSepia | 米黄 |
+| settings.paperThemeDark | 深色 |
 | settings.followBookDefault | 跟随原书 / 默认 |
 | settings.noIndent | 无缩进 |
 | settings.modelTitle | 模型 |
@@ -146,6 +172,8 @@
 | library.navAria | 书籍导航 |
 | library.tabLibrary | 书库 |
 | library.tabToc | 目录 |
+| library.tabHighlights | 收藏 |
+| library.highlightsAria | 本书句段收藏 |
 | library.loading | 正在读取书库 |
 | library.unavailableTitle | 书库暂不可用 |
 | library.emptyTitle | 书库为空 |
@@ -167,6 +195,9 @@
 | reader.progress | 阅读进度 |
 | reader.progressAria | 阅读进度 {percent}% |
 | reader.readingSettings | 阅读设置 |
+| reader.returnToReading | 回到阅读位置 |
+| reader.chapterProgress | 本章进度 |
+| reader.highlightsFailed | 无法应用原文高亮。 |
 | reader.areaAria | 正文阅读区 |
 | reader.emptyAria | 尚未打开书籍 |
 | reader.emptyText | 从书库打开或导入一本书 |

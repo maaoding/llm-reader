@@ -6,6 +6,7 @@ import {
   fontFamilyStack,
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
+  READING_PAPER_THEME_TOKENS,
   READING_PARAGRAPH_SPACING_EM,
   readingPreferencesEqual
 } from './reading-preferences'
@@ -14,9 +15,14 @@ import type {
   ReaderAdapter,
   ReaderCallbacks,
   ReaderDocumentInfo,
-  ReaderRelocation
+  ReaderHighlightAnchor,
+  ReaderRelocation,
+  ReaderRelocationReason
 } from './types'
 import { DEFAULT_READING_PREFERENCES, READER_SELECTION_BACKGROUND } from './types'
+
+const PERSISTENT_HIGHLIGHT_NAME = 'llm-reader-persistent'
+const PERSISTENT_HIGHLIGHT_FALLBACK_CLASS = 'llm-reader-persistent-fallback'
 
 const TXT_ANCHOR_PATTERN = /^txt:(\d+):(\d+)$/u
 const TEXT_BLOCK_PATTERN = /[^\n]+(?:\n(?![\t ]*\n)[^\n]*)*/gu
@@ -157,9 +163,14 @@ export class TextReaderAdapter implements ReaderAdapter {
   private paragraphs: TextParagraph[] = []
   private chapters: TextChapter[] = []
   private selection: SelectionContext | null = null
-  private highlightedElements: HTMLElement[] = []
-  private highlightRegistry: { delete(name: string): void; set(name: string, value: unknown): void } | null = null
+  private temporaryHighlightElements: HTMLElement[] = []
+  private temporaryHighlightRegistry: { delete(name: string): void; set(name: string, value: unknown): void } | null = null
+  private persistentHighlightAnchors: ReaderHighlightAnchor[] = []
+  private persistentHighlightElements: HTMLElement[] = []
+  private persistentHighlightRegistry: { delete(name: string): void; set(name: string, value: unknown): void } | null = null
   private relocationFrame: number | null = null
+  private programmaticScroll = false
+  private programmaticReleaseTimer: ReturnType<typeof setTimeout> | null = null
   private preferences: ReadingPreferences = { ...DEFAULT_READING_PREFERENCES }
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
@@ -201,6 +212,8 @@ export class TextReaderAdapter implements ReaderAdapter {
       .reader-document ::selection { background: ${READER_SELECTION_BACKGROUND}; color: inherit; }
       ::highlight(llm-reader-temporary) { background: rgba(246, 190, 72, .36); }
       .llm-reader-temporary-fallback { background: rgba(246, 190, 72, .25); outline: 2px solid rgba(196, 130, 18, .45); }
+      ::highlight(${PERSISTENT_HIGHLIGHT_NAME}) { background: rgba(126, 188, 148, .36); }
+      .${PERSISTENT_HIGHLIGHT_FALLBACK_CLASS} { background: rgba(126, 188, 148, .30); outline: 1px solid rgba(61, 135, 91, .55); }
     `
     root.append(style)
 
@@ -232,6 +245,8 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.root = root
     this.applyPreferences()
     this.host.replaceChildren(root)
+    this.applyPersistentHighlights()
+    this.bindUserScrollInput()
     this.document.addEventListener('selectionchange', this.handleSelectionChange)
     this.host.addEventListener('scroll', this.handleScroll, { passive: true })
 
@@ -244,10 +259,18 @@ export class TextReaderAdapter implements ReaderAdapter {
         depth: 0
       }))
 
+    this.programmaticScroll = true
     if (lastLocator && parseTextAnchor(lastLocator, this.textCharacters.length)) {
-      await this.goTo(lastLocator)
+      await this.goToWithReason(lastLocator, 'restore')
     } else {
-      this.emitRelocation({ locator: makeTextAnchor(0), progress: 0 })
+      this.emitRelocation({
+        locator: makeTextAnchor(0),
+        progress: 0,
+        chapterProgress: this.chapterProgressAt(0),
+        chapterTitle: this.chapters[0]?.title ?? copy('reader.txtFullText'),
+        reason: 'restore'
+      })
+      this.scheduleProgrammaticScrollRelease()
     }
 
     return {
@@ -263,6 +286,10 @@ export class TextReaderAdapter implements ReaderAdapter {
   }
 
   async goTo(anchor: string): Promise<void> {
+    await this.goToWithReason(anchor, 'navigation')
+  }
+
+  private async goToWithReason(anchor: string, reason: ReaderRelocationReason): Promise<void> {
     const parsed = parseTextAnchor(anchor, this.textCharacters.length)
     if (!parsed) {
       throw new Error(copy('reader.txtInvalidAnchor'))
@@ -273,6 +300,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       throw new Error(copy('reader.txtAnchorOutside'))
     }
 
+    this.programmaticScroll = true
     if (typeof paragraph.element.scrollIntoView === 'function') {
       paragraph.element.scrollIntoView({ behavior: 'auto', block: 'start' })
     } else {
@@ -281,8 +309,12 @@ export class TextReaderAdapter implements ReaderAdapter {
 
     this.emitRelocation({
       locator: makeTextAnchor(parsed.start),
-      progress: this.textCharacters.length === 0 ? 0 : parsed.start / this.textCharacters.length
+      progress: this.textCharacters.length === 0 ? 0 : parsed.start / this.textCharacters.length,
+      chapterProgress: this.chapterProgressAt(parsed.start),
+      chapterTitle: this.chapters[paragraph.chapterIndex]?.title ?? copy('reader.txtFullText'),
+      reason
     })
+    this.scheduleProgrammaticScrollRelease()
   }
 
   getSelection(): SelectionContext | null {
@@ -290,31 +322,12 @@ export class TextReaderAdapter implements ReaderAdapter {
   }
 
   async highlight(anchor: string): Promise<void> {
-    const parsed = parseTextAnchor(anchor, this.textCharacters.length)
-    if (!parsed || parsed.end <= parsed.start) {
+    const range = this.rangeForAnchor(anchor)
+    if (!range) {
       throw new Error(copy('reader.txtInvalidHighlight'))
     }
-    const startParagraph = this.findParagraphAt(parsed.start)
-    const endParagraph = this.findParagraphAt(Math.max(parsed.start, parsed.end - 1))
-    if (!startParagraph || !endParagraph || parsed.end > endParagraph.end) {
-      throw new Error(copy('reader.txtHighlightOutside'))
-    }
 
-    this.clearHighlight()
-    const range = this.document.createRange()
-    const startTextNode = startParagraph.element.firstChild
-    const endTextNode = endParagraph.element.firstChild
-    if (!startTextNode || !endTextNode) {
-      return
-    }
-
-    const localStart = parsed.start - startParagraph.start
-    const localEnd = parsed.end - endParagraph.start
-    const utf16Start = this.codePointOffsetToUtf16(startParagraph.text, localStart)
-    const utf16End = this.codePointOffsetToUtf16(endParagraph.text, localEnd)
-    range.setStart(startTextNode, utf16Start)
-    range.setEnd(endTextNode, utf16End)
-
+    this.clearTemporaryHighlight()
     const view = this.document.defaultView as
       | (Window & { Highlight?: new (...ranges: Range[]) => unknown })
       | null
@@ -322,26 +335,29 @@ export class TextReaderAdapter implements ReaderAdapter {
       CSS?: { highlights?: { delete(name: string): void; set(name: string, value: unknown): void } }
     } | null)?.CSS
     if (view?.Highlight && cssWithHighlights?.highlights) {
-      this.highlightRegistry = cssWithHighlights.highlights
-      this.highlightRegistry.set('llm-reader-temporary', new view.Highlight(range))
+      this.temporaryHighlightRegistry = cssWithHighlights.highlights
+      this.temporaryHighlightRegistry.set('llm-reader-temporary', new view.Highlight(range))
       return
     }
 
-    this.highlightedElements = this.paragraphs
+    const rangeInfo = this.paragraphRangeForAnchor(anchor)
+    if (!rangeInfo) return
+    const { startParagraph, endParagraph } = rangeInfo
+    this.temporaryHighlightElements = this.paragraphs
       .slice(startParagraph.index, endParagraph.index + 1)
       .map((paragraph) => paragraph.element)
-    this.highlightedElements.forEach((element) =>
+    this.temporaryHighlightElements.forEach((element) =>
       element.classList.add('llm-reader-temporary-fallback')
     )
   }
 
   clearHighlight(): void {
-    this.highlightRegistry?.delete('llm-reader-temporary')
-    this.highlightRegistry = null
-    this.highlightedElements.forEach((element) =>
-      element.classList.remove('llm-reader-temporary-fallback')
-    )
-    this.highlightedElements = []
+    this.clearTemporaryHighlight()
+  }
+
+  async setHighlights(highlights: ReadonlyArray<ReaderHighlightAnchor>): Promise<void> {
+    this.persistentHighlightAnchors = highlights.map((highlight) => ({ anchor: highlight.anchor }))
+    this.applyPersistentHighlights()
   }
 
   async setPreferences(preferences: ReadingPreferences): Promise<void> {
@@ -376,6 +392,11 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.root.style.maxWidth = this.preferences.contentWidth === 'original'
       ? '760px'
       : `${READING_CONTENT_WIDTH_PIXELS[this.preferences.contentWidth]}px`
+
+    const paper = READING_PAPER_THEME_TOKENS[this.preferences.paperTheme]
+    this.root.style.backgroundColor = paper.background
+    this.root.style.color = paper.color
+    this.root.style.colorScheme = paper.colorScheme
 
     for (const paragraph of this.paragraphs) {
       if (paragraph.element.tagName !== 'P') {
@@ -482,6 +503,9 @@ export class TextReaderAdapter implements ReaderAdapter {
   }
 
   private reportScrollPosition(): void {
+    if (this.programmaticScroll) {
+      return
+    }
     const hostTop = this.host.getBoundingClientRect().top
     const firstVisible =
       this.paragraphs.find((paragraph) => paragraph.element.getBoundingClientRect().bottom > hostTop + 8) ??
@@ -491,10 +515,52 @@ export class TextReaderAdapter implements ReaderAdapter {
     }
     const scrollable = Math.max(0, this.host.scrollHeight - this.host.clientHeight)
     const progress = scrollable === 0 ? firstVisible.start / this.textCharacters.length : this.host.scrollTop / scrollable
+    const topEdge = hostTop + 8
+    const paragraphRect = firstVisible.element.getBoundingClientRect()
+    const visibleFraction = paragraphRect.height > 0
+      ? Math.min(1, Math.max(0, (topEdge - paragraphRect.top) / paragraphRect.height))
+      : 0
     this.emitRelocation({
       locator: makeTextAnchor(firstVisible.start),
-      progress: Math.min(1, Math.max(0, progress))
+      progress: Math.min(1, Math.max(0, progress)),
+      chapterProgress: this.chapterProgressFor(firstVisible, visibleFraction),
+      chapterTitle: this.chapters[firstVisible.chapterIndex]?.title ?? copy('reader.txtFullText'),
+      reason: 'natural'
     })
+  }
+
+  private readonly handleUserScrollInput = (): void => {
+    this.cancelProgrammaticScrollRelease()
+    this.programmaticScroll = false
+  }
+
+  private scheduleProgrammaticScrollRelease(): void {
+    this.cancelProgrammaticScrollRelease()
+    this.programmaticReleaseTimer = setTimeout(() => {
+      this.programmaticReleaseTimer = null
+      this.programmaticScroll = false
+    }, 320)
+  }
+
+  private cancelProgrammaticScrollRelease(): void {
+    if (this.programmaticReleaseTimer) {
+      clearTimeout(this.programmaticReleaseTimer)
+      this.programmaticReleaseTimer = null
+    }
+  }
+
+  private bindUserScrollInput(): void {
+    this.host.addEventListener('wheel', this.handleUserScrollInput, { passive: true })
+    this.host.addEventListener('touchmove', this.handleUserScrollInput, { passive: true })
+    this.host.addEventListener('pointerdown', this.handleUserScrollInput)
+    this.host.addEventListener('keydown', this.handleUserScrollInput)
+  }
+
+  private unbindUserScrollInput(): void {
+    this.host.removeEventListener('wheel', this.handleUserScrollInput)
+    this.host.removeEventListener('touchmove', this.handleUserScrollInput)
+    this.host.removeEventListener('pointerdown', this.handleUserScrollInput)
+    this.host.removeEventListener('keydown', this.handleUserScrollInput)
   }
 
   private buildChapters(paragraphs: ParsedTextParagraph[]): TextChapter[] {
@@ -550,6 +616,111 @@ export class TextReaderAdapter implements ReaderAdapter {
     return Array.from(value).slice(0, offset).join('').length
   }
 
+  private chapterProgressFor(paragraph: TextParagraph, fraction = 0): number {
+    const chapter = this.chapters[paragraph.chapterIndex]
+    if (!chapter) return 0
+    const lastParagraph = this.paragraphs[chapter.paragraphIndexes[chapter.paragraphIndexes.length - 1]]
+    if (!lastParagraph) return 0
+    const chapterEnd = lastParagraph.end
+    const span = chapterEnd - chapter.start
+    if (span <= 0) return 0
+    const paragraphLength = Math.max(0, paragraph.end - paragraph.start)
+    const localPosition = paragraph.start + paragraphLength * Math.min(1, Math.max(0, fraction))
+    return Math.min(1, Math.max(0, (localPosition - chapter.start) / span))
+  }
+
+  private chapterProgressAt(offset: number): number {
+    const paragraph = this.findParagraphAt(offset)
+    if (!paragraph) return 0
+    const paragraphLength = Math.max(1, paragraph.end - paragraph.start)
+    const fraction = Math.min(1, Math.max(0, (offset - paragraph.start) / paragraphLength))
+    return this.chapterProgressFor(paragraph, fraction)
+  }
+
+  private paragraphRangeForAnchor(anchor: string): { startParagraph: TextParagraph; endParagraph: TextParagraph } | null {
+    const parsed = parseTextAnchor(anchor, this.textCharacters.length)
+    if (!parsed || parsed.end <= parsed.start) return null
+    const startParagraph = this.findParagraphAt(parsed.start)
+    const endParagraph = this.findParagraphAt(Math.max(parsed.start, parsed.end - 1))
+    if (!startParagraph || !endParagraph || parsed.end > endParagraph.end) return null
+    return { startParagraph, endParagraph }
+  }
+
+  private rangeForAnchor(anchor: string): Range | null {
+    const parsed = parseTextAnchor(anchor, this.textCharacters.length)
+    if (!parsed || parsed.end <= parsed.start) return null
+    const rangeInfo = this.paragraphRangeForAnchor(anchor)
+    if (!rangeInfo) return null
+    const { startParagraph, endParagraph } = rangeInfo
+    const startTextNode = startParagraph.element.firstChild
+    const endTextNode = endParagraph.element.firstChild
+    if (!startTextNode || !endTextNode) return null
+
+    const localStart = parsed.start - startParagraph.start
+    const localEnd = parsed.end - endParagraph.start
+    const range = this.document.createRange()
+    range.setStart(startTextNode, this.codePointOffsetToUtf16(startParagraph.text, localStart))
+    range.setEnd(endTextNode, this.codePointOffsetToUtf16(endParagraph.text, localEnd))
+    return range
+  }
+
+  private applyPersistentHighlights(): void {
+    this.clearPersistentHighlights()
+    if (!this.root || this.persistentHighlightAnchors.length === 0) return
+
+    const ranges: Range[] = []
+    const fallbackElements = new Set<HTMLElement>()
+    for (const { anchor } of this.persistentHighlightAnchors) {
+      const range = this.rangeForAnchor(anchor)
+      if (!range) continue
+      ranges.push(range)
+      const rangeInfo = this.paragraphRangeForAnchor(anchor)
+      if (!rangeInfo) continue
+      const { startParagraph, endParagraph } = rangeInfo
+      this.paragraphs
+        .slice(startParagraph.index, endParagraph.index + 1)
+        .forEach((paragraph) => fallbackElements.add(paragraph.element))
+    }
+
+    const view = this.document.defaultView as
+      | (Window & { Highlight?: new (...ranges: Range[]) => unknown })
+      | null
+    const cssWithHighlights = (view as unknown as {
+      CSS?: { highlights?: { delete(name: string): void; set(name: string, value: unknown): void } }
+    } | null)?.CSS
+    if (view?.Highlight && cssWithHighlights?.highlights && ranges.length > 0) {
+      this.persistentHighlightRegistry = cssWithHighlights.highlights
+      this.persistentHighlightRegistry.set(
+        PERSISTENT_HIGHLIGHT_NAME,
+        new view.Highlight(...ranges)
+      )
+      return
+    }
+
+    this.persistentHighlightElements = Array.from(fallbackElements)
+    this.persistentHighlightElements.forEach((element) =>
+      element.classList.add(PERSISTENT_HIGHLIGHT_FALLBACK_CLASS)
+    )
+  }
+
+  private clearPersistentHighlights(): void {
+    this.persistentHighlightRegistry?.delete(PERSISTENT_HIGHLIGHT_NAME)
+    this.persistentHighlightRegistry = null
+    this.persistentHighlightElements.forEach((element) =>
+      element.classList.remove(PERSISTENT_HIGHLIGHT_FALLBACK_CLASS)
+    )
+    this.persistentHighlightElements = []
+  }
+
+  private clearTemporaryHighlight(): void {
+    this.temporaryHighlightRegistry?.delete('llm-reader-temporary')
+    this.temporaryHighlightRegistry = null
+    this.temporaryHighlightElements.forEach((element) =>
+      element.classList.remove('llm-reader-temporary-fallback')
+    )
+    this.temporaryHighlightElements = []
+  }
+
   private setSelection(selection: SelectionContext | null): void {
     this.selection = selection
     this.callbacks.onSelectionChanged?.(selection)
@@ -558,18 +729,24 @@ export class TextReaderAdapter implements ReaderAdapter {
   private emitRelocation(relocation: ReaderRelocation): void {
     this.callbacks.onRelocated?.({
       locator: relocation.locator,
-      progress: Math.min(1, Math.max(0, relocation.progress))
+      progress: Math.min(1, Math.max(0, relocation.progress)),
+      chapterProgress: Math.min(1, Math.max(0, relocation.chapterProgress)),
+      chapterTitle: relocation.chapterTitle,
+      reason: relocation.reason
     })
   }
 
   private resetDocument(): void {
     this.document.removeEventListener('selectionchange', this.handleSelectionChange)
     this.host.removeEventListener('scroll', this.handleScroll)
+    this.unbindUserScrollInput()
     if (this.relocationFrame !== null && this.document.defaultView) {
       this.document.defaultView.cancelAnimationFrame(this.relocationFrame)
     }
     this.relocationFrame = null
-    this.clearHighlight()
+    this.cancelProgrammaticScrollRelease()
+    this.clearTemporaryHighlight()
+    this.clearPersistentHighlights()
     this.host.replaceChildren()
     this.root = null
     this.text = ''
@@ -577,6 +754,8 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.paragraphs = []
     this.chapters = []
     this.selection = null
+    this.persistentHighlightAnchors = []
+    this.programmaticScroll = false
   }
 }
 

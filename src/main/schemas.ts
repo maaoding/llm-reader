@@ -5,6 +5,7 @@ const idSchema = z.string().uuid()
 
 export const bookIdSchema = idSchema
 export const insightIdSchema = idSchema
+export const highlightIdSchema = idSchema
 export const metadataSchema = z.object({
   bookId: idSchema,
   title: shortText(500),
@@ -14,6 +15,13 @@ export const progressSchema = z.object({
   bookId: idSchema,
   locator: shortText(16_384),
   progress: z.number().finite().min(0).max(1)
+})
+
+export const highlightSchema = z.object({
+  bookId: idSchema,
+  quote: z.string().min(1).max(20_000),
+  anchor: shortText(16_384),
+  chapterTitle: z.string().trim().max(1_000)
 })
 
 const passageSchema = z.object({

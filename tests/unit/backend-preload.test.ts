@@ -22,6 +22,30 @@ vi.mock('electron', () => ({
 import { readerApi } from '../../src/preload/index'
 
 describe('preload ReaderApi', () => {
+  it('exposes highlight list, save and delete through their dedicated IPC channels', async () => {
+    const bookId = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
+    const highlight = {
+      id: '5e9dc44f-5868-4d99-97c7-fcb79c179de6',
+      bookId,
+      quote: '原文句段',
+      anchor: 'txt:4:12',
+      chapterTitle: '第一章',
+      createdAt: '2026-08-16T09:00:00.000Z'
+    }
+    electronMocks.invoke
+      .mockResolvedValueOnce([highlight])
+      .mockResolvedValueOnce(highlight)
+      .mockResolvedValueOnce(true)
+
+    await expect(readerApi.listHighlights(bookId)).resolves.toEqual([highlight])
+    await expect(readerApi.saveHighlight({ bookId, quote: highlight.quote, anchor: highlight.anchor, chapterTitle: highlight.chapterTitle })).resolves.toEqual(highlight)
+    await expect(readerApi.deleteHighlight(highlight.id)).resolves.toBe(true)
+
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.highlightsList, bookId)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.highlightsSave, { bookId, quote: highlight.quote, anchor: highlight.anchor, chapterTitle: highlight.chapterTitle })
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.highlightsDelete, highlight.id)
+  })
+
   beforeEach(() => {
     electronMocks.invoke.mockReset()
   })

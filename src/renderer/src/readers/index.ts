@@ -24,18 +24,22 @@ export {
   MIN_READING_FONT_SCALE,
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
-  READING_PARAGRAPH_SPACING_EM
+  READING_PARAGRAPH_SPACING_EM,
+  READING_PAPER_THEME_TOKENS
 } from './reading-preferences'
 export type {
   ReadingContentWidth,
   ReadingIndent,
   ReadingLineHeight,
   ReadingParagraphSpacing,
+  ReadingPaperTheme,
   ReadingPreferences,
   ReaderAdapter,
   ReaderCallbacks,
   ReaderDocumentInfo,
+  ReaderHighlightAnchor,
   ReaderMetadata,
-  ReaderRelocation
+  ReaderRelocation,
+  ReaderRelocationReason
 } from './types'
 export { DEFAULT_READING_PREFERENCES } from './types'

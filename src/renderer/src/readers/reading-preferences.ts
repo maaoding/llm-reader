@@ -4,6 +4,7 @@ import {
   type ReadingIndent,
   type ReadingLineHeight,
   type ReadingParagraphSpacing,
+  type ReadingPaperTheme,
   type ReadingPreferences
 } from './types'
 
@@ -15,6 +16,19 @@ const LINE_HEIGHTS = new Set<ReadingLineHeight>(['original', '1.5', '1.7', '1.9'
 const INDENTS = new Set<ReadingIndent>(['original', 'none', '2em'])
 const CONTENT_WIDTHS = new Set<ReadingContentWidth>(['original', 'narrow', 'standard', 'wide'])
 const PARAGRAPH_SPACINGS = new Set<ReadingParagraphSpacing>(['original', 'compact', 'standard', 'relaxed'])
+const PAPER_THEMES = new Set<ReadingPaperTheme>(['light', 'sepia', 'dark'])
+
+export interface ReadingPaperTokens {
+  background: string
+  color: string
+  colorScheme: 'light' | 'dark'
+}
+
+export const READING_PAPER_THEME_TOKENS: Readonly<Record<ReadingPaperTheme, ReadingPaperTokens>> = Object.freeze({
+  light: Object.freeze({ background: '#fdfcf9', color: '#29363c', colorScheme: 'light' }),
+  sepia: Object.freeze({ background: '#f6ecd8', color: '#433c2e', colorScheme: 'light' }),
+  dark: Object.freeze({ background: '#22292d', color: '#e7e9e6', colorScheme: 'dark' })
+})
 
 export const READING_CONTENT_WIDTH_PIXELS: Readonly<Record<Exclude<ReadingContentWidth, 'original'>, number>> = Object.freeze({
   narrow: 640,
@@ -70,7 +84,10 @@ export function normalizeReadingPreferences(
       : DEFAULT_READING_PREFERENCES.contentWidth,
     paragraphSpacing: PARAGRAPH_SPACINGS.has(preferences.paragraphSpacing)
       ? preferences.paragraphSpacing
-      : DEFAULT_READING_PREFERENCES.paragraphSpacing
+      : DEFAULT_READING_PREFERENCES.paragraphSpacing,
+    paperTheme: PAPER_THEMES.has(preferences.paperTheme)
+      ? preferences.paperTheme
+      : DEFAULT_READING_PREFERENCES.paperTheme
   }
 }
 
@@ -84,6 +101,7 @@ export function readingPreferencesEqual(
     left.indent === right.indent &&
     left.fontFamily === right.fontFamily &&
     left.contentWidth === right.contentWidth &&
-    left.paragraphSpacing === right.paragraphSpacing
+    left.paragraphSpacing === right.paragraphSpacing &&
+    left.paperTheme === right.paperTheme
   )
 }

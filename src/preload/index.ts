@@ -9,6 +9,9 @@ export const readerApi: ReaderApi = {
     ipcRenderer.invoke(IPC_CHANNELS.booksUpdateMetadata, bookId, title, author),
   updateBookProgress: (bookId, locator, progress) =>
     ipcRenderer.invoke(IPC_CHANNELS.booksUpdateProgress, bookId, locator, progress),
+  listHighlights: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.highlightsList, bookId),
+  saveHighlight: (input) => ipcRenderer.invoke(IPC_CHANNELS.highlightsSave, input),
+  deleteHighlight: (id) => ipcRenderer.invoke(IPC_CHANNELS.highlightsDelete, id),
   listInsights: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.insightsList, bookId),
   saveInsight: (input) => ipcRenderer.invoke(IPC_CHANNELS.insightsSave, input),
   deleteInsight: (id) => ipcRenderer.invoke(IPC_CHANNELS.insightsDelete, id),

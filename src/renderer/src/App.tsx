@@ -44,6 +44,7 @@ import {
 } from 'react'
 import type {
   BookRecord,
+  HighlightRecord,
   LlmAction,
   LlmEvent,
   LlmUsage,
@@ -61,10 +62,11 @@ import {
   DEFAULT_READING_PREFERENCES,
   normalizeReadingPreferences,
   type ReaderAdapter,
+  type ReadingPaperTheme,
   type ReadingPreferences
 } from './readers'
 
-type LeftView = 'library' | 'toc'
+type LeftView = 'library' | 'toc' | 'highlights'
 type RightView = 'assistant' | 'insights'
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type TurnStatus = 'streaming' | 'completed' | 'error'
@@ -674,6 +676,15 @@ function SettingsModal({
                   {fontNote}
                 </small>
               </label>
+              <label className="settings-select-full" htmlFor="reading-paper-theme">
+                <span>{copy('settings.paperTheme')}</span>
+                <select id="reading-paper-theme" data-testid="reading-paper-theme" value={readingPreferences.paperTheme} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, paperTheme: event.target.value as ReadingPaperTheme })}>
+                  <option value="light">{copy('settings.paperThemeLight')}</option>
+                  <option value="sepia">{copy('settings.paperThemeSepia')}</option>
+                  <option value="dark">{copy('settings.paperThemeDark')}</option>
+                </select>
+                <small className="settings-font-note">{copy('settings.paperThemeHint')}</small>
+              </label>
               <label htmlFor="reading-line-height"><span>{copy('settings.lineHeight')}</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
               <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
               <label htmlFor="reading-content-width"><span>{copy('settings.contentWidth')}</span><select id="reading-content-width" data-testid="reading-content-width" value={readingPreferences.contentWidth} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, contentWidth: event.target.value as ReadingPreferences['contentWidth'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="narrow">{copy('settings.contentWidthNarrow')}</option><option value="standard">{copy('settings.contentWidthStandard')}</option><option value="wide">{copy('settings.contentWidthWide')}</option></select></label>
@@ -787,6 +798,13 @@ export default function App(): ReactNode {
   const [draft, setDraft] = useState('')
   const [insights, setInsights] = useState<SavedInsight[]>([])
   const [insightsLoading, setInsightsLoading] = useState(false)
+  const [highlights, setHighlights] = useState<HighlightRecord[]>([])
+  const [highlightsLoading, setHighlightsLoading] = useState(false)
+  const [pendingDeleteHighlightId, setPendingDeleteHighlightId] = useState<string | null>(null)
+  const [currentLocator, setCurrentLocator] = useState<string | null>(null)
+  const [naturalLocator, setNaturalLocator] = useState<string | null>(null)
+  const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
+  const [currentChapterTitle, setCurrentChapterTitle] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
@@ -816,6 +834,8 @@ export default function App(): ReactNode {
   const assistantDialogRef = useRef<HTMLElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
   const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const naturalPositionRef = useRef<{ locator: string | null; progress: number }>({ locator: null, progress: 0 })
+  const chapterTitleOverrideRef = useRef<string | null>(null)
   const providerRevisionRef = useRef(0)
   const providerCheckSequenceRef = useRef(0)
   const requestProviderRevisionRef = useRef(new Map<string, number>())
@@ -977,6 +997,23 @@ export default function App(): ReactNode {
     }
   }, [pushToast])
 
+  const refreshHighlights = useCallback(async (bookId: string): Promise<void> => {
+    setHighlightsLoading(true)
+    try {
+      const records = await window.readerApi.listHighlights(bookId)
+      if (activeBookRef.current?.id !== bookId) return
+      setHighlights(records)
+      const adapter = adapterRef.current
+      if (adapter) {
+        await adapter.setHighlights(records)
+      }
+    } catch (error) {
+      pushToast(readableError(error, copy('highlights.readFailed')), 'error')
+    } finally {
+      setHighlightsLoading(false)
+    }
+  }, [pushToast])
+
   const flushProgress = useCallback(async (): Promise<void> => {
     const pending = pendingProgressRef.current
     if (!pending) return
@@ -1037,13 +1074,37 @@ export default function App(): ReactNode {
     setToc([])
     setCollapsedTocItems(new Set())
     setInsights([])
+    setHighlights([])
+    setPendingDeleteHighlightId(null)
+    setCurrentLocator(book.lastLocator)
+    setNaturalLocator(book.lastLocator)
+    setCurrentChapterProgress(0)
+    setCurrentChapterTitle('')
+    naturalPositionRef.current = { locator: book.lastLocator, progress: book.progress }
 
     try {
       const payload = await window.readerApi.readBook(book.id)
       if (sequence !== openSequenceRef.current || !hostRef.current) return
       const adapter = createReaderAdapter(book.format, hostRef.current, {
         bookId: book.id,
-        onRelocated: ({ locator, progress }) => scheduleProgress(book.id, locator, progress),
+        onRelocated: ({ locator, progress, chapterProgress, chapterTitle, reason }) => {
+          setCurrentLocator(locator)
+          setCurrentChapterProgress(chapterProgress)
+          if (reason === 'natural') {
+            chapterTitleOverrideRef.current = null
+            setCurrentChapterTitle(chapterTitle)
+          } else if (!chapterTitleOverrideRef.current) {
+            setCurrentChapterTitle(chapterTitle)
+          }
+          if (reason === 'natural') {
+            naturalPositionRef.current = { locator, progress }
+            setNaturalLocator(locator)
+            scheduleProgress(book.id, locator, progress)
+          } else if (reason === 'restore' && naturalPositionRef.current.locator === null) {
+            naturalPositionRef.current = { locator, progress }
+            setNaturalLocator(locator)
+          }
+        },
         onSelectionChanged: setSelection
       })
       adapterRef.current = adapter
@@ -1057,6 +1118,7 @@ export default function App(): ReactNode {
       setBookState('ready')
       setLeftView('toc')
       void refreshInsights(book.id)
+      void refreshHighlights(book.id)
 
       const nextTitle = result.metadata.title.trim() || book.title
       const nextAuthor = result.metadata.author?.trim() || null
@@ -1078,7 +1140,7 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [destroyReader, refreshInsights, scheduleProgress])
+  }, [destroyReader, refreshHighlights, refreshInsights, scheduleProgress])
 
   useEffect(() => {
     let alive = true
@@ -1285,7 +1347,7 @@ export default function App(): ReactNode {
     }
   }, [pushToast])
 
-  const navigateToToc = useCallback(async (href: string): Promise<void> => {
+  const navigateToToc = useCallback(async (href: string, chapterTitle?: string): Promise<void> => {
     const adapter = adapterRef.current
     if (!adapter) return
     try {
@@ -1295,10 +1357,61 @@ export default function App(): ReactNode {
       }
       adapter.clearHighlight()
       await adapter.goTo(href)
+      if (chapterTitle) {
+        chapterTitleOverrideRef.current = chapterTitle
+        setCurrentChapterTitle(chapterTitle)
+        setCurrentChapterProgress(0)
+      }
     } catch (error) {
       pushToast(readableError(error, copy('reader.navigateChapterFailed')), 'error')
     }
   }, [pushToast])
+
+  const returnToReading = useCallback(async (): Promise<void> => {
+    const target = naturalPositionRef.current.locator
+    const adapter = adapterRef.current
+    if (!target || !adapter) return
+    try {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current)
+        highlightTimerRef.current = null
+      }
+      adapter.clearHighlight()
+      await adapter.goTo(target)
+      setCurrentLocator(target)
+    } catch (error) {
+      pushToast(readableError(error, copy('reader.navigateChapterFailed')), 'error')
+    }
+  }, [pushToast])
+
+  const saveSelectionHighlight = async (): Promise<void> => {
+    if (!selection || !activeBook) return
+    const target = selection
+    try {
+      await window.readerApi.saveHighlight({
+        bookId: target.bookId,
+        quote: target.quote,
+        anchor: target.anchor,
+        chapterTitle: target.chapterTitle
+      })
+      setSelection(null)
+      await refreshHighlights(activeBook.id)
+      pushToast(copy('highlights.savedToast'), 'success')
+    } catch (error) {
+      pushToast(readableError(error, copy('highlights.saveFailed')), 'error')
+    }
+  }
+
+  const deleteHighlight = async (highlightId: string): Promise<void> => {
+    try {
+      const deleted = await window.readerApi.deleteHighlight(highlightId)
+      setPendingDeleteHighlightId(null)
+      if (activeBook) await refreshHighlights(activeBook.id)
+      pushToast(deleted ? copy('highlights.removed') : copy('highlights.removed'), 'neutral')
+    } catch (error) {
+      pushToast(readableError(error, copy('highlights.removeFailed')), 'error')
+    }
+  }
 
   const deleteInsight = async (insightId: string): Promise<void> => {
     try {
@@ -1341,10 +1454,11 @@ export default function App(): ReactNode {
       ancestorIds.length = item.depth
       const hidden = ancestorIds.some((id) => collapsedTocItems.has(id))
       const hasChildren = index + 1 < toc.length && toc[index + 1].depth > item.depth
+      const isCurrent = Boolean(currentChapterTitle) && item.label === currentChapterTitle
       ancestorIds[item.depth] = item.id
-      return { item, index, hidden, hasChildren }
+      return { item, index, hidden, hasChildren, isCurrent }
     }).filter((entry) => !entry.hidden)
-  }, [collapsedTocItems, toc])
+  }, [collapsedTocItems, currentChapterTitle, toc])
 
   return (
     <div
@@ -1367,6 +1481,9 @@ export default function App(): ReactNode {
           </button>
           <button className={leftView === 'toc' ? 'is-active' : ''} type="button" onClick={() => setLeftView('toc')} disabled={!activeBook}>
             <PanelLeftClose size={15} />{copy('library.tabToc')}
+          </button>
+          <button className={leftView === 'highlights' ? 'is-active' : ''} data-testid="highlights-tab" type="button" onClick={() => setLeftView('highlights')} disabled={!activeBook}>
+            <Bookmark size={15} />{copy('library.tabHighlights')}
           </button>
         </nav>
 
@@ -1415,9 +1532,12 @@ export default function App(): ReactNode {
               {bookState === 'ready' && toc.length === 0 && (
                 <EmptyState icon={<SearchX size={20} />} title={copy('library.tocEmptyTitle')} detail={copy('library.tocEmptyDetail')} />
               )}
-              {visibleToc.map(({ item, index, hasChildren }) => (
+              {visibleToc.map(({ item, index, hasChildren, isCurrent }) => (
                 <div className="toc-row" style={{ '--toc-depth': Math.min(item.depth, 3) } as CSSProperties} key={`${item.id}-${index}`}>
-                  {hasChildren ? (
+                  <button className={`toc-item ${isCurrent ? 'is-current' : ''}`} data-testid="toc-item" data-current={isCurrent ? 'true' : undefined} aria-current={isCurrent ? 'true' : undefined} data-toc-id={item.id} type="button" onClick={() => void navigateToToc(item.href, item.label)} title={item.label}>
+                    <span>{item.label}</span>
+                  </button>
+                  {hasChildren && (
                     <button
                       className="toc-disclosure"
                       data-testid="toc-disclosure"
@@ -1433,11 +1553,40 @@ export default function App(): ReactNode {
                     >
                       {collapsedTocItems.has(item.id) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                     </button>
-                  ) : <span className="toc-disclosure-spacer" />}
-                  <button className="toc-item" data-testid="toc-item" data-toc-id={item.id} type="button" onClick={() => void navigateToToc(item.href)} title={item.label}>
-                    <span>{item.label}</span>
-                  </button>
+                  )}
                 </div>
+              ))}
+            </div>
+          )}
+
+          {leftView === 'highlights' && (
+            <div className="highlight-list" data-testid="highlight-list" aria-label={copy('library.highlightsAria')}>
+              <div className="highlight-list-heading">
+                <h2>{copy('highlights.title')}</h2>
+                <span>{copy('highlights.count', { count: highlights.length })}</span>
+              </div>
+              {highlightsLoading && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('highlights.loading')}</div>}
+              {!highlightsLoading && !activeBook && <EmptyState icon={<Bookmark size={20} />} title={copy('highlights.noBookTitle')} detail={copy('highlights.noBookDetail')} />}
+              {!highlightsLoading && activeBook && highlights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title={copy('highlights.emptyTitle')} detail={copy('highlights.emptyDetail')} />}
+              {highlights.map((highlight) => (
+                <article className="highlight-item" data-testid="highlight-item" data-highlight-id={highlight.id} key={highlight.id}>
+                  <button className="highlight-jump" type="button" onClick={() => void navigateToAnchor(highlight.anchor)}>
+                    <p className="highlight-quote">{highlight.quote}</p>
+                    <span className="highlight-chapter">{highlight.chapterTitle || copy('common.currentChapter')}</span>
+                  </button>
+                  <footer>
+                    <span>{formatDate(highlight.createdAt)}</span>
+                    {pendingDeleteHighlightId === highlight.id ? (
+                      <span className="highlight-delete-confirmation">
+                        <span>{copy('highlights.removeQuestion')}</span>
+                        <button data-testid="highlight-delete-confirm" type="button" onClick={() => void deleteHighlight(highlight.id)}>{copy('common.confirm')}</button>
+                        <button data-testid="highlight-delete-cancel" type="button" onClick={() => setPendingDeleteHighlightId(null)}>{copy('common.back')}</button>
+                      </span>
+                    ) : (
+                      <button data-testid="highlight-delete" type="button" aria-label={copy('highlights.removeAria')} onClick={() => setPendingDeleteHighlightId(highlight.id)}><Trash2 size={13} /></button>
+                    )}
+                  </footer>
+                </article>
               ))}
             </div>
           )}
@@ -1464,7 +1613,7 @@ export default function App(): ReactNode {
         </footer>
       </aside>
 
-      <main className="reader-column">
+      <main className="reader-column" data-current-chapter-title={currentChapterTitle}>
         <header className="reader-header">
           {activeBook ? (
             <>
@@ -1476,11 +1625,12 @@ export default function App(): ReactNode {
                 </div>
               </div>
               <div className="reader-header-actions">
+                <button className="icon-button reader-settings-button" data-testid="reader-return-button" type="button" aria-label={copy('reader.returnToReading')} title={copy('reader.returnToReading')} disabled={bookState !== 'ready' || !naturalLocator || currentLocator === naturalLocator} onClick={() => void returnToReading()}><ArrowLeft size={17} /></button>
                 <button className="icon-button reader-settings-button" data-testid="reader-settings-button" type="button" aria-label={copy('reader.readingSettings')} title={copy('reader.readingSettings')} onClick={(event) => openSettings('reading', event.currentTarget)}><SlidersHorizontal size={17} /></button>
                 <div className="reading-progress">
-                  <span>{copy('reader.progress')}</span>
-                  <strong>{Math.round(activeBook.progress * 100)}%</strong>
-                  <div><i style={{ width: `${Math.max(0, Math.min(100, activeBook.progress * 100))}%` }} /></div>
+                  <span>{currentChapterTitle || copy('common.currentChapter')}</span>
+                  <strong>{Math.round(currentChapterProgress * 100)}%</strong>
+                  <div><i style={{ width: `${Math.max(0, Math.min(100, currentChapterProgress * 100))}%` }} /></div>
                 </div>
               </div>
             </>
@@ -1489,7 +1639,7 @@ export default function App(): ReactNode {
           )}
         </header>
 
-        <section className={`reader-surface is-${bookState}`}>
+        <section className={`reader-surface is-${bookState}`} data-paper-theme={readingPreferences.paperTheme}>
           <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label={copy('reader.areaAria')} />
 
           {!activeBook && libraryState !== 'loading' && (
@@ -1525,6 +1675,7 @@ export default function App(): ReactNode {
               <button data-testid="action-explain" type="button" onClick={() => handleSelectionAction('explain')}><Highlighter size={15} />{copy('assistant.actionExplain')}</button>
               <button data-testid="action-context" type="button" onClick={() => handleSelectionAction('context')}><BookOpen size={15} />{copy('assistant.actionContext')}</button>
               <button data-testid="action-ask" type="button" onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />{copy('assistant.actionAsk')}</button>
+              <button data-testid="action-save-highlight" type="button" onClick={() => void saveSelectionHighlight()}><Bookmark size={15} />{copy('assistant.actionSaveHighlight')}</button>
               <button className="toolbar-close" type="button" onClick={() => setSelection(null)} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
             </div>
           )}
