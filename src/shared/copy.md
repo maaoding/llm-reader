@@ -49,7 +49,7 @@
 | assistant.title | 阅读助手 |
 | assistant.viewsAria | 阅读助手视图 |
 | assistant.tabConversation | 对话 |
-| assistant.tabInsights | 收藏 |
+| assistant.tabInsights | 归档 |
 | assistant.emptyTitle | 选中原文，开始理解 |
 | assistant.emptyDetail | 回答会结合当前选区及附近段落。 |
 | assistant.sourceTitle | 当前原文 |
@@ -59,8 +59,10 @@
 | assistant.generatingAria | 正在生成 |
 | assistant.modelUnavailable | 未知模型 |
 | assistant.tokenUsage | {count} tokens |
-| assistant.save | 收藏 |
-| assistant.saved | 已收藏 |
+| assistant.save | 归档 |
+| assistant.saved | 已归档 |
+| assistant.insightLabel | 归档的回答 |
+| assistant.insightFollowupLabel | 追问 |
 | assistant.stop | 停止生成 |
 | assistant.placeholderFollowup | 继续追问这段原文… |
 | assistant.placeholderFirst | 针对这段原文提问… |
@@ -89,20 +91,20 @@
 
 | key | text |
 | --- | --- |
-| insights.loading | 正在读取收藏 |
+| insights.loading | 正在读取归档 |
 | insights.noBookTitle | 还没有打开书籍 |
-| insights.noBookDetail | 打开一本书后，这里会显示与它相关的收藏。 |
-| insights.emptyTitle | 还没有收藏 |
-| insights.emptyDetail | 在回答下方点击“收藏”，即可保留答案和原文位置。 |
-| insights.removeQuestion | 取消收藏？ |
+| insights.noBookDetail | 打开一本书后，这里会显示与它相关的归档。 |
+| insights.emptyTitle | 还没有归档 |
+| insights.emptyDetail | 在回答下方点击“归档”，即可保留答案和原文位置。 |
+| insights.removeQuestion | 取消归档？ |
 | insights.backToSource | 回到原文 |
-| insights.removeAria | 取消收藏 |
-| insights.removed | 已取消收藏。 |
-| insights.alreadyRemoved | 这条收藏已不存在。 |
-| insights.removeFailed | 取消收藏失败。 |
-| insights.savedToast | 已收藏，并保留原文位置。 |
-| insights.saveFailed | 收藏失败。 |
-| insights.readFailed | 无法读取收藏。 |
+| insights.removeAria | 取消归档 |
+| insights.removed | 已取消归档。 |
+| insights.alreadyRemoved | 这条归档已不存在。 |
+| insights.removeFailed | 取消归档失败。 |
+| insights.savedToast | 已归档，并保留原文位置。 |
+| insights.saveFailed | 归档失败。 |
+| insights.readFailed | 无法读取归档。 |
 
 ## 句段收藏
 

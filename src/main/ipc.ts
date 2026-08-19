@@ -11,6 +11,7 @@ import {
   bookIdSchema,
   highlightIdSchema,
   highlightSchema,
+  insightHistorySchema,
   insightIdSchema,
   insightSchema,
   llmRequestSchema,
@@ -119,6 +120,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   )
   handle(IPC_CHANNELS.insightsDelete, dependencies, (_event, value) =>
     dependencies.library.deleteInsight(parse(insightIdSchema, value))
+  )
+  handle(IPC_CHANNELS.insightsUpdateHistory, dependencies, (_event, value) =>
+    dependencies.library.updateInsightHistory(parse(insightHistorySchema, value))
   )
   handle(IPC_CHANNELS.providerGet, dependencies, () => dependencies.provider.getSettings())
   handle(IPC_CHANNELS.providerSave, dependencies, (_event, value) =>

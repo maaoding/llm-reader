@@ -1426,6 +1426,82 @@ button:disabled {
   margin-bottom: 2px;
 }
 
+.answer-md p,
+.answer-md li {
+  white-space: pre-line;
+}
+
+.answer-md h1,
+.answer-md h2,
+.answer-md h3,
+.answer-md h4 {
+  margin: 10px 0 5px;
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.answer-md h1 { font-size: 1.35em; }
+.answer-md h2 { font-size: 1.25em; }
+.answer-md h3 { font-size: 1.12em; }
+.answer-md h4 { font-size: 1em; }
+
+.answer-md ul,
+.answer-md ol {
+  margin: 0 0 7px;
+  padding-left: 1.5em;
+}
+
+.answer-md li {
+  margin: 1px 0 3px;
+}
+
+.answer-md li > ul,
+.answer-md li > ol {
+  margin: 3px 0 0;
+}
+
+.answer-code-inline {
+  padding: 1px 4px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+.answer-code-block {
+  margin: 0 0 8px;
+  padding: 8px 9px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.answer-code-block code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  font-size: 0.9em;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.answer-md blockquote {
+  margin: 0 0 8px;
+  padding: 2px 0 2px 9px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--muted);
+}
+
+.answer-md blockquote p {
+  margin-bottom: 4px;
+}
+
+.answer-md blockquote p:last-child {
+  margin-bottom: 0;
+}
+
 .citation {
   display: inline-flex;
   max-width: 100%;
@@ -1444,7 +1520,7 @@ button:disabled {
   white-space: normal;
 }
 
-button.citation-valid {
+.citation-valid {
   color: var(--accent);
   background: var(--accent-soft);
 }
@@ -1832,7 +1908,7 @@ button.citation-valid:hover {
   -webkit-line-clamp: 2;
 }
 
-.insight-item strong {
+.insight-question {
   overflow: hidden;
   font-size: var(--assistant-content-size);
   text-overflow: ellipsis;
@@ -1847,34 +1923,49 @@ button.citation-valid:hover {
   color: inherit;
   text-align: left;
   background: transparent;
+  cursor: pointer;
 }
 
-.insight-content > p {
-  display: -webkit-box;
+.insight-content:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, white);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.insight-content .answer-text {
   margin: 5px 0 8px;
+  max-height: calc(1.55em * 3);
   overflow: hidden;
   color: var(--muted);
   font-size: var(--assistant-content-size);
   line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 .insight-item footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding-top: 7px;
   color: var(--faint);
   border-top: 1px solid var(--line);
   font-size: var(--assistant-aux-size);
 }
 
+.insight-item footer > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .insight-item footer span:last-child {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 2px;
   color: var(--accent);
+  white-space: nowrap;
 }
 
 .insight-actions,
@@ -1882,6 +1973,7 @@ button.citation-valid:hover {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .insight-actions button,
@@ -1895,6 +1987,7 @@ button.citation-valid:hover {
   background: transparent;
   border-radius: 3px;
   font-size: var(--assistant-aux-size);
+  white-space: nowrap;
 }
 
 .insight-actions button:hover,

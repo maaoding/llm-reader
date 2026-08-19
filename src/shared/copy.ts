@@ -46,6 +46,8 @@ export const COPY_KEYS = [
   'assistant.tokenUsage',
   'assistant.save',
   'assistant.saved',
+  'assistant.insightLabel',
+  'assistant.insightFollowupLabel',
   'assistant.stop',
   'assistant.placeholderFollowup',
   'assistant.placeholderFirst',

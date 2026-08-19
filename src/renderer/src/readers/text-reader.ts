@@ -323,6 +323,24 @@ export class TextReaderAdapter implements ReaderAdapter {
     return this.selection
   }
 
+  async selectAnchor(anchor: string): Promise<boolean> {
+    const range = this.rangeForAnchor(anchor)
+    if (!range) {
+      throw new Error(copy('reader.txtInvalidHighlight'))
+    }
+    const hostRect = this.host.getBoundingClientRect()
+    const visible = Array.from(range.getClientRects()).some((rect) => (
+      rect.bottom > hostRect.top && rect.top < hostRect.bottom && rect.right > hostRect.left && rect.left < hostRect.right
+    ))
+    if (!visible) return false
+    const nativeSelection = this.document.defaultView?.getSelection()
+    if (!nativeSelection) return false
+    nativeSelection.removeAllRanges()
+    nativeSelection.addRange(range)
+    this.handleSelectionChange()
+    return true
+  }
+
   async highlight(anchor: string): Promise<void> {
     const range = this.rangeForAnchor(anchor)
     if (!range) {

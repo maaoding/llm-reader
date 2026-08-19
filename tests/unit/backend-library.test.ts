@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AppDatabase } from '../../src/main/database'
 import { LibraryService } from '../../src/main/library-service'
 import { highlightIdSchema, insightIdSchema } from '../../src/main/schemas'
+import type { ArchivedChatMessage } from '../../src/shared/contracts'
 
 const temporaryDirectories: string[] = []
 
@@ -97,6 +98,49 @@ describe('LibraryService', () => {
     database.close()
   })
 
+  it('persists archived conversation history and updates it by id', async () => {
+    const root = makeTemporaryDirectory()
+    const databasePath = join(root, 'reader.sqlite3')
+    const source = join(root, 'history.txt')
+    await writeFile(source, 'History book.', 'utf8')
+
+    let database = new AppDatabase(databasePath)
+    let library = new LibraryService(database, join(root, 'library'))
+    const book = (await library.importFromPath(source)).book
+    const selection = {
+      bookId: book.id,
+      quote: 'History book',
+      anchor: 'txt:0-12',
+      chapterTitle: '全文',
+      passages: [{ id: 'p-1', text: 'History book.', anchor: 'txt:0-13' }]
+    }
+    const saved = library.saveInsight({
+      bookId: book.id,
+      selection,
+      question: 'What is this?',
+      answer: 'A book.',
+      model: 'history-model'
+    })
+    expect(saved.history).toEqual([
+      { role: 'user', content: 'What is this?' },
+      { role: 'assistant', content: 'A book.', model: 'history-model' }
+    ])
+
+    const updatedHistory: ArchivedChatMessage[] = [
+      { role: 'user', content: 'What is this?' },
+      { role: 'assistant', content: 'A book.', model: 'history-model' },
+      { role: 'user', content: 'Follow up?' },
+      { role: 'assistant', content: 'Follow up answer.', model: 'history-model' }
+    ]
+    const updated = library.updateInsightHistory({ bookId: book.id, id: saved.id, history: updatedHistory })
+    expect(updated.history).toEqual(updatedHistory)
+    database.close()
+
+    database = new AppDatabase(databasePath)
+    library = new LibraryService(database, join(root, 'library'))
+    expect(library.listInsights(book.id)[0]?.history).toEqual(updatedHistory)
+    database.close()
+  })
   it('deletes exactly one saved insight and treats an unknown id as a no-op', async () => {
     const root = makeTemporaryDirectory()
     const databasePath = join(root, 'reader.sqlite3')

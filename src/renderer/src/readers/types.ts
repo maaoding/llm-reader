@@ -67,6 +67,7 @@ export interface ReaderAdapter {
   destroy(): void
   goTo(anchor: string): Promise<void>
   getSelection(): SelectionContext | null
+  selectAnchor(anchor: string): Promise<boolean>
   highlight(anchor: string): Promise<void>
   clearHighlight(): void
   setHighlights(highlights: ReadonlyArray<ReaderHighlightAnchor>): Promise<void>

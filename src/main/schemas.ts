@@ -58,9 +58,21 @@ export const insightSchema = z
     model: shortText(256)
   })
   .refine((insight) => insight.bookId === insight.selection.bookId, {
-    message: '收藏与选区必须属于同一本书',
+    message: '归档与选区必须属于同一本书',
     path: ['selection', 'bookId']
   })
+
+export const archivedMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string().min(1).max(2_000_000),
+  model: shortText(256).optional()
+})
+
+export const insightHistorySchema = z.object({
+  bookId: idSchema,
+  id: idSchema,
+  history: z.array(archivedMessageSchema).min(2).max(200)
+})
 
 export const providerSettingsSchema = z.object({
   baseUrl: z

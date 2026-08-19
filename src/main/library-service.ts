@@ -14,7 +14,8 @@ import type {
   ImportedBookResult,
   SavedInsight,
   SaveHighlightInput,
-  SaveInsightInput
+  SaveInsightInput,
+  UpdateInsightHistoryInput
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppDatabase, type StoredBook } from './database'
@@ -621,6 +622,15 @@ export class LibraryService {
 
   deleteInsight(id: string): boolean {
     return this.database.deleteInsight(id)
+  }
+
+  updateInsightHistory(input: UpdateInsightHistoryInput): SavedInsight {
+    if (!this.database.getStoredBook(input.bookId)) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    const updated = this.database.updateInsightHistory(input.id, input)
+    if (!updated) throw new AppError('INSIGHT_NOT_FOUND', copy('insights.alreadyRemoved'))
+    return updated
   }
 
   listHighlights(bookId: string): HighlightRecord[] {

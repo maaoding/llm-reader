@@ -2,12 +2,14 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
 import type {
+  ArchivedChatMessage,
   BookFormat,
   BookRecord,
   HighlightRecord,
   SavedInsight,
   SaveHighlightInput,
-  SaveInsightInput
+  SaveInsightInput,
+  UpdateInsightHistoryInput
 } from '@shared/contracts'
 
 interface BookRow {
@@ -32,6 +34,7 @@ interface InsightRow {
   answer: string
   model: string
   created_at: string
+  history_json: string
 }
 
 interface HighlightRow {
@@ -120,6 +123,9 @@ const migrations = [
       ) STRICT;
 
       CREATE INDEX highlights_book_created_idx ON highlights(book_id, created_at DESC);
+    `,
+    `
+      ALTER TABLE insights ADD COLUMN history_json TEXT NOT NULL DEFAULT '[]';
     `
 ] as const
 
@@ -153,6 +159,33 @@ function publicBook(book: StoredBook): BookRecord {
     lastLocator: book.lastLocator,
     progress: book.progress
   }
+}
+
+function parseInsightHistory(value: string | null | undefined): ArchivedChatMessage[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((message): message is ArchivedChatMessage => {
+      if (!message || typeof message !== 'object') return false
+      const candidate = message as Record<string, unknown>
+      return (
+        (candidate.role === 'user' || candidate.role === 'assistant') &&
+        typeof candidate.content === 'string' &&
+        candidate.content.length > 0 &&
+        (candidate.model === undefined || typeof candidate.model === 'string')
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+function insightHistory(question: string, answer: string, model: string): ArchivedChatMessage[] {
+  return [
+    { role: 'user', content: question },
+    { role: 'assistant', content: answer, model }
+  ]
 }
 
 export interface StoredBook extends BookRecord {
@@ -285,16 +318,18 @@ export class AppDatabase {
       question: row.question,
       answer: row.answer,
       model: row.model,
-      createdAt: row.created_at
+      createdAt: row.created_at,
+      history: parseInsightHistory(row.history_json)
     }))
   }
 
   insertInsight(id: string, input: SaveInsightInput, createdAt: string): SavedInsight {
+    const history = insightHistory(input.question, input.answer, input.model)
     this.connection
       .prepare(
         `INSERT INTO insights(
-          id, book_id, selection_json, question, answer, model, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          id, book_id, selection_json, question, answer, model, created_at, history_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -303,10 +338,32 @@ export class AppDatabase {
         input.question,
         input.answer,
         input.model,
-        createdAt
+        createdAt,
+        JSON.stringify(history)
       )
 
-    return { id, ...input, createdAt }
+    return { id, ...input, createdAt, history }
+  }
+
+  updateInsightHistory(id: string, input: UpdateInsightHistoryInput): SavedInsight | null {
+    const result = this.connection
+      .prepare('UPDATE insights SET history_json = ? WHERE id = ? AND book_id = ?')
+      .run(JSON.stringify(input.history), id, input.bookId)
+    if (result.changes === 0) return null
+    const row = this.connection
+      .prepare('SELECT * FROM insights WHERE id = ?')
+      .get(id) as unknown as InsightRow | undefined
+    if (!row) return null
+    return {
+      id: row.id,
+      bookId: row.book_id,
+      selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
+      question: row.question,
+      answer: row.answer,
+      model: row.model,
+      createdAt: row.created_at,
+      history: parseInsightHistory(row.history_json)
+    }
   }
 
   deleteInsight(id: string): boolean {

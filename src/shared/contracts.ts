@@ -20,6 +20,7 @@ export const IPC_CHANNELS = {
   insightsList: 'insights:list',
   insightsSave: 'insights:save',
   insightsDelete: 'insights:delete',
+  insightsUpdateHistory: 'insights:update-history',
   providerGet: 'provider:get',
   providerSave: 'provider:save',
   providerTest: 'provider:test',
@@ -144,6 +145,12 @@ export interface ProviderTestResult {
   message: string
 }
 
+export interface ArchivedChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  model?: string
+}
+
 export interface SavedInsight {
   id: string
   bookId: string
@@ -152,6 +159,7 @@ export interface SavedInsight {
   answer: string
   model: string
   createdAt: string
+  history: ArchivedChatMessage[]
 }
 
 export interface SaveInsightInput {
@@ -160,6 +168,12 @@ export interface SaveInsightInput {
   question: string
   answer: string
   model: string
+}
+
+export interface UpdateInsightHistoryInput {
+  bookId: string
+  id: string
+  history: ArchivedChatMessage[]
 }
 
 export interface HighlightRecord {
@@ -193,6 +207,7 @@ export interface ReaderApi {
   listInsights(bookId: string): Promise<SavedInsight[]>
   saveInsight(input: SaveInsightInput): Promise<SavedInsight>
   deleteInsight(id: string): Promise<boolean>
+  updateInsightHistory(input: UpdateInsightHistoryInput): Promise<SavedInsight>
   getProviderSettings(): Promise<ProviderSettings>
   saveProviderSettings(input: SaveProviderSettingsInput): Promise<ProviderSettings>
   testProvider(): Promise<ProviderTestResult>

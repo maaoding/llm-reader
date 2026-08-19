@@ -53,6 +53,7 @@ import {
   useState
 } from 'react'
 import type {
+  ArchivedChatMessage,
   BookCoverPayload,
   BookDetails,
   BookRecord,
@@ -68,7 +69,7 @@ import type {
 } from '@shared/contracts'
 import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
-import { CitationText } from './CitationText'
+import { AnswerText } from './AnswerText'
 import {
   assistantActionLabel,
   createDefaultAssistantActionSettings,
@@ -80,7 +81,6 @@ import {
   type AssistantActionIcon,
   type AssistantActionSettings
 } from './assistant-actions'
-import { formatCitationTextForDisplay } from './citations'
 import {
   createReaderAdapter,
   DEFAULT_READING_PREFERENCES,
@@ -122,6 +122,54 @@ interface ConversationTurn {
   usage?: LlmUsage
   error?: string
   saved?: boolean
+}
+
+type AssistantSession = 'conversation' | 'archive'
+type AssistantDialogSource = AssistantSession
+
+interface ArchiveSessionState {
+  insightId: string
+  selection: SelectionContext
+  turns: ConversationTurn[]
+}
+
+function turnsFromInsight(insight: SavedInsight): ConversationTurn[] {
+  const history = insight.history.length >= 2
+    ? insight.history
+    : [
+        { role: 'user' as const, content: insight.question },
+        { role: 'assistant' as const, content: insight.answer, model: insight.model }
+      ]
+  const turns: ConversationTurn[] = []
+  for (let index = 0; index < history.length; index += 1) {
+    const message = history[index]
+    if (message.role !== 'user') continue
+    const answer = history[index + 1]?.role === 'assistant' ? history[index + 1] : null
+    if (!answer) continue
+    turns.push({
+      id: `insight-${insight.id}-${turns.length}`,
+      requestId: `insight-${insight.id}-${turns.length}`,
+      selection: insight.selection,
+      action: 'ask',
+      actionLabel: turns.length === 0 ? copy('assistant.insightLabel') : copy('assistant.insightFollowupLabel'),
+      question: message.content,
+      answer: answer.content,
+      model: answer.model || insight.model,
+      status: 'completed',
+      saved: true
+    })
+    index += 1
+  }
+  return turns
+}
+
+function historyFromTurns(turns: ConversationTurn[]): ArchivedChatMessage[] {
+  return turns
+    .filter((turn) => turn.status === 'completed' && turn.answer)
+    .flatMap((turn) => [
+      { role: 'user' as const, content: turn.question },
+      { role: 'assistant' as const, content: turn.answer, model: turn.model || undefined }
+    ])
 }
 
 interface ToastState {
@@ -686,7 +734,8 @@ function ConversationPane({
   onSave,
   onCancel,
   onSubmit,
-  onComposerKey
+  onComposerKey,
+  showSave = true
 }: {
   conversationSelection: SelectionContext | null
   turns: ConversationTurn[]
@@ -697,15 +746,32 @@ function ConversationPane({
   followupRef: RefObject<HTMLTextAreaElement | null>
   onDraftChange: (value: string) => void
   onNavigate: (anchor: string) => void
-  onSave: (turn: ConversationTurn) => void
+  onSave?: (turn: ConversationTurn) => void
+  showSave?: boolean
   onCancel: () => void
   onSubmit: (event: FormEvent) => void
   onComposerKey: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
 }): ReactNode {
   const selectedPassageCount = conversationSelection?.passages.length ?? 0
+  const assistantScrollRef = useRef<HTMLDivElement | null>(null)
+  const assistantFollowRef = useRef(true)
+
+  useLayoutEffect(() => {
+    const container = assistantScrollRef.current
+    if (!container || !assistantFollowRef.current) return
+    container.scrollTop = container.scrollHeight
+  }, [turns])
+
   return (
     <>
-      <div className="assistant-scroll">
+      <div
+        className="assistant-scroll"
+        ref={assistantScrollRef}
+        onScroll={(event) => {
+          const container = event.currentTarget
+          assistantFollowRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 40
+        }}
+      >
         {!conversationSelection && turns.length === 0 && (
           <EmptyState icon={<Sparkles size={21} />} title={copy('assistant.emptyTitle')} detail={copy('assistant.emptyDetail')} />
         )}
@@ -724,15 +790,17 @@ function ConversationPane({
                 <div className="question-bubble"><span>{turn.actionLabel}</span><p>{turn.question}</p></div>
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                  {turn.answer ? <CitationText text={turn.answer} selection={turn.selection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
+                  {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
                   {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
                   {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
                   {turn.status === 'completed' && (
                     <footer className="answer-footer">
                       <span>{turn.usage?.totalTokens ? copy('assistant.tokenUsage', { count: turn.usage.totalTokens }) : ''}</span>
-                      <button data-testid={isLatest ? 'answer-save' : undefined} className={turn.saved ? 'is-saved' : ''} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
-                        {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
-                      </button>
+                      {showSave && onSave && (
+                        <button data-testid={isLatest ? 'answer-save' : undefined} className={turn.saved ? 'is-saved' : ''} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
+                          {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
+                        </button>
+                      )}
                     </footer>
                   )}
                 </div>
@@ -1372,6 +1440,9 @@ export default function App(): ReactNode {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
+  const [assistantDialogSource, setAssistantDialogSource] = useState<AssistantDialogSource>('conversation')
+  const [archiveSession, setArchiveSession] = useState<ArchiveSessionState | null>(null)
+  const [archiveDraft, setArchiveDraft] = useState('')
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
@@ -1385,6 +1456,8 @@ export default function App(): ReactNode {
   const adapterRef = useRef<ReaderAdapter | null>(null)
   const activeBookRef = useRef<BookRecord | null>(null)
   const activeRequestRef = useRef<string | null>(null)
+  const requestSessionRef = useRef(new Map<string, AssistantSession>())
+  const archiveSessionRef = useRef<ArchiveSessionState | null>(null)
   const openSequenceRef = useRef(0)
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastProgressFlushRef = useRef(0)
@@ -1423,6 +1496,10 @@ export default function App(): ReactNode {
   useEffect(() => {
     activeBookRef.current = activeBook
   }, [activeBook])
+
+  useEffect(() => {
+    archiveSessionRef.current = archiveSession
+  }, [archiveSession])
 
   useLayoutEffect(() => {
     try {
@@ -1644,8 +1721,12 @@ export default function App(): ReactNode {
     setSelection(null)
     setConversationSelection(null)
     setTurns([])
+    setArchiveSession(null)
+    setArchiveDraft('')
+    archiveSessionRef.current = null
     setActiveRequestId(null)
     activeRequestRef.current = null
+    requestSessionRef.current.clear()
     setToc([])
     setCollapsedTocItems(new Set())
     setInsights([])
@@ -1747,16 +1828,43 @@ export default function App(): ReactNode {
     }
   }, [commitProviderSettings, destroyReader, refreshBooks, runProviderCheck])
 
+  const persistArchiveHistory = useCallback(async (insightId: string, sessionTurns: ConversationTurn[]): Promise<void> => {
+    const bookId = activeBookRef.current?.id
+    if (!bookId) return
+    const history = historyFromTurns(sessionTurns)
+    if (history.length < 2) return
+    try {
+      const updated = await window.readerApi.updateInsightHistory({ bookId, id: insightId, history })
+      setInsights((current) => current.map((insight) => insight.id === updated.id ? { ...insight, history: updated.history } : insight))
+    } catch (error) {
+      pushToast(readableError(error, copy('insights.saveFailed')), 'error')
+    }
+  }, [pushToast])
+
   useEffect(() => {
     if (!window.readerApi) return undefined
     return window.readerApi.onLlmEvent((event: LlmEvent) => {
-      setTurns((current) => current.map((turn) => {
+      const session = requestSessionRef.current.get(event.requestId) ?? 'conversation'
+      const applyUpdate = (current: ConversationTurn[]): ConversationTurn[] => current.map((turn) => {
         if (turn.requestId !== event.requestId) return turn
         if (event.type === 'delta') return { ...turn, answer: turn.answer + event.delta }
         if (event.type === 'usage') return { ...turn, usage: event.usage }
         if (event.type === 'completed') return { ...turn, model: event.model, status: 'completed' }
         return { ...turn, status: 'error', error: event.message }
-      }))
+      })
+      if (session === 'archive') {
+        const current = archiveSessionRef.current
+        if (current) {
+          const turns = applyUpdate(current.turns)
+          const next = { ...current, turns }
+          archiveSessionRef.current = next
+          setArchiveSession(next)
+          if (event.type === 'completed') void persistArchiveHistory(current.insightId, turns)
+        }
+      } else {
+        setTurns(applyUpdate)
+      }
+
       if (event.type === 'completed' || event.type === 'error') {
         const requestRevision = requestProviderRevisionRef.current.get(event.requestId)
         if (requestRevision === providerRevisionRef.current) {
@@ -1769,14 +1877,14 @@ export default function App(): ReactNode {
           }
         }
         requestProviderRevisionRef.current.delete(event.requestId)
+        requestSessionRef.current.delete(event.requestId)
         if (activeRequestRef.current === event.requestId) {
           activeRequestRef.current = null
           setActiveRequestId(null)
         }
       }
     })
-  }, [])
-
+  }, [persistArchiveHistory])
   useEffect(() => {
     if (!window.readerApi) return undefined
     return window.readerApi.onBeforeClose(async () => {
@@ -1813,13 +1921,19 @@ export default function App(): ReactNode {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [assistantDialogOpen, detailsBook, settingsOpen])
 
-  const startRequest = useCallback(async (action: LlmAction, question: string, sourceSelection?: SelectionContext): Promise<void> => {
-    const context = sourceSelection ?? conversationSelection ?? selection
+  const startRequest = useCallback(async (action: LlmAction, question: string, sourceSelection?: SelectionContext, session: AssistantSession = 'conversation'): Promise<void> => {
     const cleanQuestion = question.trim()
-    if (!context || !cleanQuestion || activeRequestRef.current) return
+    if (!cleanQuestion || activeRequestRef.current) return
+    const currentArchive = session === 'archive' ? archiveSession : null
+    if (session === 'archive' && !currentArchive) return
 
-    const newContext = !conversationSelection || conversationSelection.anchor !== context.anchor
-    const priorTurns = newContext ? [] : turns.filter((turn) => turn.status === 'completed' && turn.answer)
+    const context = session === 'archive'
+      ? currentArchive?.selection
+      : (sourceSelection ?? conversationSelection ?? selection)
+    if (!context) return
+
+    const sessionTurns = currentArchive ? currentArchive.turns : turns
+    const priorTurns = sessionTurns.filter((turn) => turn.status === 'completed' && turn.answer)
     const requestId = createId()
     const turn: ConversationTurn = {
       id: createId(),
@@ -1833,13 +1947,22 @@ export default function App(): ReactNode {
       status: 'streaming'
     }
 
-    setConversationSelection(context)
-    setTurns(newContext ? [turn] : [...turns, turn])
+    if (session === 'archive' && currentArchive) {
+      const next = { ...currentArchive, turns: [...currentArchive.turns, turn] }
+      archiveSessionRef.current = next
+      setArchiveSession(next)
+      setArchiveDraft('')
+    } else {
+      const newContext = !conversationSelection || conversationSelection.anchor !== context.anchor
+      setConversationSelection(context)
+      setTurns(newContext ? [turn] : [...turns, turn])
+      setDraft('')
+      setRightView('assistant')
+    }
     setSelection(null)
-    setDraft('')
-    setRightView('assistant')
     setActiveRequestId(requestId)
     activeRequestRef.current = requestId
+    requestSessionRef.current.set(requestId, session)
     const providerRevision = providerRevisionRef.current
     requestProviderRevisionRef.current.set(requestId, providerRevision)
 
@@ -1856,17 +1979,24 @@ export default function App(): ReactNode {
       })
     } catch (error) {
       const message = readableError(error, copy('error.requestStartFailed'))
-      setTurns((current) => current.map((item) => item.requestId === requestId ? { ...item, status: 'error', error: message } : item))
+      const markFailed = (current: ConversationTurn[]): ConversationTurn[] => current.map((item) => (
+        item.requestId === requestId ? { ...item, status: 'error', error: message } : item
+      ))
+      if (session === 'archive') {
+        setArchiveSession((current) => current ? { ...current, turns: markFailed(current.turns) } : current)
+      } else {
+        setTurns(markFailed)
+      }
       activeRequestRef.current = null
       setActiveRequestId(null)
       requestProviderRevisionRef.current.delete(requestId)
+      requestSessionRef.current.delete(requestId)
       if (providerRevision === providerRevisionRef.current) {
         providerCheckSequenceRef.current += 1
         setProviderConnection({ status: 'disconnected', message })
       }
     }
-  }, [assistantActions, conversationSelection, provider.model, selection, turns])
-
+  }, [archiveSession, assistantActions, conversationSelection, provider.model, selection, turns])
   const handleSelectionAction = (action: LlmAction): void => {
     if (!selection) return
     if (action === 'ask') {
@@ -1884,18 +2014,47 @@ export default function App(): ReactNode {
   const cancelRequest = async (): Promise<void> => {
     const requestId = activeRequestRef.current
     if (!requestId) return
+    const session = requestSessionRef.current.get(requestId) ?? 'conversation'
     try {
       await window.readerApi.cancelLlm(requestId)
     } finally {
-      setTurns((current) => current.map((turn) => turn.requestId === requestId ? {
-        ...turn,
-        status: 'error',
-        error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty')
-      } : turn))
+      const markCancelled = (current: ConversationTurn[]): ConversationTurn[] => current.map((turn) => (
+        turn.requestId === requestId
+          ? {
+              ...turn,
+              status: 'error',
+              error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty')
+            }
+          : turn
+      ))
+      if (session === 'archive') {
+        setArchiveSession((current) => current ? { ...current, turns: markCancelled(current.turns) } : current)
+      } else {
+        setTurns(markCancelled)
+      }
       activeRequestRef.current = null
       setActiveRequestId(null)
+      requestSessionRef.current.delete(requestId)
     }
   }
+
+  useEffect(() => {
+    if (assistantDialogOpen || assistantDialogSource !== 'archive') return
+    const requestId = activeRequestRef.current
+    if (!requestId) return
+    void window.readerApi.cancelLlm(requestId).catch(() => undefined)
+    const session = requestSessionRef.current.get(requestId)
+    if (session === 'archive') {
+      setArchiveSession((current) => current ? { ...current, turns: current.turns.map((turn) => (
+        turn.requestId === requestId
+          ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
+          : turn
+      )) } : current)
+    }
+    activeRequestRef.current = null
+    setActiveRequestId(null)
+    requestSessionRef.current.delete(requestId)
+  }, [assistantDialogOpen, assistantDialogSource])
 
   const submitQuestion = (event: FormEvent): void => {
     event.preventDefault()
@@ -1903,6 +2062,11 @@ export default function App(): ReactNode {
     void startRequest('ask', draft)
   }
 
+  const submitArchiveQuestion = (event: FormEvent): void => {
+    event.preventDefault()
+    if (!archiveSession || !archiveDraft.trim()) return
+    void startRequest('ask', archiveDraft, undefined, 'archive')
+  }
   const handleComposerKey = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -1910,11 +2074,16 @@ export default function App(): ReactNode {
     }
   }
 
-  const navigateToAnchor = useCallback(async (anchor: string): Promise<void> => {
+  const navigateToAnchor = useCallback(async (anchor: string, showSelection = false): Promise<void> => {
     const adapter = adapterRef.current
     if (!adapter) return
     try {
-      await adapter.goTo(anchor)
+      let selected = false
+      if (showSelection) selected = await adapter.selectAnchor(anchor)
+      if (!selected) {
+        await adapter.goTo(anchor)
+        if (showSelection) await adapter.selectAnchor(anchor)
+      }
       await adapter.highlight(anchor)
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       highlightTimerRef.current = setTimeout(() => {
@@ -1926,6 +2095,26 @@ export default function App(): ReactNode {
     }
   }, [pushToast])
 
+  const openInsight = useCallback((insight: SavedInsight): void => {
+    const requestId = activeRequestRef.current
+    if (requestId) {
+      activeRequestRef.current = null
+      setActiveRequestId(null)
+      requestSessionRef.current.delete(requestId)
+      void window.readerApi.cancelLlm(requestId).catch(() => undefined)
+    }
+    setSelection(null)
+    const session: ArchiveSessionState = {
+      insightId: insight.id,
+      selection: insight.selection,
+      turns: turnsFromInsight(insight)
+    }
+    archiveSessionRef.current = session
+    setArchiveSession(session)
+    setArchiveDraft('')
+    setAssistantDialogSource('archive')
+    setAssistantDialogOpen(true)
+  }, [])
   const navigateToToc = useCallback(async (href: string, chapterTitle?: string): Promise<void> => {
     const adapter = adapterRef.current
     if (!adapter) return
@@ -1999,6 +2188,12 @@ export default function App(): ReactNode {
       const deleted = await window.readerApi.deleteInsight(insightId)
       setPendingDeleteInsightId(null)
       setInsights((current) => current.filter((insight) => insight.id !== insightId))
+      if (archiveSessionRef.current?.insightId === insightId) {
+        archiveSessionRef.current = null
+        setArchiveSession(null)
+        setArchiveDraft('')
+        if (assistantDialogSource === 'archive' && assistantDialogOpen) setAssistantDialogOpen(false)
+      }
       if (target) {
         setTurns((current) => current.map((turn) => turn.question === target.question && turn.answer === target.answer ? { ...turn, saved: false } : turn))
       }
@@ -2028,6 +2223,7 @@ export default function App(): ReactNode {
   }
 
   const canAsk = Boolean(conversationSelection && !activeRequestId)
+  const canAskArchive = Boolean(archiveSession && !activeRequestId)
   const visibleToc = useMemo(() => {
     const ancestorIds: string[] = []
     return toc.map((item, index) => {
@@ -2161,7 +2357,7 @@ export default function App(): ReactNode {
               {!highlightsLoading && activeBook && highlights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title={copy('highlights.emptyTitle')} detail={copy('highlights.emptyDetail')} />}
               {highlights.map((highlight) => (
                 <article className="highlight-item" data-testid="highlight-item" data-highlight-id={highlight.id} key={highlight.id}>
-                  <button className="highlight-jump" type="button" onClick={() => void navigateToAnchor(highlight.anchor)}>
+                  <button className="highlight-jump" type="button" onClick={() => void navigateToAnchor(highlight.anchor, true)}>
                     <p className="highlight-quote">{highlight.quote}</p>
                     <span className="highlight-chapter">{highlight.chapterTitle || copy('common.currentChapter')}</span>
                   </button>
@@ -2278,7 +2474,7 @@ export default function App(): ReactNode {
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
           <div className="assistant-header-actions">
-            <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => setAssistantDialogOpen(true)}><Maximize2 size={17} /></button>
+            <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => { setAssistantDialogSource('conversation'); setAssistantDialogOpen(true) }}><Maximize2 size={17} /></button>
             <WindowControls />
           </div>
         </header>
@@ -2307,11 +2503,22 @@ export default function App(): ReactNode {
                   data-insight-id={insight.id}
                   key={insight.id}
                 >
-                  <button className="insight-content" type="button" onClick={() => void navigateToAnchor(insight.selection.anchor)}>
+                  <div
+                    className="insight-content"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => void openInsight(insight)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openInsight(insight)
+                      }
+                    }}
+                  >
                     <span className="insight-quote">“{insight.selection.quote}”</span>
-                    <strong>{insight.question}</strong>
-                    <p>{formatCitationTextForDisplay(insight.answer, insight.selection.passages)}</p>
-                  </button>
+                    <strong className="insight-question">{insight.question}</strong>
+                    <AnswerText text={insight.answer} selection={insight.selection} readOnly />
+                  </div>
                   <footer>
                     <span>{insight.selection.chapterTitle || copy('common.currentChapter')} · {formatDate(insight.createdAt)}</span>
                     {pendingDeleteInsightId === insight.id ? (
@@ -2342,7 +2549,11 @@ export default function App(): ReactNode {
               <button className="icon-button" data-testid="assistant-dialog-close" type="button" onClick={closeAssistantDialog} aria-label={copy('assistant.closeDialog')}><X size={18} /></button>
             </header>
             <div className="assistant-dialog-body">
-              <ConversationPane conversationSelection={conversationSelection} turns={turns} provider={provider} activeRequestId={activeRequestId} draft={draft} canAsk={canAsk} followupRef={followupRef} onDraftChange={setDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onSave={(turn) => void saveTurn(turn)} onCancel={() => void cancelRequest()} onSubmit={submitQuestion} onComposerKey={handleComposerKey} />
+              {assistantDialogSource === 'archive' && archiveSession ? (
+                <ConversationPane conversationSelection={archiveSession.selection} turns={archiveSession.turns} provider={provider} activeRequestId={activeRequestId} draft={archiveDraft} canAsk={canAskArchive} followupRef={followupRef} onDraftChange={setArchiveDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onCancel={() => void cancelRequest()} onSubmit={submitArchiveQuestion} onComposerKey={handleComposerKey} showSave={false} />
+              ) : (
+                <ConversationPane conversationSelection={conversationSelection} turns={turns} provider={provider} activeRequestId={activeRequestId} draft={draft} canAsk={canAsk} followupRef={followupRef} onDraftChange={setDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onSave={(turn) => void saveTurn(turn)} onCancel={() => void cancelRequest()} onSubmit={submitQuestion} onComposerKey={handleComposerKey} />
+              )}
             </div>
           </section>
         </div>

@@ -69,6 +69,20 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.booksDetails, id)
   })
 
+  it('exposes insight history updates through the dedicated IPC channel', async () => {
+    const bookId = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
+    const id = '05b45c27-b51d-4f49-8df7-480918cf2a0b'
+    const history = [
+      { role: 'user' as const, content: 'Question' },
+      { role: 'assistant' as const, content: 'Answer', model: 'model' }
+    ]
+    electronMocks.invoke.mockResolvedValueOnce({ id, history })
+
+    await expect(readerApi.updateInsightHistory({ bookId, id, history })).resolves.toEqual({ id, history })
+
+    expect(electronMocks.invoke).toHaveBeenCalledOnce()
+    expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.insightsUpdateHistory, { bookId, id, history })
+  })
   it('exposes insight deletion through its dedicated IPC channel', async () => {
     const id = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
     electronMocks.invoke.mockResolvedValueOnce(true)

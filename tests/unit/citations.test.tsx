@@ -4,8 +4,8 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SelectionContext } from '../../src/shared/contracts'
-import { CitationText } from '../../src/renderer/src/CitationText'
-import { citationExcerpt, formatCitationTextForDisplay } from '../../src/renderer/src/citations'
+import { AnswerText } from '../../src/renderer/src/AnswerText'
+import { citationExcerpt } from '../../src/renderer/src/citations'
 
 const selection: SelectionContext = {
   bookId: 'book-citations',
@@ -34,7 +34,7 @@ describe('citation presentation', () => {
   it('renders valid citations as excerpt buttons without exposing internal ids', () => {
     const onNavigate = vi.fn()
     render(
-      <CitationText
+      <AnswerText
         text="依据 [P2]；未知 [P99]；术语 [API]。"
         selection={selection}
         onNavigate={onNavigate}
@@ -59,22 +59,13 @@ describe('citation presentation', () => {
     expect(onNavigate).toHaveBeenCalledWith('txt:80:150')
   })
 
-  it('removes internal ids from saved-answer previews while preserving normal brackets', () => {
-    const display = formatCitationTextForDisplay('有效 [P2]，未知 [P99]，术语 [API]。', selection.passages)
-    expect(display).toContain('原文：这是包含 多余空格与换行的原文摘要')
-    expect(display).toContain('未验证引用')
-    expect(display).toContain('[API]')
-    expect(display).not.toContain('P2')
-    expect(display).not.toContain('P99')
-  })
-
   it('hides an incomplete streaming citation marker until it closes', () => {
     const { rerender } = render(
-      <CitationText text="正在生成 [P" selection={selection} onNavigate={() => undefined} />
+      <AnswerText text="正在生成 [P" selection={selection} onNavigate={() => undefined} />
     )
     expect(screen.getByText(/正在生成/u).closest('.answer-text')?.textContent).toBe('正在生成 ')
 
-    rerender(<CitationText text="正在生成 [P2]" selection={selection} onNavigate={() => undefined} />)
+    rerender(<AnswerText text="正在生成 [P2]" selection={selection} onNavigate={() => undefined} />)
     expect(screen.getByTestId('citation-valid').textContent).not.toContain('P2')
   })
 })

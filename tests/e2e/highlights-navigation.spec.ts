@@ -63,6 +63,10 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
     expect(tabFits).toBe(true)
     await expect(page.getByTestId('highlight-list')).toContainText('收藏 · 1')
     await expect(page.getByTestId('highlight-item')).toHaveCount(1)
+    await page.locator('.highlight-jump').click()
+    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('selection-toolbar')).toHaveCount(0)
 
     // Scroll naturally, then jump via TOC and return to the natural position.
     const host = page.getByTestId('reader-host')
@@ -170,6 +174,10 @@ test('saves EPUB sentence highlights, reapplies them after chapter reload and re
     await page.getByTestId('highlights-tab').click()
     await expect(page.getByTestId('highlight-item')).toHaveCount(1)
     await expect(page.getByTestId('reader-host').locator('.llm-reader-persistent-highlight')).not.toHaveCount(0)
+    await page.locator('.highlight-jump').click()
+    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('selection-toolbar')).toHaveCount(0)
 
     // Jump to chapter 2 and back so chapter 1 is loaded again.
     await page.getByRole('button', { name: '目录', exact: true }).click()

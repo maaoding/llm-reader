@@ -49,9 +49,3 @@ export function citationSegments(text: string, passages: Passage[]): CitationSeg
     return { type: 'text', text: part }
   })
 }
-
-export function formatCitationTextForDisplay(text: string, passages: Passage[]): string {
-  return citationSegments(withoutIncompleteCitationMarker(text), passages)
-    .map((segment) => segment.type === 'text' ? segment.text : segment.label)
-    .join('')
-}

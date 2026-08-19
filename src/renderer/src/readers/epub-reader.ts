@@ -421,6 +421,36 @@ export class EpubReaderAdapter implements ReaderAdapter {
     return this.selection
   }
 
+  async selectAnchor(anchor: string): Promise<boolean> {
+    if (!isEpubCfi(anchor)) {
+      throw new Error(copy('reader.epubInvalidHighlight'))
+    }
+    const rendition = this.requireRendition()
+    await this.waitForLayout()
+    const range = rendition.getRange(anchor) as Range | null
+    if (!range) return false
+
+    const ownerDocument = range.commonAncestorContainer.ownerDocument
+    const frameElement = ownerDocument?.defaultView?.frameElement as HTMLElement | null
+    const frameRect = frameElement?.getBoundingClientRect()
+    const offsetX = frameRect?.left ?? 0
+    const offsetY = frameRect?.top ?? 0
+    const hostRect = this.host.getBoundingClientRect()
+    const visible = Array.from(range.getClientRects()).some((rect) => {
+      const left = rect.left + offsetX
+      const right = rect.right + offsetX
+      const top = rect.top + offsetY
+      const bottom = rect.bottom + offsetY
+      return bottom > hostRect.top && top < hostRect.bottom && right > hostRect.left && left < hostRect.right
+    })
+    if (!visible) return false
+
+    const nativeSelection = ownerDocument?.defaultView?.getSelection()
+    if (!nativeSelection) return false
+    nativeSelection.removeAllRanges()
+    nativeSelection.addRange(range)
+    return true
+  }
   async highlight(anchor: string): Promise<void> {
     if (!isEpubCfi(anchor)) {
       throw new Error(copy('reader.epubInvalidHighlight'))
@@ -718,6 +748,10 @@ export class EpubReaderAdapter implements ReaderAdapter {
     return Math.min(1, Math.max(0, localScroll / maximumLocalScroll))
   }
 
+  private removeResidualHighlightOverlays(): void {
+    this.host.querySelectorAll(`.${PERSISTENT_HIGHLIGHT_CLASS}`).forEach((element) => element.remove())
+  }
+
   private applyPersistentHighlights(): void {
     const rendition = this.rendition
     if (!rendition) return
@@ -725,6 +759,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       rendition.annotations.remove(cfi, 'highlight')
     }
     this.persistentHighlightedCfi = []
+    this.removeResidualHighlightOverlays()
     for (const { anchor } of this.persistentHighlightAnchors) {
       if (!isEpubCfi(anchor)) continue
       rendition.annotations.highlight(
@@ -749,6 +784,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
         rendition.annotations.remove(cfi, 'highlight')
       }
     }
+    this.removeResidualHighlightOverlays()
     this.persistentHighlightedCfi = []
   }
 
