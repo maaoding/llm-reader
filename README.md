@@ -43,6 +43,8 @@ pnpm dev
 
 开发环境需要 Node.js 24+ 与 pnpm 11+。
 
+重装依赖后若 `pnpm dev` 报 `Error: Electron uninstall`,是 Electron 二进制的 postinstall 下载未执行,手动运行 `node node_modules\electron\install.js` 即可。
+
 首次使用时在左侧栏底部打开“设置”，填写 Base URL、API Key 和 model。应用会请求该地址下的 `/v1/chat/completions`；远程接口必须使用 HTTPS，仅 `localhost`、`127.0.0.1` 与 `::1` 允许 HTTP。
 
 ## 验证
