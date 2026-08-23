@@ -60,6 +60,13 @@ export const DEFAULT_READING_PREFERENCES: Readonly<ReadingPreferences> = Object.
 /** Warm beige background for native text selection in the reading area (replaces the browser default blue). */
 export const READER_SELECTION_BACKGROUND = 'rgba(240, 220, 160, 0.55)'
 
+/** Same hue with lower opacity so selections stay gentle on the dark paper theme. */
+export const READER_SELECTION_BACKGROUND_DARK_PAPER = 'rgba(240, 220, 160, 0.32)'
+
+export function readerSelectionBackground(paperTheme: ReadingPaperTheme): string {
+  return paperTheme === 'dark' ? READER_SELECTION_BACKGROUND_DARK_PAPER : READER_SELECTION_BACKGROUND
+}
+
 export interface ReaderAdapter {
   readonly format: BookFormat
 

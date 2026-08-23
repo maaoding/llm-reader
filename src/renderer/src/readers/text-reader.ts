@@ -19,7 +19,7 @@ import type {
   ReaderRelocation,
   ReaderRelocationReason
 } from './types'
-import { DEFAULT_READING_PREFERENCES, READER_SELECTION_BACKGROUND } from './types'
+import { DEFAULT_READING_PREFERENCES, readerSelectionBackground } from './types'
 
 const PERSISTENT_HIGHLIGHT_NAME = 'llm-reader-persistent'
 const PERSISTENT_HIGHLIGHT_FALLBACK_CLASS = 'llm-reader-persistent-fallback'
@@ -172,6 +172,7 @@ export class TextReaderAdapter implements ReaderAdapter {
   private programmaticScroll = false
   private programmaticReleaseTimer: ReturnType<typeof setTimeout> | null = null
   private preferences: ReadingPreferences = { ...DEFAULT_READING_PREFERENCES }
+  private highlightStyleElement: HTMLStyleElement | null = null
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
     this.host = host
@@ -208,13 +209,8 @@ export class TextReaderAdapter implements ReaderAdapter {
     root.style.lineHeight = '1.82'
 
     const style = this.document.createElement('style')
-    style.textContent = `
-      .reader-document ::selection { background: ${READER_SELECTION_BACKGROUND}; color: inherit; }
-      ::highlight(llm-reader-temporary) { background: rgba(246, 190, 72, .36); }
-      .llm-reader-temporary-fallback { background: rgba(246, 190, 72, .25); outline: 2px solid rgba(196, 130, 18, .45); }
-      ::highlight(${PERSISTENT_HIGHLIGHT_NAME}) { background: rgba(126, 188, 148, .36); }
-      .${PERSISTENT_HIGHLIGHT_FALLBACK_CLASS} { background: rgba(126, 188, 148, .30); outline: 1px solid rgba(61, 135, 91, .55); }
-    `
+    style.textContent = this.highlightStylesCss()
+    this.highlightStyleElement = style
     root.append(style)
 
     this.chapters = this.buildChapters(parsedParagraphs)
@@ -389,9 +385,23 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.applyPreferences()
   }
 
+  private highlightStylesCss(): string {
+    return `
+      .reader-document ::selection { background: ${readerSelectionBackground(this.preferences.paperTheme)}; color: inherit; }
+      ::highlight(llm-reader-temporary) { background: rgba(246, 190, 72, .36); }
+      .llm-reader-temporary-fallback { background: rgba(246, 190, 72, .25); outline: 2px solid rgba(196, 130, 18, .45); }
+      ::highlight(${PERSISTENT_HIGHLIGHT_NAME}) { background: rgba(126, 188, 148, .36); }
+      .${PERSISTENT_HIGHLIGHT_FALLBACK_CLASS} { background: rgba(126, 188, 148, .30); outline: 1px solid rgba(61, 135, 91, .55); }
+    `
+  }
+
   private applyPreferences(): void {
     if (!this.root) {
       return
+    }
+
+    if (this.highlightStyleElement) {
+      this.highlightStyleElement.textContent = this.highlightStylesCss()
     }
 
     if (this.preferences.fontScale === DEFAULT_READING_PREFERENCES.fontScale) {
@@ -771,6 +781,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.clearPersistentHighlights()
     this.host.replaceChildren()
     this.root = null
+    this.highlightStyleElement = null
     this.text = ''
     this.textCharacters = []
     this.paragraphs = []

@@ -26,7 +26,7 @@ import type {
   ReaderRelocation,
   ReaderRelocationReason
 } from './types'
-import { DEFAULT_READING_PREFERENCES, READER_SELECTION_BACKGROUND } from './types'
+import { DEFAULT_READING_PREFERENCES, readerSelectionBackground } from './types'
 import { stabilizeContinuousManager } from './epub-continuous-stability'
 
 const EPUB_CFI_PATTERN = /^epubcfi\(.+\)$/u
@@ -288,7 +288,7 @@ function readingPreferencesCss(preferences: ReadingPreferences): string {
 
 function readerStylesheetCss(preferences: ReadingPreferences, reflowable: boolean): string {
   const rules = [
-    `::selection { background: ${READER_SELECTION_BACKGROUND}; color: inherit; }`,
+    `::selection { background: ${readerSelectionBackground(preferences.paperTheme)}; color: inherit; }`,
     reflowable ? CONTINUOUS_REFLOW_CSS : '',
     reflowable ? readingPreferencesCss(preferences) : ''
   ]

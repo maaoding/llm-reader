@@ -16,19 +16,25 @@
   --faint: #a5aaa0;
   --line: #dedfd8;
   --line-strong: #cfd2c8;
-  --accent: #2d6755;
-  --accent-hover: #245747;
-  --accent-soft: #deebe5;
-  --accent-faint: #edf4f0;
+  /* Accent tokens are the shared entry point: peripheral UI keeps them in sync
+     with the --ui-accent set, while .reader-surface re-maps them per paper theme. */
+  --accent: #586f7e;
+  --accent-hover: #465d6c;
+  --accent-soft: #e5eaed;
+  --accent-faint: #f0f3f4;
   --warning: #9a6727;
   --warning-soft: #f6ead4;
   --danger: #ae4a41;
   --danger-soft: #fae6e3;
-  --shadow-sm: 0 1px 2px rgb(29 36 31 / 5%), 0 4px 14px rgb(29 36 31 / 4%);
-  --shadow-md: 0 12px 35px rgb(27 35 29 / 13%), 0 2px 8px rgb(27 35 29 / 8%);
-  --radius-sm: 7px;
-  --radius-md: 11px;
-  --radius-lg: 16px;
+  --accent-contrast: #f6f9f7;
+  --focus-ring: color-mix(in srgb, var(--accent) 65%, white);
+  --toast-bg: #354650;
+  --toast-ink: #f4f7f8;
+  --shadow-sm: 0 1px 2px rgb(29 36 31 / 5%);
+  --shadow-md: 0 8px 24px rgb(27 35 29 / 10%);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   /* Peripheral UI tokens. */
   --ui-bg: #eef1f2;
   --ui-panel: #f4f6f7;
@@ -44,8 +50,8 @@
   --ui-accent-faint: #f0f3f4;
   --ui-line: #d5dce0;
   --ui-line-strong: #c2cdd2;
-  --ui-shadow-sm: 0 1px 2px rgb(39 55 64 / 5%), 0 3px 9px rgb(39 55 64 / 4%);
-  --ui-shadow-md: 0 10px 28px rgb(30 44 52 / 13%), 0 2px 7px rgb(30 44 52 / 7%);
+  --ui-shadow-sm: 0 1px 2px rgb(39 55 64 / 5%);
+  --ui-shadow-md: 0 8px 24px rgb(30 44 52 / 10%);
   /* Reader chrome and paper stay independent from both legacy and peripheral tokens. */
   --reader-frame: #e8edef;
   --reader-header: #f5f7f7;
@@ -61,8 +67,10 @@
   --reader-accent-hover: #465d6c;
   --reader-accent-soft: #e5eaed;
   --reader-accent-faint: #f0f3f4;
-  --reader-shadow: 0 8px 24px rgb(39 55 64 / 7%), 0 1px 3px rgb(39 55 64 / 6%);
+  --reader-shadow: 0 1px 2px rgb(39 55 64 / 6%);
 }
+
+/* ===================== 基础重置与全局控件 ===================== */
 
 * {
   box-sizing: border-box;
@@ -104,7 +112,7 @@ button:not(:disabled) {
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 65%, white);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -112,6 +120,8 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+/* ===================== 应用外壳与三栏布局 ===================== */
 
 .app-shell {
   --interface-scale: 1;
@@ -137,6 +147,8 @@ button:disabled {
   white-space: nowrap;
   border: 0;
 }
+
+/* ============ 组件作用域 token 映射(外围走 --ui-*,阅读栏走 --reader-*) ============ */
 
 .left-sidebar,
 .right-sidebar,
@@ -170,6 +182,8 @@ button:disabled {
   --radius-md: 6px;
   --radius-lg: 8px;
 }
+
+/* ===================== 左侧栏:书库 / 目录 / 收藏 ===================== */
 
 .left-sidebar {
   z-index: 3;
@@ -375,7 +389,7 @@ button:disabled {
 }
 
 .book-item-open:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
@@ -415,7 +429,6 @@ button:disabled {
   background: var(--accent-soft);
   border: 1px solid var(--line-strong);
   border-radius: 3px 5px 5px 3px;
-  box-shadow: 1px 1px 3px rgb(39 55 64 / 8%);
 }
 
 .book-cover img {
@@ -597,7 +610,6 @@ button:disabled {
   color: var(--accent-hover);
   background: var(--panel-solid);
   border-color: var(--line-strong);
-  box-shadow: 0 1px 2px rgb(39 55 64 / 6%);
 }
 
 .theme-option:focus-visible {
@@ -640,6 +652,8 @@ button:disabled {
   background: #9dccad;
   box-shadow: 0 0 0 3px color-mix(in srgb, #9dccad 18%, transparent);
 }
+
+/* ===================== 阅读区:框架 / 纸张主题 / 正文 / 划词工具栏 ===================== */
 
 .reader-column {
   --bg: var(--reader-frame);
@@ -693,7 +707,7 @@ button:disabled {
   --reader-accent-hover: #465d6c;
   --reader-accent-soft: #e5eaed;
   --reader-accent-faint: #f0f3f4;
-  --reader-shadow: 0 8px 24px rgb(39 55 64 / 7%), 0 1px 3px rgb(39 55 64 / 6%);
+  --reader-shadow: 0 1px 2px rgb(39 55 64 / 6%);
 }
 
 .reader-surface[data-paper-theme="sepia"] {
@@ -709,7 +723,7 @@ button:disabled {
   --reader-accent-hover: #735a2f;
   --reader-accent-soft: #e8dcc4;
   --reader-accent-faint: #efe6d3;
-  --reader-shadow: 0 8px 24px rgb(91 74 42 / 8%), 0 1px 3px rgb(91 74 42 / 7%);
+  --reader-shadow: 0 1px 2px rgb(91 74 42 / 6%);
 }
 
 .reader-surface[data-paper-theme="dark"] {
@@ -725,7 +739,7 @@ button:disabled {
   --reader-accent-hover: #aec0c8;
   --reader-accent-soft: #29343a;
   --reader-accent-faint: #202a2f;
-  --reader-shadow: 0 10px 28px rgb(0 0 0 / 30%), 0 1px 4px rgb(0 0 0 / 24%);
+  --reader-shadow: 0 1px 2px rgb(0 0 0 / 30%);
 }
 
 .reader-surface[data-paper-theme="light"] .reader-host iframe { background: #fdfcf9 !important; }
@@ -740,11 +754,8 @@ button:disabled {
   justify-content: space-between;
   gap: 20px;
   padding: 0 24px;
-  background:
-    linear-gradient(to bottom, color-mix(in srgb, white 34%, transparent), transparent),
-    var(--reader-header);
+  background: var(--reader-header);
   border-bottom: 1px solid var(--reader-line-strong);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 55%);
   -webkit-app-region: drag;
 }
 
@@ -852,10 +863,7 @@ button:disabled {
   min-height: 0;
   flex: 1;
   overflow: hidden;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--reader-accent) 5%, transparent), transparent 8%, transparent 92%, color-mix(in srgb, var(--reader-accent) 5%, transparent)),
-    var(--reader-frame);
-  box-shadow: inset 0 1px color-mix(in srgb, white 45%, transparent);
+  background: var(--reader-frame);
 }
 
 .reader-host {
@@ -866,8 +874,7 @@ button:disabled {
   background: var(--reader-paper);
   box-shadow:
     inset 1px 0 var(--reader-line),
-    inset -1px 0 var(--reader-line),
-    inset 0 1px color-mix(in srgb, white 55%, transparent);
+    inset -1px 0 var(--reader-line);
   scrollbar-color: var(--reader-line-strong) transparent;
   scrollbar-width: thin;
   user-select: text;
@@ -944,7 +951,6 @@ button:disabled {
   background: var(--accent-soft);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
-  box-shadow: 0 6px 18px rgb(39 55 64 / 8%);
 }
 
 .welcome-state h2 {
@@ -1062,6 +1068,8 @@ button:disabled {
   border-left: 1px solid var(--ui-line);
   border-radius: 0 3px 3px 0;
 }
+
+/* ===================== 右侧栏:阅读助手 / 窗口控制 ===================== */
 
 .right-sidebar,
 .assistant-dialog {
@@ -1336,7 +1344,7 @@ button:disabled {
   align-self: flex-end;
   max-width: 88%;
   padding: 7px 10px;
-  color: #f6f9f7;
+  color: var(--accent-contrast);
   background: var(--accent);
   border-radius: 5px 5px 2px 5px;
 }
@@ -1344,7 +1352,7 @@ button:disabled {
 .question-bubble span {
   display: block;
   margin-bottom: 2px;
-  color: rgb(255 255 255 / 62%);
+  color: color-mix(in srgb, var(--accent-contrast) 62%, transparent);
   font-size: var(--assistant-aux-size);
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -1526,7 +1534,7 @@ button:disabled {
 }
 
 button.citation-valid:hover {
-  color: white;
+  color: var(--accent-contrast);
   background: var(--accent);
 }
 
@@ -1683,7 +1691,7 @@ button.citation-valid:hover {
   width: 28px;
   height: 28px;
   place-items: center;
-  color: white;
+  color: var(--accent-contrast);
   background: var(--accent);
   border-radius: 3px;
 }
@@ -1710,6 +1718,8 @@ button.citation-valid:hover {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
 }
+
+/* ===================== 收藏与洞察视图 ===================== */
 
 .insights-view {
   min-height: 0;
@@ -1999,6 +2009,8 @@ button.citation-valid:hover {
 .insight-delete-confirmation {
   color: var(--ink-soft);
 }
+
+/* ===================== 弹层 / 设置 / 关于 ===================== */
 
 .modal-backdrop {
   position: fixed;
@@ -2312,7 +2324,6 @@ button.citation-valid:hover {
 .segmented-control button.is-active,
 .segmented-control button[aria-pressed="true"] {
   border-color: var(--line-strong);
-  box-shadow: 0 1px 2px rgb(39 55 64 / 6%);
 }
 
 .settings-range {
@@ -2644,7 +2655,7 @@ button.citation-valid:hover {
 }
 
 .primary-button {
-  color: white;
+  color: var(--accent-contrast);
   background: var(--accent);
   box-shadow: var(--shadow-sm);
 }
@@ -2682,8 +2693,8 @@ button.citation-valid:hover {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  color: white;
-  background: #354650;
+  color: var(--toast-ink);
+  background: var(--toast-bg);
   border: 1px solid rgb(255 255 255 / 10%);
   border-radius: 4px;
   box-shadow: var(--shadow-md);
@@ -2703,6 +2714,8 @@ button.citation-valid:hover {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===================== 响应式与动效偏好 ===================== */
 
 @media (max-width: 1180px) {
   .app-shell {
@@ -2759,6 +2772,8 @@ button.citation-valid:hover {
   }
 }
 
+/* ===================== 主题覆盖:深色 / 跟随系统 ===================== */
+
 :root[data-theme="light"] {
   color-scheme: light;
 }
@@ -2776,16 +2791,18 @@ button.citation-valid:hover {
   --faint: #6f776d;
   --line: #343a34;
   --line-strong: #444c43;
-  --accent: #76b69e;
-  --accent-hover: #8ac6af;
-  --accent-soft: #284237;
-  --accent-faint: #22332b;
+  --accent: #91a7b3;
+  --accent-hover: #aec0c8;
+  --accent-soft: #29343a;
+  --accent-faint: #202a2f;
   --warning: #e0ad69;
   --warning-soft: #493923;
   --danger: #e2857d;
   --danger-soft: #492d2b;
-  --shadow-sm: 0 1px 3px rgb(0 0 0 / 18%);
-  --shadow-md: 0 15px 42px rgb(0 0 0 / 38%), 0 3px 10px rgb(0 0 0 / 24%);
+  --accent-contrast: #10161a;
+  --focus-ring: var(--accent);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 18%);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 32%);
   --ui-bg: #171f23;
   --ui-panel: #1c252a;
   --ui-surface: #222c31;
@@ -2800,8 +2817,8 @@ button.citation-valid:hover {
   --ui-accent-faint: #202a2f;
   --ui-line: #354249;
   --ui-line-strong: #46565e;
-  --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 22%), 0 3px 9px rgb(0 0 0 / 13%);
-  --ui-shadow-md: 0 12px 30px rgb(0 0 0 / 38%), 0 2px 7px rgb(0 0 0 / 24%);
+  --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 22%);
+  --ui-shadow-md: 0 8px 24px rgb(0 0 0 / 32%);
   --reader-frame: #182126;
   --reader-header: #202a2f;
   --reader-paper: #252a2c;
@@ -2816,25 +2833,17 @@ button.citation-valid:hover {
   --reader-accent-hover: #aec0c8;
   --reader-accent-soft: #29343a;
   --reader-accent-faint: #202a2f;
-  --reader-shadow: 0 10px 28px rgb(0 0 0 / 30%), 0 1px 4px rgb(0 0 0 / 24%);
+  --reader-shadow: 0 1px 2px rgb(0 0 0 / 24%);
 }
 
 :root[data-theme="dark"] .reader-header {
-  background:
-    linear-gradient(to bottom, rgb(255 255 255 / 2%), transparent),
-    var(--reader-header);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 2%);
-}
-
-:root[data-theme="dark"] .reader-surface {
-  box-shadow: inset 0 1px rgb(255 255 255 / 2%);
+  background: var(--reader-header);
 }
 
 :root[data-theme="dark"] .reader-host {
   box-shadow:
     inset 1px 0 var(--reader-line),
-    inset -1px 0 var(--reader-line),
-    inset 0 1px rgb(255 255 255 / 3%);
+    inset -1px 0 var(--reader-line);
 }
 
 /* 深色框架 + 浅色书页：EPUB 正文保留原书黑字，不强制反色。
@@ -2862,16 +2871,18 @@ button.citation-valid:hover {
     --faint: #6f776d;
     --line: #343a34;
     --line-strong: #444c43;
-    --accent: #76b69e;
-    --accent-hover: #8ac6af;
-    --accent-soft: #284237;
-    --accent-faint: #22332b;
+    --accent: #91a7b3;
+    --accent-hover: #aec0c8;
+    --accent-soft: #29343a;
+    --accent-faint: #202a2f;
     --warning: #e0ad69;
     --warning-soft: #493923;
     --danger: #e2857d;
     --danger-soft: #492d2b;
-    --shadow-sm: 0 1px 3px rgb(0 0 0 / 18%);
-    --shadow-md: 0 15px 42px rgb(0 0 0 / 38%), 0 3px 10px rgb(0 0 0 / 24%);
+    --accent-contrast: #10161a;
+    --focus-ring: var(--accent);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 18%);
+    --shadow-md: 0 8px 24px rgb(0 0 0 / 32%);
     --ui-bg: #171f23;
     --ui-panel: #1c252a;
     --ui-surface: #222c31;
@@ -2886,8 +2897,8 @@ button.citation-valid:hover {
     --ui-accent-faint: #202a2f;
     --ui-line: #354249;
     --ui-line-strong: #46565e;
-    --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 22%), 0 3px 9px rgb(0 0 0 / 13%);
-    --ui-shadow-md: 0 12px 30px rgb(0 0 0 / 38%), 0 2px 7px rgb(0 0 0 / 24%);
+    --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 22%);
+    --ui-shadow-md: 0 8px 24px rgb(0 0 0 / 32%);
     --reader-frame: #182126;
     --reader-header: #202a2f;
     --reader-paper: #252a2c;
@@ -2902,7 +2913,7 @@ button.citation-valid:hover {
     --reader-accent-hover: #aec0c8;
     --reader-accent-soft: #29343a;
     --reader-accent-faint: #202a2f;
-    --reader-shadow: 0 10px 28px rgb(0 0 0 / 30%), 0 1px 4px rgb(0 0 0 / 24%);
+    --reader-shadow: 0 1px 2px rgb(0 0 0 / 24%);
   }
 
   :root:not([data-theme]) .modal-backdrop,
@@ -2910,6 +2921,8 @@ button.citation-valid:hover {
     background: rgb(8 13 16 / 62%);
   }
 }
+
+/* ===================== 书籍详情弹层 ===================== */
 
 .book-details-modal {
   display: flex;

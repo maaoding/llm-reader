@@ -341,6 +341,13 @@ describe('reading preferences', () => {
     expect(paragraphs.every((paragraph) => paragraph.style.textIndent === '')).toBe(true)
     expect(paragraphs.every((paragraph) => paragraph.style.marginBottom === '1.35em')).toBe(true)
 
+    await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES, paperTheme: 'dark' })
+    expect(root.querySelector('style')?.textContent).toContain('rgba(240, 220, 160, 0.32)')
+    expect(root.querySelector('style')?.textContent).not.toContain('rgba(240, 220, 160, 0.55)')
+
+    await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES })
+    expect(root.querySelector('style')?.textContent).toContain('rgba(240, 220, 160, 0.55)')
+
     adapter.destroy()
     host.remove()
   })
