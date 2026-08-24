@@ -1,5 +1,6 @@
 import type { BookFormat } from '@shared/contracts'
 import { EpubReaderAdapter } from './epub-reader'
+import { PdfReaderAdapter } from './pdf-reader'
 import { TextReaderAdapter } from './text-reader'
 import type { ReaderAdapter, ReaderCallbacks } from './types'
 
@@ -13,10 +14,13 @@ export function createReaderAdapter(
       return new EpubReaderAdapter(host, callbacks)
     case 'txt':
       return new TextReaderAdapter(host, callbacks)
+    case 'pdf':
+      return new PdfReaderAdapter(host, callbacks)
   }
 }
 
 export { EpubReaderAdapter } from './epub-reader'
+export { PdfReaderAdapter } from './pdf-reader'
 export { TextReaderAdapter } from './text-reader'
 export {
   fontFamilyStack,

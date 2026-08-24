@@ -97,7 +97,7 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
     const filterExtensions = await application.evaluate(() => (
       globalThis as typeof globalThis & { __llmReaderCalibreFilter?: string[] }
     ).__llmReaderCalibreFilter)
-    expect(filterExtensions).toEqual(['epub', 'txt', 'mobi', 'azw3'])
+    expect(filterExtensions).toEqual(['epub', 'txt', 'pdf', 'mobi', 'azw3'])
 
     if (visualDirectory) {
       await expect(page.getByTestId('toc-item').first()).toBeVisible({ timeout: 120_000 })

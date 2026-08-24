@@ -37,6 +37,7 @@
 | about.noticeEpubjs | epub.js（BSD-2-Clause） |
 | about.noticeJszip | JSZip（MIT OR GPL-3.0-or-later） |
 | about.noticeLocalforage | localforage（Apache-2.0） |
+| about.noticePdfjs | PDF.js（Apache-2.0） |
 | about.noticeLucide | lucide-react（ISC） |
 | about.noticeReact | React、React DOM（MIT） |
 | about.noticeZod | Zod（MIT） |
@@ -228,6 +229,7 @@
 | library.emptyDetail | 可导入 EPUB、TXT、MOBI 或 AZW3。 |
 | library.epubDescription | EPUB 电子书 |
 | library.txtDescription | TXT 文档 |
+| library.pdfDescription | PDF 文档 |
 | library.convertedDescription | {format}（已转换为 EPUB） |
 | library.tocAria | 本书目录 |
 | library.tocLoading | 正在解析目录 |
@@ -253,6 +255,7 @@
 | bookDetails.formatLabel | 格式 |
 | bookDetails.formatEpub | EPUB |
 | bookDetails.formatTxt | TXT |
+| bookDetails.formatPdf | PDF |
 | bookDetails.formatMobi | MOBI（经 Calibre 转换） |
 | bookDetails.formatAzw3 | AZW3（经 Calibre 转换） |
 | bookDetails.originalNameLabel | 原文件名 |
@@ -284,6 +287,16 @@
 | reader.searchNoResultsDetail | 换一个词再试试。 |
 | reader.searchFailed | 搜索失败，请重试。 |
 | reader.searchInvalid | 请输入 1–100 个字符。 |
+| reader.pdfPage | 第 {number} 页 |
+| reader.pdfZoomOut | 缩小 |
+| reader.pdfZoomIn | 放大 |
+| reader.pdfFitWidth | 适合宽度 |
+| reader.pdfInternalLink | 跳转到 PDF 内部页面 |
+| reader.pdfNoText | 这份 PDF 没有可用文字层，只能浏览页面，无法搜索或划词。 |
+| reader.pdfPageNoText | 本页没有文字层 |
+| reader.pdfSearchUnavailable | 这份 PDF 没有可搜索的文字层。 |
+| reader.pdfInvalidAnchor | 无效的 PDF 定位锚点。 |
+| reader.pdfOpenFailed | 无法打开 PDF，文件可能已损坏或受密码保护。 |
 | reader.chapterProgress | 本章进度 |
 | reader.highlightsFailed | 无法应用原文高亮。 |
 | reader.areaAria | 正文阅读区 |
@@ -307,7 +320,7 @@
 | error.invalidInput | 输入参数无效。 |
 | error.untrustedSender | 已拒绝非可信页面的请求。 |
 | dialog.importTitle | 导入书籍 |
-| dialog.importFilter | EPUB、UTF-8 TXT、MOBI 或 AZW3 |
+| dialog.importFilter | EPUB、UTF-8 TXT、PDF、MOBI 或 AZW3 |
 | error.epubUnsafePath | EPUB 包含不安全的内部路径。 |
 | error.epubIncomplete | EPUB 结构不完整。 |
 | error.epubMetadataTooLarge | EPUB 元数据异常过大。 |
@@ -325,8 +338,9 @@
 | error.importNotFile | 选择的路径不是文件。 |
 | error.importEmpty | 不能导入空文件。 |
 | error.importTooLarge | 文件超过 250 MB 的导入上限。 |
-| error.importUnsupported | 只支持导入 .epub、.txt、.mobi 和 .azw3 文件。 |
+| error.importUnsupported | 只支持导入 .epub、.txt、.pdf、.mobi 和 .azw3 文件。 |
 | error.txtTooLarge | TXT 文件超过 64 MB 的导入上限。 |
+| error.pdfInvalid | 文件不是有效的 PDF。 |
 | error.calibreNotFound | 未检测到 Calibre。请安装 Calibre，或先手动将文件转换为 EPUB。 |
 | error.calibreConversionFailed | Calibre 无法转换该文件。文件可能已损坏、受 DRM 保护或格式不受支持。 |
 | error.calibreTimeout | Calibre 转换超时，请检查文件后重试。 |

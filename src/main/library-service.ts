@@ -441,6 +441,14 @@ function validateTxt(bytes: Buffer, fallbackTitle: string): ValidatedBook {
   return { format: 'txt', title: fallbackTitle, author: null, metadata: emptyBookMetadata(), cover: null }
 }
 
+function validatePdf(bytes: Buffer, fallbackTitle: string): ValidatedBook {
+  const headerLimit = Math.min(bytes.byteLength, 1_024)
+  if (bytes.subarray(0, headerLimit).indexOf(Buffer.from('%PDF-', 'ascii')) < 0) {
+    throw new AppError('INVALID_PDF', copy('error.pdfInvalid'))
+  }
+  return { format: 'pdf', title: fallbackTitle, author: null, metadata: emptyBookMetadata(), cover: null }
+}
+
 export class LibraryService {
   private readonly coverDirectory: string
   private readonly epubInfoPromises = new Map<string, Promise<StoredEpubInfo | null>>()
@@ -477,7 +485,13 @@ export class LibraryService {
     if (fileInfo.size > MAX_IMPORT_BYTES) throw new AppError('FILE_TOO_LARGE', copy('error.importTooLarge'))
 
     const extension = extname(sourcePath).toLowerCase()
-    if (extension !== '.epub' && extension !== '.txt' && extension !== '.mobi' && extension !== '.azw3') {
+    if (
+      extension !== '.epub' &&
+      extension !== '.txt' &&
+      extension !== '.pdf' &&
+      extension !== '.mobi' &&
+      extension !== '.azw3'
+    ) {
       throw new AppError('UNSUPPORTED_FORMAT', copy('error.importUnsupported'))
     }
     if (extension === '.txt' && fileInfo.size > MAX_TXT_BYTES) {
@@ -508,7 +522,9 @@ export class LibraryService {
     }
     const validated = sourceFormat === 'txt'
       ? validateTxt(storedBytes, fallbackTitle)
-      : await validateEpub(storedBytes, fallbackTitle)
+      : sourceFormat === 'pdf'
+        ? validatePdf(storedBytes, fallbackTitle)
+        : await validateEpub(storedBytes, fallbackTitle)
 
     await mkdir(this.libraryDirectory, { recursive: true })
     const storedName = `${sha256}.${validated.format}`

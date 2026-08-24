@@ -13,6 +13,7 @@ lockfile and dependency packages.
 | epub.js | 0.3.93 | BSD-2-Clause | Copyright (c) 2013, FuturePress |
 | JSZip | 3.10.1 | MIT OR GPL-3.0-or-later | Copyright (c) 2009-2025 Stuart Knightley and contributors |
 | localforage | 1.10.0 | Apache-2.0 | Copyright 2014 Mozilla |
+| PDF.js | 5.6.205 | Apache-2.0 | Copyright 2012 Mozilla Foundation |
 | lucide-react | 1.31.0 | ISC | Copyright (c) 2026 Lucide Icons and Contributors |
 | React | 19.2.8 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates |
 | React DOM | 19.2.8 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates |
@@ -199,4 +200,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-

@@ -81,7 +81,7 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     const result = await dialog.showOpenDialog(dependencies.window, {
       title: copy('dialog.importTitle'),
       properties: ['openFile'],
-      filters: [{ name: copy('dialog.importFilter'), extensions: ['epub', 'txt', 'mobi', 'azw3'] }]
+      filters: [{ name: copy('dialog.importFilter'), extensions: ['epub', 'txt', 'pdf', 'mobi', 'azw3'] }]
     })
     if (result.canceled || result.filePaths.length !== 1) return null
     return dependencies.library.importFromPath(result.filePaths[0])

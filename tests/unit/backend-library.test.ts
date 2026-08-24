@@ -63,6 +63,25 @@ describe('LibraryService', () => {
         last_locator TEXT,
         progress REAL NOT NULL DEFAULT 0 CHECK(progress >= 0 AND progress <= 1)
       ) STRICT;
+      CREATE TABLE insights (
+        id TEXT PRIMARY KEY,
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        selection_json TEXT NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        model TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        history_json TEXT NOT NULL DEFAULT '[]'
+      ) STRICT;
+      CREATE TABLE highlights (
+        id TEXT PRIMARY KEY,
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        quote TEXT NOT NULL,
+        anchor TEXT NOT NULL,
+        chapter_title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(book_id, anchor)
+      ) STRICT;
       INSERT INTO schema_migrations(version, applied_at) VALUES
         (1, '2026-01-01'), (2, '2026-01-01'), (3, '2026-01-01'),
         (4, '2026-01-01'), (5, '2026-01-01');
@@ -73,6 +92,15 @@ describe('LibraryService', () => {
         'legacy-txt', '${'a'.repeat(64)}', 'Legacy TXT', NULL, 'txt',
         'legacy.txt', '${'a'.repeat(64)}.txt', '2026-01-01', NULL, NULL, 0
       );
+      INSERT INTO highlights(id, book_id, quote, anchor, chapter_title, created_at)
+      VALUES ('legacy-highlight', 'legacy-txt', 'Legacy', 'txt:0:6', '全文', '2026-01-01');
+      INSERT INTO insights(
+        id, book_id, selection_json, question, answer, model, created_at, history_json
+      ) VALUES (
+        'legacy-insight', 'legacy-txt',
+        '{"bookId":"legacy-txt","quote":"Legacy","anchor":"txt:0:6","chapterTitle":"全文","passages":[]}',
+        'Question', 'Answer', 'test-model', '2026-01-01', '[]'
+      );
     `)
     legacy.close()
 
@@ -81,7 +109,13 @@ describe('LibraryService', () => {
       expect.objectContaining({ id: 'legacy-txt', format: 'txt', sourceFormat: 'txt' })
     ])
     expect(database.connection.prepare('SELECT MAX(version) AS version FROM schema_migrations').get())
-      .toMatchObject({ version: 6 })
+      .toMatchObject({ version: 7 })
+    expect(database.listHighlights('legacy-txt')).toEqual([
+      expect.objectContaining({ id: 'legacy-highlight', quote: 'Legacy' })
+    ])
+    expect(database.listInsights('legacy-txt')).toEqual([
+      expect.objectContaining({ id: 'legacy-insight', question: 'Question' })
+    ])
     database.close()
 
     database = new AppDatabase(databasePath)
@@ -126,6 +160,42 @@ describe('LibraryService', () => {
     expect(new TextDecoder().decode(payload.bytes)).toContain('测试文本')
     expect(payload.book).not.toHaveProperty('sha256')
     expect(payload.book).not.toHaveProperty('storedName')
+    database.close()
+  })
+
+  it('imports a PDF by original hash and preserves its native format', async () => {
+    const root = makeTemporaryDirectory()
+    const source = join(root, '示例.pdf')
+    const bytes = Buffer.from('%PDF-1.7\nminimal fixture bytes\n', 'ascii')
+    await writeFile(source, bytes)
+    const database = new AppDatabase(join(root, 'reader.sqlite3'))
+    const library = new LibraryService(database, join(root, 'library'))
+
+    const first = await library.importFromPath(source)
+    const duplicate = await library.importFromPath(source)
+
+    expect(first).toMatchObject({
+      duplicate: false,
+      book: { title: '示例', format: 'pdf', sourceFormat: 'pdf', originalName: '示例.pdf' }
+    })
+    expect(duplicate).toEqual({ book: first.book, duplicate: true })
+    expect(database.getStoredBook(first.book.id)).toMatchObject({
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      storedName: `${createHash('sha256').update(bytes).digest('hex')}.pdf`
+    })
+    expect(Buffer.from((await library.readBook(first.book.id)).bytes)).toEqual(bytes)
+    database.close()
+  })
+
+  it('rejects a .pdf file without a PDF header', async () => {
+    const root = makeTemporaryDirectory()
+    const source = join(root, 'not-a-pdf.pdf')
+    await writeFile(source, 'not a PDF', 'utf8')
+    const database = new AppDatabase(join(root, 'reader.sqlite3'))
+    const library = new LibraryService(database, join(root, 'library'))
+
+    await expect(library.importFromPath(source)).rejects.toMatchObject({ code: 'INVALID_PDF' })
+    expect(database.listBooks()).toEqual([])
     database.close()
   })
 

@@ -30,7 +30,7 @@ export const IPC_CHANNELS = {
   llmEvent: 'llm:event'
 } as const
 
-export type BookFormat = 'epub' | 'txt'
+export type BookFormat = 'epub' | 'txt' | 'pdf'
 export type BookSourceFormat = BookFormat | 'mobi' | 'azw3'
 
 export interface AppInfo {

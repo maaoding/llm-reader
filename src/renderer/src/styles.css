@@ -1017,6 +1017,173 @@ button:disabled {
   overflow-anchor: none;
 }
 
+.pdf-reader {
+  min-height: 100%;
+  color: var(--reader-ink);
+  background: var(--reader-frame);
+}
+
+.pdf-toolbar {
+  position: sticky;
+  z-index: 12;
+  top: 10px;
+  display: flex;
+  width: max-content;
+  align-items: center;
+  gap: 4px;
+  margin: 0 auto -34px;
+  padding: 4px;
+  color: var(--reader-ink-soft);
+  background: color-mix(in srgb, var(--reader-header) 94%, transparent);
+  border: 1px solid var(--reader-line-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--reader-shadow);
+  backdrop-filter: blur(8px);
+  user-select: none;
+}
+
+.pdf-toolbar button {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
+  color: inherit;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pdf-toolbar button:hover {
+  color: var(--reader-ink);
+  background: var(--reader-accent-soft);
+}
+
+.pdf-toolbar .pdf-fit-width {
+  min-width: auto;
+}
+
+.pdf-zoom-value {
+  min-width: 42px;
+  color: var(--reader-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.pdf-capability-banner {
+  position: sticky;
+  z-index: 11;
+  top: 48px;
+  max-width: 620px;
+  margin: 42px auto -74px;
+  padding: 8px 12px;
+  color: var(--reader-ink-soft);
+  background: var(--warning-soft);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--reader-line));
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  text-align: center;
+  user-select: none;
+}
+
+.pdf-document {
+  display: flex;
+  min-width: min-content;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 54px 24px 35vh;
+}
+
+@media (max-width: 1100px) {
+  .pdf-document {
+    padding-top: 96px;
+  }
+}
+
+.pdf-page {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  background: white;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--reader-line-strong) 78%, transparent),
+    var(--shadow-md);
+}
+
+.pdf-page-canvas,
+.pdf-text-layer,
+.pdf-link-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.pdf-page-canvas {
+  z-index: 1;
+}
+
+.pdf-text-layer {
+  --min-font-size: 1;
+  --text-scale-factor: 1;
+  z-index: 2;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+  forced-color-adjust: none;
+}
+
+.pdf-text-layer :is(span, br) {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--font-height) * var(--text-scale-factor));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x));
+}
+
+.pdf-link-layer {
+  z-index: 3;
+  pointer-events: none;
+}
+
+.pdf-internal-link {
+  position: absolute;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  pointer-events: auto;
+}
+
+.pdf-internal-link:hover,
+.pdf-internal-link:focus-visible {
+  background: color-mix(in srgb, var(--reader-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--reader-accent) 58%, transparent);
+}
+
+.pdf-page-no-text {
+  position: absolute;
+  z-index: 4;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px 6px;
+  color: var(--reader-muted);
+  background: color-mix(in srgb, var(--reader-header) 88%, transparent);
+  border: 1px solid var(--reader-line);
+  border-radius: var(--radius-sm);
+  font-size: 9px;
+  user-select: none;
+}
+
 .reader-document--txt {
   color: var(--ink);
   background: var(--reader-paper);

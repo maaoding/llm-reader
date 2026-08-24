@@ -133,6 +133,71 @@ const migrations = [
       ALTER TABLE books ADD COLUMN source_format TEXT NOT NULL DEFAULT 'epub'
         CHECK(source_format IN ('epub', 'txt', 'mobi', 'azw3'));
       UPDATE books SET source_format = format;
+    `,
+    `
+      CREATE TABLE books_v2 (
+        id TEXT PRIMARY KEY,
+        sha256 TEXT NOT NULL UNIQUE CHECK(length(sha256) = 64),
+        title TEXT NOT NULL,
+        author TEXT,
+        format TEXT NOT NULL CHECK(format IN ('epub', 'txt', 'pdf')),
+        original_name TEXT NOT NULL,
+        stored_name TEXT NOT NULL UNIQUE,
+        imported_at TEXT NOT NULL,
+        last_opened_at TEXT,
+        last_locator TEXT,
+        progress REAL NOT NULL DEFAULT 0 CHECK(progress >= 0 AND progress <= 1),
+        source_format TEXT NOT NULL DEFAULT 'epub'
+          CHECK(source_format IN ('epub', 'txt', 'mobi', 'azw3', 'pdf'))
+      ) STRICT;
+
+      INSERT INTO books_v2(
+        id, sha256, title, author, format, original_name, stored_name,
+        imported_at, last_opened_at, last_locator, progress, source_format
+      )
+      SELECT
+        id, sha256, title, author, format, original_name, stored_name,
+        imported_at, last_opened_at, last_locator, progress, source_format
+      FROM books;
+
+      CREATE TABLE insights_v2 (
+        id TEXT PRIMARY KEY,
+        book_id TEXT NOT NULL REFERENCES books_v2(id) ON DELETE CASCADE,
+        selection_json TEXT NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        model TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        history_json TEXT NOT NULL DEFAULT '[]'
+      ) STRICT;
+
+      INSERT INTO insights_v2(
+        id, book_id, selection_json, question, answer, model, created_at, history_json
+      )
+      SELECT id, book_id, selection_json, question, answer, model, created_at, history_json
+      FROM insights;
+
+      CREATE TABLE highlights_v2 (
+        id TEXT PRIMARY KEY,
+        book_id TEXT NOT NULL REFERENCES books_v2(id) ON DELETE CASCADE,
+        quote TEXT NOT NULL,
+        anchor TEXT NOT NULL,
+        chapter_title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(book_id, anchor)
+      ) STRICT;
+
+      INSERT INTO highlights_v2(id, book_id, quote, anchor, chapter_title, created_at)
+      SELECT id, book_id, quote, anchor, chapter_title, created_at FROM highlights;
+
+      DROP TABLE insights;
+      DROP TABLE highlights;
+      DROP TABLE books;
+      ALTER TABLE books_v2 RENAME TO books;
+      ALTER TABLE insights_v2 RENAME TO insights;
+      ALTER TABLE highlights_v2 RENAME TO highlights;
+      CREATE INDEX insights_book_created_idx ON insights(book_id, created_at DESC);
+      CREATE INDEX highlights_book_created_idx ON highlights(book_id, created_at DESC);
     `
 ] as const
 

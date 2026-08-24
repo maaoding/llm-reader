@@ -569,6 +569,7 @@ function formatFileSize(bytes: number): string {
 function sourceFormatLabel(book: BookRecord): string {
   if (book.sourceFormat === 'mobi') return copy('bookDetails.formatMobi')
   if (book.sourceFormat === 'azw3') return copy('bookDetails.formatAzw3')
+  if (book.sourceFormat === 'pdf') return copy('bookDetails.formatPdf')
   return book.sourceFormat === 'epub' ? copy('bookDetails.formatEpub') : copy('bookDetails.formatTxt')
 }
 
@@ -576,7 +577,8 @@ function bookFallbackDescription(book: BookRecord): string {
   if (book.sourceFormat === 'mobi' || book.sourceFormat === 'azw3') {
     return copy('library.convertedDescription', { format: book.sourceFormat.toUpperCase() })
   }
-  return book.format === 'epub' ? copy('library.epubDescription') : copy('library.txtDescription')
+  if (book.format === 'epub') return copy('library.epubDescription')
+  return book.format === 'pdf' ? copy('library.pdfDescription') : copy('library.txtDescription')
 }
 
 function formatFullDate(iso: string): string {
@@ -955,6 +957,7 @@ const ABOUT_THIRD_PARTY_NOTICE_KEYS = [
   'about.noticeEpubjs',
   'about.noticeJszip',
   'about.noticeLocalforage',
+  'about.noticePdfjs',
   'about.noticeLucide',
   'about.noticeReact',
   'about.noticeZod'
