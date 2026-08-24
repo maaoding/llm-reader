@@ -566,6 +566,19 @@ function formatFileSize(bytes: number): string {
   return text + ' ' + units[unit]
 }
 
+function sourceFormatLabel(book: BookRecord): string {
+  if (book.sourceFormat === 'mobi') return copy('bookDetails.formatMobi')
+  if (book.sourceFormat === 'azw3') return copy('bookDetails.formatAzw3')
+  return book.sourceFormat === 'epub' ? copy('bookDetails.formatEpub') : copy('bookDetails.formatTxt')
+}
+
+function bookFallbackDescription(book: BookRecord): string {
+  if (book.sourceFormat === 'mobi' || book.sourceFormat === 'azw3') {
+    return copy('library.convertedDescription', { format: book.sourceFormat.toUpperCase() })
+  }
+  return book.format === 'epub' ? copy('library.epubDescription') : copy('library.txtDescription')
+}
+
 function formatFullDate(iso: string): string {
   try {
     return new Intl.DateTimeFormat('zh-CN', {
@@ -694,7 +707,7 @@ function BookDetailsModal({
               <dl className="book-details-list">
                 <BookDetailRow label={copy('bookDetails.titleLabel')} value={details.book.title} />
                 <BookDetailRow label={copy('bookDetails.authorLabel')} value={details.book.author || copy('common.unknownAuthor')} />
-                <BookDetailRow label={copy('bookDetails.formatLabel')} value={details.book.format === 'epub' ? copy('bookDetails.formatEpub') : copy('bookDetails.formatTxt')} />
+                <BookDetailRow label={copy('bookDetails.formatLabel')} value={sourceFormatLabel(details.book)} />
                 <BookDetailRow label={copy('bookDetails.originalNameLabel')} value={details.book.originalName} />
                 <BookDetailRow label={copy('bookDetails.fileSizeLabel')} value={formatFileSize(details.fileSizeBytes)} />
                 <BookDetailRow label={copy('bookDetails.languageLabel')} value={details.metadata.language || copy('bookDetails.notProvided')} />
@@ -2339,7 +2352,7 @@ export default function App(): ReactNode {
         </header>
 
         <nav className="sidebar-tabs" aria-label={copy('library.navAria')}>
-          <button className={leftView === 'library' ? 'is-active' : ''} type="button" onClick={() => setLeftView('library')}>
+          <button className={leftView === 'library' ? 'is-active' : ''} data-testid="library-tab" type="button" onClick={() => setLeftView('library')}>
             <Library size={15} />{copy('library.tabLibrary')}<span>{books.length}</span>
           </button>
           <button className={leftView === 'toc' ? 'is-active' : ''} type="button" onClick={() => setLeftView('toc')} disabled={!activeBook}>
@@ -2373,13 +2386,14 @@ export default function App(): ReactNode {
                     className="book-item-open"
                     data-testid="book-item"
                     data-book-id={book.id}
+                    data-source-format={book.sourceFormat}
                     type="button"
                     onClick={() => void openBook(book)}
                   >
                     <BookCover book={book} />
                     <span className="book-meta">
                       <strong title={book.title}>{book.title}</strong>
-                      <small>{book.author || (book.format === 'epub' ? copy('library.epubDescription') : copy('library.txtDescription'))}</small>
+                      <small>{book.author || bookFallbackDescription(book)}</small>
                     </span>
                   </button>
                   <button
@@ -2564,7 +2578,7 @@ export default function App(): ReactNode {
           {activeBook ? (
             <>
               <div className="reader-heading">
-                <span className="format-chip">{activeBook.format.toUpperCase()}</span>
+                <span className="format-chip">{activeBook.sourceFormat.toUpperCase()}</span>
                 <div>
                   <h1>{activeBook.title}</h1>
                   <p>{activeBook.author || copy('common.unknownAuthor')}</p>

@@ -2,8 +2,10 @@ import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppDatabase } from '../../src/main/database'
 import { LibraryService } from '../../src/main/library-service'
 import { highlightIdSchema, insightIdSchema } from '../../src/main/schemas'
@@ -17,6 +19,21 @@ function makeTemporaryDirectory(): string {
   return path
 }
 
+async function minimalEpubBytes(title = '转换书籍'): Promise<Buffer> {
+  const epub = new JSZip()
+  epub.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
+  epub.file(
+    'META-INF/container.xml',
+    '<container><rootfiles><rootfile full-path="OPS/content.opf"/></rootfiles></container>'
+  )
+  epub.file(
+    'OPS/content.opf',
+    `<package><metadata><dc:title>${title}</dc:title><dc:creator>转换作者</dc:creator></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>`
+  )
+  epub.file('OPS/chapter.xhtml', '<html><body><p>转换后的正文</p></body></html>')
+  return epub.generateAsync({ type: 'nodebuffer' })
+}
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true }))
@@ -24,6 +41,54 @@ afterEach(async () => {
 })
 
 describe('LibraryService', () => {
+  it('migrates existing EPUB/TXT rows to a repeatable sourceFormat column', () => {
+    const root = makeTemporaryDirectory()
+    const databasePath = join(root, 'reader.sqlite3')
+    const legacy = new DatabaseSync(databasePath)
+    legacy.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE books (
+        id TEXT PRIMARY KEY,
+        sha256 TEXT NOT NULL UNIQUE CHECK(length(sha256) = 64),
+        title TEXT NOT NULL,
+        author TEXT,
+        format TEXT NOT NULL CHECK(format IN ('epub', 'txt')),
+        original_name TEXT NOT NULL,
+        stored_name TEXT NOT NULL UNIQUE,
+        imported_at TEXT NOT NULL,
+        last_opened_at TEXT,
+        last_locator TEXT,
+        progress REAL NOT NULL DEFAULT 0 CHECK(progress >= 0 AND progress <= 1)
+      ) STRICT;
+      INSERT INTO schema_migrations(version, applied_at) VALUES
+        (1, '2026-01-01'), (2, '2026-01-01'), (3, '2026-01-01'),
+        (4, '2026-01-01'), (5, '2026-01-01');
+      INSERT INTO books(
+        id, sha256, title, author, format, original_name, stored_name,
+        imported_at, last_opened_at, last_locator, progress
+      ) VALUES (
+        'legacy-txt', '${'a'.repeat(64)}', 'Legacy TXT', NULL, 'txt',
+        'legacy.txt', '${'a'.repeat(64)}.txt', '2026-01-01', NULL, NULL, 0
+      );
+    `)
+    legacy.close()
+
+    let database = new AppDatabase(databasePath)
+    expect(database.listBooks()).toEqual([
+      expect.objectContaining({ id: 'legacy-txt', format: 'txt', sourceFormat: 'txt' })
+    ])
+    expect(database.connection.prepare('SELECT MAX(version) AS version FROM schema_migrations').get())
+      .toMatchObject({ version: 6 })
+    database.close()
+
+    database = new AppDatabase(databasePath)
+    expect(database.listBooks()[0].sourceFormat).toBe('txt')
+    database.close()
+  })
+
   it('imports UTF-8 TXT, deduplicates by hash, and exposes only BookRecord fields', async () => {
     const root = makeTemporaryDirectory()
     const source = join(root, '示例.txt')
@@ -50,6 +115,7 @@ describe('LibraryService', () => {
           'lastOpenedAt',
           'originalName',
           'progress',
+          'sourceFormat',
           'title'
         ].sort()
       )
@@ -60,6 +126,70 @@ describe('LibraryService', () => {
     expect(new TextDecoder().decode(payload.bytes)).toContain('测试文本')
     expect(payload.book).not.toHaveProperty('sha256')
     expect(payload.book).not.toHaveProperty('storedName')
+    database.close()
+  })
+
+  it.each(['mobi', 'azw3'] as const)(
+    'converts %s through the injected Calibre bridge, validates EPUB and deduplicates the original input',
+    async (sourceFormat) => {
+      const root = makeTemporaryDirectory()
+      const source = join(root, `source.${sourceFormat}`)
+      const sourceBytes = Buffer.from(`original-${sourceFormat}-bytes`)
+      const convertedBytes = await minimalEpubBytes(`${sourceFormat.toUpperCase()} 书籍`)
+      await writeFile(source, sourceBytes)
+      const converter = { convert: vi.fn(async () => convertedBytes) }
+      const databasePath = join(root, 'reader.sqlite3')
+      let database = new AppDatabase(databasePath)
+      let library = new LibraryService(database, join(root, 'library'), converter)
+
+      const first = await library.importFromPath(source)
+      const duplicate = await library.importFromPath(source)
+
+      expect(converter.convert).toHaveBeenCalledOnce()
+      expect(converter.convert).toHaveBeenCalledWith(source)
+      expect(first).toMatchObject({
+        duplicate: false,
+        book: {
+          format: 'epub',
+          sourceFormat,
+          originalName: `source.${sourceFormat}`,
+          title: `${sourceFormat.toUpperCase()} 书籍`
+        }
+      })
+      expect(duplicate).toEqual({ book: first.book, duplicate: true })
+      const stored = database.getStoredBook(first.book.id)
+      expect(stored?.sha256).toBe(createHash('sha256').update(sourceBytes).digest('hex'))
+      expect(stored?.storedName).toMatch(/\.epub$/u)
+      expect(Buffer.from((await library.readBook(first.book.id)).bytes)).toEqual(convertedBytes)
+      database.close()
+
+      database = new AppDatabase(databasePath)
+      library = new LibraryService(database, join(root, 'library'), converter)
+      expect(library.listBooks()[0]).toMatchObject({ format: 'epub', sourceFormat })
+      database.close()
+    }
+  )
+
+  it('rejects a converter result that fails the existing EPUB safety validation', async () => {
+    const root = makeTemporaryDirectory()
+    const source = join(root, 'unsafe.mobi')
+    await writeFile(source, 'untrusted source bytes')
+    const unsafe = new JSZip()
+    unsafe.file('mimetype', 'application/epub+zip')
+    unsafe.file('../escape.txt', 'escape')
+    unsafe.file(
+      'META-INF/container.xml',
+      '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>'
+    )
+    unsafe.file('book.opf', '<package><metadata><title>Unsafe</title></metadata></package>')
+    const converter = { convert: vi.fn(async () => unsafe.generateAsync({ type: 'nodebuffer' })) }
+    const database = new AppDatabase(join(root, 'reader.sqlite3'))
+    const libraryDirectory = join(root, 'library')
+    const library = new LibraryService(database, libraryDirectory, converter)
+
+    await expect(library.importFromPath(source)).rejects.toMatchObject({ code: 'INVALID_EPUB' })
+    expect(database.listBooks()).toEqual([])
+    await expect(readdir(libraryDirectory)).rejects.toMatchObject({ code: 'ENOENT' })
     database.close()
   })
 

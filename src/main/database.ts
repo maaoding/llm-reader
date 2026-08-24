@@ -5,6 +5,7 @@ import type {
   ArchivedChatMessage,
   BookFormat,
   BookRecord,
+  BookSourceFormat,
   HighlightRecord,
   SavedInsight,
   SaveHighlightInput,
@@ -18,6 +19,7 @@ interface BookRow {
   title: string
   author: string | null
   format: BookFormat
+  source_format: BookSourceFormat
   original_name: string
   stored_name: string
   imported_at: string
@@ -126,6 +128,11 @@ const migrations = [
     `,
     `
       ALTER TABLE insights ADD COLUMN history_json TEXT NOT NULL DEFAULT '[]';
+    `,
+    `
+      ALTER TABLE books ADD COLUMN source_format TEXT NOT NULL DEFAULT 'epub'
+        CHECK(source_format IN ('epub', 'txt', 'mobi', 'azw3'));
+      UPDATE books SET source_format = format;
     `
 ] as const
 
@@ -139,6 +146,7 @@ function mapBook(row: BookRow): BookRecord {
     title: row.title,
     author: row.author,
     format: row.format,
+    sourceFormat: row.source_format,
     originalName: row.original_name,
     importedAt: row.imported_at,
     lastOpenedAt: row.last_opened_at,
@@ -153,6 +161,7 @@ function publicBook(book: StoredBook): BookRecord {
     title: book.title,
     author: book.author,
     format: book.format,
+    sourceFormat: book.sourceFormat,
     originalName: book.originalName,
     importedAt: book.importedAt,
     lastOpenedAt: book.lastOpenedAt,
@@ -266,9 +275,9 @@ export class AppDatabase {
     this.connection
       .prepare(
         `INSERT INTO books(
-          id, sha256, title, author, format, original_name, stored_name,
+          id, sha256, title, author, format, source_format, original_name, stored_name,
           imported_at, last_opened_at, last_locator, progress
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         book.id,
@@ -276,6 +285,7 @@ export class AppDatabase {
         book.title,
         book.author,
         book.format,
+        book.sourceFormat,
         book.originalName,
         book.storedName,
         book.importedAt,

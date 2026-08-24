@@ -10,6 +10,7 @@ import type {
   BookMetadata,
   BookPayload,
   BookRecord,
+  BookSourceFormat,
   HighlightRecord,
   ImportedBookResult,
   SavedInsight,
@@ -19,6 +20,7 @@ import type {
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppDatabase, type StoredBook } from './database'
+import { CalibreEpubConverter, type EpubConverter } from './calibre-converter'
 import { AppError } from './errors'
 
 const MAX_IMPORT_BYTES = 250 * 1024 * 1024
@@ -95,6 +97,7 @@ function publicBook(book: StoredBook): BookRecord {
     title: book.title,
     author: book.author,
     format: book.format,
+    sourceFormat: book.sourceFormat,
     originalName: book.originalName,
     importedAt: book.importedAt,
     lastOpenedAt: book.lastOpenedAt,
@@ -445,7 +448,8 @@ export class LibraryService {
 
   constructor(
     private readonly database: AppDatabase,
-    private readonly libraryDirectory: string
+    private readonly libraryDirectory: string,
+    private readonly epubConverter: EpubConverter = new CalibreEpubConverter()
   ) {
     if (!isAbsolute(libraryDirectory)) {
       throw new Error('libraryDirectory must be absolute')
@@ -473,7 +477,7 @@ export class LibraryService {
     if (fileInfo.size > MAX_IMPORT_BYTES) throw new AppError('FILE_TOO_LARGE', copy('error.importTooLarge'))
 
     const extension = extname(sourcePath).toLowerCase()
-    if (extension !== '.epub' && extension !== '.txt') {
+    if (extension !== '.epub' && extension !== '.txt' && extension !== '.mobi' && extension !== '.azw3') {
       throw new AppError('UNSUPPORTED_FORMAT', copy('error.importUnsupported'))
     }
     if (extension === '.txt' && fileInfo.size > MAX_TXT_BYTES) {
@@ -490,17 +494,27 @@ export class LibraryService {
     if (extension === '.txt' && bytes.byteLength > MAX_TXT_BYTES) {
       throw new AppError('FILE_TOO_LARGE', copy('error.txtTooLarge'))
     }
-    const validated =
-      extension === '.epub' ? await validateEpub(bytes, fallbackTitle) : validateTxt(bytes, fallbackTitle)
     const sha256 = createHash('sha256').update(bytes).digest('hex')
     const duplicate = this.database.findBookByHash(sha256)
     if (duplicate) return { book: publicBook(duplicate), duplicate: true }
 
+    const sourceFormat = extension.slice(1) as BookSourceFormat
+    const storedBytes = sourceFormat === 'mobi' || sourceFormat === 'azw3'
+      ? await this.epubConverter.convert(sourcePath)
+      : bytes
+    if (storedBytes.byteLength === 0) throw new AppError('EMPTY_FILE', copy('error.importEmpty'))
+    if (storedBytes.byteLength > MAX_IMPORT_BYTES) {
+      throw new AppError('FILE_TOO_LARGE', copy('error.importTooLarge'))
+    }
+    const validated = sourceFormat === 'txt'
+      ? validateTxt(storedBytes, fallbackTitle)
+      : await validateEpub(storedBytes, fallbackTitle)
+
     await mkdir(this.libraryDirectory, { recursive: true })
-    const storedName = `${sha256}${extension}`
+    const storedName = `${sha256}.${validated.format}`
     const destination = this.resolveStoredPath(storedName)
     try {
-      await writeFile(destination, bytes, { flag: 'wx', mode: 0o600 })
+      await writeFile(destination, storedBytes, { flag: 'wx', mode: 0o600 })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     }
@@ -513,6 +527,7 @@ export class LibraryService {
       title: validated.title.slice(0, 500),
       author: validated.author?.slice(0, 500) ?? null,
       format: validated.format,
+      sourceFormat,
       originalName,
       importedAt: now,
       lastOpenedAt: null,
@@ -536,6 +551,7 @@ export class LibraryService {
       title: stored.title,
       author: stored.author,
       format: stored.format,
+      sourceFormat: stored.sourceFormat,
       originalName: stored.originalName,
       importedAt: stored.importedAt,
       lastOpenedAt: openedAt,

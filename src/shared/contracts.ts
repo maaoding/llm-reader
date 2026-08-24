@@ -31,6 +31,7 @@ export const IPC_CHANNELS = {
 } as const
 
 export type BookFormat = 'epub' | 'txt'
+export type BookSourceFormat = BookFormat | 'mobi' | 'azw3'
 
 export interface AppInfo {
   version: string
@@ -41,6 +42,7 @@ export interface BookRecord {
   title: string
   author: string | null
   format: BookFormat
+  sourceFormat: BookSourceFormat
   originalName: string
   importedAt: string
   lastOpenedAt: string | null
