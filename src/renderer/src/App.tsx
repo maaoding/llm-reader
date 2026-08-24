@@ -85,14 +85,18 @@ import {
   createReaderAdapter,
   DEFAULT_READING_PREFERENCES,
   normalizeReadingPreferences,
+  READER_SEARCH_QUERY_MAX_LENGTH,
+  READER_SEARCH_RESULT_LIMIT,
   type ReaderAdapter,
+  type ReaderSearchResult,
   type ReadingPaperTheme,
   type ReadingPreferences
 } from './readers'
 
-type LeftView = 'library' | 'toc' | 'highlights'
+type LeftView = 'library' | 'toc' | 'highlights' | 'search'
 type RightView = 'assistant' | 'insights'
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
+type SearchState = 'idle' | 'searching' | 'ready' | 'error'
 type TurnStatus = 'streaming' | 'completed' | 'error'
 type ThemePreference = 'light' | 'system' | 'dark'
 type ResolvedTheme = Exclude<ThemePreference, 'system'>
@@ -1437,6 +1441,10 @@ export default function App(): ReactNode {
   const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
   const [currentChapterTitle, setCurrentChapterTitle] = useState('')
   const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<ReadonlyArray<ReaderSearchResult>>([])
+  const [searchState, setSearchState] = useState<SearchState>('idle')
+  const [searchError, setSearchError] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
@@ -1471,6 +1479,7 @@ export default function App(): ReactNode {
   const assistantExpandButtonRef = useRef<HTMLButtonElement>(null)
   const detailsReturnFocusRef = useRef<HTMLButtonElement>(null)
   const assistantDialogRef = useRef<HTMLElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
   const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const naturalPositionRef = useRef<{ locator: string | null; progress: number }>({ locator: null, progress: 0 })
@@ -1478,6 +1487,7 @@ export default function App(): ReactNode {
   const providerRevisionRef = useRef(0)
   const providerCheckSequenceRef = useRef(0)
   const requestProviderRevisionRef = useRef(new Map<string, number>())
+  const searchSequenceRef = useRef(0)
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const openSettings = useCallback((section: SettingsSectionId, trigger: HTMLButtonElement): void => {
@@ -1500,6 +1510,12 @@ export default function App(): ReactNode {
   useEffect(() => {
     archiveSessionRef.current = archiveSession
   }, [archiveSession])
+
+  useEffect(() => {
+    if (leftView !== 'search') return undefined
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [leftView])
 
   useLayoutEffect(() => {
     try {
@@ -1692,6 +1708,7 @@ export default function App(): ReactNode {
   }, [flushProgress])
 
   const destroyReader = useCallback((): void => {
+    searchSequenceRef.current += 1
     if (progressTimerRef.current) {
       clearTimeout(progressTimerRef.current)
       progressTimerRef.current = null
@@ -1737,6 +1754,10 @@ export default function App(): ReactNode {
     setCurrentChapterProgress(0)
     setCurrentChapterTitle('')
     setCurrentChapterHref(null)
+    setSearchQuery('')
+    setSearchResults([])
+    setSearchState('idle')
+    setSearchError('')
     naturalPositionRef.current = { locator: book.lastLocator, progress: book.progress }
 
     try {
@@ -1913,13 +1934,68 @@ export default function App(): ReactNode {
     }
   }, [importing, openBook, pushToast, refreshBooks])
 
+  const openSearchView = useCallback((): void => {
+    if (!activeBookRef.current || !adapterRef.current) return
+    setLeftView('search')
+  }, [])
+
+  const runSearch = useCallback(async (value: string): Promise<void> => {
+    const query = value.trim()
+    const queryLength = Array.from(query).length
+    if (queryLength < 1 || queryLength > READER_SEARCH_QUERY_MAX_LENGTH) {
+      searchSequenceRef.current += 1
+      setSearchResults([])
+      setSearchState('error')
+      setSearchError(copy('reader.searchInvalid'))
+      return
+    }
+    const adapter = adapterRef.current
+    const bookId = activeBookRef.current?.id
+    if (!adapter || !bookId) return
+    const sequence = ++searchSequenceRef.current
+    setSearchState('searching')
+    setSearchError('')
+    try {
+      const results = await adapter.search(query)
+      if (
+        sequence !== searchSequenceRef.current ||
+        adapterRef.current !== adapter ||
+        activeBookRef.current?.id !== bookId
+      ) return
+      setSearchResults(results)
+      setSearchState('ready')
+    } catch (error) {
+      if (sequence !== searchSequenceRef.current || adapterRef.current !== adapter) return
+      setSearchResults([])
+      setSearchState('error')
+      setSearchError(readableError(error, copy('reader.searchFailed')))
+    }
+  }, [])
+
+  const submitSearch = useCallback((event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    void runSearch(searchQuery)
+  }, [runSearch, searchQuery])
+
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'f' &&
+        bookState === 'ready' &&
+        !settingsOpen &&
+        !assistantDialogOpen &&
+        !detailsBook
+      ) {
+        event.preventDefault()
+        openSearchView()
+        return
+      }
       if (event.key === 'Escape' && !settingsOpen && !assistantDialogOpen && !detailsBook) setSelection(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [assistantDialogOpen, detailsBook, settingsOpen])
+  }, [assistantDialogOpen, bookState, detailsBook, openSearchView, settingsOpen])
 
   const startRequest = useCallback(async (action: LlmAction, question: string, sourceSelection?: SelectionContext, session: AssistantSession = 'conversation'): Promise<void> => {
     const cleanQuestion = question.trim()
@@ -2095,6 +2171,14 @@ export default function App(): ReactNode {
     }
   }, [pushToast])
 
+  const navigateToSearchResult = useCallback(async (result: ReaderSearchResult): Promise<void> => {
+    chapterTitleOverrideRef.current = result.chapterTitle
+    await navigateToAnchor(result.anchor)
+    setCurrentLocator(result.anchor)
+    setCurrentChapterTitle(result.chapterTitle)
+    setCurrentChapterProgress(0)
+  }, [navigateToAnchor])
+
   const openInsight = useCallback((insight: SavedInsight): void => {
     const requestId = activeRequestRef.current
     if (requestId) {
@@ -2146,6 +2230,7 @@ export default function App(): ReactNode {
         highlightTimerRef.current = null
       }
       adapter.clearHighlight()
+      chapterTitleOverrideRef.current = null
       await adapter.goTo(target)
       setCurrentLocator(target)
     } catch (error) {
@@ -2377,6 +2462,80 @@ export default function App(): ReactNode {
               ))}
             </div>
           )}
+
+          {leftView === 'search' && (
+            <div className="reader-search" data-testid="reader-search" aria-label={copy('reader.searchTitle')}>
+              <div className="reader-search-heading">
+                <h2>{copy('reader.searchTitle')}</h2>
+                <button
+                  className="icon-button"
+                  data-testid="reader-search-close"
+                  type="button"
+                  aria-label={copy('reader.searchClose')}
+                  title={copy('reader.searchClose')}
+                  onClick={() => setLeftView('toc')}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              <form className="reader-search-form" onSubmit={submitSearch}>
+                <input
+                  ref={searchInputRef}
+                  data-testid="reader-search-input"
+                  value={searchQuery}
+                  aria-label={copy('reader.searchInputAria')}
+                  placeholder={copy('reader.searchPlaceholder')}
+                  onChange={(event) => {
+                    const value = Array.from(event.target.value)
+                      .slice(0, READER_SEARCH_QUERY_MAX_LENGTH)
+                      .join('')
+                    setSearchQuery(value)
+                  }}
+                />
+                <button
+                  data-testid="reader-search-submit"
+                  type="submit"
+                  aria-label={copy('reader.searchSubmit')}
+                  title={copy('reader.searchSubmit')}
+                >
+                  <Search size={15} />
+                </button>
+              </form>
+              <div className="reader-search-status" aria-live="polite">
+                {searchState === 'searching' && <><LoaderCircle className="spin" size={15} />{copy('reader.searchLoading')}</>}
+                {searchState === 'error' && <span role="alert">{searchError}</span>}
+                {searchState === 'ready' && searchResults.length > 0 && (
+                  <span>{copy(
+                    searchResults.length >= READER_SEARCH_RESULT_LIMIT
+                      ? 'reader.searchResultLimit'
+                      : 'reader.searchResultCount',
+                    { count: searchResults.length }
+                  )}</span>
+                )}
+              </div>
+              {searchState === 'ready' && searchResults.length === 0 && (
+                <EmptyState
+                  icon={<SearchX size={20} />}
+                  title={copy('reader.searchNoResultsTitle')}
+                  detail={copy('reader.searchNoResultsDetail')}
+                />
+              )}
+              <div className="reader-search-results" data-testid="reader-search-results">
+                {searchResults.map((result, index) => (
+                  <button
+                    className="reader-search-result"
+                    data-testid="reader-search-result"
+                    type="button"
+                    key={`${result.anchor}-${index}`}
+                    onClick={() => void navigateToSearchResult(result)}
+                  >
+                    <span>{result.chapterTitle || copy('common.currentChapter')}</span>
+                    <p>{result.excerpt}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <footer className="sidebar-footer">
@@ -2412,6 +2571,7 @@ export default function App(): ReactNode {
                 </div>
               </div>
               <div className="reader-header-actions">
+                <button className="icon-button" data-testid="reader-search-button" type="button" aria-label={copy('reader.searchOpen')} title={copy('reader.searchOpen')} onClick={openSearchView}><Search size={17} /></button>
                 <button className="icon-button" data-testid="book-details-button" type="button" aria-label={copy('bookDetails.openAria', { title: activeBook.title })} title={copy('bookDetails.openAria', { title: activeBook.title })} onClick={(event) => openBookDetails(activeBook, event.currentTarget)}><Info size={17} /></button>
                 <button className="icon-button reader-settings-button" data-testid="reader-return-button" type="button" aria-label={copy('reader.returnToReading')} title={copy('reader.returnToReading')} disabled={bookState !== 'ready' || !naturalLocator || currentLocator === naturalLocator} onClick={() => void returnToReading()}><ArrowLeft size={17} /></button>
                 <button className="icon-button reader-settings-button" data-testid="reader-settings-button" type="button" aria-label={copy('reader.readingSettings')} title={copy('reader.readingSettings')} onClick={(event) => openSettings('reading', event.currentTarget)}><SlidersHorizontal size={17} /></button>

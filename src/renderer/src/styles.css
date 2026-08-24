@@ -183,7 +183,7 @@ button:disabled {
   --radius-lg: 8px;
 }
 
-/* ===================== 左侧栏:书库 / 目录 / 收藏 ===================== */
+/* ===================== 左侧栏:书库 / 目录 / 收藏 / 搜索 ===================== */
 
 .left-sidebar {
   z-index: 3;
@@ -326,6 +326,132 @@ button:disabled {
   overflow: auto;
   scrollbar-color: var(--line-strong) transparent;
   scrollbar-width: thin;
+}
+
+.reader-search {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.reader-search-heading {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px 4px;
+}
+
+.reader-search-heading h2 {
+  margin: 0;
+  color: var(--ink-soft);
+  font-family: ui-serif, "Noto Serif SC", serif;
+  font-size: calc(13px * var(--interface-scale));
+  font-weight: 650;
+}
+
+.reader-search-heading .icon-button {
+  width: calc(28px * var(--interface-scale));
+  height: calc(28px * var(--interface-scale));
+}
+
+.reader-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 5px;
+}
+
+.reader-search-form input {
+  min-width: 0;
+  height: calc(34px * var(--interface-scale));
+  padding: 0 9px;
+  color: var(--ink);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: calc(10px * var(--interface-scale));
+}
+
+.reader-search-form input::placeholder {
+  color: var(--faint);
+}
+
+.reader-search-form button {
+  display: grid;
+  height: calc(34px * var(--interface-scale));
+  place-items: center;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+}
+
+.reader-search-status {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 3px 3px;
+  color: var(--muted);
+  font-size: calc(9px * var(--interface-scale));
+}
+
+.reader-search-status [role="alert"] {
+  color: var(--danger);
+}
+
+.reader-search-results {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.reader-search-result {
+  display: flex;
+  width: 100%;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  color: var(--ink-soft);
+  text-align: left;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.reader-search-result:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  transform: translateY(-1px);
+}
+
+.reader-search-result span {
+  overflow: hidden;
+  color: var(--accent);
+  font-size: calc(8px * var(--interface-scale));
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-search-result p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: ui-serif, "Noto Serif SC", serif;
+  font-size: calc(10px * var(--interface-scale));
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .section-caption {

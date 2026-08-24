@@ -10,6 +10,12 @@ import {
   READING_PARAGRAPH_SPACING_EM,
   readingPreferencesEqual
 } from './reading-preferences'
+import {
+  literalSearchExpression,
+  normalizeReaderSearchQuery,
+  searchExcerpt,
+  yieldSearchWork
+} from './search'
 import type {
   ReadingPreferences,
   ReaderAdapter,
@@ -17,9 +23,14 @@ import type {
   ReaderDocumentInfo,
   ReaderHighlightAnchor,
   ReaderRelocation,
-  ReaderRelocationReason
+  ReaderRelocationReason,
+  ReaderSearchResult
 } from './types'
-import { DEFAULT_READING_PREFERENCES, readerSelectionBackground } from './types'
+import {
+  DEFAULT_READING_PREFERENCES,
+  readerSelectionBackground,
+  READER_SEARCH_RESULT_LIMIT
+} from './types'
 
 const PERSISTENT_HIGHLIGHT_NAME = 'llm-reader-persistent'
 const PERSISTENT_HIGHLIGHT_FALLBACK_CLASS = 'llm-reader-persistent-fallback'
@@ -173,6 +184,8 @@ export class TextReaderAdapter implements ReaderAdapter {
   private programmaticReleaseTimer: ReturnType<typeof setTimeout> | null = null
   private preferences: ReadingPreferences = { ...DEFAULT_READING_PREFERENCES }
   private highlightStyleElement: HTMLStyleElement | null = null
+  private searchRevision = 0
+  private searchQueue: Promise<void> = Promise.resolve()
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
     this.host = host
@@ -280,6 +293,55 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.resetDocument()
     this.host.style.overflowY = this.originalOverflowY
     this.host.style.position = this.originalPosition
+  }
+
+  search(query: string): Promise<ReadonlyArray<ReaderSearchResult>> {
+    const normalized = normalizeReaderSearchQuery(query)
+    if (!normalized) {
+      return Promise.reject(new Error(copy('reader.searchInvalid')))
+    }
+    const revision = ++this.searchRevision
+    const run = async (): Promise<ReadonlyArray<ReaderSearchResult>> => {
+      if (revision !== this.searchRevision) return []
+      return this.searchDocument(normalized, revision)
+    }
+    const result = this.searchQueue.then(run, run)
+    this.searchQueue = result.then(() => undefined, () => undefined)
+    return result
+  }
+
+  private async searchDocument(
+    query: string,
+    revision: number
+  ): Promise<ReadonlyArray<ReaderSearchResult>> {
+    const results: ReaderSearchResult[] = []
+    for (let paragraphIndex = 0; paragraphIndex < this.paragraphs.length; paragraphIndex += 1) {
+      if (revision !== this.searchRevision) return []
+      const paragraph = this.paragraphs[paragraphIndex]
+      const expression = literalSearchExpression(query)
+      let previousUtf16 = 0
+      let previousCodePoints = 0
+      let match = expression.exec(paragraph.text)
+      while (match) {
+        const localStart = previousCodePoints + codePointLength(
+          paragraph.text.slice(previousUtf16, match.index)
+        )
+        const localEnd = localStart + codePointLength(match[0])
+        results.push({
+          anchor: makeTextAnchor(paragraph.start + localStart, paragraph.start + localEnd),
+          excerpt: searchExcerpt(paragraph.text, match.index, match.index + match[0].length),
+          chapterTitle: this.chapters[paragraph.chapterIndex]?.title ?? copy('reader.txtFullText')
+        })
+        if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
+        previousUtf16 = match.index
+        previousCodePoints = localStart
+        match = expression.exec(paragraph.text)
+      }
+      if (paragraphIndex > 0 && paragraphIndex % 120 === 0) {
+        await yieldSearchWork()
+      }
+    }
+    return revision === this.searchRevision ? results : []
   }
 
   async goTo(anchor: string): Promise<void> {
@@ -769,6 +831,7 @@ export class TextReaderAdapter implements ReaderAdapter {
   }
 
   private resetDocument(): void {
+    this.searchRevision += 1
     this.document.removeEventListener('selectionchange', this.handleSelectionChange)
     this.host.removeEventListener('scroll', this.handleScroll)
     this.unbindUserScrollInput()

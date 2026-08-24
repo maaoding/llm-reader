@@ -7,6 +7,7 @@ import {
   flattenToc,
   isEpubCfi,
   isSafeInternalHref,
+  resolveInternalSpineHref,
   sanitizeContents
 } from '../../src/renderer/src/readers/epub-reader'
 import { createReaderAdapter, TextReaderAdapter } from '../../src/renderer/src/readers'
@@ -156,6 +157,47 @@ describe('TXT adapter', () => {
     host.remove()
   })
 
+  it('searches Chinese and case-insensitive English across TXT chapters with stable anchors', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const adapter = new TextReaderAdapter(host, { bookId: 'txt-search' })
+    await adapter.open(bytes('# 第一章\n\nAlpha 与中文命中。alpha\n\n# 第二章\n\n这里也有中文命中。'))
+
+    const english = await adapter.search('ALPHA')
+    expect(english).toHaveLength(2)
+    expect(english.every((result) => result.chapterTitle === '第一章')).toBe(true)
+    expect(english.map((result) => result.anchor)).toEqual([
+      expect.stringMatching(/^txt:\d+:\d+$/u),
+      expect.stringMatching(/^txt:\d+:\d+$/u)
+    ])
+
+    const chinese = await adapter.search('中文命中')
+    expect(chinese.map((result) => result.chapterTitle)).toEqual(['第一章', '第二章'])
+    expect(await adapter.search('不存在')).toEqual([])
+
+    adapter.destroy()
+    host.remove()
+  })
+
+  it('caps TXT results and discards searches superseded by a newer query', async () => {
+    const host = document.createElement('div')
+    const adapter = new TextReaderAdapter(host, { bookId: 'txt-search-limit' })
+    const paragraphs = Array.from({ length: 260 }, (_, index) => (
+      index === 259 ? '最终目标' : `重复词 ${index}`
+    )).join('\n\n')
+    await adapter.open(bytes(paragraphs))
+
+    expect(await adapter.search('重复词')).toHaveLength(200)
+    const stale = adapter.search('重复词')
+    const latest = adapter.search('最终目标')
+    await expect(stale).resolves.toEqual([])
+    await expect(latest).resolves.toEqual([
+      expect.objectContaining({ excerpt: '最终目标', chapterTitle: '全文' })
+    ])
+
+    adapter.destroy()
+  })
+
   it('fails clearly for invalid UTF-8 instead of rendering replacement characters', async () => {
     const host = document.createElement('div')
     const adapter = new TextReaderAdapter(host, { bookId: 'book-4' })
@@ -165,6 +207,68 @@ describe('TXT adapter', () => {
 })
 
 describe('EPUB adapter safety utilities', () => {
+  it('loads, searches and unloads EPUB spine sections in reading order', async () => {
+    const documents = ['第一章包含 SearchTerm。', '第二章也包含 searchterm。'].map((content) => {
+      const fixture = document.implementation.createHTMLDocument('EPUB search')
+      fixture.body.innerHTML = `<p>${content}</p>`
+      return fixture
+    })
+    const sections = documents.map((fixture, index) => ({
+      href: `chapter-${index + 1}.xhtml`,
+      document: fixture,
+      contents: fixture.documentElement,
+      load: vi.fn().mockResolvedValue(fixture.documentElement),
+      find: vi.fn(() => [{
+        cfi: `epubcfi(/6/${(index + 1) * 2}!/4/2/1:4)`,
+        excerpt: fixture.body.textContent ?? ''
+      }]),
+      cfiFromRange: vi.fn(() => `epubcfi(/6/${(index + 1) * 2}!/4/2/1:4)`),
+      unload: vi.fn()
+    }))
+    const rendition = {
+      hooks: { content: { register: vi.fn() } },
+      on: vi.fn(),
+      off: vi.fn(),
+      display: vi.fn().mockResolvedValue(undefined),
+      annotations: { highlight: vi.fn(), remove: vi.fn() }
+    }
+    const book = {
+      ready: Promise.resolve(),
+      loaded: {
+        metadata: Promise.resolve({ title: '搜索样本', creator: '作者' }),
+        navigation: Promise.resolve({ toc: [
+          { id: 'one', label: '第一章', href: 'chapter-1.xhtml' },
+          { id: 'two', label: '第二章', href: 'chapter-2.xhtml' }
+        ] }),
+        spine: Promise.resolve([{ index: 0 }, { index: 1 }])
+      },
+      load: vi.fn().mockResolvedValue(undefined),
+      renderTo: vi.fn(() => rendition),
+      locations: { generate: vi.fn().mockResolvedValue(['epubcfi(/6/2!/4/1:0)']) },
+      spine: {
+        get: vi.fn((target: number | string) => {
+          if (typeof target === 'number') return sections[target] ?? null
+          const href = target.split('#', 1)[0]
+          return sections.find((section) => section.href === href) ?? null
+        })
+      },
+      destroy: vi.fn()
+    }
+    epubFactory.mockReturnValue(book)
+    const adapter = createReaderAdapter('epub', document.createElement('div'), { bookId: 'epub-search' })
+    await adapter.open(new Uint8Array([1, 2, 3]))
+
+    expect(await adapter.search('SEARCHTERM')).toEqual([
+      expect.objectContaining({ chapterTitle: '第一章', excerpt: '第一章包含 SearchTerm。' }),
+      expect.objectContaining({ chapterTitle: '第二章', excerpt: '第二章也包含 searchterm。' })
+    ])
+    expect(sections.every((section) => section.load.mock.calls.length === 1)).toBe(true)
+    expect(sections.every((section) => section.find.mock.calls.length === 1)).toBe(true)
+    expect(sections.every((section) => section.unload.mock.calls.length === 1)).toBe(true)
+
+    adapter.destroy()
+  })
+
   it('restores the last locator once and never redisplays it for relocation events', async () => {
     const handlers = new Map<string, (...eventArguments: unknown[]) => void>()
     const display = vi.fn().mockResolvedValue(undefined)
@@ -364,8 +468,24 @@ describe('EPUB adapter safety utilities', () => {
       { id: 'one', label: '第一章', href: 'chapter-1.xhtml', depth: 0 },
       { id: 'sub', label: '小节', href: 'chapter-1.xhtml#sub', depth: 1 }
     ])
-    expect(isSafeInternalHref('../chapter.xhtml')).toBe(true)
+    expect(isSafeInternalHref('../chapter.xhtml')).toBe(false)
+    expect(isSafeInternalHref('%2e%2e/chapter.xhtml')).toBe(false)
     expect(isSafeInternalHref('javascript:alert(1)')).toBe(false)
+    expect(resolveInternalSpineHref(
+      'Text/chapter-1.xhtml',
+      'chapter-2.xhtml#note',
+      ['Text/chapter-1.xhtml', 'Text/chapter-2.xhtml']
+    )).toBe('Text/chapter-2.xhtml#note')
+    expect(resolveInternalSpineHref(
+      'Text/chapter-1.xhtml',
+      '#note',
+      ['Text/chapter-1.xhtml', 'Text/chapter-2.xhtml']
+    )).toBe('Text/chapter-1.xhtml#note')
+    expect(resolveInternalSpineHref(
+      'Text/chapter-1.xhtml',
+      'missing.xhtml',
+      ['Text/chapter-1.xhtml', 'Text/chapter-2.xhtml']
+    )).toBeNull()
     expect(isEpubCfi('epubcfi(/6/2!/4/1:0)')).toBe(true)
     expect(isEpubCfi('chapter.xhtml')).toBe(false)
   })
@@ -391,5 +511,32 @@ describe('EPUB adapter safety utilities', () => {
     const click = new MouseEvent('click', { bubbles: true, cancelable: true })
     fixture.querySelector('a')?.dispatchEvent(click)
     expect(click.defaultPrevented).toBe(true)
+  })
+
+  it('keeps only resolved spine links keyboard-accessible and delegates their navigation', () => {
+    const fixture = document.implementation.createHTMLDocument('EPUB links')
+    fixture.body.innerHTML = `
+      <a id="safe" href="chapter-2.xhtml#note">下一章</a>
+      <a id="external" href="https://example.com">外部</a>
+      <a id="traversal" href="../secret.xhtml">穿越</a>
+    `
+    const onInternalLink = vi.fn()
+    sanitizeContents({ content: fixture.body } as never, {
+      resolveInternalHref: (href) => href === 'chapter-2.xhtml#note'
+        ? 'Text/chapter-2.xhtml#note'
+        : null,
+      onInternalLink
+    })
+
+    const safe = fixture.querySelector<HTMLElement>('#safe')!
+    expect(safe.getAttribute('data-reader-internal-href')).toBe('Text/chapter-2.xhtml#note')
+    expect(safe.getAttribute('role')).toBe('link')
+    expect(safe.getAttribute('tabindex')).toBe('0')
+    safe.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    expect(onInternalLink).toHaveBeenCalledWith('Text/chapter-2.xhtml#note')
+
+    expect(fixture.querySelector('#external')?.hasAttribute('href')).toBe(false)
+    expect(fixture.querySelector('#external')?.hasAttribute('tabindex')).toBe(false)
+    expect(fixture.querySelector('#traversal')?.hasAttribute('data-reader-internal-href')).toBe(false)
   })
 })

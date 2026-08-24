@@ -17,6 +17,12 @@ import {
   READING_PAPER_THEME_TOKENS,
   readingPreferencesEqual
 } from './reading-preferences'
+import {
+  literalSearchExpression,
+  normalizeReaderSearchQuery,
+  searchExcerpt,
+  yieldSearchWork
+} from './search'
 import type {
   ReadingPreferences,
   ReaderAdapter,
@@ -24,9 +30,14 @@ import type {
   ReaderDocumentInfo,
   ReaderHighlightAnchor,
   ReaderRelocation,
-  ReaderRelocationReason
+  ReaderRelocationReason,
+  ReaderSearchResult
 } from './types'
-import { DEFAULT_READING_PREFERENCES, readerSelectionBackground } from './types'
+import {
+  DEFAULT_READING_PREFERENCES,
+  readerSelectionBackground,
+  READER_SEARCH_RESULT_LIMIT
+} from './types'
 import { stabilizeContinuousManager } from './epub-continuous-stability'
 
 const EPUB_CFI_PATTERN = /^epubcfi\(.+\)$/u
@@ -82,20 +93,60 @@ interface DomPosition {
   offset: number
 }
 
+interface EpubSectionSearchMatch {
+  cfi: string
+  excerpt: string
+}
+
+interface SearchableEpubSection {
+  href: string
+  document?: Document
+  contents?: Element
+  load(request?: (path: string) => Promise<unknown>): Promise<Element>
+  find(query: string): EpubSectionSearchMatch[]
+  cfiFromRange(range: Range): string
+  unload(): void
+}
+
+interface EpubLinkOptions {
+  resolveInternalHref: (href: string) => string | null
+  onInternalLink: (href: string) => void
+}
+
 function isEpubCfi(value: string): boolean {
   return value.length <= 16_384 && EPUB_CFI_PATTERN.test(value)
 }
 
 function isSafeInternalHref(value: string): boolean {
   const href = value.trim()
-  return (
-    href.length > 0 &&
-    href.length <= 4_096 &&
-    !href.startsWith('//') &&
-    !href.startsWith('/') &&
-    !/^[a-z][a-z\d+.-]*:/iu.test(href) &&
-    !href.includes('\0')
-  )
+  if (
+    href.length === 0 ||
+    href.length > 4_096 ||
+    href.includes('\0') ||
+    href.includes('\\') ||
+    href.includes('?')
+  ) return false
+
+  let decoded = href
+  try {
+    for (let pass = 0; pass < 2; pass += 1) {
+      const next = decodeURIComponent(decoded)
+      if (next === decoded) break
+      decoded = next
+    }
+  } catch {
+    return false
+  }
+
+  if (
+    decoded.startsWith('//') ||
+    decoded.startsWith('/') ||
+    decoded.includes('\\') ||
+    /^[a-z][a-z\d+.-]*:/iu.test(decoded)
+  ) return false
+
+  const path = decoded.split('#', 1)[0]
+  return !path.split('/').includes('..')
 }
 
 function normalizeHref(value: string): string {
@@ -105,6 +156,34 @@ function normalizeHref(value: string): string {
   } catch {
     return withoutFragment
   }
+}
+
+function resolveInternalSpineHref(
+  currentHref: string,
+  value: string,
+  spineHrefs: ReadonlyArray<string>
+): string | null {
+  if (!isSafeInternalHref(value)) return null
+  const href = value.trim()
+  const fragmentIndex = href.indexOf('#')
+  const rawPath = fragmentIndex >= 0 ? href.slice(0, fragmentIndex) : href
+  const fragment = fragmentIndex >= 0 ? href.slice(fragmentIndex) : ''
+  let decodedPath: string
+  try {
+    decodedPath = decodeURIComponent(rawPath)
+  } catch {
+    return null
+  }
+
+  const currentPath = normalizeHref(currentHref)
+  const directory = currentPath.split('/')
+  directory.pop()
+  const targetSegments = decodedPath.length === 0
+    ? currentPath.split('/')
+    : [...directory, ...decodedPath.split('/')].filter((segment) => segment !== '.')
+  const resolvedPath = targetSegments.join('/')
+  const spineHref = spineHrefs.find((candidate) => normalizeHref(candidate) === resolvedPath)
+  return spineHref ? `${spineHref}${fragment}` : null
 }
 
 function flattenToc(items: NavItem[], depth = 0, output: TocItem[] = []): TocItem[] {
@@ -207,7 +286,7 @@ function offsetWithinElement(element: Element, node: Node, offset: number): numb
   return codePointLength(range.toString())
 }
 
-function sanitizeContents(contents: Contents): void {
+function sanitizeContents(contents: Contents, linkOptions?: EpubLinkOptions): void {
   const root = contents.content
   root
     .querySelectorAll('script,iframe,frame,object,embed,applet,form,meta[http-equiv="refresh"],base')
@@ -230,18 +309,97 @@ function sanitizeContents(contents: Contents): void {
   })
 
   root.querySelectorAll('a').forEach((anchor) => {
+    const sourceHref = anchor.getAttribute('href')
+    const internalHref = sourceHref && linkOptions
+      ? linkOptions.resolveInternalHref(sourceHref)
+      : null
     anchor.removeAttribute('target')
     anchor.removeAttribute('href')
     ;(anchor as HTMLAnchorElement).onclick = null
+    if (internalHref) {
+      anchor.classList.add('llm-reader-internal-link')
+      anchor.setAttribute('role', 'link')
+      anchor.setAttribute('tabindex', '0')
+      ;(anchor as HTMLElement).dataset.readerInternalHref = internalHref
+    } else {
+      anchor.removeAttribute('role')
+      anchor.removeAttribute('tabindex')
+      delete (anchor as HTMLElement).dataset.readerInternalHref
+    }
+    const activate = (event: Event): void => {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      if (internalHref) linkOptions?.onInternalLink(internalHref)
+    }
     anchor.addEventListener(
       'click',
-      (event) => {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-      },
+      activate,
       true
     )
+    anchor.addEventListener('keydown', (event) => {
+      if ((event as KeyboardEvent).key === 'Enter') activate(event)
+    }, true)
   })
+}
+
+function compactSearchExcerpt(value: string, query: string): string {
+  const expression = literalSearchExpression(query)
+  const match = expression.exec(value)
+  if (match) return searchExcerpt(value, match.index, match.index + match[0].length)
+  const characters = Array.from(value.replace(/\s+/gu, ' ').trim())
+  return `${characters.slice(0, 80).join('')}${characters.length > 80 ? '…' : ''}`
+}
+
+function countSectionMatches(root: Element, query: string, limit: number): number {
+  const walker = root.ownerDocument.createTreeWalker(root, 4)
+  let count = 0
+  let current = walker.nextNode()
+  while (current) {
+    const expression = literalSearchExpression(query)
+    let match = expression.exec(current.textContent ?? '')
+    while (match) {
+      count += 1
+      if (count >= limit) return count
+      match = expression.exec(current.textContent ?? '')
+    }
+    current = walker.nextNode()
+  }
+  return count
+}
+
+async function boundedSectionMatches(
+  section: SearchableEpubSection,
+  query: string,
+  limit: number,
+  isCurrent: () => boolean
+): Promise<EpubSectionSearchMatch[]> {
+  const root = section.contents
+  if (!root) return []
+  const walker = root.ownerDocument.createTreeWalker(root, 4)
+  const matches: EpubSectionSearchMatch[] = []
+  let nodeCount = 0
+  let current = walker.nextNode()
+  while (current && matches.length < limit && isCurrent()) {
+    if (current.nodeType === 3) {
+      const node = current as Text
+      const expression = literalSearchExpression(query)
+      let match = expression.exec(node.data)
+      while (match && matches.length < limit) {
+        const range = root.ownerDocument.createRange()
+        range.setStart(node, match.index)
+        range.setEnd(node, match.index + match[0].length)
+        matches.push({
+          cfi: section.cfiFromRange(range),
+          excerpt: searchExcerpt(node.data, match.index, match.index + match[0].length)
+        })
+        match = expression.exec(node.data)
+      }
+    }
+    nodeCount += 1
+    if (nodeCount % 250 === 0) await yieldSearchWork()
+    current = walker.nextNode()
+  }
+  return matches
 }
 
 function readingPreferencesCss(preferences: ReadingPreferences): string {
@@ -289,6 +447,7 @@ function readingPreferencesCss(preferences: ReadingPreferences): string {
 function readerStylesheetCss(preferences: ReadingPreferences, reflowable: boolean): string {
   const rules = [
     `::selection { background: ${readerSelectionBackground(preferences.paperTheme)}; color: inherit; }`,
+    '.llm-reader-internal-link { cursor: pointer; }',
     reflowable ? CONTINUOUS_REFLOW_CSS : '',
     reflowable ? readingPreferencesCss(preferences) : ''
   ]
@@ -320,6 +479,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private scrollInputContainer: HTMLElement | null = null
   private relocationReason: ReaderRelocationReason = 'navigation'
   private sectionPercentageBounds = new Map<number, { start: number; end: number }>()
+  private searchRevision = 0
+  private searchQueue: Promise<void> = Promise.resolve()
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
     this.host = host
@@ -402,15 +563,91 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.resetDocument()
   }
 
+  search(query: string): Promise<ReadonlyArray<ReaderSearchResult>> {
+    const normalized = normalizeReaderSearchQuery(query)
+    if (!normalized) {
+      return Promise.reject(new Error(copy('reader.searchInvalid')))
+    }
+    const revision = ++this.searchRevision
+    const run = async (): Promise<ReadonlyArray<ReaderSearchResult>> => {
+      if (revision !== this.searchRevision) return []
+      return this.searchDocument(normalized, revision)
+    }
+    const result = this.searchQueue.then(run, run)
+    this.searchQueue = result.then(() => undefined, () => undefined)
+    return result
+  }
+
+  private async searchDocument(
+    query: string,
+    revision: number
+  ): Promise<ReadonlyArray<ReaderSearchResult>> {
+    const book = this.book
+    if (!book) throw new Error(copy('reader.epubNotOpen'))
+    const results: ReaderSearchResult[] = []
+    for (let index = 0; index < this.spineCount; index += 1) {
+      if (revision !== this.searchRevision || this.book !== book) return []
+      const section = book.spine.get(index) as unknown as SearchableEpubSection | null
+      if (!section) continue
+      try {
+        await section.load(book.load.bind(book) as (path: string) => Promise<unknown>)
+        if (revision !== this.searchRevision || this.book !== book) return []
+        if (!section.contents) continue
+        sanitizeContents({ content: section.contents } as Contents)
+        section.contents.querySelectorAll('style,noscript,template').forEach((element) => element.remove())
+        const remaining = READER_SEARCH_RESULT_LIMIT - results.length
+        const matchCount = countSectionMatches(section.contents, query, remaining + 1)
+        const matches = matchCount <= remaining
+          ? section.find(query).slice(0, remaining)
+          : await boundedSectionMatches(
+              section,
+              query,
+              remaining,
+              () => revision === this.searchRevision && this.book === book
+            )
+        const chapterTitle = this.chapterTitle(index, section.href)
+        for (const match of matches) {
+          if (!isEpubCfi(match.cfi)) continue
+          results.push({
+            anchor: match.cfi,
+            excerpt: compactSearchExcerpt(match.excerpt, query),
+            chapterTitle
+          })
+          if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
+        }
+      } finally {
+        section.unload()
+      }
+      await yieldSearchWork()
+    }
+    return revision === this.searchRevision && this.book === book ? results : []
+  }
+
   async goTo(anchor: string): Promise<void> {
     const rendition = this.requireRendition()
-    if (!isEpubCfi(anchor) && !this.toc.some((item) => item.href === anchor)) {
+    if (
+      !isEpubCfi(anchor) &&
+      !this.toc.some((item) => item.href === anchor) &&
+      !this.isSpineHref(anchor)
+    ) {
       throw new Error(copy('reader.epubInvalidAnchor'))
     }
     this.programmaticScroll = true
     this.relocationReason = 'navigation'
     try {
       await rendition.display(anchor)
+      if (isEpubCfi(anchor)) {
+        await this.waitForLayout()
+        const sectionIndex = this.spineIndexFromCfi(anchor)
+        const renderedContents = this.currentContents(rendition).find(
+          (contents) => contents.sectionIndex === sectionIndex
+        )
+        const range = renderedContents?.range(anchor) ?? rendition.getRange(anchor) as Range | null
+        const rangeDocument = range?.commonAncestorContainer.ownerDocument
+        if (range && rangeDocument) {
+          this.scrollDocumentRectIntoView(rangeDocument, range.getBoundingClientRect())
+        }
+      }
     } catch {
       throw new Error(copy('reader.epubAnchorFailed'))
     }
@@ -512,7 +749,12 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handleContents = (contents: Contents): void => {
-    sanitizeContents(contents)
+    sanitizeContents(contents, {
+      resolveInternalHref: (href) => this.resolveInternalHref(contents.sectionIndex, href),
+      onInternalLink: (href) => {
+        void this.navigateInternalHref(href)
+      }
+    })
     this.applyPreferences(contents)
     this.bindContentsScrollInput(contents)
     this.attachContainerScrollInput(
@@ -566,7 +808,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.host.addEventListener('keydown', this.handleUserScrollInput)
 
     const manager = (rendition as { manager?: { container?: HTMLElement } } | null)?.manager
-    const container = manager?.container ?? this.host.querySelector<HTMLElement>(':scope > .epub-container')
+    const container = this.host.querySelector<HTMLElement>(':scope > .epub-container') ?? manager?.container
     if (container) this.attachContainerScrollInput(container)
   }
 
@@ -599,9 +841,11 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private managerContainer(rendition: Rendition): HTMLElement | null {
+    const renderedContainer = this.host.querySelector<HTMLElement>(':scope > .epub-container')
+    if (renderedContainer) return renderedContainer
     const container = (rendition as { manager?: { container?: HTMLElement } } | null)
       ?.manager?.container
-    return container ?? this.host.querySelector<HTMLElement>(':scope > .epub-container')
+    return container ?? null
   }
 
   private sectionIndexAtContainerScroll(container: HTMLElement): number | null {
@@ -705,8 +949,59 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private spineIndexFromCfi(value: string): number {
     const match = /epubcfi\(\/6\/(\d+)/u.exec(value)
     if (!match) return -1
-    const index = Number(match[1]) - 1
+    const index = Number(match[1]) / 2 - 1
     return Number.isSafeInteger(index) && index >= 0 ? index : -1
+  }
+
+  private async navigateInternalHref(href: string): Promise<void> {
+    const sectionIndex = this.sectionIndexFromHref(href)
+    if (sectionIndex === null) return
+    try {
+      const rendition = this.rendition
+      if (!rendition) return
+      const fragment = href.includes('#') ? href.slice(href.indexOf('#') + 1) : ''
+      let decodedFragment = ''
+      if (fragment) {
+        try {
+          decodedFragment = decodeURIComponent(fragment)
+        } catch {
+          return
+        }
+      }
+      const findContents = (): Contents | undefined => {
+        const availableContents = this.currentContents(rendition)
+        return decodedFragment
+          ? availableContents.find((item) => Boolean(item.document.getElementById(decodedFragment)))
+          : availableContents.find((item) => item.sectionIndex === sectionIndex)
+      }
+      let contents = findContents()
+      if (!contents) {
+        await this.goTo(href)
+        await this.waitForLayout()
+        contents = findContents()
+      }
+      if (!contents) return
+      let target: Element | null = contents.content
+      if (decodedFragment) target = contents.document.getElementById(decodedFragment)
+      if (!target) return
+      const locator = contents.cfiFromNode(target)
+      if (!isEpubCfi(locator)) return
+      await this.goTo(locator)
+      target.scrollIntoView({ block: 'start', inline: 'nearest' })
+      await this.waitForLayout()
+      this.latestLocator = locator
+      this.currentSectionIndex = sectionIndex
+      this.emitRelocation({
+        locator,
+        progress: this.spineCount <= 1 ? 0 : sectionIndex / Math.max(1, this.spineCount - 1),
+        chapterProgress: 0,
+        chapterTitle: this.chapterTitle(sectionIndex, href),
+        chapterHref: this.chapterHref(sectionIndex, href),
+        reason: 'navigation'
+      })
+    } catch {
+      // Sanitized internal links fail closed when the target cannot be rendered.
+    }
   }
 
   private chapterProgressFor(location: Location): number {
@@ -737,7 +1032,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       .frameElement
     const managerContainer = (rendition as { manager?: { container?: HTMLElement } } | null)
       ?.manager?.container
-    const container = managerContainer ?? this.host.querySelector<HTMLElement>(':scope > .epub-container')
+    const container = this.host.querySelector<HTMLElement>(':scope > .epub-container') ?? managerContainer
     if (!frame || !container) return null
     const frameRect = frame.getBoundingClientRect()
     const containerRect = container.getBoundingClientRect()
@@ -797,6 +1092,18 @@ export class EpubReaderAdapter implements ReaderAdapter {
     await new Promise<void>((resolve) => {
       view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve()))
     })
+  }
+
+  private scrollDocumentRectIntoView(document: Document, rect: DOMRect): void {
+    const rendition = this.rendition
+    if (!rendition) return
+    const container = this.managerContainer(rendition)
+    const frame = document.defaultView?.frameElement as HTMLElement | null
+    if (!container || !frame) return
+    const containerRect = container.getBoundingClientRect()
+    const frameRect = frame.getBoundingClientRect()
+    const targetTop = container.scrollTop + frameRect.top - containerRect.top + rect.top - 24
+    container.scrollTop = Math.max(0, targetTop)
   }
 
   private readonly handleSelected = (cfiRange: string, contents: Contents): void => {
@@ -918,6 +1225,28 @@ export class EpubReaderAdapter implements ReaderAdapter {
     return null
   }
 
+  private spineHrefs(): string[] {
+    if (!this.book) return []
+    const hrefs: string[] = []
+    for (let index = 0; index < this.spineCount; index += 1) {
+      const href = this.book.spine.get(index)?.href
+      if (href) hrefs.push(href)
+    }
+    return hrefs
+  }
+
+  private isSpineHref(value: string): boolean {
+    if (!isSafeInternalHref(value)) return false
+    const normalized = normalizeHref(value)
+    return this.spineHrefs().some((href) => normalizeHref(href) === normalized)
+  }
+
+  private resolveInternalHref(sectionIndex: number, value: string): string | null {
+    const currentHref = this.book?.spine.get(sectionIndex)?.href
+    if (!currentHref) return null
+    return resolveInternalSpineHref(currentHref, value, this.spineHrefs())
+  }
+
   private chapterHref(sectionIndex: number, directHref?: string): string | null {
     const sectionHref = directHref || this.book?.spine.get(sectionIndex)?.href || null
     if (!sectionHref) return null
@@ -963,6 +1292,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private resetDocument(): void {
+    this.searchRevision += 1
     if (this.rendition) {
       this.rendition.off('selected', this.handleSelected)
       this.rendition.off('relocated', this.handleRelocated)
@@ -995,5 +1325,6 @@ export {
   isEpubCfi,
   isSafeInternalHref,
   rangeForElementSlice,
+  resolveInternalSpineHref,
   sanitizeContents
 }

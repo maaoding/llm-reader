@@ -40,6 +40,11 @@ export type {
   ReaderHighlightAnchor,
   ReaderMetadata,
   ReaderRelocation,
-  ReaderRelocationReason
+  ReaderRelocationReason,
+  ReaderSearchResult
 } from './types'
-export { DEFAULT_READING_PREFERENCES } from './types'
+export {
+  DEFAULT_READING_PREFERENCES,
+  READER_SEARCH_QUERY_MAX_LENGTH,
+  READER_SEARCH_RESULT_LIMIT
+} from './types'

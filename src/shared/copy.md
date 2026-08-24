@@ -268,6 +268,19 @@
 | reader.progressAria | 阅读进度 {percent}% |
 | reader.readingSettings | 阅读设置 |
 | reader.returnToReading | 回到阅读位置 |
+| reader.searchOpen | 搜索本书 |
+| reader.searchClose | 关闭搜索 |
+| reader.searchTitle | 搜索本书 |
+| reader.searchInputAria | 输入书内搜索词 |
+| reader.searchPlaceholder | 输入 1–100 个字符… |
+| reader.searchSubmit | 搜索 |
+| reader.searchLoading | 正在搜索全文… |
+| reader.searchResultCount | 找到 {count} 处 |
+| reader.searchResultLimit | 显示前 {count} 处 |
+| reader.searchNoResultsTitle | 没有找到相关内容 |
+| reader.searchNoResultsDetail | 换一个词再试试。 |
+| reader.searchFailed | 搜索失败，请重试。 |
+| reader.searchInvalid | 请输入 1–100 个字符。 |
 | reader.chapterProgress | 本章进度 |
 | reader.highlightsFailed | 无法应用原文高亮。 |
 | reader.areaAria | 正文阅读区 |

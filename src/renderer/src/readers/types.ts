@@ -25,6 +25,15 @@ export interface ReaderHighlightAnchor {
   anchor: string
 }
 
+export interface ReaderSearchResult {
+  anchor: string
+  excerpt: string
+  chapterTitle: string
+}
+
+export const READER_SEARCH_RESULT_LIMIT = 200
+export const READER_SEARCH_QUERY_MAX_LENGTH = 100
+
 export interface ReaderCallbacks {
   bookId: string
   onRelocated?: (relocation: ReaderRelocation) => void
@@ -72,6 +81,7 @@ export interface ReaderAdapter {
 
   open(bytes: Uint8Array, lastLocator?: string | null): Promise<ReaderDocumentInfo>
   destroy(): void
+  search(query: string): Promise<ReadonlyArray<ReaderSearchResult>>
   goTo(anchor: string): Promise<void>
   getSelection(): SelectionContext | null
   selectAnchor(anchor: string): Promise<boolean>
