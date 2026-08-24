@@ -23,7 +23,7 @@ test('shows version, license and third-party notices in the About settings secti
     await expect(aboutIcon).toBeVisible()
     await expect(aboutIcon).toHaveAttribute('src', /icon-.*\.png/u)
     await expect(aboutPanel).toContainText('LLM Reader')
-    await expect(page.getByTestId('about-version')).toHaveText('0.2.0')
+    await expect(page.getByTestId('about-version')).toHaveText('0.3.0')
     await expect(aboutPanel).toContainText('© 2026 wrh37')
     await expect(aboutPanel).toContainText('GPL-3.0-or-later')
     await expect(aboutPanel).toContainText('https://github.com/maaoding/llm-reader')
