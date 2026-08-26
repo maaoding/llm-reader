@@ -9,6 +9,15 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import (
+    ArrayObject,
+    DictionaryObject,
+    FloatObject,
+    NameObject,
+    RectangleObject,
+    TextStringObject,
+)
 
 
 FIXTURE_DIR = Path(__file__).resolve().parent
@@ -81,11 +90,92 @@ def create_damaged_pdf(path: Path) -> None:
     path.write_bytes(b"%PDF-1.7\nThis fixture is intentionally damaged.\n")
 
 
+def create_oversized_pdf(path: Path) -> None:
+    width = 2_000
+    height = 20_000
+    pdf = canvas.Canvas(str(path), pagesize=(width, height), pageCompression=1)
+    pdf.setTitle("Oversized PDF Boundary Test")
+    pdf.setAuthor("LLM Reader")
+    pdf.setFont(FONT_NAME, 52)
+    pdf.drawString(120, height - 160, "超大页面边界测试")
+    pdf.setFont(FONT_NAME, 28)
+    pdf.drawString(120, height - 240, "页面比例为 1:10，画布输出必须受尺寸与像素上限约束。")
+    for index in range(1, 20):
+        y = height - 240 - index * 980
+        pdf.setStrokeColorRGB(0.72, 0.76, 0.79)
+        pdf.line(120, y + 80, width - 120, y + 80)
+        pdf.setFillColorRGB(0.18, 0.25, 0.29)
+        pdf.drawString(120, y, f"超大页定位标记 {index:02d}")
+    pdf.save()
+
+
+def create_hostile_pdf(path: Path) -> None:
+    width, height = A4
+    source = BytesIO()
+    pdf = canvas.Canvas(source, pagesize=A4, pageCompression=1)
+    pdf.setTitle("Hostile PDF Capability Test")
+    pdf.setAuthor("LLM Reader")
+
+    pdf.bookmarkPage("hostile-page-one")
+    pdf.setFont(FONT_NAME, 22)
+    pdf.drawString(72, height - 82, "危险能力拦截测试")
+    pdf.setFont(FONT_NAME, 12)
+    pdf.drawString(72, height - 126, "本文件故意包含脚本、附件、表单、外链和启动动作。")
+    pdf.drawString(72, height - 162, "唯一允许的交互：跳到第二页")
+    pdf.linkRect("", "hostile-page-two", (70, height - 170, 300, height - 145), relative=0, thickness=0)
+    pdf.drawString(72, height - 206, "外部网址（必须被忽略）")
+    pdf.linkURL("https://example.invalid/blocked", (70, height - 214, 300, height - 190), relative=0)
+    pdf.acroForm.textfield(
+        name="unsafe-field",
+        tooltip="This form control must not be exposed",
+        x=72,
+        y=height - 286,
+        width=220,
+        height=28,
+        value="BLOCKED_FORM_FIELD",
+        borderWidth=1,
+    )
+    pdf.drawString(72, height - 330, "启动动作（必须被忽略）")
+    pdf.showPage()
+
+    pdf.bookmarkPage("hostile-page-two")
+    pdf.setFont(FONT_NAME, 22)
+    pdf.drawString(72, height - 82, "安全的内部跳转目标")
+    pdf.setFont(FONT_NAME, 12)
+    pdf.drawString(72, height - 126, "到达此页说明当前文档内导航仍然可用。")
+    pdf.save()
+    source.seek(0)
+
+    reader = PdfReader(source)
+    writer = PdfWriter()
+    writer.clone_document_from_reader(reader)
+    writer.add_js("app.alert('PDF_JAVASCRIPT_MUST_NOT_RUN');")
+    writer.add_attachment("unsafe-attachment.txt", b"ATTACHMENT_MUST_NOT_BE_EXPOSED")
+
+    launch_action = DictionaryObject({
+        NameObject("/S"): NameObject("/Launch"),
+        NameObject("/F"): TextStringObject("calc.exe"),
+    })
+    launch_annotation = DictionaryObject({
+        NameObject("/Type"): NameObject("/Annot"),
+        NameObject("/Subtype"): NameObject("/Link"),
+        NameObject("/Rect"): RectangleObject((70, height - 350, 300, height - 325)),
+        NameObject("/Border"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(0)]),
+        NameObject("/A"): launch_action,
+    })
+    writer.add_annotation(page_number=0, annotation=launch_annotation)
+
+    with path.open("wb") as output:
+        writer.write(output)
+
+
 def main() -> None:
     register_font()
     create_text_pdf(FIXTURE_DIR / "text-reader.pdf")
     create_scanned_pdf(FIXTURE_DIR / "scanned-reader.pdf")
     create_damaged_pdf(FIXTURE_DIR / "damaged-reader.pdf")
+    create_oversized_pdf(FIXTURE_DIR / "oversized-reader.pdf")
+    create_hostile_pdf(FIXTURE_DIR / "hostile-reader.pdf")
 
 
 if __name__ == "__main__":
