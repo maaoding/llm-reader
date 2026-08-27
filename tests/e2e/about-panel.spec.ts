@@ -1,17 +1,16 @@
-import { expect, test, _electron as electron } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { expect, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 
 test('shows version, license and third-party notices in the About settings section', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'llm-reader-about-'))
-  const application = await electron.launch({
-    args: ['.'],
-    env: { ...process.env, LLM_READER_USER_DATA: userData }
-  })
+  const workspace = await createE2eWorkspace('llm-reader-about-')
+  const { application, page } = await launchReader({ userData: workspace.userData })
+  const packageMetadata = JSON.parse(
+    await readFile(resolve('package.json'), 'utf8')
+  ) as { version: string }
 
   try {
-    const page = await application.firstWindow()
     await expect(page.getByTestId('app-shell')).toBeVisible()
 
     await page.getByTestId('settings-button').click()
@@ -23,7 +22,7 @@ test('shows version, license and third-party notices in the About settings secti
     await expect(aboutIcon).toBeVisible()
     await expect(aboutIcon).toHaveAttribute('src', /icon-.*\.png/u)
     await expect(aboutPanel).toContainText('LLM Reader')
-    await expect(page.getByTestId('about-version')).toHaveText('0.3.0')
+    await expect(page.getByTestId('about-version')).toHaveText(packageMetadata.version)
     await expect(aboutPanel).toContainText('© 2026 wrh37')
     await expect(aboutPanel).toContainText('GPL-3.0-or-later')
     await expect(aboutPanel).toContainText('https://github.com/maaoding/llm-reader')
@@ -32,7 +31,6 @@ test('shows version, license and third-party notices in the About settings secti
     await expect(aboutPanel).toContainText('React、React DOM（MIT）')
     await expect(aboutPanel).toContainText('THIRD_PARTY_NOTICES.md')
   } finally {
-    await application.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

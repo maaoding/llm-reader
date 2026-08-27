@@ -1,7 +1,12 @@
-import { expect, test, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
 
 const textPdf = resolve('tests/e2e/fixtures/text-reader.pdf')
 const scannedPdf = resolve('tests/e2e/fixtures/scanned-reader.pdf')
@@ -13,29 +18,24 @@ async function openFixture(fixture: string): Promise<{
   application: ElectronApplication
   page: Page
   testRoot: string
+  userData: string
 }> {
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-pdf-'))
-  const application = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      LLM_READER_USER_DATA: join(testRoot, 'profile'),
-      LLM_READER_E2E_IMPORT: fixture
-    }
+  const workspace = await createE2eWorkspace('llm-reader-pdf-')
+  const { application, page } = await launchReader({
+    userData: workspace.userData,
+    importPath: fixture
   })
-  const page = await application.firstWindow()
   page.on('console', (message) => {
     if (message.type() === 'error') console.error(`[renderer] ${message.text()}`)
   })
   page.on('pageerror', (error) => console.error(`[renderer-pageerror] ${error.message}`))
   await expect(page.getByTestId('book-item').first()).toBeVisible()
   await page.getByTestId('book-item').first().click()
-  return { application, page, testRoot }
+  return { application, page, testRoot: workspace.root, userData: workspace.userData }
 }
 
 async function closeFixture(application: ElectronApplication | undefined, testRoot: string): Promise<void> {
-  await application?.close().catch(() => undefined)
-  await rm(testRoot, { recursive: true, force: true })
+  await cleanupE2eWorkspace(application, testRoot)
 }
 
 test('reads, searches, selects, zooms and follows only internal links in a text PDF', async () => {
@@ -43,7 +43,7 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
   const opened = await openFixture(textPdf)
   let application = opened.application
   let page = opened.page
-  const { testRoot } = opened
+  const { testRoot, userData } = opened
   try {
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('.pdf-page')).toHaveCount(3)
@@ -124,14 +124,18 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
       host.dispatchEvent(new Event('scroll'))
     })
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第 2 页')
-    await page.waitForTimeout(800)
+    await expect.poll(async () => {
+      const books = await page.evaluate(() => (
+        window as unknown as {
+          readerApi: { listBooks(): Promise<Array<{ lastLocator: string | null }>> }
+        }
+      ).readerApi.listBooks())
+      return books[0]?.lastLocator ?? null
+    }).toMatch(/^pdf:2:/u)
 
-    await application.close()
-    application = await electron.launch({
-      args: ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: join(testRoot, 'profile') }
-    })
-    page = await application.firstWindow()
+    const restarted = await restartReader(application, { userData })
+    application = restarted.application
+    page = restarted.page
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })

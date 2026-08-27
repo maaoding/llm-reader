@@ -1,13 +1,12 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication
 } from '@playwright/test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import JSZip from 'jszip'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 
 async function writeEpubFixture(path: string, chapters: Array<{ file: string; label: string; head?: string; css?: string }>): Promise<void> {
   const zip = new JSZip()
@@ -73,9 +72,8 @@ async function writeEpubFixture(path: string, chapters: Array<{ file: string; la
 
 test('expands reflowable chapters whose CSS constrains html and body height', async () => {
   test.setTimeout(90_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-chapter-height-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'constrained-height.epub')
+  const workspace = await createE2eWorkspace('llm-reader-chapter-height-')
+  const fixture = join(workspace.root, 'constrained-height.epub')
   await writeEpubFixture(fixture, [
     { file: 'c1', label: '第一章', css: 'html, body { margin: 0; height: 100%; } body { columns: 2; column-gap: 20px; } p { margin: 0 0 16px; }' },
     { file: 'c2', label: '第二章', css: 'html, body { margin: 0; height: 100%; } body { columns: 2; column-gap: 20px; } p { margin: 0 0 16px; }' }
@@ -83,11 +81,9 @@ test('expands reflowable chapters whose CSS constrains html and body height', as
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: userData, LLM_READER_E2E_IMPORT: fixture }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     const frame = page.getByTestId('reader-host').locator('iframe').first()
@@ -118,16 +114,14 @@ test('expands reflowable chapters whose CSS constrains html and body height', as
     expect(dimensions?.frameHeight).toBeGreaterThan(2_000)
     expect(dimensions?.documentWidth).toBeLessThanOrEqual((dimensions?.frameWidth ?? 0) + 2)
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })
 
 test('highlights only the TOC entry whose href matches the current chapter', async () => {
   test.setTimeout(90_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-duplicate-toc-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'duplicate-toc.epub')
+  const workspace = await createE2eWorkspace('llm-reader-duplicate-toc-')
+  const fixture = join(workspace.root, 'duplicate-toc.epub')
   await writeEpubFixture(fixture, [
     { file: 'c1', label: '相同章节' },
     { file: 'c2', label: '相同章节' },
@@ -136,11 +130,9 @@ test('highlights only the TOC entry whose href matches the current chapter', asy
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: userData, LLM_READER_E2E_IMPORT: fixture }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
 
@@ -169,16 +161,14 @@ test('highlights only the TOC entry whose href matches the current chapter', asy
     await expect(tocItems.nth(2)).toHaveAttribute('data-current', 'true')
     await expect(currentTocItems).toHaveCount(1)
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })
 
 test('scales fixed-layout pages instead of clipping them below the viewport', async () => {
   test.setTimeout(90_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-fixed-layout-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'fixed-layout.epub')
+  const workspace = await createE2eWorkspace('llm-reader-fixed-layout-')
+  const fixture = join(workspace.root, 'fixed-layout.epub')
   const zip = new JSZip()
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
   zip.file(
@@ -233,11 +223,9 @@ test('scales fixed-layout pages instead of clipping them below the viewport', as
 
   let application: ElectronApplication | undefined
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: userData, LLM_READER_E2E_IMPORT: fixture }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     const frame = page.getByTestId('reader-host').locator('iframe').first()
@@ -268,7 +256,6 @@ test('scales fixed-layout pages instead of clipping them below the viewport', as
     await expect(tocItems.nth(1)).toHaveAttribute('data-current', 'true')
     await expect(currentTocItems).toHaveCount(1)
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

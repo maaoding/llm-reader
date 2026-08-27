@@ -1,14 +1,17 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication,
   type Locator
 } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
 
 let mockServer: Server
 let endpoint = ''
@@ -86,19 +89,16 @@ test.afterAll(async () => {
 })
 
 test('customizes selection action names and prompts and restores them after restart', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'assistant-actions-e2e-'))
+  const workspace = await createE2eWorkspace('assistant-actions-e2e-')
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: resolve('tests/fixtures/complex-reading.txt')
-      }
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
     })
-    const page = await application.firstWindow()
+    application = launched.application
+    const { page } = launched
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
@@ -142,18 +142,12 @@ test('customizes selection action names and prompts and restores them after rest
     await expect.poll(() => latestStreamPrompt).toContain('读者请求：请用通俗语言解释这段内容。')
     expect(streamRequestCount).toBeGreaterThanOrEqual(1)
 
-    await application.close()
-    application = undefined
-
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: resolve('tests/fixtures/complex-reading.txt')
-      }
+    const restarted = await restartReader(application, {
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
     })
-    const restoredPage = await application.firstWindow()
+    application = restarted.application
+    const restoredPage = restarted.page
     await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
     await restoredPage.getByTestId('book-item').first().click()
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
@@ -193,7 +187,6 @@ test('customizes selection action names and prompts and restores them after rest
     await expect(restoredPage.getByTestId('action-ask')).toContainText('自由提问')
     await expect(restoredPage.getByTestId('action-ask')).toHaveAttribute('data-icon', 'message-square-text')
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

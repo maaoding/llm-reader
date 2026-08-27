@@ -1,20 +1,11 @@
-import { expect, test, _electron as electron } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { expect, test } from '@playwright/test'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 
 test('uses a frameless window with working window controls', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'llm-reader-window-chrome-'))
-  const application = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      LLM_READER_USER_DATA: userData
-    }
-  })
+  const workspace = await createE2eWorkspace('llm-reader-window-chrome-')
+  const { application, page } = await launchReader({ userData: workspace.userData })
 
   try {
-    const page = await application.firstWindow()
     const controls = page.locator('.window-controls')
     const maximizeButton = page.getByTestId('window-toggle-maximize')
 
@@ -47,7 +38,6 @@ test('uses a frameless window with working window controls', async () => {
     await expect.poll(isMaximized).toBe(false)
     await expect(maximizeButton).toHaveAttribute('aria-label', '最大化')
   } finally {
-    await application.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

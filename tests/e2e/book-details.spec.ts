@@ -1,33 +1,24 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication
 } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createCoveredEpubFixture } from './fixtures/covered-epub'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 
 test('shows the extracted shelf cover and book details modal', async () => {
   test.setTimeout(120_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-book-details-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'details.epub')
+  const workspace = await createE2eWorkspace('llm-reader-book-details-')
+  const fixture = join(workspace.root, 'details.epub')
   const visualDirectory = process.env.LLM_READER_VISUAL_DIR
   await createCoveredEpubFixture(fixture)
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await application.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0].setContentSize(1280, 820)
     })
@@ -66,7 +57,6 @@ test('shows the extracted shelf cover and book details modal', async () => {
     await expect(modal).toHaveCount(0)
     await expect(headerInfoButton).toBeFocused()
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

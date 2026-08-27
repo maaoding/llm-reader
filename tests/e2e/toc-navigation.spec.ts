@@ -1,13 +1,11 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication
 } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNestedEpubFixture } from './fixtures/nested-epub'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 
 function rgbChannels(value: string): [number, number, number] {
   const channels = value
@@ -37,22 +35,15 @@ function contrastRatio(foreground: string, background: string): number {
 
 test('nested TOC collapses via disclosure without jumping and navigates without CFI highlight', async () => {
   test.setTimeout(90_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-toc-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'nested-toc.epub')
+  const workspace = await createE2eWorkspace('llm-reader-toc-')
+  const fixture = join(workspace.root, 'nested-toc.epub')
   await createNestedEpubFixture(fixture)
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
 
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
@@ -99,25 +90,21 @@ test('nested TOC collapses via disclosure without jumping and navigates without 
     await expect(page.getByText('无效的 EPUB 高亮锚点')).toHaveCount(0)
     await expect(page.getByText('无法跳转到这个章节')).toHaveCount(0)
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })
 
 test('EPUB keeps authored black text on a light page in dark mode', async () => {
   test.setTimeout(90_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-dark-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'dark-readability.epub')
+  const workspace = await createE2eWorkspace('llm-reader-dark-')
+  const fixture = join(workspace.root, 'dark-readability.epub')
   await createNestedEpubFixture(fixture)
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: userData, LLM_READER_E2E_IMPORT: fixture }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
@@ -143,7 +130,6 @@ test('EPUB keeps authored black text on a light page in dark mode', async () => 
       })
       .toBeGreaterThanOrEqual(4.5)
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

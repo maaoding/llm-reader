@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process'
-import { access, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { access } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
-import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
+import { expect, test, type ElectronApplication } from '@playwright/test'
 import type { BaseWindow, OpenDialogOptions } from 'electron'
 import { createSearchLinksEpubFixture } from './fixtures/search-links-epub'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 
 const execFileAsync = promisify(execFile)
 
@@ -33,11 +33,10 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
   test.skip(!calibre, 'Local Calibre is not installed')
   if (!calibre) return
 
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-calibre-e2e-'))
-  const epubPath = join(testRoot, 'source.epub')
-  const mobiPath = join(testRoot, 'source.mobi')
-  const azw3Path = join(testRoot, 'source.azw3')
-  const userData = join(testRoot, 'profile')
+  const workspace = await createE2eWorkspace('llm-reader-calibre-e2e-')
+  const epubPath = join(workspace.root, 'source.epub')
+  const mobiPath = join(workspace.root, 'source.mobi')
+  const azw3Path = join(workspace.root, 'source.azw3')
   const visualDirectory = process.env.LLM_READER_VISUAL_DIR
   let application: ElectronApplication | undefined
 
@@ -46,11 +45,9 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
     await execFileAsync(calibre, [epubPath, mobiPath], { timeout: 120_000, windowsHide: true })
     await execFileAsync(calibre, [epubPath, azw3Path], { timeout: 120_000, windowsHide: true })
 
-    application = await electron.launch({
-      args: ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: userData }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 900))
     await expect(page.getByTestId('import-book')).toBeVisible()
     await application.evaluate(({ dialog }, sourcePaths) => {
@@ -111,7 +108,6 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
       await page.screenshot({ path: join(visualDirectory, 'calibre-library-dark-940x600-125.png') })
     }
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

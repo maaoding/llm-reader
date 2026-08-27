@@ -1,15 +1,19 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication,
   type Page
 } from '@playwright/test'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import JSZip from 'jszip'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
 
 interface EpubSnapshot {
   key: number
@@ -292,134 +296,124 @@ function fixtureSpineFromCfi(locator: string): number | null {
 
 test('continuously scrolls back through prepended EPUB chapters without restoring an old locator', async () => {
   test.setTimeout(120_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-epub-upward-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'upward-scroll.epub')
+  const workspace = await createE2eWorkspace('llm-reader-epub-upward-')
+  const fixture = join(workspace.root, 'upward-scroll.epub')
   await createLongEpubFixture(fixture)
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    let page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    let { page } = launched
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await installContainerObserver(page)
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('reader-host').locator('.epub-container')).toBeVisible()
     await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
 
-    let downward = await waitForStableSnapshot(page)
-    for (let step = 0; step < 100 && downward.spine < EPUB_CHAPTER_COUNT - 1; step += 1) {
-      downward = await scrollByViewport(page, 0.65)
-    }
-    expect(downward.spine, `last downward snapshot: ${JSON.stringify(downward)}`).toBe(
-      EPUB_CHAPTER_COUNT - 1
-    )
-
-    await page.waitForTimeout(550)
-    downward = await waitForStableSnapshot(page)
-    await expect.poll(() => readContainerMounts(page)).toEqual({ mounts: 1, sameContainer: true })
-
-    await expect
-      .poll(() => readPersistedPosition(userData), { timeout: 5_000 })
-      .toEqual(
-        expect.objectContaining({
-          locator: expect.stringMatching(/^epubcfi\(/u),
-          progress: expect.any(Number)
-        })
-      )
-    const savedAtBottom = readPersistedPosition(userData)
-    if (!savedAtBottom) throw new Error('EPUB position was not persisted before restart')
-    expect(fixtureSpineFromCfi(savedAtBottom.locator)).toBeGreaterThanOrEqual(3)
-
-    await application.close()
-    application = undefined
-
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData
+    const savedAtBottom = await test.step('scrolls down and persists the bottom position', async () => {
+      let downward = await waitForStableSnapshot(page)
+      for (let step = 0; step < 100 && downward.spine < EPUB_CHAPTER_COUNT - 1; step += 1) {
+        downward = await scrollByViewport(page, 0.65)
       }
+      expect(downward.spine, `last downward snapshot: ${JSON.stringify(downward)}`).toBe(
+        EPUB_CHAPTER_COUNT - 1
+      )
+
+      await page.waitForTimeout(550)
+      await waitForStableSnapshot(page)
+      await expect.poll(() => readContainerMounts(page)).toEqual({ mounts: 1, sameContainer: true })
+      await expect
+        .poll(() => readPersistedPosition(workspace.userData), { timeout: 5_000 })
+        .toEqual(
+          expect.objectContaining({
+            locator: expect.stringMatching(/^epubcfi\(/u),
+            progress: expect.any(Number)
+          })
+        )
+      const saved = readPersistedPosition(workspace.userData)
+      if (!saved) throw new Error('EPUB position was not persisted before restart')
+      expect(fixtureSpineFromCfi(saved.locator)).toBeGreaterThanOrEqual(3)
+      return saved
     })
-    page = await application.firstWindow()
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await installContainerObserver(page)
-    await page.getByTestId('book-item').first().click()
-    await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
 
-    let previous = await waitForStableSnapshot(page)
-    expect(previous.spine).toBeGreaterThanOrEqual(3)
-    expect(previous.refs).not.toContain(0)
-    const persistedMilestones: PersistedPosition[] = [savedAtBottom]
-    let milestoneSpine = previous.spine
-    let stalledSteps = 0
-    let reachedTop = false
+    await test.step('restarts at the persisted chapter', async () => {
+      const restarted = await restartReader(application!, { userData: workspace.userData })
+      application = restarted.application
+      page = restarted.page
+      await expect(page.getByTestId('book-item').first()).toBeVisible()
+      await installContainerObserver(page)
+      await page.getByTestId('book-item').first().click()
+      await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
+    })
 
-    for (let step = 0; step < 160; step += 1) {
-      const before = previous
-      const after = await scrollByViewport(page, -0.55)
+    await test.step('scrolls upward without rebounding or restoring the old locator', async () => {
+      let previous = await waitForStableSnapshot(page)
+      expect(previous.spine).toBeGreaterThanOrEqual(3)
+      expect(previous.refs).not.toContain(0)
+      const persistedMilestones: PersistedPosition[] = [savedAtBottom]
+      let milestoneSpine = previous.spine
+      let stalledSteps = 0
+      let reachedTop = false
 
-      expect(
-        after.key,
-        `logical position rebounded at step ${step}: ${JSON.stringify({ before, after })}`
-      ).toBeLessThanOrEqual(before.key + 0.35)
+      for (let step = 0; step < 160; step += 1) {
+        const before = previous
+        const after = await scrollByViewport(page, -0.55)
 
-      if (after.key < before.key - 0.1) stalledSteps = 0
-      else stalledSteps += 1
-      expect(stalledSteps, `upward scroll stalled near ${JSON.stringify(after)}`).toBeLessThan(10)
-
-      if (after.scrollTop > before.scrollTop + 4) {
         expect(
           after.key,
-          `prepend compensation moved the logical position backward: ${JSON.stringify({ before, after })}`
-        ).toBeLessThanOrEqual(before.key + 0.15)
+          `logical position rebounded at step ${step}: ${JSON.stringify({ before, after })}`
+        ).toBeLessThanOrEqual(before.key + 0.35)
+
+        if (after.key < before.key - 0.1) stalledSteps = 0
+        else stalledSteps += 1
+        expect(stalledSteps, `upward scroll stalled near ${JSON.stringify(after)}`).toBeLessThan(10)
+
+        if (after.scrollTop > before.scrollTop + 4) {
+          expect(
+            after.key,
+            `prepend compensation moved the logical position backward: ${JSON.stringify({ before, after })}`
+          ).toBeLessThanOrEqual(before.key + 0.15)
+        }
+
+        previous = after
+        if (after.spine < milestoneSpine) {
+          milestoneSpine = after.spine
+          await page.waitForTimeout(750)
+          const persisted = readPersistedPosition(workspace.userData)
+          if (persisted) persistedMilestones.push(persisted)
+        }
+
+        if (after.spine === 0 && after.block <= 1 && after.scrollTop < 120) {
+          reachedTop = true
+          break
+        }
       }
 
-      previous = after
-      if (after.spine < milestoneSpine) {
-        milestoneSpine = after.spine
-        await page.waitForTimeout(750)
-        const persisted = readPersistedPosition(userData)
-        if (persisted) persistedMilestones.push(persisted)
+      expect(reachedTop, `final upward snapshot: ${JSON.stringify(previous)}`).toBe(true)
+      expect(previous.spine).toBe(0)
+      expect(previous.block).toBeLessThanOrEqual(1)
+      expect(previous.scrollTop).toBeLessThan(120)
+      await expect.poll(() => readContainerMounts(page)).toEqual({ mounts: 1, sameContainer: true })
+
+      await page.waitForTimeout(750)
+      const savedAtTop = readPersistedPosition(workspace.userData)
+      if (!savedAtTop) throw new Error('EPUB position was not persisted at the top')
+      persistedMilestones.push(savedAtTop)
+
+      expect(savedAtTop.locator).not.toBe(savedAtBottom.locator)
+      expect(fixtureSpineFromCfi(savedAtTop.locator)).toBe(0)
+      for (let index = 1; index < persistedMilestones.length; index += 1) {
+        const earlier = persistedMilestones[index - 1]
+        const later = persistedMilestones[index]
+        expect(later.progress).toBeLessThanOrEqual(earlier.progress + 0.02)
+        expect(fixtureSpineFromCfi(later.locator)).toBeLessThanOrEqual(
+          fixtureSpineFromCfi(earlier.locator) ?? Number.POSITIVE_INFINITY
+        )
+        if (index > 1) expect(later.locator).not.toBe(savedAtBottom.locator)
       }
-
-      if (after.spine === 0 && after.block <= 1 && after.scrollTop < 120) {
-        reachedTop = true
-        break
-      }
-    }
-
-    expect(reachedTop, `final upward snapshot: ${JSON.stringify(previous)}`).toBe(true)
-    expect(previous.spine).toBe(0)
-    expect(previous.block).toBeLessThanOrEqual(1)
-    expect(previous.scrollTop).toBeLessThan(120)
-    await expect.poll(() => readContainerMounts(page)).toEqual({ mounts: 1, sameContainer: true })
-
-    await page.waitForTimeout(750)
-    const savedAtTop = readPersistedPosition(userData)
-    if (!savedAtTop) throw new Error('EPUB position was not persisted at the top')
-    persistedMilestones.push(savedAtTop)
-
-    expect(savedAtTop.locator).not.toBe(savedAtBottom.locator)
-    expect(fixtureSpineFromCfi(savedAtTop.locator)).toBe(0)
-    for (let index = 1; index < persistedMilestones.length; index += 1) {
-      const earlier = persistedMilestones[index - 1]
-      const later = persistedMilestones[index]
-      expect(later.progress).toBeLessThanOrEqual(earlier.progress + 0.02)
-      expect(fixtureSpineFromCfi(later.locator)).toBeLessThanOrEqual(
-        fixtureSpineFromCfi(earlier.locator) ?? Number.POSITIVE_INFINITY
-      )
-      if (index > 1) expect(later.locator).not.toBe(savedAtBottom.locator)
-    }
+    })
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

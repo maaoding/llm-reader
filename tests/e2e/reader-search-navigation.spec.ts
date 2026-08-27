@@ -1,14 +1,17 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication,
   type Page
 } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createSearchLinksEpubFixture } from './fixtures/search-links-epub'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
 
 async function currentChapter(page: Page): Promise<string> {
   return page.locator('.reader-column').getAttribute('data-current-chapter-title').then((value) => value ?? '')
@@ -37,22 +40,15 @@ async function activateEpubLink(page: Page, id: string): Promise<{
 
 test('Ctrl+F searches EPUB, highlights navigation, preserves natural position and gates links', async () => {
   test.setTimeout(120_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-search-links-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'search-links.epub')
+  const workspace = await createE2eWorkspace('llm-reader-search-links-')
+  const fixture = join(workspace.root, 'search-links.epub')
   await createSearchLinksEpubFixture(fixture)
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    let page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    let { page } = launched
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     await expect.poll(() => currentChapter(page)).toBe('第一章')
@@ -103,17 +99,13 @@ test('Ctrl+F searches EPUB, highlights navigation, preserves natural position an
     expect(crossChapter.internalHref).toBe('chapter-2.xhtml#destination')
     await expect.poll(() => currentChapter(page)).toBe('第二章')
 
-    await application.close()
-    application = await electron.launch({
-      args: ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: userData }
-    })
-    page = await application.firstWindow()
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    page = restarted.page
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     await expect.poll(() => currentChapter(page)).toBe('第一章')
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

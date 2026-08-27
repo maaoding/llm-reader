@@ -1,15 +1,18 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication,
   type Locator,
   type Page
 } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createNestedEpubFixture } from './fixtures/nested-epub'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
 
 async function selectNodeContents(locator: Locator): Promise<void> {
   await locator.evaluate((element) => {
@@ -32,20 +35,14 @@ async function hasPersistentTxtHighlight(page: Page): Promise<boolean> {
 
 test('saves TXT sentence highlights, keeps the tab on one line, restores the natural position and persists paper theme', async () => {
   test.setTimeout(90_000)
-  const userData = await mkdtemp(join(tmpdir(), 'llm-reader-txt-highlights-'))
+  const workspace = await createE2eWorkspace('llm-reader-txt-highlights-')
   const fixture = resolve('tests/fixtures/complex-reading.txt')
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('reader-host')).toContainText('理解一个复杂概念')
 
@@ -110,14 +107,9 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
       )
       .toBe('rgb(246, 236, 216)')
 
-    await application.close()
-    application = undefined
-
-    application = await electron.launch({
-      args: ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: userData }
-    })
-    const restored = await application.firstWindow()
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    const restored = restarted.page
     await restored.getByTestId('book-item').first().click()
     await expect(restored.getByTestId('reader-host')).toContainText('理解一个复杂概念')
     await expect
@@ -134,29 +126,21 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
     await expect(restored.getByTestId('highlight-item')).toHaveCount(0)
     await expect.poll(() => hasPersistentTxtHighlight(restored)).toBe(false)
   } finally {
-    if (application) await application.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })
 
 test('saves EPUB sentence highlights, reapplies them after chapter reload and removes them on delete', async () => {
   test.setTimeout(90_000)
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-epub-highlights-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'nested-highlights.epub')
+  const workspace = await createE2eWorkspace('llm-reader-epub-highlights-')
+  const fixture = join(workspace.root, 'nested-highlights.epub')
   await createNestedEpubFixture(fixture)
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await page.getByTestId('book-item').first().click()
     await expect(page.locator('[data-testid="toc-item"][data-current="true"]')).toHaveCount(1)
     await expect(page.locator('[data-testid="toc-item"][data-current="true"]')).toContainText('第一部')
@@ -198,7 +182,6 @@ test('saves EPUB sentence highlights, reapplies them after chapter reload and re
       .poll(() => page.getByTestId('reader-host').locator('.llm-reader-persistent-highlight').count())
       .toBe(0)
   } finally {
-    if (application) await application.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

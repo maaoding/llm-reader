@@ -1,29 +1,25 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication
 } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { join } from 'node:path'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
 
 test('picks a reading font from installed system fonts and persists it across restarts', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'llm-reader-font-e2e-'))
+  const workspace = await createE2eWorkspace('llm-reader-font-e2e-')
   const fixture = resolve('tests/fixtures/complex-reading.txt')
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
 
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
@@ -60,17 +56,9 @@ test('picks a reading font from installed system fonts and persists it across re
     await expect(page.getByTestId('settings-modal')).toHaveCount(0)
 
     // The selection must survive a restart via localStorage.
-    await application.close()
-    application = undefined
-
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData
-      }
-    })
-    const restoredPage = await application.firstWindow()
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    const restoredPage = restarted.page
     await restoredPage.getByTestId('book-item').first().click()
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
     await expect
@@ -83,7 +71,6 @@ test('picks a reading font from installed system fonts and persists it across re
       )
       .toContain(chosen)
   } finally {
-    if (application) await application.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

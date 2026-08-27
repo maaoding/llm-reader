@@ -1,16 +1,20 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication,
   type Locator,
   type Page
 } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import JSZip from 'jszip'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
 
 let mockServer: Server
 let endpoint = ''
@@ -185,18 +189,13 @@ test.afterAll(async () => {
 })
 
 test('keeps escaped keyboard focus inside settings and assistant dialogs', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'llm-reader-focus-e2e-'))
+  const workspace = await createE2eWorkspace('llm-reader-focus-e2e-')
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData
-      }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
     const settingsButton = page.getByTestId('settings-button')
     const expandButton = page.getByTestId('assistant-expand-button')
 
@@ -260,27 +259,20 @@ test('keeps escaped keyboard focus inside settings and assistant dialogs', async
     await expect(assistantDialog).toHaveCount(0)
     await expect(expandButton).toBeFocused()
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })
 
-test('keeps the home quiet and persists unified settings, reading, conversation, and insight deletion', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'llm-reader-e2e-'))
+test('keeps the home quiet and applies unified appearance, reading and provider settings', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-e2e-')
   const fixture = resolve('tests/fixtures/complex-reading.txt')
   const visualDirectory = process.env.LLM_READER_VISUAL_DIR
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await application.evaluate(({ BrowserWindow, dialog }) => {
       const window = BrowserWindow.getAllWindows()[0]
       window.setContentSize(1536, 864)
@@ -461,6 +453,57 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     )
     expect(txtSelectionCss).toContain('.reader-document ::selection')
     expect(txtSelectionCss).toContain('rgba(240, 220, 160, 0.55)')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('persists reading, conversation and insight deletion after restart', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-persistence-e2e-')
+  const fixture = resolve('tests/fixtures/complex-reading.txt')
+  const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    await application.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].setContentSize(1536, 864)
+    })
+    await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await page.getByTestId('book-item').first().click()
+    await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
+
+    const settingsButton = page.getByTestId('settings-button')
+    await settingsButton.click()
+    const settings = page.getByTestId('settings-modal')
+    const lightTheme = page.getByTestId('theme-light')
+    const darkTheme = page.getByTestId('theme-dark')
+    await darkTheme.click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-nav-reading').click()
+    await page.getByTestId('reading-font-scale').fill('125')
+    await page.getByTestId('reading-line-height').selectOption('1.7')
+    await page.getByTestId('reading-indent').selectOption('2em')
+    await page.getByTestId('reading-content-width').selectOption('narrow')
+    await page.getByTestId('reading-paragraph-spacing').selectOption('compact')
+    await page.getByTestId('settings-nav-model').click()
+    await page.getByTestId('provider-base-url').fill(endpoint)
+    await page.getByTestId('provider-model').fill('configured-alias')
+    await page.getByTestId('provider-api-key').fill('test-only-key')
+    await page.getByTestId('provider-test').click()
+    await expect(page.getByTestId('provider-status')).toContainText('连接成功。')
+    await page.getByTestId('provider-save').click()
+    await expect(settings).toHaveCount(0)
+
+    const txtDocument = page.locator('.reader-document--txt')
+    const txtParagraph = txtDocument.locator('p').first()
+    await expect.poll(() => txtDocument.evaluate((element) => element.style.fontSize)).toBe('125%')
+    await expect.poll(() => txtDocument.evaluate((element) => element.style.maxWidth)).toBe('640px')
+    await expect.poll(() => txtParagraph.evaluate((element) => element.style.lineHeight)).toBe('1.7')
+    await expect.poll(() => txtParagraph.evaluate((element) => element.style.textIndent)).toBe('2em')
+    await expect.poll(() => txtParagraph.evaluate((element) => element.style.marginBottom)).toBe('0.8em')
 
     const paragraph = page.getByTestId('reader-host').locator('p').nth(1)
     await selectNodeContents(paragraph)
@@ -576,17 +619,9 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect.poll(() => readerHost.evaluate((element) => element.scrollTop)).toBeGreaterThan(50)
 
     const providerTestsBeforeRestart = providerTestRequests
-    await application.close()
-    application = undefined
-
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData
-      }
-    })
-    const restoredPage = await application.firstWindow()
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    const restoredPage = restarted.page
     const restoredShell = restoredPage.getByTestId('app-shell')
     const restoredHtml = restoredPage.locator('html')
     const restoredProviderStatus = restoredPage.getByTestId('provider-connection-status')
@@ -645,6 +680,31 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect(restoredPage.getByTestId('reading-indent')).toHaveValue('original')
     await expect(restoredPage.getByTestId('reading-content-width')).toHaveValue('original')
     await expect(restoredPage.getByTestId('reading-paragraph-spacing')).toHaveValue('original')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('keeps provider status consistent across overlapping checks and saves', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-provider-status-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const restoredPage = launched.page
+    const restoredSettingsButton = restoredPage.getByTestId('settings-button')
+    const restoredProviderStatus = restoredPage.getByTestId('provider-connection-status')
+
+    await restoredSettingsButton.click()
+    await restoredPage.getByTestId('settings-nav-model').click()
+    await restoredPage.getByTestId('provider-base-url').fill(endpoint)
+    await restoredPage.getByTestId('provider-model').fill('configured-alias')
+    await restoredPage.getByTestId('provider-api-key').fill('test-only-key')
+    await restoredPage.getByTestId('provider-save').click()
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 连接正常')
+
+    await restoredSettingsButton.click()
 
     await restoredPage.getByTestId('settings-nav-model').click()
     await restoredPage.getByTestId('provider-model').fill('slow-ok')
@@ -679,28 +739,20 @@ test('keeps the home quiet and persists unified settings, reading, conversation,
     await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 未连接')
     await expect(restoredProviderStatus).not.toHaveClass(/is-connected/u)
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })
 
 test('renders EPUB continuously while keeping embedded scripts disabled', async () => {
-  const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-epub-e2e-'))
-  const userData = join(testRoot, 'profile')
-  const fixture = join(testRoot, 'safe-fixture.epub')
+  const workspace = await createE2eWorkspace('llm-reader-epub-e2e-')
+  const fixture = join(workspace.root, 'safe-fixture.epub')
   await createEpubFixture(fixture)
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: fixture
-      }
-    })
-    const page = await application.firstWindow()
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('toc-item').first()).toContainText('第一章')
@@ -749,7 +801,6 @@ test('renders EPUB continuously while keeping embedded scripts disabled', async 
       })
       .toBe(true)
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(testRoot, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

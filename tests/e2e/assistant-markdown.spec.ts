@@ -1,15 +1,18 @@
 import {
   expect,
   test,
-  _electron as electron,
   type ElectronApplication,
   type Locator,
   type Page
 } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
 
 let mockServer: Server
 let endpoint = ''
@@ -120,19 +123,16 @@ test.afterAll(async () => {
 })
 
 test('renders assistant markdown without breaking citation navigation', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'assistant-markdown-e2e-'))
+  const workspace = await createE2eWorkspace('assistant-markdown-e2e-')
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: resolve('tests/fixtures/complex-reading.txt')
-      }
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
     })
-    const page = await application.firstWindow()
+    application = launched.application
+    const { page } = launched
     await page.getByTestId('settings-button').click()
     await page.getByTestId('scale-125').click()
     await page.getByTestId('settings-close').click()
@@ -185,25 +185,21 @@ test('renders assistant markdown without breaking citation navigation', async ()
     await expect(page.getByTestId('answer-current').locator('.answer-save')).toHaveCount(0)
     await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('归档的回答')
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })
 
 test('keeps streaming answers pinned to the bottom until the reader scrolls away', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'assistant-scroll-e2e-'))
+  const workspace = await createE2eWorkspace('assistant-scroll-e2e-')
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: resolve('tests/fixtures/complex-reading.txt')
-      }
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
     })
-    const page = await application.firstWindow()
+    application = launched.application
+    const { page } = launched
     await configureAndAsk(page)
 
     const scroller = page.locator('.assistant-scroll')
@@ -231,25 +227,21 @@ test('keeps streaming answers pinned to the bottom until the reader scrolls away
     await expect(page.getByTestId('answer-current')).toContainText('最后补充')
     await expect.poll(nearBottom).toBe(true)
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })
 
 test('keeps archive follow-up history after reopening and restarting the app', async () => {
-  const userData = await mkdtemp(join(tmpdir(), 'assistant-archive-history-e2e-'))
+  const workspace = await createE2eWorkspace('assistant-archive-history-e2e-')
   let application: ElectronApplication | undefined
 
   try {
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData,
-        LLM_READER_E2E_IMPORT: resolve('tests/fixtures/complex-reading.txt')
-      }
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
     })
-    const page = await application.firstWindow()
+    application = launched.application
+    const { page } = launched
     await configureAndAsk(page)
     await expect(page.getByTestId('answer-current').locator('.answer-footer')).toBeVisible()
     await page.getByTestId('answer-save').click()
@@ -276,17 +268,9 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     await expect(page.locator('.assistant-dialog .question-bubble')).toHaveCount(2)
     await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
 
-    await application.close()
-    application = undefined
-
-    application = await electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        LLM_READER_USER_DATA: userData
-      }
-    })
-    const restoredPage = await application.firstWindow()
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    const restoredPage = restarted.page
     await restoredPage.getByTestId('book-item').first().click()
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
     await restoredPage.locator('.assistant-tabs button').first().click()
@@ -297,7 +281,6 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(2)
     await expect(restoredPage.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
   } finally {
-    await application?.close().catch(() => undefined)
-    await rm(userData, { recursive: true, force: true })
+    await cleanupE2eWorkspace(application, workspace.root)
   }
 })

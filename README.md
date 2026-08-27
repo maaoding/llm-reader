@@ -58,7 +58,7 @@ pnpm test:all
 pnpm build:win
 ```
 
-`pnpm test:e2e` 会先构建应用再运行 Playwright；`pnpm test:all` 依次执行 lint、typecheck、test 与 test:e2e。`pnpm build:win` 会在 `release/` 生成未签名的 Windows x64 NSIS 安装包。
+`pnpm test:e2e` 会先执行文案校验和应用构建，再运行 Playwright；`pnpm test:all` 依次执行 lint、typecheck、完整单元测试、应用构建与 Playwright，避免重复运行文案测试。`pnpm build:win` 会在 `release/` 生成未签名的 Windows x64 NSIS 安装包。
 
 ## 许可证
 
