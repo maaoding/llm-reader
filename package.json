@@ -29,6 +29,7 @@
     "test:watch": "vitest",
     "test:e2e:run": "playwright test",
     "test:e2e": "pnpm build:app && pnpm test:e2e:run",
+    "test:real-api": "pnpm build:app && node scripts/real-provider-smoke.mjs",
     "test:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:electron && pnpm test:e2e:run"
   },
   "dependencies": {
