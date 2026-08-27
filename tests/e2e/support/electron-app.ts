@@ -23,8 +23,10 @@ export async function launchReader(options: LaunchReaderOptions): Promise<{
   application: ElectronApplication
   page: Page
 }> {
+  const executablePath = process.env.LLM_READER_E2E_EXECUTABLE
   const application = await electron.launch({
-    args: ['.'],
+    ...(executablePath ? { executablePath } : {}),
+    args: executablePath ? [] : ['.'],
     env: {
       ...process.env,
       ...options.env,
