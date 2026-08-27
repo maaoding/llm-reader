@@ -89,6 +89,7 @@ import {
   READER_SEARCH_RESULT_LIMIT,
   type ReaderAdapter,
   type ReaderSearchResult,
+  type ReaderSelectionDraft,
   type ReadingPaperTheme,
   type ReadingPreferences
 } from './readers'
@@ -432,6 +433,55 @@ function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject
       returnTarget?.focus()
     }
   }, [dialogRef, onClose, open, returnRef])
+}
+
+function PdfSelectionReviewDialog({ draft }: { draft: ReaderSelectionDraft }): ReactNode {
+  const [value, setValue] = useState(draft.quote)
+  const dialogRef = useRef<HTMLElement>(null)
+  const returnRef = useRef<HTMLElement>(null)
+  const close = useCallback(() => draft.cancel(), [draft])
+  useDialogFocus(true, close, dialogRef, returnRef)
+
+  const submit = (event: FormEvent): void => {
+    event.preventDefault()
+    const quote = value.trim()
+    if (!quote) return
+    draft.confirm(quote)
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && close()}>
+      <section
+        ref={dialogRef}
+        className="pdf-selection-review-modal"
+        data-testid="pdf-selection-review"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pdf-selection-review-title"
+      >
+        <header className="modal-header">
+          <h2 id="pdf-selection-review-title">{copy('reader.pdfRegionReviewTitle')}</h2>
+          <button className="icon-button" type="button" onClick={close} aria-label={copy('reader.pdfRegionCancel')}><X size={16} /></button>
+        </header>
+        <form onSubmit={submit}>
+          <div className="pdf-selection-review-body">
+            <p>{copy('reader.pdfRegionReviewDetail')}</p>
+            <textarea
+              data-testid="pdf-selection-review-input"
+              aria-label={copy('reader.pdfRegionReviewInputAria')}
+              value={value}
+              maxLength={20_000}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </div>
+          <footer className="modal-actions">
+            <button ref={returnRef as RefObject<HTMLButtonElement>} className="secondary-button" data-testid="pdf-selection-review-cancel" type="button" onClick={close}>{copy('reader.pdfRegionCancel')}</button>
+            <button className="primary-button" data-testid="pdf-selection-review-confirm" type="submit" disabled={!value.trim()}>{copy('reader.pdfRegionConfirm')}</button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  )
 }
 
 function createId(): string {
@@ -1443,6 +1493,7 @@ export default function App(): ReactNode {
   const [leftView, setLeftView] = useState<LeftView>('library')
   const [rightView, setRightView] = useState<RightView>('assistant')
   const [selection, setSelection] = useState<SelectionContext | null>(null)
+  const [selectionDraft, setSelectionDraft] = useState<ReaderSelectionDraft | null>(null)
   const [conversationSelection, setConversationSelection] = useState<SelectionContext | null>(null)
   const [turns, setTurns] = useState<ConversationTurn[]>([])
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null)
@@ -1736,6 +1787,7 @@ export default function App(): ReactNode {
     }
     adapterRef.current?.destroy()
     adapterRef.current = null
+    setSelectionDraft(null)
     if (hostRef.current) hostRef.current.replaceChildren()
   }, [flushProgress])
 
@@ -1752,6 +1804,7 @@ export default function App(): ReactNode {
     setBookState('loading')
     setBookError('')
     setSelection(null)
+    setSelectionDraft(null)
     setConversationSelection(null)
     setTurns([])
     setArchiveSession(null)
@@ -1801,7 +1854,9 @@ export default function App(): ReactNode {
             setNaturalLocator(locator)
           }
         },
-        onSelectionChanged: setSelection
+        onSelectionChanged: setSelection,
+        onSelectionDraftChanged: setSelectionDraft,
+        onNotice: ({ message, tone }) => pushToast(message, tone === 'info' ? 'neutral' : 'error')
       })
       adapterRef.current = adapter
       await adapter.setPreferences(readingPreferencesRef.current)
@@ -1836,7 +1891,7 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [destroyReader, refreshHighlights, refreshInsights, scheduleProgress])
+  }, [destroyReader, pushToast, refreshHighlights, refreshInsights, scheduleProgress])
 
   useEffect(() => {
     let alive = true
@@ -2007,7 +2062,10 @@ export default function App(): ReactNode {
         openSearchView()
         return
       }
-      if (event.key === 'Escape' && !settingsOpen && !assistantDialogOpen && !detailsBook) setSelection(null)
+      if (event.key === 'Escape' && !settingsOpen && !assistantDialogOpen && !detailsBook) {
+        adapterRef.current?.clearSelection()
+        setSelection(null)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -2051,6 +2109,7 @@ export default function App(): ReactNode {
       setDraft('')
       setRightView('assistant')
     }
+    adapterRef.current?.clearSelection()
     setSelection(null)
     setActiveRequestId(requestId)
     activeRequestRef.current = requestId
@@ -2096,6 +2155,7 @@ export default function App(): ReactNode {
       setConversationSelection(selection)
       if (isNew) setTurns([])
       setRightView('assistant')
+      adapterRef.current?.clearSelection()
       setSelection(null)
       window.setTimeout(() => followupRef.current?.focus(), 0)
       return
@@ -2203,6 +2263,7 @@ export default function App(): ReactNode {
       requestSessionRef.current.delete(requestId)
       void window.readerApi.cancelLlm(requestId).catch(() => undefined)
     }
+    adapterRef.current?.clearSelection()
     setSelection(null)
     const session: ArchiveSessionState = {
       insightId: insight.id,
@@ -2264,6 +2325,7 @@ export default function App(): ReactNode {
         anchor: target.anchor,
         chapterTitle: target.chapterTitle
       })
+      adapterRef.current?.clearSelection()
       setSelection(null)
       await refreshHighlights(activeBook.id)
       pushToast(copy('highlights.savedToast'), 'success')
@@ -2641,7 +2703,7 @@ export default function App(): ReactNode {
               <button data-testid="action-context" data-icon={assistantActions.context.icon} type="button" title={assistantActions.context.label} onClick={() => handleSelectionAction('context')}><AssistantActionIconView icon={assistantActions.context.icon} size={15} />{assistantActions.context.label}</button>
               <button data-testid="action-ask" data-icon={assistantActions.ask.icon} type="button" title={assistantActions.ask.label} onClick={() => handleSelectionAction('ask')}><AssistantActionIconView icon={assistantActions.ask.icon} size={15} />{assistantActions.ask.label}</button>
               <button data-testid="action-save-highlight" type="button" onClick={() => void saveSelectionHighlight()}><Bookmark size={15} />{copy('assistant.actionSaveHighlight')}</button>
-              <button className="toolbar-close" type="button" onClick={() => setSelection(null)} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
+              <button className="toolbar-close" type="button" onClick={() => { adapterRef.current?.clearSelection(); setSelection(null) }} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
             </div>
           )}
         </section>
@@ -2717,6 +2779,8 @@ export default function App(): ReactNode {
           </div>
         )}
       </aside>
+
+      {selectionDraft && <PdfSelectionReviewDialog draft={selectionDraft} />}
 
       {assistantDialogOpen && (
         <div className="modal-backdrop assistant-dialog-backdrop" role="presentation">

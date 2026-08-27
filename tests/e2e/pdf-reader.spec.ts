@@ -1,5 +1,6 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdir, readFile } from 'node:fs/promises'
+import { createServer, type Server } from 'node:http'
 import { join, resolve } from 'node:path'
 import {
   cleanupE2eWorkspace,
@@ -13,6 +14,66 @@ const scannedPdf = resolve('tests/e2e/fixtures/scanned-reader.pdf')
 const damagedPdf = resolve('tests/e2e/fixtures/damaged-reader.pdf')
 const oversizedPdf = resolve('tests/e2e/fixtures/oversized-reader.pdf')
 const hostilePdf = resolve('tests/e2e/fixtures/hostile-reader.pdf')
+const complexLayoutPdf = resolve('tests/e2e/fixtures/complex-layout-reader.pdf')
+
+let mockServer: Server
+let mockEndpoint = ''
+let latestPdfPrompt = ''
+
+test.beforeAll(async () => {
+  mockServer = createServer((request, response) => {
+    if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
+      response.writeHead(404).end()
+      return
+    }
+
+    let rawBody = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk) => {
+      rawBody += chunk
+    })
+    request.on('end', () => {
+      const body = JSON.parse(rawBody) as {
+        stream?: boolean
+        messages?: Array<{ content: string }>
+      }
+      if (!body.stream) {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({
+          id: 'mock-pdf-check',
+          model: 'mock-pdf-reader',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }]
+        }))
+        return
+      }
+
+      latestPdfPrompt = body.messages?.map((message) => message.content).join('\n') ?? ''
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive'
+      })
+      response.write(
+        `data: ${JSON.stringify({ id: 'mock-pdf-stream', model: 'mock-pdf-reader', choices: [{ index: 0, delta: { content: '已收到框选后的文字。' } }] })}\n\n`
+      )
+      response.end('data: [DONE]\n\n')
+    })
+  })
+
+  await new Promise<void>((resolveListen, reject) => {
+    mockServer.once('error', reject)
+    mockServer.listen(0, '127.0.0.1', () => resolveListen())
+  })
+  const address = mockServer.address()
+  if (!address || typeof address === 'string') throw new Error('Mock PDF provider did not expose a TCP port')
+  mockEndpoint = `http://127.0.0.1:${address.port}/v1`
+})
+
+test.afterAll(async () => {
+  await new Promise<void>((resolveClose, reject) => {
+    mockServer.close((error) => (error ? reject(error) : resolveClose()))
+  })
+})
 
 async function openFixture(fixture: string): Promise<{
   application: ElectronApplication
@@ -38,6 +99,28 @@ async function closeFixture(application: ElectronApplication | undefined, testRo
   await cleanupE2eWorkspace(application, testRoot)
 }
 
+async function dragPdfRegion(
+  page: Page,
+  region: { left: number; top: number; right: number; bottom: number }
+): Promise<void> {
+  const box = await page.locator('.pdf-page').first().boundingBox()
+  if (!box) throw new Error('Expected a visible PDF page')
+  await page.mouse.move(box.x + box.width * region.left, box.y + box.height * region.top)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * region.right, box.y + box.height * region.bottom, { steps: 8 })
+  await page.mouse.up()
+}
+
+async function configureMockProvider(page: Page): Promise<void> {
+  await page.getByTestId('settings-button').click()
+  await page.getByTestId('settings-nav-model').click()
+  await page.getByTestId('provider-base-url').fill(mockEndpoint)
+  await page.getByTestId('provider-model').fill('mock-pdf-reader')
+  await page.getByTestId('provider-api-key').fill('test-only-key')
+  await page.getByTestId('provider-save').click()
+  await expect(page.getByTestId('settings-modal')).toHaveCount(0)
+}
+
 test('reads, searches, selects, zooms and follows only internal links in a text PDF', async () => {
   test.setTimeout(120_000)
   const opened = await openFixture(textPdf)
@@ -50,6 +133,7 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
     await expect.poll(() => page.locator('.pdf-page-canvas').first().evaluate((canvas) => (
       (canvas as HTMLCanvasElement).width
     ))).toBeGreaterThan(0)
+    await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第 1 页')
     await expect(page.getByTestId('toc-item')).toHaveCount(3)
 
@@ -131,7 +215,7 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
         }
       ).readerApi.listBooks())
       return books[0]?.lastLocator ?? null
-    }).toMatch(/^pdf:2:/u)
+    }, { timeout: 10_000 }).toMatch(/^pdf:2:/u)
 
     const restarted = await restartReader(application, { userData })
     application = restarted.application
@@ -145,12 +229,349 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
   }
 })
 
+test('keeps readable native text and supports editable single-page region selections', async () => {
+  test.setTimeout(180_000)
+  const opened = await openFixture(complexLayoutPdf)
+  let application = opened.application
+  let page = opened.page
+  const { testRoot, userData } = opened
+  try {
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await expect.poll(() => page.locator('.pdf-page-canvas').first().evaluate((canvas) => (
+      (canvas as HTMLCanvasElement).width
+    ))).toBeGreaterThan(0)
+    await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
+
+    await page.locator('.pdf-text-layer').first().evaluate((layer) => {
+      const spans = Array.from(layer.querySelectorAll<HTMLElement>('span'))
+      const startSpan = spans.find((span) => span.textContent?.includes('换行测试'))
+      const endSpan = spans.find((span) => span.textContent?.includes('自然空格'))
+      const startNode = startSpan?.firstChild
+      const endNode = endSpan?.firstChild
+      if (!startNode || !endNode) throw new Error('Expected wrapped paragraph text nodes')
+      const range = document.createRange()
+      range.setStart(startNode, 0)
+      range.setEnd(endNode, endNode.textContent?.length ?? 0)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+    })
+    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+    await page.getByTestId('action-save-highlight').click()
+    await expect.poll(async () => page.evaluate(async () => {
+      const api = (window as unknown as {
+        readerApi: {
+          listBooks(): Promise<Array<{ id: string }>>
+          listHighlights(bookId: string): Promise<Array<{ quote: string }>>
+        }
+      }).readerApi
+      const [book] = await api.listBooks()
+      return (await api.listHighlights(book.id))[0]?.quote ?? ''
+    })).toContain('保留 自然空格')
+
+    const regionButton = page.getByTestId('pdf-region-select')
+    await regionButton.click()
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'true')
+    await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
+    await expect(page.getByTestId('pdf-selection-review')).toBeVisible()
+    const reviewInput = page.getByTestId('pdf-selection-review-input')
+    await expect(reviewInput).toHaveValue(/左栏第一行/u)
+    await expect(reviewInput).not.toHaveValue(/右栏第一行/u)
+    const editedQuote = '左栏第一行：区域框选目标。\n左栏第二行：不应混入右栏。\n（已校正）'
+    await reviewInput.fill(editedQuote)
+    await page.getByTestId('pdf-selection-review-confirm').click()
+    await expect(page.getByTestId('pdf-selection-review')).toBeHidden()
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+    await expect(page.getByTestId('pdf-region-selection')).toBeVisible()
+    await page.getByTestId('action-save-highlight').click()
+    const persistentRegion = page.locator('.pdf-region-overlay.is-persistent')
+    await expect(persistentRegion).toHaveCount(1)
+    const beforeZoom = await persistentRegion.first().getAttribute('style')
+    await page.getByRole('button', { name: '放大', exact: true }).click()
+    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('115%')
+    await expect(persistentRegion).toHaveCount(1)
+    expect(await persistentRegion.first().getAttribute('style')).toBe(beforeZoom)
+
+    await expect.poll(async () => page.evaluate(async () => {
+      const api = (window as unknown as {
+        readerApi: {
+          listBooks(): Promise<Array<{ id: string }>>
+          listHighlights(bookId: string): Promise<Array<{ anchor: string; quote: string }>>
+        }
+      }).readerApi
+      const [book] = await api.listBooks()
+      return (await api.listHighlights(book.id)).find((highlight) => highlight.anchor.startsWith('pdfrect:')) ?? null
+    })).toEqual(expect.objectContaining({ quote: editedQuote }))
+
+    const restarted = await restartReader(application, { userData })
+    application = restarted.application
+    page = restarted.page
+    await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await page.getByTestId('book-item').first().click()
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    const restoredPersistentRegion = page.locator('.pdf-region-overlay.is-persistent')
+    await expect(restoredPersistentRegion).toHaveCount(1)
+    expect(await restoredPersistentRegion.getAttribute('style')).toBe(beforeZoom)
+    await page.getByTestId('highlights-tab').click()
+    const regionHighlight = page.getByTestId('highlight-item').filter({ hasText: '已校正' })
+    await expect(regionHighlight).toHaveCount(1)
+    await regionHighlight.locator('.highlight-jump').click()
+    const temporaryRegion = page.locator('.pdf-region-overlay.is-temporary')
+    await expect(temporaryRegion).toHaveCount(1)
+    expect(await temporaryRegion.getAttribute('style')).toBe(beforeZoom)
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
+test('uses edited PDF region text in a real question and keeps the dark review dialog usable', async () => {
+  test.setTimeout(180_000)
+  const { application, page, testRoot } = await openFixture(complexLayoutPdf)
+  try {
+    latestPdfPrompt = ''
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
+    await configureMockProvider(page)
+
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('theme-dark').click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-close').click()
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'dark')
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', '125')
+
+    await page.getByTestId('pdf-region-select').click()
+    await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
+    const review = page.getByTestId('pdf-selection-review')
+    await expect(review).toBeVisible()
+    const reviewBounds = await review.boundingBox()
+    const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }))
+    expect(reviewBounds).not.toBeNull()
+    expect(reviewBounds!.x).toBeGreaterThanOrEqual(0)
+    expect(reviewBounds!.y).toBeGreaterThanOrEqual(0)
+    expect(reviewBounds!.x + reviewBounds!.width).toBeLessThanOrEqual(viewport.width)
+    expect(reviewBounds!.y + reviewBounds!.height).toBeLessThanOrEqual(viewport.height)
+
+    const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+    if (visualDirectory) {
+      await mkdir(visualDirectory, { recursive: true })
+      await page.screenshot({ path: join(visualDirectory, 'pdf-region-review-dark-940x600-125.png') })
+    }
+
+    const editedQuote = '左栏第一行：区域框选目标。\n左栏第二行：不应混入右栏。\n（深色提问校正）'
+    await page.getByTestId('pdf-selection-review-input').fill(editedQuote)
+    await page.getByTestId('pdf-selection-review-confirm').click()
+    await page.getByTestId('action-ask').click()
+    await expect(page.locator('.source-card blockquote')).toContainText(editedQuote)
+
+    const question = '这段框选文字在论证中有什么作用？'
+    await page.getByTestId('followup-input').fill(question)
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText('已收到框选后的文字。')
+    await expect.poll(() => latestPdfPrompt).toContain(JSON.stringify(editedQuote).slice(1, -1))
+    expect(latestPdfPrompt).toContain(question)
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
+test('cancels or retries invalid PDF region selections safely', async () => {
+  test.setTimeout(120_000)
+  const { application, page, testRoot } = await openFixture(complexLayoutPdf)
+  try {
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
+    const regionButton = page.getByTestId('pdf-region-select')
+    await regionButton.click()
+    await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
+    await expect(page.getByTestId('pdf-selection-review')).toBeVisible()
+    await page.getByTestId('pdf-selection-review-cancel').click()
+    await expect(page.getByTestId('pdf-selection-review')).toBeHidden()
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.locator('.pdf-region-overlay.is-draft')).toHaveCount(0)
+
+    await regionButton.click()
+    await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
+    await expect(page.getByTestId('pdf-selection-review')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('pdf-selection-review')).toBeHidden()
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.locator('.pdf-region-overlay.is-draft')).toHaveCount(0)
+
+    await regionButton.click()
+    await dragPdfRegion(page, { left: 0.1, top: 0.1, right: 0.101, bottom: 0.101 })
+    await expect(page.getByRole('status').filter({ hasText: '框选区域太小' })).toBeVisible()
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'true')
+    await page.keyboard.press('Escape')
+
+    await regionButton.click()
+    await dragPdfRegion(page, { left: 0.1, top: 0.36, right: 0.4, bottom: 0.395 })
+    await expect(page.getByRole('status').filter({ hasText: '没有可提取的文字' })).toBeVisible()
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'true')
+    await page.keyboard.press('Escape')
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'false')
+
+    await page.locator('.pdf-text-layer').first().evaluate((layer) => {
+      const oversized = document.createElement('span')
+      oversized.dataset.pdfTextStart = '0'
+      oversized.dataset.pdfTextEnd = '20001'
+      oversized.dataset.testid = 'pdf-oversized-region-text'
+      oversized.textContent = '超'.repeat(20_001)
+      Object.assign(oversized.style, {
+        position: 'absolute',
+        display: 'block',
+        left: '10%',
+        top: '60%',
+        width: '60%',
+        height: '10%',
+        overflow: 'hidden'
+      })
+      layer.append(oversized)
+    })
+    await regionButton.click()
+    await dragPdfRegion(page, { left: 0.1, top: 0.6, right: 0.7, bottom: 0.7 })
+    await expect(page.getByRole('status').filter({ hasText: '超过 20,000 字' })).toBeVisible()
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'true')
+    await page.getByTestId('pdf-oversized-region-text').evaluate((element) => element.remove())
+    await page.keyboard.press('Escape')
+    await expect(regionButton).toHaveAttribute('aria-pressed', 'false')
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
+test('clears a PDF region draft when switching books or destroying the reader', async () => {
+  test.setTimeout(180_000)
+  const opened = await openFixture(complexLayoutPdf)
+  let application = opened.application
+  let page = opened.page
+  const { testRoot, userData } = opened
+  try {
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await application.evaluate(({ dialog }, fixturePath) => {
+      dialog.showOpenDialog = (async () => (
+        { canceled: false, filePaths: [fixturePath], bookmarks: [] }
+      )) as unknown as typeof dialog.showOpenDialog
+    }, textPdf)
+    await page.getByTestId('library-tab').click()
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-item')).toHaveCount(2)
+    await expect(page.getByRole('heading', { name: 'PDF 阅读测试', exact: true })).toBeVisible()
+
+    await page.getByTestId('library-tab').click()
+    await page.getByTestId('book-item').filter({ hasText: '复杂排版 PDF 划词测试' }).click()
+    await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
+    await page.getByTestId('pdf-region-select').click()
+    await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
+    await expect(page.getByTestId('pdf-selection-review')).toBeVisible()
+
+    await page.getByTestId('library-tab').evaluate((button) => (button as HTMLButtonElement).click())
+    const otherBook = page.getByTestId('book-item').filter({ hasText: 'PDF 阅读测试' })
+    await otherBook.evaluate((button) => (button as HTMLButtonElement).click())
+    await expect(page.getByTestId('pdf-selection-review')).toHaveCount(0)
+    await expect(page.locator('.pdf-region-overlay.is-draft')).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'PDF 阅读测试', exact: true })).toBeVisible()
+
+    await page.getByTestId('library-tab').click()
+    await page.getByTestId('book-item').filter({ hasText: '复杂排版 PDF 划词测试' }).click()
+    await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
+    await page.getByTestId('pdf-region-select').click()
+    await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
+    await expect(page.getByTestId('pdf-selection-review')).toBeVisible()
+
+    const restarted = await restartReader(application, { userData })
+    application = restarted.application
+    page = restarted.page
+    await expect(page.getByTestId('book-item')).toHaveCount(2)
+    await expect(page.getByTestId('pdf-selection-review')).toHaveCount(0)
+    await expect(page.locator('.pdf-region-overlay.is-draft')).toHaveCount(0)
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
+test('accepts a local complex academic PDF without committing the source file', async () => {
+  const realPdf = process.env.LLM_READER_REAL_PDF
+  test.skip(!realPdf, 'Set LLM_READER_REAL_PDF to run the local-only PDF acceptance check.')
+  if (!realPdf) return
+  test.setTimeout(240_000)
+  const { application, page, testRoot } = await openFixture(realPdf)
+  try {
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('.pdf-page')).toHaveCount(88)
+
+    for (const pageNumber of [10, 40, 55, 81]) {
+      await page.getByTestId('reader-host').evaluate((host, targetPage) => {
+        const pageElement = host.querySelector<HTMLElement>(`.pdf-page[data-page-number="${targetPage}"]`)
+        if (!pageElement) throw new Error(`Missing PDF page ${targetPage}`)
+        host.scrollTop = pageElement.offsetTop
+        host.dispatchEvent(new Event('scroll'))
+      }, pageNumber)
+      const textSpans = page.locator(`.pdf-text-layer[data-page-number="${pageNumber}"] span`)
+      await expect.poll(() => textSpans.count()).toBeGreaterThan(0)
+      await textSpans.filter({ hasText: /\S/u }).first().evaluate((span) => {
+        const node = span.firstChild
+        if (!node) throw new Error('Expected a PDF text node')
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        document.dispatchEvent(new Event('selectionchange'))
+      })
+      await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+      await page.getByRole('button', { name: '关闭选区工具', exact: true }).click()
+    }
+
+    await page.getByTestId('reader-host').evaluate((host) => {
+      const pageElement = host.querySelector<HTMLElement>('.pdf-page[data-page-number="40"]')
+      if (!pageElement) throw new Error('Missing PDF page 40')
+      host.scrollTop = pageElement.offsetTop
+      host.dispatchEvent(new Event('scroll'))
+    })
+    await expect.poll(() => page.locator('.pdf-text-layer[data-page-number="40"] span').count()).toBeGreaterThan(0)
+    await page.getByTestId('pdf-region-select').click()
+    const pageFortyBox = await page.locator('.pdf-page[data-page-number="40"]').boundingBox()
+    if (!pageFortyBox) throw new Error('Expected PDF page 40 to be visible')
+    await page.mouse.move(pageFortyBox.x + pageFortyBox.width * 0.08, pageFortyBox.y + pageFortyBox.height * 0.05)
+    await page.mouse.down()
+    await page.mouse.move(pageFortyBox.x + pageFortyBox.width * 0.92, pageFortyBox.y + pageFortyBox.height * 0.34, { steps: 8 })
+    await page.mouse.up()
+    await expect(page.getByTestId('pdf-selection-review-input')).not.toHaveValue('')
+
+    const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+    if (visualDirectory) {
+      await mkdir(visualDirectory, { recursive: true })
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 900))
+      await page.screenshot({ path: join(visualDirectory, 'pdf-real-region-light-1440x900.png') })
+    }
+    await page.keyboard.press('Escape')
+
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('theme-dark').click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-close').click()
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'dark')
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', '125')
+    if (visualDirectory) {
+      await page.screenshot({ path: join(visualDirectory, 'pdf-real-dark-940x600-125.png') })
+    }
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
 test('browses a scanned PDF but reports that search and selection are unavailable', async () => {
   test.setTimeout(90_000)
   const { application, page, testRoot } = await openFixture(scannedPdf)
   try {
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect(page.getByTestId('pdf-no-text-banner')).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByTestId('pdf-region-select')).toBeDisabled()
     await expect.poll(() => page.locator('.pdf-page-canvas').first().evaluate((canvas) => (
       (canvas as HTMLCanvasElement).width
     ))).toBeGreaterThan(0)

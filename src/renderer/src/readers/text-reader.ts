@@ -381,6 +381,11 @@ export class TextReaderAdapter implements ReaderAdapter {
     return this.selection
   }
 
+  clearSelection(): void {
+    this.document.defaultView?.getSelection()?.removeAllRanges()
+    this.setSelection(null)
+  }
+
   async selectAnchor(anchor: string): Promise<boolean> {
     const range = this.rangeForAnchor(anchor)
     if (!range) {

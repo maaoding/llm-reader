@@ -45,7 +45,8 @@ export type {
   ReaderMetadata,
   ReaderRelocation,
   ReaderRelocationReason,
-  ReaderSearchResult
+  ReaderSearchResult,
+  ReaderSelectionDraft
 } from './types'
 export {
   DEFAULT_READING_PREFERENCES,

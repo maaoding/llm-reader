@@ -34,10 +34,23 @@ export interface ReaderSearchResult {
 export const READER_SEARCH_RESULT_LIMIT = 200
 export const READER_SEARCH_QUERY_MAX_LENGTH = 100
 
+export interface ReaderSelectionDraft {
+  quote: string
+  confirm: (quote: string) => void
+  cancel: () => void
+}
+
+export interface ReaderNotice {
+  message: string
+  tone: 'info' | 'error'
+}
+
 export interface ReaderCallbacks {
   bookId: string
   onRelocated?: (relocation: ReaderRelocation) => void
   onSelectionChanged?: (selection: SelectionContext | null) => void
+  onSelectionDraftChanged?: (draft: ReaderSelectionDraft | null) => void
+  onNotice?: (notice: ReaderNotice) => void
 }
 
 export type ReadingLineHeight = 'original' | '1.5' | '1.7' | '1.9'
@@ -84,6 +97,7 @@ export interface ReaderAdapter {
   search(query: string): Promise<ReadonlyArray<ReaderSearchResult>>
   goTo(anchor: string): Promise<void>
   getSelection(): SelectionContext | null
+  clearSelection(): void
   selectAnchor(anchor: string): Promise<boolean>
   highlight(anchor: string): Promise<void>
   clearHighlight(): void

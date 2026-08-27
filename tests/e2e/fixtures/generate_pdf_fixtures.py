@@ -86,6 +86,77 @@ def create_scanned_pdf(path: Path) -> None:
     pdf.save()
 
 
+def create_complex_layout_pdf(path: Path) -> None:
+    width, height = A4
+    pdf = canvas.Canvas(str(path), pagesize=A4, pageCompression=1)
+    pdf.setTitle("复杂排版 PDF 划词测试")
+    pdf.setAuthor("LLM Reader")
+    pdf.setFont(FONT_NAME, 20)
+    pdf.drawString(58, height - 58, "复杂排版划词测试")
+
+    body = pdf.beginText(58, height - 98)
+    body.setFont(FONT_NAME, 12)
+    body.setLeading(18)
+    body.textLine("换行测试：复杂排版中的可读文本需要保留")
+    body.textLine("自然空格和稳定锚点。")
+    pdf.drawText(body)
+
+    pdf.setStrokeColorRGB(0.75, 0.78, 0.8)
+    pdf.rect(48, height - 340, 235, 170, stroke=1, fill=0)
+    pdf.rect(312, height - 340, 235, 170, stroke=1, fill=0)
+    left = pdf.beginText(62, height - 198)
+    left.setFont(FONT_NAME, 11)
+    left.setLeading(24)
+    left.textLine("左栏第一行：区域框选目标。")
+    left.textLine("左栏第二行：不应混入右栏。")
+    left.textLine("左栏第三行：确认后可编辑。")
+    pdf.drawText(left)
+    right = pdf.beginText(326, height - 198)
+    right.setFont(FONT_NAME, 11)
+    right.setLeading(24)
+    right.textLine("右栏第一行：必须被排除。")
+    right.textLine("右栏第二行：验证几何边界。")
+    right.textLine("右栏第三行：保持原始顺序。")
+    pdf.drawText(right)
+
+    table_top = height - 390
+    table_left = 90
+    table_width = 415
+    row_height = 32
+    column_widths = (125, 145, 145)
+    pdf.setFont(FONT_NAME, 10)
+    x = table_left
+    for column_width in column_widths:
+        pdf.line(x, table_top, x, table_top - row_height * 3)
+        x += column_width
+    pdf.line(x, table_top, x, table_top - row_height * 3)
+    for row in range(4):
+        y = table_top - row * row_height
+        pdf.line(table_left, y, table_left + table_width, y)
+    rows = (
+        ("项目", "输入", "输出"),
+        ("段落", "文字层", "可读文本"),
+        ("公式", "几何区域", "可编辑预览"),
+    )
+    for row_index, row in enumerate(rows):
+        x = table_left + 8
+        y = table_top - 21 - row_index * row_height
+        for column_index, value in enumerate(row):
+            pdf.drawString(x, y, value)
+            x += column_widths[column_index]
+
+    pdf.setFont("Helvetica", 12)
+    pdf.drawString(110, height - 535, "Formula: E = mc^2,  f(x) = x^2 + 1")
+    pdf.setFont(FONT_NAME, 10)
+    pdf.drawString(110, height - 560, "公式只提取文字，二维结构由用户在预览中确认。")
+
+    pdf.setStrokeColorRGB(0.55, 0.6, 0.63)
+    pdf.rect(110, 90, 375, 120, stroke=1, fill=0)
+    pdf.setFont(FONT_NAME, 11)
+    pdf.drawCentredString(width / 2, 70, "上方矩形内部没有文字，用于验证空区域提示。")
+    pdf.save()
+
+
 def create_damaged_pdf(path: Path) -> None:
     path.write_bytes(b"%PDF-1.7\nThis fixture is intentionally damaged.\n")
 
@@ -173,6 +244,7 @@ def main() -> None:
     register_font()
     create_text_pdf(FIXTURE_DIR / "text-reader.pdf")
     create_scanned_pdf(FIXTURE_DIR / "scanned-reader.pdf")
+    create_complex_layout_pdf(FIXTURE_DIR / "complex-layout-reader.pdf")
     create_damaged_pdf(FIXTURE_DIR / "damaged-reader.pdf")
     create_oversized_pdf(FIXTURE_DIR / "oversized-reader.pdf")
     create_hostile_pdf(FIXTURE_DIR / "hostile-reader.pdf")

@@ -291,6 +291,16 @@
 | reader.pdfZoomOut | 缩小 |
 | reader.pdfZoomIn | 放大 |
 | reader.pdfFitWidth | 适合宽度 |
+| reader.pdfRegionSelect | 框选文字 |
+| reader.pdfRegionHint | 请在单页内框选一个段落、单栏或表格区域。 |
+| reader.pdfRegionTooSmall | 框选区域太小，请重新拖动选择。 |
+| reader.pdfRegionEmpty | 框选区域没有可提取的文字。 |
+| reader.pdfRegionTooLarge | 框选文字超过 20,000 字，请缩小范围。 |
+| reader.pdfRegionReviewTitle | 确认框选文字 |
+| reader.pdfRegionReviewDetail | 检查并修正提取结果，然后继续使用划词操作。 |
+| reader.pdfRegionReviewInputAria | 框选文字内容 |
+| reader.pdfRegionCancel | 取消 |
+| reader.pdfRegionConfirm | 使用此选区 |
 | reader.pdfInternalLink | 跳转到 PDF 内部页面 |
 | reader.pdfNoText | 这份 PDF 没有可用文字层，只能浏览页面，无法搜索或划词。 |
 | reader.pdfPageNoText | 本页没有文字层 |

@@ -658,6 +658,13 @@ export class EpubReaderAdapter implements ReaderAdapter {
     return this.selection
   }
 
+  clearSelection(): void {
+    const current = this.rendition?.getContents() as Contents | Contents[] | undefined
+    const contents = Array.isArray(current) ? current : current ? [current] : []
+    for (const content of contents) content.window.getSelection()?.removeAllRanges()
+    this.setSelection(null)
+  }
+
   async selectAnchor(anchor: string): Promise<boolean> {
     if (!isEpubCfi(anchor)) {
       throw new Error(copy('reader.epubInvalidHighlight'))
