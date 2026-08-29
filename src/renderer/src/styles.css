@@ -936,13 +936,20 @@ button:disabled {
 
 .reading-progress {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   width: 125px;
   flex: 0 0 auto;
   align-items: center;
   gap: 3px 8px;
   color: var(--muted);
   font-size: calc(8px * var(--interface-scale));
+}
+
+.reading-progress > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reader-header-actions {
@@ -1060,7 +1067,7 @@ button:disabled {
   background: var(--reader-accent-soft);
 }
 
-.pdf-toolbar .pdf-region-select.is-active {
+.pdf-toolbar :is(.pdf-region-select, .pdf-fit-width).is-active {
   color: var(--accent-contrast);
   background: var(--reader-accent);
 }
@@ -1094,9 +1101,11 @@ button:disabled {
 
 .pdf-document {
   display: flex;
-  min-width: min-content;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 20px;
   padding: 54px 24px 35vh;
 }
@@ -1110,6 +1119,7 @@ button:disabled {
 .pdf-page {
   position: relative;
   flex: 0 0 auto;
+  margin-inline: auto;
   overflow: hidden;
   background: white;
   box-shadow:
@@ -1158,6 +1168,7 @@ button:disabled {
 
 .pdf-page-canvas {
   z-index: 1;
+  background: white;
 }
 
 .pdf-text-layer {
@@ -1169,6 +1180,7 @@ button:disabled {
   text-size-adjust: none;
   transform-origin: 0 0;
   forced-color-adjust: none;
+  user-select: none;
 }
 
 .pdf-text-layer :is(span, br) {

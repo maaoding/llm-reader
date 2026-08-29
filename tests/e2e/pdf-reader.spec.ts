@@ -10,6 +10,7 @@ import {
 } from './support/electron-app'
 
 const textPdf = resolve('tests/e2e/fixtures/text-reader.pdf')
+const noOutlinePdf = resolve('tests/e2e/fixtures/no-outline-reader.pdf')
 const scannedPdf = resolve('tests/e2e/fixtures/scanned-reader.pdf')
 const damagedPdf = resolve('tests/e2e/fixtures/damaged-reader.pdf')
 const oversizedPdf = resolve('tests/e2e/fixtures/oversized-reader.pdf')
@@ -121,7 +122,7 @@ async function configureMockProvider(page: Page): Promise<void> {
   await expect(page.getByTestId('settings-modal')).toHaveCount(0)
 }
 
-test('reads, searches, selects, zooms and follows only internal links in a text PDF', async () => {
+test('reads, searches, disables native selection, zooms and follows only internal links in a text PDF', async () => {
   test.setTimeout(120_000)
   const opened = await openFixture(textPdf)
   let application = opened.application
@@ -134,8 +135,10 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
       (canvas as HTMLCanvasElement).width
     ))).toBeGreaterThan(0)
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
-    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第 1 页')
-    await expect(page.getByTestId('toc-item')).toHaveCount(3)
+    await expect(page.getByTestId('pdf-region-select')).toBeVisible()
+    await expect(page.locator('.pdf-text-layer').first()).toHaveCSS('user-select', 'none')
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第一章')
+    await expect(page.getByTestId('toc-item')).toHaveCount(5)
 
     const visualDirectory = process.env.LLM_READER_VISUAL_DIR
     if (visualDirectory) {
@@ -157,17 +160,25 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
       await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 900))
     }
 
+    const fitWidth = page.getByRole('button', { name: '适合宽度', exact: true })
+    await expect(fitWidth).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('适宽')
     await page.getByRole('button', { name: '放大', exact: true }).click()
-    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('115%')
-    await page.getByRole('button', { name: '适合宽度', exact: true }).click()
-    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('100%')
+    await page.getByRole('button', { name: '放大', exact: true }).click()
+    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('130%')
+    await expect(fitWidth).toHaveAttribute('aria-pressed', 'false')
+    await assertHorizontalScroll(page)
+    await fitWidth.click()
+    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('适宽')
+    await expect(fitWidth).toHaveAttribute('aria-pressed', 'true')
+    await assertFitWidth(page)
 
     await page.keyboard.press('Control+f')
     await page.getByTestId('reader-search-input').fill('星河')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('reader-search-result')).toHaveCount(13)
     await page.getByTestId('reader-search-result').last().click()
-    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第 2 页')
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
     await expect.poll(() => page.evaluate(() => (
       (CSS as typeof CSS & { highlights?: Map<string, unknown> }).highlights?.has('llm-reader-pdf-temporary') ?? false
     ))).toBe(true)
@@ -199,7 +210,7 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
       selection?.addRange(range)
       document.dispatchEvent(new Event('selectionchange'))
     })
-    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+    await expect(page.getByTestId('selection-toolbar')).toBeHidden()
 
     await page.getByTestId('reader-host').evaluate((host) => {
       const pageTwo = host.querySelector<HTMLElement>('.pdf-page[data-page-number="2"]')
@@ -207,7 +218,7 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
       host.scrollTop = pageTwo.offsetTop + Math.min(120, pageTwo.offsetHeight / 4)
       host.dispatchEvent(new Event('scroll'))
     })
-    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第 2 页')
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
     await expect.poll(async () => {
       const books = await page.evaluate(() => (
         window as unknown as {
@@ -223,13 +234,161 @@ test('reads, searches, selects, zooms and follows only internal links in a text 
     await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.getByTestId('book-item').first().click()
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
-    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第 2 页')
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
   } finally {
     await closeFixture(application, testRoot)
   }
 })
 
-test('keeps readable native text and supports editable single-page region selections', async () => {
+test('tracks precise outline sections and keeps fit-width stable through rapid zoom and resize', async () => {
+  test.setTimeout(150_000)
+  const { application, page, testRoot } = await openFixture(textPdf)
+  try {
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await expect.poll(() => page.locator('.pdf-text-layer[data-page-number="1"] span').count()).toBeGreaterThan(0)
+
+    await page.getByRole('button', { name: '目录', exact: true }).click()
+    await page.getByTestId('toc-item').filter({ hasText: '1.1 同页目录定位' }).click()
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '1.1 同页目录定位')
+    await expect(page.locator('.reading-progress strong')).toHaveText('0%')
+    const headingPosition = await page.locator('.pdf-text-layer span').filter({ hasText: '1.1 同页目录定位' }).first().evaluate((heading) => {
+      const host = document.querySelector<HTMLElement>('[data-testid="reader-host"]')
+      if (!host) throw new Error('Expected reader host')
+      return heading.getBoundingClientRect().top - host.getBoundingClientRect().top
+    })
+    expect(headingPosition).toBeGreaterThan(20)
+    expect(headingPosition).toBeLessThan(220)
+
+    await page.waitForTimeout(120)
+    await page.getByTestId('reader-host').evaluate((host) => {
+      const pageOne = host.querySelector<HTMLElement>('.pdf-page[data-page-number="1"]')
+      if (!pageOne) throw new Error('Expected PDF page 1')
+      host.scrollTop = pageOne.offsetTop + pageOne.offsetHeight * 0.52
+      host.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '1.1 同页目录定位')
+    await expect.poll(async () => Number.parseInt((await page.locator('.reading-progress strong').textContent()) ?? '0', 10)).toBeGreaterThan(50)
+
+    await page.getByTestId('toc-item').filter({ hasText: '1.2 适宽稳定性' }).click()
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '1.2 适宽稳定性')
+    await expect(page.locator('.reading-progress strong')).toHaveText('0%')
+
+    await page.waitForTimeout(120)
+    await page.getByTestId('reader-host').evaluate((host) => {
+      const pageTwo = host.querySelector<HTMLElement>('.pdf-page[data-page-number="2"]')
+      if (!pageTwo) throw new Error('Expected PDF page 2')
+      host.scrollTop = pageTwo.offsetTop + pageTwo.offsetHeight - host.clientHeight * 0.55
+      host.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
+
+    const pageTwoText = page.locator('.pdf-text-layer[data-page-number="2"] span').filter({ hasText: /\S/u }).first()
+    await expect(pageTwoText).toBeVisible()
+    await pageTwoText.evaluate((span) => {
+      const node = span.firstChild
+      if (!node) throw new Error('Expected a PDF text node')
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+    })
+    await expect(page.getByTestId('selection-toolbar')).toBeHidden()
+
+    const zoomIn = page.getByRole('button', { name: '放大', exact: true })
+    const fitWidth = page.getByRole('button', { name: '适合宽度', exact: true })
+    await zoomIn.click()
+    await zoomIn.click()
+    await fitWidth.click()
+    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('适宽')
+    await expect(fitWidth).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('selection-toolbar')).toBeHidden()
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
+    await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
+      const pageTwo = host.querySelector<HTMLElement>('.pdf-page[data-page-number="2"]')
+      if (!pageTwo) return false
+      const hostRect = host.getBoundingClientRect()
+      const pageRect = pageTwo.getBoundingClientRect()
+      return pageRect.top < hostRect.bottom && pageRect.bottom > hostRect.top
+    })).toBe(true)
+    for (const pageNumber of [1, 2, 3]) {
+      await assertPdfCanvasPainted(page, pageNumber)
+    }
+    await assertFitWidth(page)
+
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
+    await assertFitWidth(page)
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
+test('uses whole-document progress for a text PDF without an outline', async () => {
+  test.setTimeout(90_000)
+  const { application, page, testRoot } = await openFixture(noOutlinePdf)
+  try {
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '全文')
+    await page.getByRole('button', { name: '目录', exact: true }).click()
+    await expect(page.getByText('没有可用目录')).toBeVisible()
+
+    await page.getByTestId('reader-host').evaluate((host) => {
+      const pageTwo = host.querySelector<HTMLElement>('.pdf-page[data-page-number="2"]')
+      if (!pageTwo) throw new Error('Expected PDF page 2')
+      host.scrollTop = pageTwo.offsetTop
+      host.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '全文')
+    await expect.poll(async () => Number.parseInt((await page.locator('.reading-progress strong').textContent()) ?? '0', 10)).toBeGreaterThan(45)
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
+async function assertFitWidth(page: Page): Promise<void> {
+  await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
+    const documentElement = host.querySelector<HTMLElement>('.pdf-document')
+    const pageElement = host.querySelector<HTMLElement>('.pdf-page')
+    if (!documentElement || !pageElement) return Number.POSITIVE_INFINITY
+    const style = getComputedStyle(documentElement)
+    const expected = host.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight)
+    return Math.abs(pageElement.getBoundingClientRect().width - expected)
+  })).toBeLessThan(2)
+  const overflow = await page.getByTestId('reader-host').evaluate((host) => ({
+    extraWidth: host.scrollWidth - host.clientWidth,
+    scrollLeft: host.scrollLeft
+  }))
+  expect(overflow.extraWidth).toBeLessThanOrEqual(1)
+  expect(overflow.scrollLeft).toBe(0)
+}
+
+async function assertHorizontalScroll(page: Page): Promise<void> {
+  await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => (
+    host.scrollWidth - host.clientWidth
+  ))).toBeGreaterThan(20)
+  await page.getByTestId('reader-host').evaluate((host) => {
+    host.scrollLeft = Math.max(1, (host.scrollWidth - host.clientWidth) / 2)
+  })
+  await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => host.scrollLeft)).toBeGreaterThan(0)
+}
+
+async function assertPdfCanvasPainted(page: Page, pageNumber: number): Promise<void> {
+  const canvas = page.locator(`.pdf-page[data-page-number="${pageNumber}"] canvas`)
+  await expect.poll(() => canvas.evaluate((element) => {
+    const target = element as HTMLCanvasElement
+    if (target.width < 2 || target.height < 2) return false
+    const context = target.getContext('2d', { willReadFrequently: true })
+    if (!context) return false
+    const pixel = context.getImageData(1, 1, 1, 1).data
+    return pixel[3] === 255 && pixel[0] + pixel[1] + pixel[2] > 600
+  })).toBe(true)
+  await expect(canvas).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(canvas).toHaveCSS('visibility', 'visible')
+}
+
+test('disables native PDF selection and supports editable single-page region selections', async () => {
   test.setTimeout(180_000)
   const opened = await openFixture(complexLayoutPdf)
   let application = opened.application
@@ -257,18 +416,7 @@ test('keeps readable native text and supports editable single-page region select
       selection?.addRange(range)
       document.dispatchEvent(new Event('selectionchange'))
     })
-    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
-    await page.getByTestId('action-save-highlight').click()
-    await expect.poll(async () => page.evaluate(async () => {
-      const api = (window as unknown as {
-        readerApi: {
-          listBooks(): Promise<Array<{ id: string }>>
-          listHighlights(bookId: string): Promise<Array<{ quote: string }>>
-        }
-      }).readerApi
-      const [book] = await api.listBooks()
-      return (await api.listHighlights(book.id))[0]?.quote ?? ''
-    })).toContain('保留 自然空格')
+    await expect(page.getByTestId('selection-toolbar')).toBeHidden()
 
     const regionButton = page.getByTestId('pdf-region-select')
     await regionButton.click()
@@ -451,6 +599,7 @@ test('clears a PDF region draft when switching books or destroying the reader', 
   const { testRoot, userData } = opened
   try {
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
     await application.evaluate(({ dialog }, fixturePath) => {
       dialog.showOpenDialog = (async () => (
         { canceled: false, filePaths: [fixturePath], bookmarks: [] }
@@ -502,8 +651,9 @@ test('accepts a local complex academic PDF without committing the source file', 
   try {
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('.pdf-page')).toHaveCount(88)
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '全文')
 
-    for (const pageNumber of [10, 40, 55, 81]) {
+    for (const pageNumber of [4, 10, 40, 55, 81]) {
       await page.getByTestId('reader-host').evaluate((host, targetPage) => {
         const pageElement = host.querySelector<HTMLElement>(`.pdf-page[data-page-number="${targetPage}"]`)
         if (!pageElement) throw new Error(`Missing PDF page ${targetPage}`)
@@ -522,9 +672,10 @@ test('accepts a local complex academic PDF without committing the source file', 
         selection?.addRange(range)
         document.dispatchEvent(new Event('selectionchange'))
       })
-      await expect(page.getByTestId('selection-toolbar')).toBeVisible()
-      await page.getByRole('button', { name: '关闭选区工具', exact: true }).click()
+      await expect(page.getByTestId('selection-toolbar')).toBeHidden()
+      await expect(page.locator('.reader-column')).not.toHaveAttribute('data-current-chapter-title', /^第 \d+ 页$/u)
     }
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', 'References')
 
     await page.getByTestId('reader-host').evaluate((host) => {
       const pageElement = host.querySelector<HTMLElement>('.pdf-page[data-page-number="40"]')
@@ -550,6 +701,32 @@ test('accepts a local complex academic PDF without committing the source file', 
     }
     await page.keyboard.press('Escape')
 
+    const zoomIn = page.getByRole('button', { name: '放大', exact: true })
+    const fitWidth = page.getByRole('button', { name: '适合宽度', exact: true })
+    await zoomIn.click()
+    await zoomIn.click()
+    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('130%')
+    await assertHorizontalScroll(page)
+    for (const pageNumber of [39, 40, 41]) {
+      await assertPdfCanvasPainted(page, pageNumber)
+    }
+    if (visualDirectory) {
+      await page.screenshot({ path: join(visualDirectory, 'pdf-real-custom-130-light-1440x900.png') })
+    }
+    await fitWidth.click()
+    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('适宽')
+    await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
+      const pageForty = host.querySelector<HTMLElement>('.pdf-page[data-page-number="40"]')
+      if (!pageForty) return false
+      const hostRect = host.getBoundingClientRect()
+      const pageRect = pageForty.getBoundingClientRect()
+      return pageRect.top < hostRect.bottom && pageRect.bottom > hostRect.top
+    })).toBe(true)
+    for (const pageNumber of [39, 40, 41]) {
+      await assertPdfCanvasPainted(page, pageNumber)
+    }
+    await assertFitWidth(page)
+
     await page.getByTestId('settings-button').click()
     await page.getByTestId('theme-dark').click()
     await page.getByTestId('scale-125').click()
@@ -557,6 +734,7 @@ test('accepts a local complex academic PDF without committing the source file', 
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
     await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'dark')
     await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', '125')
+    await assertFitWidth(page)
     if (visualDirectory) {
       await page.screenshot({ path: join(visualDirectory, 'pdf-real-dark-940x600-125.png') })
     }

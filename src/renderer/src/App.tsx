@@ -2655,7 +2655,10 @@ export default function App(): ReactNode {
                 <button className="icon-button reader-settings-button" data-testid="reader-return-button" type="button" aria-label={copy('reader.returnToReading')} title={copy('reader.returnToReading')} disabled={bookState !== 'ready' || !naturalLocator || currentLocator === naturalLocator} onClick={() => void returnToReading()}><ArrowLeft size={17} /></button>
                 <button className="icon-button reader-settings-button" data-testid="reader-settings-button" type="button" aria-label={copy('reader.readingSettings')} title={copy('reader.readingSettings')} onClick={(event) => openSettings('reading', event.currentTarget)}><SlidersHorizontal size={17} /></button>
                 <div className="reading-progress">
-                  <span>{currentChapterTitle || copy('common.currentChapter')}</span>
+                  <span
+                    aria-label={currentChapterTitle || copy('common.currentChapter')}
+                    title={currentChapterTitle || copy('common.currentChapter')}
+                  >{currentChapterTitle || copy('common.currentChapter')}</span>
                   <strong>{Math.round(currentChapterProgress * 100)}%</strong>
                   <div><i style={{ width: `${Math.max(0, Math.min(100, currentChapterProgress * 100))}%` }} /></div>
                 </div>

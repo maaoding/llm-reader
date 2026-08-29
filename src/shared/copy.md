@@ -291,6 +291,9 @@
 | reader.pdfZoomOut | 缩小 |
 | reader.pdfZoomIn | 放大 |
 | reader.pdfFitWidth | 适合宽度 |
+| reader.pdfFitWidthValue | 适宽 |
+| reader.pdfWholeDocument | 全文 |
+| reader.pdfUntitledSection | 未命名小节 |
 | reader.pdfRegionSelect | 框选文字 |
 | reader.pdfRegionHint | 请在单页内框选一个段落、单栏或表格区域。 |
 | reader.pdfRegionTooSmall | 框选区域太小，请重新拖动选择。 |

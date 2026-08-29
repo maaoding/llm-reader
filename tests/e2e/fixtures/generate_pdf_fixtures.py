@@ -45,6 +45,23 @@ def create_text_pdf(path: Path) -> None:
     pdf.setFillColorRGB(0.25, 0.37, 0.48)
     pdf.drawString(72, height - 212, "跳到第三页（内部链接）")
     pdf.linkRect("", "page-three", (70, height - 218, 260, height - 194), relative=0, thickness=0)
+
+    pdf.bookmarkHorizontalAbsolute("page-one-selection", height - 300)
+    pdf.addOutlineEntry("1.1 同页目录定位", "page-one-selection", level=1)
+    pdf.setFillColorRGB(0.12, 0.18, 0.22)
+    pdf.setFont(FONT_NAME, 18)
+    pdf.drawString(72, height - 320, "1.1 同页目录定位")
+    pdf.setFont(FONT_NAME, 12)
+    for index in range(7):
+        pdf.drawString(72, height - 352 - index * 22, f"同页小节第一段第 {index + 1} 行，用于验证目录内进度。")
+
+    pdf.bookmarkHorizontalAbsolute("page-one-fit", height - 560)
+    pdf.addOutlineEntry("1.2 适宽稳定性", "page-one-fit", level=1)
+    pdf.setFont(FONT_NAME, 18)
+    pdf.drawString(72, height - 580, "1.2 适宽稳定性")
+    pdf.setFont(FONT_NAME, 12)
+    for index in range(6):
+        pdf.drawString(72, height - 612 - index * 22, f"同页小节第二段第 {index + 1} 行，用于验证缩放后定位。")
     pdf.showPage()
 
     pdf.bookmarkPage("page-two")
@@ -62,6 +79,21 @@ def create_text_pdf(path: Path) -> None:
     pdf.drawString(72, height - 92, "第三章：内部导航目标")
     pdf.setFont(FONT_NAME, 13)
     pdf.drawString(72, height - 138, "内部链接只改变当前视图，不应覆盖自然阅读位置。")
+    pdf.save()
+
+
+def create_no_outline_pdf(path: Path) -> None:
+    width, height = A4
+    pdf = canvas.Canvas(str(path), pagesize=A4, pageCompression=1)
+    pdf.setTitle("无目录 PDF 测试")
+    pdf.setAuthor("LLM Reader")
+    for page_number in range(1, 3):
+        pdf.setFont(FONT_NAME, 24)
+        pdf.drawString(72, height - 92, f"无目录正文第 {page_number} 页")
+        pdf.setFont(FONT_NAME, 13)
+        for index in range(18):
+            pdf.drawString(72, height - 138 - index * 28, f"第 {index + 1} 行用于验证全文进度回退。")
+        pdf.showPage()
     pdf.save()
 
 
@@ -243,6 +275,7 @@ def create_hostile_pdf(path: Path) -> None:
 def main() -> None:
     register_font()
     create_text_pdf(FIXTURE_DIR / "text-reader.pdf")
+    create_no_outline_pdf(FIXTURE_DIR / "no-outline-reader.pdf")
     create_scanned_pdf(FIXTURE_DIR / "scanned-reader.pdf")
     create_complex_layout_pdf(FIXTURE_DIR / "complex-layout-reader.pdf")
     create_damaged_pdf(FIXTURE_DIR / "damaged-reader.pdf")

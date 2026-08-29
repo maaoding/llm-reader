@@ -26,6 +26,18 @@ import {
   type PdfRegionTextItem,
   type PdfTextModel
 } from './pdf-text'
+import {
+  makePdfPositionAnchor,
+  parsePdfPositionAnchor,
+  pdfDestinationFraction,
+  pdfFitAvailableWidth,
+  pdfSectionAt,
+  PdfZoomCoordinator,
+  sortPdfOutlineLocations,
+  type PdfOutlineLocation,
+  type PdfPositionAnchor,
+  type PdfZoomOperation
+} from './pdf-navigation'
 import type {
   ReadingPreferences,
   ReaderAdapter,
@@ -36,16 +48,11 @@ import type {
   ReaderRelocationReason,
   ReaderSearchResult
 } from './types'
-import {
-  DEFAULT_READING_PREFERENCES,
-  readerSelectionBackground,
-  READER_SEARCH_RESULT_LIMIT
-} from './types'
+import { READER_SEARCH_RESULT_LIMIT } from './types'
 
 const MIN_ZOOM = 0.5
 const MAX_ZOOM = 2.5
 const ZOOM_STEP = 0.15
-const PAGE_GUTTER = 48
 const MAX_CANVAS_DIMENSION = 8_192
 const MAX_CANVAS_PIXELS = 36_000_000
 const TEMPORARY_HIGHLIGHT_NAME = 'llm-reader-pdf-temporary'
@@ -85,6 +92,8 @@ interface PdfOutlineNode {
   items: PdfOutlineNode[]
 }
 
+type PdfZoomMode = 'fit-width' | 'custom'
+
 function codePointOffsetToUtf16(value: string, offset: number): number {
   return Array.from(value).slice(0, offset).join('').length
 }
@@ -99,6 +108,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private readonly host: HTMLElement
   private readonly callbacks: ReaderCallbacks
   private readonly document: Document
+  private readonly originalOverflowX: string
   private readonly originalOverflowY: string
   private readonly originalPosition: string
   private root: HTMLElement | null = null
@@ -117,8 +127,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private searchRevision = 0
   private searchQueue: Promise<void> = Promise.resolve()
   private zoomFactor = 1
-  private preferences: ReadingPreferences = { ...DEFAULT_READING_PREFERENCES }
+  private zoomMode: PdfZoomMode = 'fit-width'
+  private readonly zoomCoordinator = new PdfZoomCoordinator()
+  private resizeFrame: number | null = null
+  private fitWidthButton: HTMLButtonElement | null = null
+  private outlineLocations: PdfOutlineLocation[] = []
   private programmaticReason: ReaderRelocationReason | null = null
+  private programmaticScrollTop: number | null = null
+  private programmaticScrollRevision = 0
   private selection: SelectionContext | null = null
   private persistentHighlightAnchors: ReaderHighlightAnchor[] = []
   private temporaryHighlightRegistry: HighlightRegistry | null = null
@@ -138,12 +154,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.host = host
     this.callbacks = callbacks
     this.document = host.ownerDocument
+    this.originalOverflowX = host.style.overflowX
     this.originalOverflowY = host.style.overflowY
     this.originalPosition = host.style.position
   }
 
   async open(bytes: Uint8Array, lastLocator?: string | null): Promise<ReaderDocumentInfo> {
     this.resetDocument()
+    this.host.style.overflowX = 'auto'
     this.host.style.overflowY = 'auto'
     if (this.document.defaultView?.getComputedStyle(this.host).position === 'static') {
       this.host.style.position = 'relative'
@@ -203,6 +221,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       element.setAttribute('aria-label', copy('reader.pdfPage', { number: pageNumber }))
       const canvas = this.document.createElement('canvas')
       canvas.className = 'pdf-page-canvas'
+      canvas.style.visibility = 'hidden'
       const textLayerElement = this.document.createElement('div')
       textLayerElement.className = 'pdf-text-layer'
       textLayerElement.dataset.pageNumber = String(pageNumber)
@@ -239,7 +258,9 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
     const [metadata, toc] = await Promise.all([this.readMetadata(), this.readOutline()])
     const restored = lastLocator
-      ? parsePdfTextAnchor(lastLocator, this.pages.length) ?? parsePdfRegionAnchor(lastLocator, this.pages.length)
+      ? parsePdfTextAnchor(lastLocator, this.pages.length) ??
+        parsePdfRegionAnchor(lastLocator, this.pages.length) ??
+        parsePdfPositionAnchor(lastLocator, this.pages.length)
       : null
     const initialPage = restored?.pageNumber ?? 1
     await this.renderPage(initialPage)
@@ -254,6 +275,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   destroy(): void {
     this.resetDocument()
+    this.host.style.overflowX = this.originalOverflowX
     this.host.style.overflowY = this.originalOverflowY
     this.host.style.position = this.originalPosition
   }
@@ -273,6 +295,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
         if (revision !== this.searchRevision) return []
         const model = page.textModel
         const text = model?.readableText ?? ''
+        const rawLength = model?.rawLength ?? 0
         const expression = literalSearchExpression(normalized)
         let previousUtf16 = 0
         let previousCodePoints = 0
@@ -285,7 +308,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
           results.push({
             anchor: makePdfTextAnchor(page.pageNumber, start, end),
             excerpt: searchExcerpt(text, match.index, match.index + match[0].length),
-            chapterTitle: copy('reader.pdfPage', { number: page.pageNumber })
+            chapterTitle: this.sectionAt(
+              page.pageNumber,
+              rawLength > 0 ? start / rawLength : 0
+            ).title
           })
           if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
           previousUtf16 = match.index
@@ -333,11 +359,6 @@ export class PdfReaderAdapter implements ReaderAdapter {
       rect.bottom > hostRect.top && rect.top < hostRect.bottom
     ))
     if (!visible) return false
-    const nativeSelection = this.document.defaultView?.getSelection()
-    if (!nativeSelection) return false
-    nativeSelection.removeAllRanges()
-    nativeSelection.addRange(range)
-    void this.updateSelection(nativeSelection)
     return true
   }
 
@@ -374,16 +395,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
     await this.applyPersistentHighlights()
   }
 
-  async setPreferences(preferences: ReadingPreferences): Promise<void> {
-    // Only the native selection affordance follows the paper setting. Page
-    // geometry, fonts, spacing and canvas colors remain publication-owned.
-    this.preferences = { ...preferences }
-    if (this.highlightStyleElement) this.highlightStyleElement.textContent = this.highlightStylesCss()
+  setPreferences(preferences: ReadingPreferences): Promise<void> {
+    // PDF page geometry, fonts, spacing and canvas colors remain publication-owned.
+    void preferences
+    return Promise.resolve()
   }
 
   private highlightStylesCss(): string {
     return `
-      .pdf-text-layer ::selection { color: transparent; background: ${readerSelectionBackground(this.preferences.paperTheme)}; }
       ::highlight(${TEMPORARY_HIGHLIGHT_NAME}) { background: rgba(246, 190, 72, .36); }
       ::highlight(${PERSISTENT_HIGHLIGHT_NAME}) { background: rgba(126, 188, 148, .36); }
       .pdf-temporary-highlight { background: rgba(246, 190, 72, .25); outline: 2px solid rgba(196, 130, 18, .45); }
@@ -396,12 +415,18 @@ export class PdfReaderAdapter implements ReaderAdapter {
     toolbar.className = 'pdf-toolbar'
     toolbar.dataset.testid = 'pdf-toolbar'
     const zoomOut = this.toolbarButton('−', copy('reader.pdfZoomOut'), () => this.changeZoom(-ZOOM_STEP))
-    const fitWidth = this.toolbarButton(copy('reader.pdfFitWidth'), copy('reader.pdfFitWidth'), () => this.setZoom(1))
-    fitWidth.classList.add('pdf-fit-width')
+    const fitWidth = this.toolbarButton(
+      copy('reader.pdfFitWidth'),
+      copy('reader.pdfFitWidth'),
+      () => this.setZoom(1, 'fit-width', true)
+    )
+    fitWidth.classList.add('pdf-fit-width', 'is-active')
+    fitWidth.setAttribute('aria-pressed', 'true')
+    this.fitWidthButton = fitWidth
     const zoomValue = this.document.createElement('output')
     zoomValue.className = 'pdf-zoom-value'
     zoomValue.dataset.testid = 'pdf-zoom-value'
-    zoomValue.value = '100%'
+    zoomValue.value = copy('reader.pdfFitWidthValue')
     const zoomIn = this.toolbarButton('+', copy('reader.pdfZoomIn'), () => this.changeZoom(ZOOM_STEP))
     const regionButton = this.toolbarButton(
       copy('reader.pdfRegionSelect'),
@@ -646,16 +671,18 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private changeZoom(delta: number): void {
-    this.setZoom(this.zoomFactor + delta)
+    this.setZoom(this.zoomFactor + delta, 'custom')
   }
 
-  private setZoom(value: number, force = false): void {
+  private setZoom(value: number, mode: PdfZoomMode, force = false): void {
     const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100))
-    if (next === this.zoomFactor && !force) return
-    const current = this.currentPageAndFraction()
+    if (next === this.zoomFactor && mode === this.zoomMode && !force) return
+    const operation = this.zoomCoordinator.begin(this.currentPageAndFraction())
+    const pendingRenders = this.pages.flatMap((page) => page.renderPromise ? [page.renderPromise] : [])
     this.zoomFactor = next
-    const output = this.root?.querySelector<HTMLOutputElement>('.pdf-zoom-value')
-    if (output) output.value = `${Math.round(next * 100)}%`
+    this.zoomMode = mode
+    this.updateZoomUi()
+    this.clearNativeTextSelectionForRerender()
     for (const page of this.pages) {
       page.renderTask?.cancel()
       page.textLayer?.cancel()
@@ -663,21 +690,58 @@ export class PdfReaderAdapter implements ReaderAdapter {
       page.textLayer = null
       page.renderPromise = null
       page.rendered = false
-      page.canvas.width = 0
-      page.canvas.height = 0
       page.textLayerElement.replaceChildren()
       page.linkLayerElement.replaceChildren()
       page.element.querySelector('.pdf-page-no-text')?.remove()
       this.updatePageSize(page)
     }
-    void this.renderPage(current.pageNumber).then(() => {
-      this.scrollToPageFraction(current.pageNumber, current.fraction)
-      void this.applyPersistentHighlights()
-    })
+    void this.finishZoom(operation, pendingRenders)
+  }
+
+  private async finishZoom(
+    operation: PdfZoomOperation,
+    pendingRenders: Promise<void>[]
+  ): Promise<void> {
+    await Promise.allSettled(pendingRenders)
+    if (!this.zoomCoordinator.isCurrent(operation.revision)) return
+
+    const nearbyPages = [
+      operation.anchor.pageNumber - 1,
+      operation.anchor.pageNumber,
+      operation.anchor.pageNumber + 1
+    ].filter((pageNumber) => pageNumber >= 1 && pageNumber <= this.pages.length)
+    const rendering = nearbyPages.map((pageNumber) => this.renderPage(pageNumber))
+    await rendering[nearbyPages.indexOf(operation.anchor.pageNumber)]
+    await Promise.allSettled(rendering)
+
+    const anchor = this.zoomCoordinator.complete(operation.revision)
+    if (!anchor) return
+    this.relocateProgrammatically(anchor.pageNumber, anchor.fraction, 'navigation')
+    if (this.zoomMode === 'fit-width') this.host.scrollLeft = 0
+    await this.applyPersistentHighlights()
+  }
+
+  private updateZoomUi(): void {
+    const output = this.root?.querySelector<HTMLOutputElement>('.pdf-zoom-value')
+    if (output) {
+      output.value = this.zoomMode === 'fit-width'
+        ? copy('reader.pdfFitWidthValue')
+        : `${Math.round(this.zoomFactor * 100)}%`
+    }
+    const isFitWidth = this.zoomMode === 'fit-width'
+    this.fitWidthButton?.setAttribute('aria-pressed', String(isFitWidth))
+    this.fitWidthButton?.classList.toggle('is-active', isFitWidth)
   }
 
   private fitScale(page: PdfPageState): number {
-    const availableWidth = Math.max(240, this.host.clientWidth - PAGE_GUTTER)
+    const style = this.documentElement && this.document.defaultView
+      ? this.document.defaultView.getComputedStyle(this.documentElement)
+      : null
+    const availableWidth = pdfFitAvailableWidth(
+      this.host.clientWidth,
+      Number.parseFloat(style?.paddingLeft ?? '0'),
+      Number.parseFloat(style?.paddingRight ?? '0')
+    )
     return availableWidth / page.baseWidth
   }
 
@@ -687,8 +751,30 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   private updatePageSize(page: PdfPageState): void {
     const scale = this.pageScale(page)
-    page.element.style.width = `${page.baseWidth * scale}px`
-    page.element.style.height = `${page.baseHeight * scale}px`
+    const width = page.baseWidth * scale
+    const height = page.baseHeight * scale
+    page.element.style.width = `${width}px`
+    page.element.style.height = `${height}px`
+    page.canvas.style.width = `${width}px`
+    page.canvas.style.height = `${height}px`
+  }
+
+  private clearNativeTextSelectionForRerender(): void {
+    const nativeSelection = this.document.defaultView?.getSelection()
+    const range = nativeSelection?.rangeCount ? nativeSelection.getRangeAt(0) : null
+    const rangeUsesTextLayer = Boolean(
+      range && (
+        this.pageElementForNode(range.startContainer) ||
+        this.pageElementForNode(range.endContainer)
+      )
+    )
+    const selectionUsesTextAnchor = Boolean(
+      this.selection && parsePdfTextAnchor(this.selection.anchor, this.pages.length)
+    )
+    if (!rangeUsesTextLayer && !selectionUsesTextAnchor) return
+    this.selectionRevision += 1
+    nativeSelection?.removeAllRanges()
+    if (selectionUsesTextAnchor) this.setSelection(null)
   }
 
   private bindObservers(): void {
@@ -708,7 +794,11 @@ export class PdfReaderAdapter implements ReaderAdapter {
       this.resizeObserver = new view.ResizeObserver(() => {
         if (Math.abs(this.host.clientWidth - previousWidth) < 2) return
         previousWidth = this.host.clientWidth
-        this.setZoom(this.zoomFactor, true)
+        if (this.resizeFrame !== null) view.cancelAnimationFrame(this.resizeFrame)
+        this.resizeFrame = view.requestAnimationFrame(() => {
+          this.resizeFrame = null
+          this.setZoom(this.zoomFactor, this.zoomMode, true)
+        })
       })
       this.resizeObserver.observe(this.host)
     }
@@ -729,12 +819,11 @@ export class PdfReaderAdapter implements ReaderAdapter {
       )
       const ratioByArea = Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, viewport.width * viewport.height))
       const outputScale = Math.max(0.25, Math.min(ratioByDimension, ratioByArea))
-      state.canvas.width = Math.max(1, Math.floor(viewport.width * outputScale))
-      state.canvas.height = Math.max(1, Math.floor(viewport.height * outputScale))
-      state.canvas.style.width = `${viewport.width}px`
-      state.canvas.style.height = `${viewport.height}px`
+      const renderCanvas = this.document.createElement('canvas')
+      renderCanvas.width = Math.max(1, Math.floor(viewport.width * outputScale))
+      renderCanvas.height = Math.max(1, Math.floor(viewport.height * outputScale))
       const renderTask = state.page.render({
-        canvas: state.canvas,
+        canvas: renderCanvas,
         viewport,
         transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
         annotationMode: this.pdfjs?.AnnotationMode.DISABLE,
@@ -743,6 +832,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
       state.renderTask = renderTask
       await renderTask.promise
       state.renderTask = null
+      state.canvas.width = renderCanvas.width
+      state.canvas.height = renderCanvas.height
+      state.canvas.style.width = `${viewport.width}px`
+      state.canvas.style.height = `${viewport.height}px`
+      const visibleContext = state.canvas.getContext('2d')
+      if (!visibleContext) throw new Error(copy('reader.pdfOpenFailed'))
+      visibleContext.drawImage(renderCanvas, 0, 0)
+      state.canvas.style.visibility = 'visible'
 
       const textContent = await state.page.getTextContent({ disableNormalization: false })
       state.textModel ??= createPdfTextModel(textContent.items.flatMap((item) => (
@@ -822,8 +919,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
         !Array.isArray(annotation.rect)
       ) continue
       const destination = annotation.dest as string | unknown[]
-      const targetPageNumber = await this.pageNumberForDestination(destination)
-      if (!targetPageNumber || targetPageNumber < 1 || targetPageNumber > this.pages.length) continue
+      const target = await this.positionForDestination(destination)
+      if (!target) continue
       const rectangle = viewport.convertToViewportRectangle(annotation.rect as [number, number, number, number])
       const left = Math.min(rectangle[0], rectangle[2])
       const top = Math.min(rectangle[1], rectangle[3])
@@ -836,30 +933,35 @@ export class PdfReaderAdapter implements ReaderAdapter {
       button.style.top = `${top}px`
       button.style.width = `${width}px`
       button.style.height = `${height}px`
-      button.dataset.targetPage = String(targetPageNumber)
+      button.dataset.targetPage = String(target.pageNumber)
       button.setAttribute('aria-label', copy('reader.pdfInternalLink'))
       button.addEventListener('click', () => {
-        void this.goTo(makePdfTextAnchor(targetPageNumber))
+        void this.goTo(makePdfPositionAnchor(target.pageNumber, target.fraction))
       })
       state.linkLayerElement.append(button)
     }
   }
 
-  private async pageNumberForDestination(destination: string | unknown[]): Promise<number | null> {
+  private async positionForDestination(destination: string | unknown[]): Promise<PdfPositionAnchor | null> {
     if (!this.pdfDocument) return null
-    const resolved = typeof destination === 'string'
-      ? await this.pdfDocument.getDestination(destination)
-      : destination
-    const target = resolved?.[0]
-    if (typeof target === 'number' && Number.isSafeInteger(target)) return target + 1
-    if (target && typeof target === 'object' && 'num' in target && 'gen' in target) {
-      try {
-        return (await this.pdfDocument.getPageIndex(target as { num: number; gen: number })) + 1
-      } catch {
-        return null
+    try {
+      const resolved = typeof destination === 'string'
+        ? await this.pdfDocument.getDestination(destination)
+        : destination
+      if (!resolved) return null
+      const target = resolved[0]
+      let pageNumber: number | null = null
+      if (typeof target === 'number' && Number.isSafeInteger(target)) pageNumber = target + 1
+      if (target && typeof target === 'object' && 'num' in target && 'gen' in target) {
+        pageNumber = (await this.pdfDocument.getPageIndex(target as { num: number; gen: number })) + 1
       }
+      const page = pageNumber ? this.pages[pageNumber - 1] : null
+      if (!page || !pageNumber) return null
+      const viewport = page.page.getViewport({ scale: 1 })
+      return { pageNumber, fraction: pdfDestinationFraction(resolved, viewport) }
+    } catch {
+      return null
     }
-    return null
   }
 
   private async readMetadata(): Promise<ReaderDocumentInfo['metadata']> {
@@ -877,29 +979,36 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private async readOutline(): Promise<TocItem[]> {
+    this.outlineLocations = []
     if (!this.pdfDocument) return []
     try {
       const outline = await this.pdfDocument.getOutline() as PdfOutlineNode[]
       const toc: TocItem[] = []
+      const locations: PdfOutlineLocation[] = []
       const visit = async (items: PdfOutlineNode[], depth: number): Promise<void> => {
         for (const item of items) {
           if (!item.url && !item.unsafeUrl && item.dest) {
-            const pageNumber = await this.pageNumberForDestination(item.dest)
-            if (pageNumber) {
+            const position = await this.positionForDestination(item.dest)
+            if (position) {
+              const label = item.title.trim() || copy('reader.pdfUntitledSection')
+              const href = makePdfPositionAnchor(position.pageNumber, position.fraction)
               toc.push({
                 id: `pdf-toc-${toc.length + 1}`,
-                label: item.title.trim() || copy('reader.pdfPage', { number: pageNumber }),
-                href: makePdfTextAnchor(pageNumber),
+                label,
+                href,
                 depth
               })
+              locations.push({ ...position, label, href, depth, order: locations.length })
             }
           }
           if (item.items.length > 0) await visit(item.items, depth + 1)
         }
       }
       await visit(outline, 0)
+      this.outlineLocations = sortPdfOutlineLocations(locations)
       return toc
     } catch {
+      this.outlineLocations = []
       return []
     }
   }
@@ -907,29 +1016,55 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private async goToWithReason(anchor: string, reason: ReaderRelocationReason): Promise<void> {
     const textAnchor = parsePdfTextAnchor(anchor, this.pages.length)
     const regionAnchor = parsePdfRegionAnchor(anchor, this.pages.length)
-    const pageNumber = textAnchor?.pageNumber ?? regionAnchor?.pageNumber
+    const positionAnchor = parsePdfPositionAnchor(anchor, this.pages.length)
+    const pageNumber = textAnchor?.pageNumber ?? regionAnchor?.pageNumber ?? positionAnchor?.pageNumber
     if (!pageNumber) throw new Error(copy('reader.pdfInvalidAnchor'))
     await this.renderPage(pageNumber)
     const page = this.pages[pageNumber - 1]
     const pageLength = page.textModel?.rawLength ?? 0
-    const fraction = regionAnchor?.top ?? (pageLength > 0 ? (textAnchor?.start ?? 0) / pageLength : 0)
+    const fraction = positionAnchor?.fraction ??
+      regionAnchor?.top ??
+      (pageLength > 0 ? (textAnchor?.start ?? 0) / pageLength : 0)
+    this.relocateProgrammatically(pageNumber, fraction, reason)
+  }
+
+  private relocateProgrammatically(
+    pageNumber: number,
+    fraction: number,
+    reason: ReaderRelocationReason
+  ): void {
+    const revision = ++this.programmaticScrollRevision
+    if (this.relocationFrame !== null && this.document.defaultView) {
+      this.document.defaultView.cancelAnimationFrame(this.relocationFrame)
+      this.relocationFrame = null
+    }
     this.programmaticReason = reason
     this.scrollToPageFraction(pageNumber, fraction)
+    this.programmaticScrollTop = this.host.scrollTop
     this.emitRelocationForPage(pageNumber, fraction, reason)
     this.document.defaultView?.setTimeout(() => {
+      if (revision !== this.programmaticScrollRevision) return
       this.programmaticReason = null
+      this.programmaticScrollTop = null
     }, 80)
   }
 
   private scrollToPageFraction(pageNumber: number, fraction: number): void {
     const page = this.pages[pageNumber - 1]
     if (!page) return
-    this.host.scrollTop = Math.max(0, page.element.offsetTop + page.element.offsetHeight * fraction - 52)
+    this.host.scrollTop = Math.max(
+      0,
+      page.element.offsetTop + page.element.offsetHeight * fraction - this.readingLineOffset()
+    )
+  }
+
+  private readingLineOffset(): number {
+    return Math.min(120, this.host.clientHeight * 0.25)
   }
 
   private currentPageAndFraction(): { pageNumber: number; fraction: number } {
     const hostRect = this.host.getBoundingClientRect()
-    const readingLine = hostRect.top + Math.min(120, hostRect.height * 0.25)
+    const readingLine = hostRect.top + this.readingLineOffset()
     let best = this.pages[0]
     let distance = Number.POSITIVE_INFINITY
     for (const page of this.pages) {
@@ -953,6 +1088,16 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handleScroll = (): void => {
+    if (
+      this.programmaticReason &&
+      this.programmaticScrollTop !== null &&
+      Math.abs(this.host.scrollTop - this.programmaticScrollTop) < 1
+    ) return
+    if (this.programmaticReason) {
+      this.programmaticScrollRevision += 1
+      this.programmaticReason = null
+      this.programmaticScrollTop = null
+    }
     if (this.relocationFrame !== null || !this.document.defaultView) return
     this.relocationFrame = this.document.defaultView.requestAnimationFrame(() => {
       this.relocationFrame = null
@@ -969,14 +1114,25 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const state = this.pages[pageNumber - 1]
     const textLength = state?.textModel?.rawLength ?? 0
     const offset = Math.round(textLength * Math.min(1, Math.max(0, fraction)))
+    const section = this.sectionAt(pageNumber, fraction)
     this.emitRelocation({
       locator: makePdfTextAnchor(pageNumber, offset),
       progress: (pageNumber - 1 + fraction) / Math.max(1, this.pages.length),
-      chapterProgress: fraction,
-      chapterTitle: copy('reader.pdfPage', { number: pageNumber }),
-      chapterHref: makePdfTextAnchor(pageNumber),
+      chapterProgress: section.progress,
+      chapterTitle: section.title,
+      chapterHref: section.href,
       reason
     })
+  }
+
+  private sectionAt(pageNumber: number, fraction: number): ReturnType<typeof pdfSectionAt> {
+    return pdfSectionAt(
+      this.outlineLocations,
+      pageNumber,
+      fraction,
+      this.pages.length,
+      copy('reader.pdfWholeDocument')
+    )
   }
 
   private emitRelocation(relocation: ReaderRelocation): void {
@@ -990,11 +1146,12 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private readonly handleSelectionChange = (): void => {
     if (this.regionMode) return
     const nativeSelection = this.document.defaultView?.getSelection()
-    if (!nativeSelection || nativeSelection.rangeCount === 0 || nativeSelection.isCollapsed) {
-      this.setSelection(null)
-      return
-    }
-    void this.updateSelection(nativeSelection)
+    if (!nativeSelection || nativeSelection.rangeCount === 0) return
+    const range = nativeSelection.getRangeAt(0)
+    if (!this.pageElementForNode(range.startContainer) && !this.pageElementForNode(range.endContainer)) return
+    this.selectionRevision += 1
+    nativeSelection.removeAllRanges()
+    this.setSelection(null)
   }
 
   private async updateSelection(nativeSelection: Selection): Promise<void> {
@@ -1063,11 +1220,13 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const focusBlock = pageNumber - 1 - firstPageIndex
     const focusStart = model.readableOffsetForRaw(start, 'start')
     const focusEnd = model.readableOffsetForRaw(end, 'end')
+    const regionAnchor = parsePdfRegionAnchor(anchor, this.pages.length)
+    const fraction = regionAnchor?.top ?? (model.rawLength > 0 ? start / model.rawLength : 0)
     return {
       bookId: this.callbacks.bookId,
       quote: quote.trim(),
       anchor,
-      chapterTitle: copy('reader.pdfPage', { number: pageNumber }),
+      chapterTitle: this.sectionAt(pageNumber, fraction).title,
       passages: buildBoundedPassages(blocks, {
         startBlock: focusBlock,
         startOffset: focusStart,
@@ -1220,7 +1379,12 @@ export class PdfReaderAdapter implements ReaderAdapter {
     if (this.relocationFrame !== null && this.document.defaultView) {
       this.document.defaultView.cancelAnimationFrame(this.relocationFrame)
     }
+    if (this.resizeFrame !== null && this.document.defaultView) {
+      this.document.defaultView.cancelAnimationFrame(this.resizeFrame)
+    }
     this.relocationFrame = null
+    this.resizeFrame = null
+    this.zoomCoordinator.reset()
     this.cancelRegionDrag()
     this.clearRegionDraft()
     this.activeRegionElement?.remove()
@@ -1243,8 +1407,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.highlightStyleElement = null
     this.regionMode = false
     this.regionButton = null
+    this.fitWidthButton = null
+    this.zoomFactor = 1
+    this.zoomMode = 'fit-width'
+    this.outlineLocations = []
     this.selection = null
     this.programmaticReason = null
+    this.programmaticScrollTop = null
+    this.programmaticScrollRevision += 1
     this.host.replaceChildren()
   }
 }
