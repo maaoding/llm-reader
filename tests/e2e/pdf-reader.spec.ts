@@ -611,6 +611,8 @@ test('clears a PDF region draft when switching books or destroying the reader', 
     await expect(page.getByRole('heading', { name: 'PDF 阅读测试', exact: true })).toBeVisible()
 
     await page.getByTestId('library-tab').click()
+    await expect(page.locator('.reader-surface')).toHaveClass(/is-ready/, { timeout: 60_000 })
+    await expect(page.getByTestId('library-list')).toBeVisible()
     await page.getByTestId('book-item').filter({ hasText: '复杂排版 PDF 划词测试' }).click()
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
     await page.getByTestId('pdf-region-select').click()
@@ -625,6 +627,8 @@ test('clears a PDF region draft when switching books or destroying the reader', 
     await expect(page.getByRole('heading', { name: 'PDF 阅读测试', exact: true })).toBeVisible()
 
     await page.getByTestId('library-tab').click()
+    await expect(page.locator('.reader-surface')).toHaveClass(/is-ready/, { timeout: 60_000 })
+    await expect(page.getByTestId('library-list')).toBeVisible()
     await page.getByTestId('book-item').filter({ hasText: '复杂排版 PDF 划词测试' }).click()
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
     await page.getByTestId('pdf-region-select').click()

@@ -1608,6 +1608,12 @@ export default function App(): ReactNode {
   const providerCheckSequenceRef = useRef(0)
   const requestProviderRevisionRef = useRef(new Map<string, number>())
   const searchSequenceRef = useRef(0)
+  const leftViewRevisionRef = useRef(0)
+
+  const selectLeftView = useCallback((view: LeftView): void => {
+    leftViewRevisionRef.current += 1
+    setLeftView(view)
+  }, [])
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const openSettings = useCallback((section: SettingsSectionId, trigger: HTMLButtonElement): void => {
@@ -1846,6 +1852,7 @@ export default function App(): ReactNode {
 
   const openBook = useCallback(async (book: BookRecord): Promise<void> => {
     const sequence = ++openSequenceRef.current
+    const leftViewRevision = leftViewRevisionRef.current
     const previousRequest = activeRequestRef.current
     if (previousRequest) {
       activeRequestRef.current = null
@@ -1920,7 +1927,9 @@ export default function App(): ReactNode {
       }
       setToc(result.toc)
       setBookState('ready')
-      setLeftView('toc')
+      if (leftViewRevision === leftViewRevisionRef.current) {
+        setLeftView('toc')
+      }
       void refreshInsights(book.id)
       void refreshHighlights(book.id)
 
@@ -2060,8 +2069,8 @@ export default function App(): ReactNode {
 
   const openSearchView = useCallback((): void => {
     if (!activeBookRef.current || !adapterRef.current) return
-    setLeftView('search')
-  }, [])
+    selectLeftView('search')
+  }, [selectLeftView])
 
   const runSearch = useCallback(async (value: string): Promise<void> => {
     const query = value.trim()
@@ -2522,13 +2531,13 @@ export default function App(): ReactNode {
         </header>
 
         <nav className="sidebar-tabs" aria-label={copy('library.navAria')}>
-          <button className={leftView === 'library' ? 'is-active' : ''} data-testid="library-tab" type="button" onClick={() => setLeftView('library')}>
+          <button className={leftView === 'library' ? 'is-active' : ''} data-testid="library-tab" type="button" onClick={() => selectLeftView('library')}>
             <Library size={15} />{copy('library.tabLibrary')}<span>{books.length}</span>
           </button>
-          <button className={leftView === 'toc' ? 'is-active' : ''} type="button" onClick={() => setLeftView('toc')} disabled={!activeBook}>
+          <button className={leftView === 'toc' ? 'is-active' : ''} type="button" onClick={() => selectLeftView('toc')} disabled={!activeBook}>
             <PanelLeftClose size={15} />{copy('library.tabToc')}
           </button>
-          <button className={leftView === 'highlights' ? 'is-active' : ''} data-testid="highlights-tab" type="button" onClick={() => setLeftView('highlights')} disabled={!activeBook}>
+          <button className={leftView === 'highlights' ? 'is-active' : ''} data-testid="highlights-tab" type="button" onClick={() => selectLeftView('highlights')} disabled={!activeBook}>
             <Bookmark size={15} />{copy('library.tabHighlights')}
           </button>
         </nav>
@@ -2657,7 +2666,7 @@ export default function App(): ReactNode {
                   type="button"
                   aria-label={copy('reader.searchClose')}
                   title={copy('reader.searchClose')}
-                  onClick={() => setLeftView('toc')}
+                  onClick={() => selectLeftView('toc')}
                 >
                   <X size={15} />
                 </button>

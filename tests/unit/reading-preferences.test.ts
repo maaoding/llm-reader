@@ -300,6 +300,35 @@ describe('reading preferences', () => {
     host.remove()
   })
 
+  it('keeps delayed EPUB relocation events programmatic until the settle window expires', async () => {
+    vi.useFakeTimers()
+    try {
+      const harness = createEpubHarness()
+      const host = document.createElement('div')
+      document.body.append(host)
+      const onRelocated = vi.fn()
+      const adapter = new EpubReaderAdapter(host, { bookId: 'epub-relocation-reason', onRelocated })
+      await adapter.open(new Uint8Array([1, 2, 3]))
+
+      vi.advanceTimersByTime(321)
+      harness.handlers.get('relocated')?.({
+        start: { cfi: FIRST_CFI, percentage: 0, index: 0 }
+      })
+      expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ reason: 'restore' }))
+
+      vi.advanceTimersByTime(430)
+      harness.handlers.get('relocated')?.({
+        start: { cfi: LATER_CFI, percentage: 0.6, index: 1 }
+      })
+      expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ reason: 'natural' }))
+
+      adapter.destroy()
+      host.remove()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('updates TXT typography immediately and restores its existing defaults', async () => {
     const host = document.createElement('div')
     document.body.append(host)

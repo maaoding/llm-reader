@@ -45,6 +45,7 @@ const CONTENT_BLOCK_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption
 const TEMPORARY_HIGHLIGHT_CLASS = 'llm-reader-temporary-highlight'
 const PERSISTENT_HIGHLIGHT_CLASS = 'llm-reader-persistent-highlight'
 const READING_PREFERENCES_STYLESHEET = 'llm-reader-reading-preferences'
+const PROGRAMMATIC_SCROLL_SETTLE_MS = 750
 const READING_PREFERENCES_STYLE_ELEMENT_ID =
   `epubjs-inserted-css-${READING_PREFERENCES_STYLESHEET}`
 const ORDINARY_PARAGRAPH_SELECTOR =
@@ -798,7 +799,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.programmaticReleaseTimer = setTimeout(() => {
       this.programmaticReleaseTimer = null
       this.programmaticScroll = false
-    }, 320)
+    }, PROGRAMMATIC_SCROLL_SETTLE_MS)
   }
 
   private cancelProgrammaticScrollRelease(): void {
