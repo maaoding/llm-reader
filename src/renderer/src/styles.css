@@ -2381,6 +2381,17 @@ button.citation-valid:hover {
   animation: modal-in 160ms ease-out;
 }
 
+.pdf-selection-review-modal .modal-header {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pdf-selection-review-modal .modal-header h2 {
+  margin: 0;
+}
+
 .pdf-selection-review-body {
   display: grid;
   min-height: 0;
@@ -2394,6 +2405,12 @@ button.citation-valid:hover {
   min-height: 0;
   flex: 1;
   flex-direction: column;
+}
+
+.pdf-selection-review-modal .modal-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding: 14px 18px 16px;
 }
 
 .pdf-selection-review-body p {
