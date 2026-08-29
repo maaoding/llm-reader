@@ -804,3 +804,82 @@ test('renders EPUB continuously while keeping embedded scripts disabled', async 
     await cleanupE2eWorkspace(application, workspace.root)
   }
 })
+
+test('anchors the selection toolbar next to a TXT selection and follows scroll', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-toolbar-txt-e2e-')
+  const fixture = resolve('tests/fixtures/complex-reading.txt')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    await page.getByTestId('book-item').first().click()
+    await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
+
+    const toolbar = page.getByTestId('selection-toolbar')
+    const paragraph = page.getByTestId('reader-host').locator('p').first()
+    await selectNodeContents(paragraph)
+    await expect(toolbar).toBeVisible()
+
+    // 工具栏应贴近选区(上方留 10px 间距),而不是固定在阅读区底部。
+    const paragraphBox = await paragraph.boundingBox()
+    const toolbarBox = await toolbar.boundingBox()
+    if (!paragraphBox || !toolbarBox) throw new Error('Expected paragraph and toolbar boxes')
+    const aboveGap = paragraphBox.y - (toolbarBox.y + toolbarBox.height)
+    const belowGap = toolbarBox.y - (paragraphBox.y + paragraphBox.height)
+    expect(
+      (aboveGap >= -2 && aboveGap <= 24) || (belowGap >= -2 && belowGap <= 24)
+    ).toBe(true)
+
+    // 滚动阅读区后,锚点重算,工具栏保持可见并被约束在阅读面内。
+    const surface = page.locator('.reader-surface')
+    await page.getByTestId('reader-host').evaluate((element) => {
+      element.scrollTop = 320
+      element.dispatchEvent(new Event('scroll'))
+    })
+    await expect
+      .poll(async () => {
+        const next = await toolbar.boundingBox()
+        const surfaceBox = await surface.boundingBox()
+        if (!next || !surfaceBox) return null
+        return next.y >= surfaceBox.y - 1 && next.y + next.height <= surfaceBox.y + surfaceBox.height + 1
+      })
+      .toBe(true)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('anchors the selection toolbar next to an EPUB selection inside the chapter iframe', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-toolbar-epub-e2e-')
+  const fixture = join(workspace.root, 'anchored-reading.epub')
+  let application: ElectronApplication | undefined
+
+  try {
+    await createEpubFixture(fixture)
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    await page.getByTestId('book-item').first().click()
+    const chapterFrame = page.getByTestId('reader-host').frameLocator('iframe').first()
+    await expect(chapterFrame.getByText('复杂系统的行为来自关系')).toBeVisible()
+
+    const toolbar = page.getByTestId('selection-toolbar')
+    const paragraph = chapterFrame.locator('p').first()
+    await paragraph.waitFor()
+    await selectNodeContents(paragraph)
+    await expect(toolbar).toBeVisible()
+
+    const paragraphBox = await paragraph.boundingBox()
+    const toolbarBox = await toolbar.boundingBox()
+    if (!paragraphBox || !toolbarBox) throw new Error('Expected paragraph and toolbar boxes')
+    const aboveGap = paragraphBox.y - (toolbarBox.y + toolbarBox.height)
+    const belowGap = toolbarBox.y - (paragraphBox.y + paragraphBox.height)
+    expect(
+      (aboveGap >= -2 && aboveGap <= 24) || (belowGap >= -2 && belowGap <= 24)
+    ).toBe(true)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})

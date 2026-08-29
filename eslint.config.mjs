@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['node_modules', 'out', 'release', 'coverage', 'playwright-report', 'test-results']
+    ignores: ['node_modules', 'out', 'release', 'coverage', 'playwright-report', 'test-results', 'tmp']
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

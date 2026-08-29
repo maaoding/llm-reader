@@ -506,6 +506,49 @@ function formatDate(iso: string): string {
   }
 }
 
+interface SelectionAnchorRect {
+  top: number
+  bottom: number
+  centerX: number
+}
+
+function rectFromNativeSelection(selection: Selection | null): DOMRect | null {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
+  const rect = selection.getRangeAt(0).getBoundingClientRect()
+  if (rect.width === 0 && rect.height === 0) return null
+  return rect
+}
+
+/**
+ * 找到当前活跃选区的视口矩形:TXT 在主文档,EPUB 在同源 iframe 内,
+ * PDF 区域框选则是确认后的 .pdf-region-overlay.is-selection 元素。
+ */
+function findSelectionAnchorRect(host: HTMLElement | null): SelectionAnchorRect | null {
+  const own = rectFromNativeSelection(window.getSelection())
+  if (own) return { top: own.top, bottom: own.bottom, centerX: own.left + own.width / 2 }
+  if (!host) return null
+  for (const frame of Array.from(host.querySelectorAll('iframe'))) {
+    try {
+      const rect = rectFromNativeSelection(frame.contentWindow?.getSelection() ?? null)
+      if (!rect) continue
+      const frameRect = frame.getBoundingClientRect()
+      return {
+        top: frameRect.top + rect.top,
+        bottom: frameRect.top + rect.bottom,
+        centerX: frameRect.left + rect.left + rect.width / 2
+      }
+    } catch {
+      continue
+    }
+  }
+  const region = host.querySelector('.pdf-region-overlay.is-selection')
+  if (region) {
+    const rect = region.getBoundingClientRect()
+    return { top: rect.top, bottom: rect.bottom, centerX: rect.left + rect.width / 2 }
+  }
+  return null
+}
+
 function useBookCoverUrl(book: BookRecord): string | null {
   const [loaded, setLoaded] = useState<{ bookId: string; url: string } | null>(null)
 
@@ -1528,6 +1571,8 @@ export default function App(): ReactNode {
   const [toast, setToast] = useState<ToastState | null>(null)
 
   const hostRef = useRef<HTMLDivElement>(null)
+  const readerSurfaceRef = useRef<HTMLElement>(null)
+  const selectionToolbarRef = useRef<HTMLDivElement>(null)
   const adapterRef = useRef<ReaderAdapter | null>(null)
   const activeBookRef = useRef<BookRecord | null>(null)
   const activeRequestRef = useRef<string | null>(null)
@@ -2148,6 +2193,55 @@ export default function App(): ReactNode {
       }
     }
   }, [archiveSession, assistantActions, conversationSelection, provider.model, selection, turns])
+  // 划词工具栏跟随选区:出现时同步定位,滚动/缩放时按帧重算并直接写样式,
+  // 避免经过 React 状态造成级联渲染。
+  useLayoutEffect(() => {
+    const toolbar = selectionToolbarRef.current
+    const surface = readerSurfaceRef.current
+    if (!toolbar || !surface || !selection || bookState !== 'ready') return
+
+    const position = (): void => {
+      const anchor = findSelectionAnchorRect(hostRef.current)
+      const surfaceRect = surface.getBoundingClientRect()
+      const toolbarWidth = toolbar.offsetWidth
+      const toolbarHeight = toolbar.offsetHeight
+      let left: number
+      let top: number
+      if (anchor) {
+        const anchorTop = anchor.top - surfaceRect.top
+        const anchorBottom = anchor.bottom - surfaceRect.top
+        const anchorCenterX = anchor.centerX - surfaceRect.left
+        top = anchorTop - toolbarHeight - 10
+        if (top < 4) top = anchorBottom + 10
+        left = anchorCenterX - toolbarWidth / 2
+      } else {
+        left = (surfaceRect.width - toolbarWidth) / 2
+        top = surfaceRect.height - toolbarHeight - 24
+      }
+      left = Math.max(8, Math.min(left, surfaceRect.width - toolbarWidth - 8))
+      top = Math.max(4, Math.min(top, surfaceRect.height - toolbarHeight - 4))
+      toolbar.style.left = `${Math.round(left)}px`
+      toolbar.style.top = `${Math.round(top)}px`
+    }
+
+    position()
+    let frame = 0
+    const schedulePosition = (): void => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        position()
+      })
+    }
+    window.addEventListener('scroll', schedulePosition, true)
+    window.addEventListener('resize', schedulePosition)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', schedulePosition, true)
+      window.removeEventListener('resize', schedulePosition)
+    }
+  }, [selection, bookState, interfaceScale])
+
   const handleSelectionAction = (action: LlmAction): void => {
     if (!selection) return
     if (action === 'ask') {
@@ -2669,7 +2763,7 @@ export default function App(): ReactNode {
           )}
         </header>
 
-        <section className={`reader-surface is-${bookState}`} data-paper-theme={readingPreferences.paperTheme}>
+        <section ref={readerSurfaceRef} className={`reader-surface is-${bookState}`} data-paper-theme={readingPreferences.paperTheme}>
           <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label={copy('reader.areaAria')} />
 
           {!activeBook && libraryState !== 'loading' && (
@@ -2696,6 +2790,7 @@ export default function App(): ReactNode {
           {selection && bookState === 'ready' && (
             <div
               className="selection-toolbar"
+              ref={selectionToolbarRef}
               data-testid="selection-toolbar"
               role="toolbar"
               aria-label={copy('assistant.selectionToolbarAria')}
