@@ -42,6 +42,7 @@ import {
 import {
   type CSSProperties,
   type FormEvent,
+  Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
@@ -87,6 +88,7 @@ import {
   normalizeReadingPreferences,
   READER_SEARCH_QUERY_MAX_LENGTH,
   READER_SEARCH_RESULT_LIMIT,
+  splitSearchExcerpt,
   type ReaderAdapter,
   type ReaderSearchResult,
   type ReaderSelectionDraft,
@@ -1552,6 +1554,7 @@ export default function App(): ReactNode {
   const [currentChapterTitle, setCurrentChapterTitle] = useState('')
   const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [executedSearchQuery, setExecutedSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ReadonlyArray<ReaderSearchResult>>([])
   const [searchState, setSearchState] = useState<SearchState>('idle')
   const [searchError, setSearchError] = useState('')
@@ -2061,6 +2064,7 @@ export default function App(): ReactNode {
     if (queryLength < 1 || queryLength > READER_SEARCH_QUERY_MAX_LENGTH) {
       searchSequenceRef.current += 1
       setSearchResults([])
+      setExecutedSearchQuery('')
       setSearchState('error')
       setSearchError(copy('reader.searchInvalid'))
       return
@@ -2079,10 +2083,12 @@ export default function App(): ReactNode {
         activeBookRef.current?.id !== bookId
       ) return
       setSearchResults(results)
+      setExecutedSearchQuery(query)
       setSearchState('ready')
     } catch (error) {
       if (sequence !== searchSequenceRef.current || adapterRef.current !== adapter) return
       setSearchResults([])
+      setExecutedSearchQuery('')
       setSearchState('error')
       setSearchError(readableError(error, copy('reader.searchFailed')))
     }
@@ -2703,7 +2709,13 @@ export default function App(): ReactNode {
                     onClick={() => void navigateToSearchResult(result)}
                   >
                     <span>{result.chapterTitle || copy('common.currentChapter')}</span>
-                    <p>{result.excerpt}</p>
+                    <p>
+                      {splitSearchExcerpt(result.excerpt, executedSearchQuery).map((segment, segmentIndex) => (
+                        segment.hit
+                          ? <mark key={segmentIndex}>{segment.text}</mark>
+                          : <Fragment key={segmentIndex}>{segment.text}</Fragment>
+                      ))}
+                    </p>
                   </button>
                 ))}
               </div>

@@ -540,3 +540,27 @@ describe('EPUB adapter safety utilities', () => {
     expect(fixture.querySelector('#traversal')?.hasAttribute('data-reader-internal-href')).toBe(false)
   })
 })
+
+describe('splitSearchExcerpt', () => {
+  it('splits an excerpt around case-insensitive query hits', async () => {
+    const { splitSearchExcerpt } = await import('../../src/renderer/src/readers/search')
+    expect(splitSearchExcerpt('读书的边界在于边界感', '边界')).toEqual([
+      { text: '读书的', hit: false },
+      { text: '边界', hit: true },
+      { text: '在于', hit: false },
+      { text: '边界', hit: true },
+      { text: '感', hit: false }
+    ])
+    expect(splitSearchExcerpt('Model and model', 'MODEL')).toEqual([
+      { text: 'Model', hit: true },
+      { text: ' and ', hit: false },
+      { text: 'model', hit: true }
+    ])
+  })
+
+  it('returns one plain segment when the query cannot match the collapsed excerpt', async () => {
+    const { splitSearchExcerpt } = await import('../../src/renderer/src/readers/search')
+    expect(splitSearchExcerpt('一段被折叠的摘录', '')).toEqual([{ text: '一段被折叠的摘录', hit: false }])
+    expect(splitSearchExcerpt('一段被折叠的摘录', '不存在')).toEqual([{ text: '一段被折叠的摘录', hit: false }])
+  })
+})

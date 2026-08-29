@@ -53,3 +53,4 @@ export {
   READER_SEARCH_QUERY_MAX_LENGTH,
   READER_SEARCH_RESULT_LIMIT
 } from './types'
+export { splitSearchExcerpt, type SearchExcerptSegment } from './search'

@@ -31,6 +31,30 @@ export function searchExcerpt(text: string, startUtf16: number, endUtf16: number
   return `${adjustedStart > 0 ? '…' : ''}${excerpt}${excerptEnd < characters.length ? '…' : ''}`
 }
 
+export interface SearchExcerptSegment {
+  text: string
+  hit: boolean
+}
+
+/**
+ * 把摘录按命中词切成片段,供渲染层用 <mark> 标出匹配位置。
+ * 摘录中的空白已被折叠,查询词可能因此匹配不到,此时原样返回单段。
+ */
+export function splitSearchExcerpt(excerpt: string, query: string): SearchExcerptSegment[] {
+  const normalized = query.trim()
+  if (normalized.length === 0) return [{ text: excerpt, hit: false }]
+  const segments: SearchExcerptSegment[] = []
+  let cursor = 0
+  for (const match of excerpt.matchAll(literalSearchExpression(normalized))) {
+    const index = match.index ?? 0
+    if (index > cursor) segments.push({ text: excerpt.slice(cursor, index), hit: false })
+    segments.push({ text: match[0], hit: true })
+    cursor = index + match[0].length
+  }
+  if (cursor < excerpt.length) segments.push({ text: excerpt.slice(cursor), hit: false })
+  return segments.length > 0 ? segments : [{ text: excerpt, hit: false }]
+}
+
 export async function yieldSearchWork(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0))
 }

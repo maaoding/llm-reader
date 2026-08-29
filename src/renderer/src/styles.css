@@ -456,6 +456,12 @@ button:disabled {
   -webkit-line-clamp: 3;
 }
 
+.reader-search-result mark {
+  color: var(--ink);
+  background: var(--accent-soft);
+  font-weight: 650;
+}
+
 .section-caption {
   padding: 6px 8px 7px;
   color: var(--faint);

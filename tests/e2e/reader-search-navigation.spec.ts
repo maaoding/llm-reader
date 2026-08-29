@@ -61,6 +61,14 @@ test('Ctrl+F searches EPUB, highlights navigation, preserves natural position an
     await expect(page.getByTestId('reader-search-result')).toHaveCount(2)
     await expect(page.getByText('找到 2 处')).toBeVisible()
 
+    // 摘录中的命中词应以 <mark> 标出,非命中文本保持普通文本节点。
+    const marks = page.getByTestId('reader-search-result').locator('mark')
+    await expect(marks).toHaveCount(2)
+    for (const mark of await marks.all()) {
+      await expect(mark).toHaveText(/searchtoken/iu)
+    }
+    expect(page.getByTestId('reader-search-result').first().locator('p > span')).toHaveCount(0)
+
     await page.getByTestId('reader-search-result').last().click()
     await expect.poll(() => currentChapter(page)).toBe('第二章')
     await expect(page.getByTestId('reader-return-button')).toBeEnabled()
