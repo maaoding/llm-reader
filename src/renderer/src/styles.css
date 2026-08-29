@@ -1266,6 +1266,7 @@ button:disabled {
   justify-content: center;
   flex-direction: column;
   padding: 32px;
+  color: var(--ink);
   text-align: center;
   background:
     repeating-linear-gradient(
