@@ -2767,7 +2767,25 @@ export default function App(): ReactNode {
           <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label={copy('reader.areaAria')} />
 
           {!activeBook && libraryState !== 'loading' && (
-            <div className="reader-overlay welcome-state" aria-label={copy('reader.emptyAria')}><span className="visually-hidden">{copy('reader.emptyText')}</span></div>
+            libraryState === 'ready' && books.length === 0 ? (
+              <div className="reader-overlay welcome-state is-empty" aria-label={copy('reader.emptyAria')} data-testid="welcome-state">
+                <div className="welcome-symbol" aria-hidden="true"><BookOpen size={28} /></div>
+                <h2>{copy('reader.welcomeTitle')}</h2>
+                <p>{copy('reader.welcomeDetail')}</p>
+                <button
+                  className="primary-button welcome-import"
+                  data-testid="welcome-import"
+                  type="button"
+                  onClick={() => void importBook()}
+                  disabled={importing}
+                >
+                  {importing ? <LoaderCircle className="spin" size={15} /> : <Import size={15} />}
+                  {importing ? copy('library.importing') : copy('library.import')}
+                </button>
+              </div>
+            ) : (
+              <div className="reader-overlay welcome-state" aria-label={copy('reader.emptyAria')}><span className="visually-hidden">{copy('reader.emptyText')}</span></div>
+            )
           )}
 
           {bookState === 'loading' && (

@@ -315,6 +315,8 @@
 | reader.areaAria | 正文阅读区 |
 | reader.emptyAria | 尚未打开书籍 |
 | reader.emptyText | 从书库打开或导入一本书 |
+| reader.welcomeTitle | 从一本书开始 |
+| reader.welcomeDetail | 导入 EPUB、TXT 或 PDF；本机装有 Calibre 时，MOBI 与 AZW3 会在导入时转换为 EPUB。 |
 | reader.opening | 正在打开《{title}》 |
 | reader.openingDetail | 解析内容与上次阅读位置… |
 | reader.openFailedTitle | 这本书暂时打不开 |

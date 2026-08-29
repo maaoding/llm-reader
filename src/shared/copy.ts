@@ -280,6 +280,8 @@ export const COPY_KEYS = [
   'reader.areaAria',
   'reader.emptyAria',
   'reader.emptyText',
+  'reader.welcomeTitle',
+  'reader.welcomeDetail',
   'reader.opening',
   'reader.openingDetail',
   'reader.openFailedTitle',

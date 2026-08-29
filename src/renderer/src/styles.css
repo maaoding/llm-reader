@@ -1284,6 +1284,11 @@ button:disabled {
   display: none;
 }
 
+/* 空书库:在纸面上展示导入引导;有书未打开时保持安静(display: none)。 */
+.welcome-state.is-empty {
+  display: flex;
+}
+
 .welcome-state .welcome-symbol {
   display: grid;
   width: 70px;
@@ -1314,13 +1319,10 @@ button:disabled {
   line-height: 1.75;
 }
 
-.privacy-note {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 18px;
-  color: var(--muted);
-  font-size: 9px;
+.welcome-state .welcome-import {
+  min-height: 36px;
+  padding: 0 15px;
+  border-radius: 6px;
 }
 
 .loading-state {
@@ -3166,10 +3168,6 @@ button.citation-valid:hover {
 
   .welcome-state > p {
     margin-bottom: 14px;
-  }
-
-  .privacy-note {
-    margin-top: 10px;
   }
 }
 

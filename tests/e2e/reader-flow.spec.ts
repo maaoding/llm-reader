@@ -458,6 +458,56 @@ test('keeps the home quiet and applies unified appearance, reading and provider 
   }
 })
 
+test('shows an import welcome for an empty library and keeps quiet once books exist', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-welcome-e2e-')
+  const fixture = resolve('tests/fixtures/complex-reading.txt')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    await expect(page.getByTestId('library-list')).toBeVisible()
+
+    const welcome = page.getByTestId('welcome-state')
+    await expect(welcome).toBeVisible()
+    await expect(welcome.locator('h2')).toHaveText('从一本书开始')
+    await expect(welcome).toContainText('导入 EPUB、TXT 或 PDF')
+    await expect(page.getByTestId('welcome-import')).toBeVisible()
+
+    await application.evaluate(({ dialog }) => {
+      const runtime = globalThis as typeof globalThis & { __llmReaderWelcomeDialogCalls?: number }
+      runtime.__llmReaderWelcomeDialogCalls = 0
+      dialog.showOpenDialog = (async () => {
+        runtime.__llmReaderWelcomeDialogCalls = (runtime.__llmReaderWelcomeDialogCalls ?? 0) + 1
+        return { canceled: true, filePaths: [], bookmarks: [] }
+      }) as typeof dialog.showOpenDialog
+    })
+    await page.getByTestId('welcome-import').click()
+    await expect
+      .poll(() => application?.evaluate(
+        () => (globalThis as typeof globalThis & { __llmReaderWelcomeDialogCalls?: number })
+          .__llmReaderWelcomeDialogCalls ?? 0
+      ))
+      .toBe(1)
+    await expect(welcome).toBeVisible()
+
+    const restarted = await restartReader(application, {
+      userData: workspace.userData,
+      importPath: fixture
+    })
+    application = restarted.application
+    const { page: restoredPage } = restarted
+    await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
+    await expect(restoredPage.getByTestId('welcome-state')).toHaveCount(0)
+    await expect(restoredPage.getByTestId('welcome-import')).toHaveCount(0)
+    await expect(restoredPage.locator('.welcome-state')).toHaveText('从书库打开或导入一本书')
+    await expect(restoredPage.locator('.welcome-state')).not.toBeVisible()
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
 test('persists reading, conversation and insight deletion after restart', async () => {
   const workspace = await createE2eWorkspace('llm-reader-persistence-e2e-')
   const fixture = resolve('tests/fixtures/complex-reading.txt')
