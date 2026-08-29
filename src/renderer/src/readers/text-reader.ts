@@ -43,6 +43,12 @@ const HEADING_PATTERNS = [
   /^(?:chapter|part)\s+(?:\d+|[ivxlcdm]+)(?:\s|[.:：-]|$)/iu,
   /^[一二三四五六七八九十百]+[、.．]\s*\S/u
 ]
+const GENERIC_FRONT_MATTER_TITLE_PATTERNS = [
+  /^图书在版编目(?:\s*\(\s*CIP\s*\))?\s*数据$/iu,
+  /^(?:版权(?:信息|声明|页)?|内容简介|作者简介|出版说明|序言|前言|目录|目次)$/u
+]
+const TOC_LIKE_HEADING_GAP = 256
+const TOC_LIKE_HEADING_RUN_MINIMUM = 4
 
 interface TextAnchor {
   start: number
@@ -102,6 +108,67 @@ function cleanHeading(text: string): string {
   return text.replace(/^#{1,6}\s+/u, '').trim()
 }
 
+function normalizedHeading(text: string): string {
+  return cleanHeading(text).normalize('NFKC').replace(/\s+/gu, '').toLocaleLowerCase()
+}
+
+function headingsCorrespond(left: ParsedTextParagraph, right: ParsedTextParagraph): boolean {
+  const leftLabel = normalizedHeading(left.text)
+  const rightLabel = normalizedHeading(right.text)
+  if (leftLabel === rightLabel) return true
+
+  const shorterLength = Math.min(leftLabel.length, rightLabel.length)
+  return shorterLength >= 4 && (leftLabel.startsWith(rightLabel) || rightLabel.startsWith(leftLabel))
+}
+
+function navigationalHeadingIndexes(paragraphs: ParsedTextParagraph[]): Set<number> {
+  const headings = paragraphs.filter((paragraph) => paragraph.heading)
+  if (headings.length < TOC_LIKE_HEADING_RUN_MINIMUM) {
+    return new Set(headings.map((heading) => heading.index))
+  }
+
+  const denseRuns: ParsedTextParagraph[][] = []
+  let run: ParsedTextParagraph[] = [headings[0]]
+  for (const heading of headings.slice(1)) {
+    const previous = run[run.length - 1]
+    if (heading.start - previous.start <= TOC_LIKE_HEADING_GAP) {
+      run.push(heading)
+      continue
+    }
+    if (run.length >= TOC_LIKE_HEADING_RUN_MINIMUM) denseRuns.push(run)
+    run = [heading]
+  }
+  if (run.length >= TOC_LIKE_HEADING_RUN_MINIMUM) denseRuns.push(run)
+
+  const denseHeadingIndexes = new Set<number>()
+  for (const denseRun of denseRuns) {
+    denseRun.forEach((heading) => denseHeadingIndexes.add(heading.index))
+  }
+
+  const documentEnd = paragraphs[paragraphs.length - 1]?.end ?? 0
+  const followingSpans = new Map<number, number>()
+  headings.forEach((heading, index) => {
+    const nextStart = headings[index + 1]?.start ?? documentEnd
+    followingSpans.set(heading.index, Math.max(0, nextStart - heading.start))
+  })
+
+  const ignored = new Set<number>()
+  for (const heading of headings) {
+    if (!denseHeadingIndexes.has(heading.index)) continue
+    const currentSpan = followingSpans.get(heading.index) ?? 0
+    const hasBetterBodyCandidate = headings.some((candidate) =>
+      candidate.index !== heading.index &&
+      headingsCorrespond(heading, candidate) &&
+      (followingSpans.get(candidate.index) ?? 0) > currentSpan
+    )
+    if (hasBetterBodyCandidate) ignored.add(heading.index)
+  }
+
+  const retained = headings.filter((heading) => !ignored.has(heading.index))
+  const selected = retained.length > 0 ? retained : headings
+  return new Set(selected.map((heading) => heading.index))
+}
+
 function parseTextParagraphs(text: string): ParsedTextParagraph[] {
   const utf16ToCodePoint = createUtf16ToCodePointMap(text)
   const matches = Array.from(text.matchAll(TEXT_BLOCK_PATTERN))
@@ -155,9 +222,13 @@ function decodeUtf8(bytes: Uint8Array): string {
 function titleFromParagraphs(paragraphs: ParsedTextParagraph[]): string {
   const first = paragraphs[0]?.text ?? ''
   if (!first.includes('\n') && codePointLength(first) <= 100) {
-    return cleanHeading(first)
+    const candidate = cleanHeading(first)
+    const normalized = candidate.normalize('NFKC').replace(/\s+/gu, ' ').trim()
+    if (!GENERIC_FRONT_MATTER_TITLE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      return candidate
+    }
   }
-  return copy('reader.txtDefaultTitle')
+  return ''
 }
 
 export class TextReaderAdapter implements ReaderAdapter {
@@ -226,15 +297,17 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.highlightStyleElement = style
     root.append(style)
 
-    this.chapters = this.buildChapters(parsedParagraphs)
+    const chapterHeadingIndexes = navigationalHeadingIndexes(parsedParagraphs)
+    this.chapters = this.buildChapters(parsedParagraphs, chapterHeadingIndexes)
     this.paragraphs = parsedParagraphs.map((paragraph) => {
-      const element = this.document.createElement(paragraph.heading ? 'h2' : 'p')
+      const isChapterHeading = chapterHeadingIndexes.has(paragraph.index)
+      const element = this.document.createElement(isChapterHeading ? 'h2' : 'p')
       element.textContent = paragraph.text
       element.dataset.readerParagraph = String(paragraph.index)
       element.dataset.readerStart = String(paragraph.start)
       element.dataset.readerEnd = String(paragraph.end)
       element.style.scrollMarginTop = '32px'
-      if (paragraph.heading) {
+      if (isChapterHeading) {
         element.style.margin = paragraph.index === 0 ? '0 0 1.2em' : '2.4em 0 1.2em'
       } else {
         element.style.margin = '0 0 1.35em'
@@ -661,8 +734,11 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.host.removeEventListener('keydown', this.handleUserScrollInput)
   }
 
-  private buildChapters(paragraphs: ParsedTextParagraph[]): TextChapter[] {
-    const hasHeadings = paragraphs.some((paragraph) => paragraph.heading)
+  private buildChapters(
+    paragraphs: ParsedTextParagraph[],
+    headingIndexes: Set<number>
+  ): TextChapter[] {
+    const hasHeadings = headingIndexes.size > 0
     if (!hasHeadings) {
       return [
         {
@@ -675,9 +751,10 @@ export class TextReaderAdapter implements ReaderAdapter {
 
     const chapters: TextChapter[] = []
     for (const paragraph of paragraphs) {
-      if (paragraph.heading || chapters.length === 0) {
+      const isChapterHeading = headingIndexes.has(paragraph.index)
+      if (isChapterHeading || chapters.length === 0) {
         chapters.push({
-          title: paragraph.heading ? cleanHeading(paragraph.text) : copy('reader.txtOpening'),
+          title: isChapterHeading ? cleanHeading(paragraph.text) : copy('reader.txtOpening'),
           start: paragraph.start,
           paragraphIndexes: []
         })

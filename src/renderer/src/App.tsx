@@ -140,6 +140,11 @@ interface ArchiveSessionState {
   turns: ConversationTurn[]
 }
 
+function titleFromOriginalName(originalName: string, fallback: string): string {
+  const withoutExtension = originalName.replace(/\.[^./\\]+$/u, '').trim()
+  return withoutExtension || fallback
+}
+
 function turnsFromInsight(insight: SavedInsight): ConversationTurn[] {
   const history = insight.history.length >= 2
     ? insight.history
@@ -1919,7 +1924,7 @@ export default function App(): ReactNode {
       void refreshInsights(book.id)
       void refreshHighlights(book.id)
 
-      const nextTitle = result.metadata.title.trim() || book.title
+      const nextTitle = result.metadata.title.trim() || titleFromOriginalName(book.originalName, book.title)
       const nextAuthor = result.metadata.author?.trim() || null
       if (nextTitle !== book.title || nextAuthor !== book.author) {
         try {

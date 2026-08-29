@@ -157,6 +157,29 @@ describe('TXT adapter', () => {
     host.remove()
   })
 
+  it('keeps generic front matter from replacing the filename and ignores duplicated TOC-like heading runs', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const adapter = new TextReaderAdapter(host, { bookId: 'txt-front-matter' })
+    const chapterLabels = ['第一章 起点', '第二章 边界', '第三章 关系', '第四章 结论']
+    const frontToc = chapterLabels.map((label) => `${label}本章提要`).join('\n\n')
+    const body = chapterLabels
+      .map((label, index) => `${label}\n\n${`第 ${index + 1} 章正文内容。`.repeat(40)}`)
+      .join('\n\n')
+    const backToc = chapterLabels.join('\n\n')
+
+    const info = await adapter.open(bytes(
+      `图书在版编目（CIP）数据\n\n${frontToc}\n\n${body}\n\n${backToc}`
+    ))
+
+    expect(info.metadata).toEqual({ title: '', author: null })
+    expect(info.toc.map((item) => item.label)).toEqual(chapterLabels)
+    expect(host.querySelectorAll('h2')).toHaveLength(chapterLabels.length)
+
+    adapter.destroy()
+    host.remove()
+  })
+
   it('searches Chinese and case-insensitive English across TXT chapters with stable anchors', async () => {
     const host = document.createElement('div')
     document.body.append(host)

@@ -3,9 +3,10 @@ import {
   test,
   type ElectronApplication
 } from '@playwright/test'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createNestedEpubFixture } from './fixtures/nested-epub'
-import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
 
 function rgbChannels(value: string): [number, number, number] {
   const channels = value
@@ -32,6 +33,51 @@ function contrastRatio(foreground: string, background: string): number {
   const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background))
   return (lighter + 0.05) / (darker + 0.05)
 }
+
+test('keeps a TXT filename when front matter is generic and omits duplicated book TOC runs', async () => {
+  test.setTimeout(90_000)
+  const workspace = await createE2eWorkspace('llm-reader-txt-front-matter-')
+  const fixture = join(workspace.root, '文学批评入门 - 汤拥华.txt')
+  const chapterLabels = ['第一章 起点', '第二章 边界', '第三章 关系', '第四章 结论']
+  const frontToc = chapterLabels.map((label) => `${label}本章提要`).join('\n\n')
+  const body = chapterLabels
+    .map((label, index) => `${label}\n\n${`第 ${index + 1} 章正文内容。`.repeat(40)}`)
+    .join('\n\n')
+  await writeFile(
+    fixture,
+    `图书在版编目（CIP）数据\n\n${frontToc}\n\n${body}\n\n${chapterLabels.join('\n\n')}`,
+    'utf8'
+  )
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    let { page } = launched
+
+    await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await page.evaluate(async () => {
+      const readerApi = (window as unknown as {
+        readerApi: {
+          listBooks(): Promise<Array<{ id: string }>>
+          updateBookMetadata(bookId: string, title: string, author: string | null): Promise<unknown>
+        }
+      }).readerApi
+      const [book] = await readerApi.listBooks()
+      await readerApi.updateBookMetadata(book.id, '图书在版编目（CIP）数据', null)
+    })
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    page = restarted.page
+    await expect(page.getByTestId('book-item').first()).toContainText('图书在版编目（CIP）数据')
+    await page.getByTestId('book-item').first().click()
+    await expect(page.locator('.reader-heading h1')).toHaveText('文学批评入门 - 汤拥华')
+    await expect(page.getByTestId('toc-item')).toHaveCount(chapterLabels.length)
+    await expect(page.getByTestId('toc-item')).toHaveText(chapterLabels)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
 
 test('nested TOC collapses via disclosure without jumping and navigates without CFI highlight', async () => {
   test.setTimeout(90_000)
