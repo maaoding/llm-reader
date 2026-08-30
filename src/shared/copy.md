@@ -51,6 +51,8 @@
 | assistant.viewsAria | 阅读助手视图 |
 | assistant.tabConversation | 对话 |
 | assistant.tabInsights | 归档 |
+| assistant.tabCurrent | 当前 |
+| assistant.closeTab | 关闭会话标签 |
 | assistant.emptyTitle | 选中原文，开始理解 |
 | assistant.emptyDetail | 回答会结合当前选区及附近段落。 |
 | assistant.sourceTitle | 当前原文 |
@@ -77,9 +79,9 @@
 | assistant.questionContext | 请结合本章上下文说明这段内容的含义与作用。 |
 | assistant.cancelledPartial | 已停止生成 |
 | assistant.cancelledEmpty | 请求已取消 |
-| assistant.expandDialog | 展开详细对话 |
-| assistant.dialogTitle | 详细对话 |
-| assistant.closeDialog | 关闭详细对话 |
+| assistant.expandDialog | 打开助手工作台 |
+| assistant.dialogTitle | 助手工作台 |
+| assistant.closeDialog | 关闭助手工作台 |
 | assistant.citationUnknownTitle | 该引用不在本次上下文中 |
 | assistant.citationUnverified | 未验证引用 |
 | assistant.citationSourceFallback | 原文片段 |
@@ -98,7 +100,6 @@
 | insights.emptyTitle | 还没有归档 |
 | insights.emptyDetail | 在回答下方点击“归档”，即可保留答案和原文位置。 |
 | insights.removeQuestion | 取消归档？ |
-| insights.backToSource | 回到原文 |
 | insights.removeAria | 取消归档 |
 | insights.removed | 已取消归档。 |
 | insights.alreadyRemoved | 这条归档已不存在。 |
@@ -106,6 +107,20 @@
 | insights.savedToast | 已归档，并保留原文位置。 |
 | insights.saveFailed | 归档失败。 |
 | insights.readFailed | 无法读取归档。 |
+| insights.scopeAll | 全部 |
+| insights.scopeBook | 本书 |
+| insights.scopeAria | 归档范围 |
+| insights.searchPlaceholder | 搜索书名、作者、引用或回答… |
+| insights.searchAria | 搜索归档 |
+| insights.noSearchResultsTitle | 没有匹配的归档 |
+| insights.noSearchResultsDetail | 换一个关键词再试试。 |
+| insights.exportAll | 导出全部 |
+| insights.exportBook | 导出本书 |
+| insights.exportOneAria | 导出这条归档 |
+| insights.exportedToast | 已导出 {fileName} |
+| insights.exportFailed | 导出归档失败。 |
+| insights.exportEmpty | 没有可导出的归档。 |
+| insights.bookMissing | 这本书已不在书库中，无法打开归档。 |
 
 ## 句段收藏
 
@@ -243,6 +258,12 @@
 | library.importedToast | 书籍已导入本地书库。 |
 | library.importFailed | 导入失败。请确认文件无 DRM 且格式受支持。 |
 | library.readFailed | 无法读取本地书库。 |
+| library.deleteBook | 删除这本书 |
+| library.deleteQuestion | 删除《{title}》？ |
+| library.deleteDetail | 这本书的句段收藏与归档会一并删除，且无法恢复。 |
+| library.deletedToast | 已删除《{title}》。 |
+| library.alreadyRemoved | 这本书已不在书库中。 |
+| library.deleteFailed | 删除书籍失败。 |
 | bookDetails.title | 书籍信息 |
 | bookDetails.closeAria | 关闭书籍信息 |
 | bookDetails.openAria | 查看《{title}》信息 |
@@ -336,6 +357,8 @@
 | error.untrustedSender | 已拒绝非可信页面的请求。 |
 | dialog.importTitle | 导入书籍 |
 | dialog.importFilter | EPUB、UTF-8 TXT、PDF、MOBI 或 AZW3 |
+| dialog.exportTitle | 导出归档 |
+| dialog.exportFilter | Markdown 文件 |
 | error.epubUnsafePath | EPUB 包含不安全的内部路径。 |
 | error.epubIncomplete | EPUB 结构不完整。 |
 | error.epubMetadataTooLarge | EPUB 元数据异常过大。 |
@@ -378,6 +401,30 @@
 | reader.txtInvalidHighlight | 无效的 TXT 高亮锚点 |
 | reader.txtHighlightOutside | TXT 高亮锚点不在当前文档中 |
 | reader.txtFullText | 全文 |
+
+## 归档导出
+
+| key | text |
+| --- | --- |
+| export.title | LLM Reader 归档 |
+| export.generatedAt | 导出时间：{datetime} |
+| export.summary | {books} 本书 · {insights} 条归档 |
+| export.bookHeading | {title} |
+| export.entryHeading | 归档 {index} |
+| export.chapterLabel | 章节 |
+| export.quoteLabel | 原文 |
+| export.questionLabel | 问题 |
+| export.answerLabel | 回答 |
+| export.modelLabel | 模型 |
+| export.dateLabel | 归档时间 |
+| export.followupsLabel | 追问 |
+| export.followupLabel | 追问 {index} |
+| export.userLabel | 问 |
+| export.assistantLabel | 答 |
+| export.citationsNote | 回答中的 [passage-id] 为阅读器内部引用。 |
+| export.untitledBook | 未命名书籍 |
+| export.fileNameAll | LLM-Reader-全部归档 |
+| export.fileNameBook | LLM-Reader-{title}-归档 |
 
 ## 模型服务错误
 

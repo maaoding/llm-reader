@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, posix, relative, resolve } from 'node:path'
 import JSZip from 'jszip'
 import type {
@@ -13,6 +13,8 @@ import type {
   BookSourceFormat,
   HighlightRecord,
   ImportedBookResult,
+  InsightArchiveRecord,
+  InsightExportScope,
   SavedInsight,
   SaveHighlightInput,
   SaveInsightInput,
@@ -22,6 +24,12 @@ import { copy } from '@shared/copy'
 import { AppDatabase, type StoredBook } from './database'
 import { CalibreEpubConverter, type EpubConverter } from './calibre-converter'
 import { AppError } from './errors'
+import {
+  buildInsightExportDefaultName,
+  buildInsightExportMarkdown,
+  ensureMarkdownExtension,
+  selectInsightExportRecords
+} from './insight-export'
 
 const MAX_IMPORT_BYTES = 250 * 1024 * 1024
 const MAX_TXT_BYTES = 64 * 1024 * 1024
@@ -469,6 +477,18 @@ export class LibraryService {
     return this.database.listBooks()
   }
 
+  async deleteBook(bookId: string): Promise<boolean> {
+    const stored = this.database.getStoredBook(bookId)
+    if (!stored) return false
+
+    try {
+      await this.removeStoredBookFiles(stored)
+    } catch (error) {
+      throw new AppError('BOOK_DELETE_FAILED', copy('library.deleteFailed'), false, { cause: error })
+    }
+    return this.database.deleteBook(bookId)
+  }
+
   async importFromPath(sourcePath: string): Promise<ImportedBookResult> {
     if (!isAbsolute(sourcePath)) {
       throw new AppError('INVALID_PATH', copy('error.importAbsolutePath'))
@@ -645,6 +665,47 @@ export class LibraryService {
     return this.database.listInsights(bookId)
   }
 
+  listAllInsights(): InsightArchiveRecord[] {
+    return this.database.listAllInsights()
+  }
+
+  insightExportDefaultName(scope: InsightExportScope): string {
+    const storedBook = scope.kind === 'book' ? this.database.getStoredBook(scope.bookId) : null
+    if (scope.kind === 'book' && !storedBook) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    const records = selectInsightExportRecords(this.database.listAllInsights(), scope)
+    if (scope.kind === 'insight' && records.length === 0) {
+      throw new AppError('INSIGHT_NOT_FOUND', copy('insights.alreadyRemoved'))
+    }
+    return buildInsightExportDefaultName(records, storedBook?.title)
+  }
+
+  async exportInsights(scope: InsightExportScope, targetPath: string): Promise<string> {
+    if (!isAbsolute(targetPath)) {
+      throw new AppError('INVALID_EXPORT_PATH', copy('error.importAbsolutePath'))
+    }
+    const storedBook = scope.kind === 'book' ? this.database.getStoredBook(scope.bookId) : null
+    if (scope.kind === 'book' && !storedBook) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    const records = selectInsightExportRecords(this.database.listAllInsights(), scope)
+    if (scope.kind === 'insight' && records.length === 0) {
+      throw new AppError('INSIGHT_NOT_FOUND', copy('insights.alreadyRemoved'))
+    }
+    if (records.length === 0) {
+      throw new AppError('NO_INSIGHTS_TO_EXPORT', copy('insights.exportEmpty'))
+    }
+
+    const outputPath = ensureMarkdownExtension(targetPath)
+    try {
+      await writeFile(outputPath, buildInsightExportMarkdown(records), 'utf8')
+    } catch (error) {
+      throw new AppError('INSIGHT_EXPORT_FAILED', copy('insights.exportFailed'), false, { cause: error })
+    }
+    return basename(outputPath)
+  }
+
   saveInsight(input: SaveInsightInput): SavedInsight {
     if (!this.database.getStoredBook(input.bookId)) {
       throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
@@ -683,6 +744,28 @@ export class LibraryService {
 
   deleteHighlight(id: string): boolean {
     return this.database.deleteHighlight(id)
+  }
+
+  private async removeStoredBookFiles(stored: StoredBook): Promise<void> {
+    await this.removeCoverCache(stored.id)
+    await rm(this.resolveStoredPath(stored.storedName), { force: true })
+  }
+
+  private async removeCoverCache(bookId: string): Promise<void> {
+    let entries: string[]
+    try {
+      entries = await readdir(this.coverDirectory)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    const marker = `${bookId}${NO_COVER_MARKER}`
+    const prefix = `${bookId}.`
+    await Promise.all(
+      entries
+        .filter((name) => name === marker || name.startsWith(prefix))
+        .map((name) => rm(join(this.coverDirectory, name), { force: true }))
+    )
   }
 
   private async readCoverCache(bookId: string): Promise<CachedCover> {

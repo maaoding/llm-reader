@@ -9,6 +9,7 @@ export const IPC_CHANNELS = {
   windowMaximizedChange: 'window:maximized-change',
   booksList: 'books:list',
   booksImport: 'books:import',
+  booksDelete: 'books:delete',
   booksRead: 'books:read',
   booksUpdateMetadata: 'books:update-metadata',
   booksCover: 'books:cover',
@@ -18,9 +19,11 @@ export const IPC_CHANNELS = {
   highlightsSave: 'highlights:save',
   highlightsDelete: 'highlights:delete',
   insightsList: 'insights:list',
+  insightsListAll: 'insights:list-all',
   insightsSave: 'insights:save',
   insightsDelete: 'insights:delete',
   insightsUpdateHistory: 'insights:update-history',
+  insightsExport: 'insights:export',
   providerGet: 'provider:get',
   providerSave: 'provider:save',
   providerTest: 'provider:test',
@@ -164,6 +167,24 @@ export interface SavedInsight {
   history: ArchivedChatMessage[]
 }
 
+export interface InsightBookRef {
+  id: string
+  title: string
+  author: string | null
+  format: BookFormat
+}
+
+export interface InsightArchiveRecord extends SavedInsight {
+  book: InsightBookRef
+}
+
+export type InsightExportScope =
+  | { kind: 'all' }
+  | { kind: 'book'; bookId: string }
+  | { kind: 'insight'; insightId: string }
+
+export type InsightExportResult = { canceled: true } | { canceled: false; fileName: string }
+
 export interface SaveInsightInput {
   bookId: string
   selection: SelectionContext
@@ -198,6 +219,7 @@ export interface ReaderApi {
   getAppInfo(): Promise<AppInfo>
   listBooks(): Promise<BookRecord[]>
   importBook(): Promise<ImportedBookResult | null>
+  deleteBook(bookId: string): Promise<boolean>
   readBook(bookId: string): Promise<BookPayload>
   getBookCover(bookId: string): Promise<BookCoverPayload | null>
   getBookDetails(bookId: string): Promise<BookDetails>
@@ -207,6 +229,8 @@ export interface ReaderApi {
   saveHighlight(input: SaveHighlightInput): Promise<HighlightRecord>
   deleteHighlight(id: string): Promise<boolean>
   listInsights(bookId: string): Promise<SavedInsight[]>
+  listAllInsights(): Promise<InsightArchiveRecord[]>
+  exportInsights(scope: InsightExportScope): Promise<InsightExportResult>
   saveInsight(input: SaveInsightInput): Promise<SavedInsight>
   deleteInsight(id: string): Promise<boolean>
   updateInsightHistory(input: UpdateInsightHistoryInput): Promise<SavedInsight>

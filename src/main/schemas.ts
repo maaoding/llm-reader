@@ -74,6 +74,12 @@ export const insightHistorySchema = z.object({
   history: z.array(archivedMessageSchema).min(2).max(200)
 })
 
+export const insightExportScopeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('all') }),
+  z.object({ kind: z.literal('book'), bookId: idSchema }),
+  z.object({ kind: z.literal('insight'), insightId: idSchema })
+])
+
 export const providerSettingsSchema = z.object({
   baseUrl: z
     .string()

@@ -163,6 +163,55 @@ describe('LibraryService', () => {
     database.close()
   })
 
+  it('deletes a book together with its stored file, cover cache, highlights and insights', async () => {
+    const root = makeTemporaryDirectory()
+    const databasePath = join(root, 'reader.sqlite3')
+    const source = join(root, 'delete-me.epub')
+    await writeFile(source, await minimalEpubBytes('待删除书籍'))
+
+    let database = new AppDatabase(databasePath)
+    let library = new LibraryService(database, join(root, 'library'))
+    const book = (await library.importFromPath(source)).book
+    const stored = database.getStoredBook(book.id)
+    expect(stored).not.toBeNull()
+    if (!stored) return
+    const selection = {
+      bookId: book.id,
+      quote: '待删除',
+      anchor: 'epub:delete:0:3',
+      chapterTitle: '第一章',
+      passages: [{ id: 'delete-p-1', text: '待删除书籍正文', anchor: 'epub:delete:0:8' }]
+    }
+    library.saveHighlight({
+      bookId: book.id,
+      quote: '待删除',
+      anchor: 'epub:delete:0:3',
+      chapterTitle: '第一章'
+    })
+    library.saveInsight({
+      bookId: book.id,
+      selection,
+      question: '为什么删除？',
+      answer: '本地文件与关联记录需要一并清理。',
+      model: 'delete-model'
+    })
+
+    await expect(readdir(join(root, 'library', 'covers'))).resolves.toContain(`${book.id}.none`)
+    expect(await library.deleteBook(book.id)).toBe(true)
+    expect(await library.deleteBook(book.id)).toBe(false)
+    expect(database.listBooks()).toEqual([])
+    await expect(readdir(join(root, 'library'))).resolves.not.toContain(stored.storedName)
+    await expect(readdir(join(root, 'library', 'covers'))).resolves.toEqual([])
+    expect(() => library.listHighlights(book.id)).toThrow('找不到这本书')
+    expect(() => library.listInsights(book.id)).toThrow('找不到这本书')
+    database.close()
+
+    database = new AppDatabase(databasePath)
+    library = new LibraryService(database, join(root, 'library'))
+    expect(library.listBooks()).toEqual([])
+    database.close()
+  })
+
   it('imports a PDF by original hash and preserves its native format', async () => {
     const root = makeTemporaryDirectory()
     const source = join(root, '示例.pdf')
@@ -339,6 +388,59 @@ describe('LibraryService', () => {
     database = new AppDatabase(databasePath)
     library = new LibraryService(database, join(root, 'library'))
     expect(library.listInsights(book.id)[0]?.history).toEqual(updatedHistory)
+    database.close()
+  })
+
+  it('lists all insights with book references and writes Markdown exports', async () => {
+    const root = makeTemporaryDirectory()
+    const databasePath = join(root, 'reader.sqlite3')
+    const firstSource = join(root, 'first-export.txt')
+    const secondSource = join(root, 'second-export.txt')
+    await writeFile(firstSource, 'First export book.', 'utf8')
+    await writeFile(secondSource, 'Second export book.', 'utf8')
+
+    const database = new AppDatabase(databasePath)
+    const library = new LibraryService(database, join(root, 'library'))
+    const firstBook = (await library.importFromPath(firstSource)).book
+    const secondBook = (await library.importFromPath(secondSource)).book
+    const makeInsight = (bookId: string, answer: string) =>
+      library.saveInsight({
+        bookId,
+        selection: {
+          bookId,
+          quote: '原文句段',
+          anchor: 'txt:0-5',
+          chapterTitle: '第一章',
+          passages: [{ id: 'p-1', text: '原文上下文', anchor: 'txt:0-8' }]
+        },
+        question: '为什么？',
+        answer,
+        model: 'export-model'
+      })
+    const firstInsight = makeInsight(firstBook.id, '第一条回答。')
+    const secondInsight = makeInsight(secondBook.id, '第二条回答。')
+
+    const all = library.listAllInsights()
+    expect(all).toHaveLength(2)
+    expect(all.map((insight) => insight.id)).toEqual([secondInsight.id, firstInsight.id])
+    expect(all[0].book).toEqual({
+      id: secondBook.id,
+      title: secondBook.title,
+      author: secondBook.author,
+      format: secondBook.format
+    })
+
+    const target = join(root, 'exported.md')
+    expect(await library.exportInsights({ kind: 'book', bookId: firstBook.id }, target)).toBe('exported.md')
+    const markdown = await readFile(target, 'utf8')
+    expect(markdown).toContain('# LLM Reader 归档')
+    expect(markdown).toContain(firstBook.title)
+    expect(markdown).not.toContain(secondBook.title)
+    expect(markdown).toContain('第一条回答。')
+
+    expect(await library.exportInsights({ kind: 'insight', insightId: secondInsight.id }, join(root, 'single'))).toBe('single.md')
+    expect(await readFile(join(root, 'single.md'), 'utf8')).toContain('第二条回答。')
+    expect(library.insightExportDefaultName({ kind: 'book', bookId: firstBook.id })).toContain(firstBook.title)
     database.close()
   })
   it('deletes exactly one saved insight and treats an unknown id as a no-op', async () => {
