@@ -5,53 +5,330 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="LLM Reader 是一款本地优先、以原文为锚点的 Windows 桌面阅读器。"
+      content="LLM Reader 是一款 Windows 优先、本地优先、让解释与引用始终锚定原文的桌面阅读器。"
     />
-    <meta name="theme-color" content="#eef1f2" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1e282d" media="(prefers-color-scheme: dark)" />
-    <title>LLM Reader — 本地优先的 AI 阅读器</title>
+    <meta name="theme-color" content="#f7f8f6" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:title" content="LLM Reader — 读懂复杂内容，始终锚定原文" />
+    <meta
+      property="og:description"
+      content="阅读 EPUB、TXT 与 PDF，围绕选区提问，并从回答准确返回原文。"
+    />
+    <meta property="og:url" content="https://llm-reader.maaoding.icu/" />
+    <title>LLM Reader — 读懂复杂内容，始终锚定原文</title>
+    <link rel="canonical" href="https://llm-reader.maaoding.icu/" />
     <link rel="icon" href="./icon.png" type="image/png" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <nav class="nav" aria-label="主导航">
-        <a class="brand" href="./" aria-label="LLM Reader 首页">
-          <img class="brand-mark" src="./icon.png" alt="" />
-          <span class="brand-copy">
-            <strong>LLM Reader</strong>
-          </span>
+    <header class="site-header" id="top">
+      <nav class="nav shell" aria-label="主导航">
+        <a class="brand" href="#top" aria-label="LLM Reader 首页">
+          <img class="brand-mark" src="./icon.png" width="36" height="36" alt="" />
+          <span>LLM READER</span>
         </a>
-        <a class="nav-link" href="https://github.com/maaoding/llm-reader">GitHub</a>
+        <div class="nav-links">
+          <a class="nav-link nav-link-optional" href="#capabilities">产品能力</a>
+          <a class="nav-link nav-link-optional" href="#formats">支持格式</a>
+          <a class="nav-link nav-link-github" href="https://github.com/maaoding/llm-reader">
+            GitHub
+            <span aria-hidden="true">↗</span>
+          </a>
+        </div>
       </nav>
+    </header>
 
-      <section class="hero" aria-labelledby="page-title">
-        <h1 id="page-title">理解，始终锚定<br />在原文之中。</h1>
-        <div class="actions">
-          <a class="button button-primary" href="https://github.com/maaoding/llm-reader">前往 GitHub</a>
+    <main>
+      <section class="hero shell" aria-labelledby="page-title">
+        <div class="hero-copy reveal">
+          <p class="eyebrow"><span aria-hidden="true"></span>Windows · 本地优先</p>
+          <h1 id="page-title">读懂复杂内容，<br /><em>始终锚定原文。</em></h1>
+          <p class="hero-lead">
+            选中难懂的句段，结合有限上下文获得解释。每条可靠引用，都能带你回到它在原文中的位置。
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/maaoding/llm-reader">
+              在 GitHub 查看项目
+              <span aria-hidden="true">↗</span>
+            </a>
+            <a class="button button-secondary" href="#capabilities">
+              了解产品能力
+              <span aria-hidden="true">↓</span>
+            </a>
+          </div>
+        </div>
+
+        <figure class="product-stage reveal reveal-late" aria-labelledby="demo-caption">
+          <div class="product-frame">
+            <div class="product-viewport">
+              <div
+                class="reader-demo"
+                id="reader-demo-panel"
+                data-reader-demo
+                data-demo-state="selected"
+                aria-label="LLM Reader 交互演示"
+              >
+                <aside class="demo-left-sidebar" aria-label="演示阅读导航">
+                  <header class="demo-brand-row"><strong>LLM Reader</strong></header>
+                  <nav class="demo-sidebar-tabs" aria-label="阅读视图">
+                    <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用">
+                      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2.5"/><path d="M6 19h12"/></svg>
+                      书库 <span>1</span>
+                    </button>
+                    <button class="is-active" type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用">
+                      <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M13 8h4M13 12h4"/></svg>
+                      目录
+                    </button>
+                    <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用">
+                      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
+                      收藏
+                    </button>
+                  </nav>
+                  <div class="demo-sidebar-content">
+                    <button class="demo-toc-item is-current" type="button" data-demo-passive aria-disabled="true">全文</button>
+                    <button class="demo-toc-item" type="button" data-demo-passive aria-disabled="true">理解复杂概念</button>
+                    <button class="demo-toc-item" type="button" data-demo-passive aria-disabled="true">适用边界</button>
+                  </div>
+                  <footer class="demo-sidebar-footer">
+                    <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用">
+                      <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+                      <span>设置</span><i aria-label="模型已连接"></i>
+                    </button>
+                  </footer>
+                </aside>
+
+                <section class="demo-reader-column">
+                  <header class="demo-reader-header">
+                    <div class="demo-reader-heading">
+                      <span class="demo-format-chip">TXT</span>
+                      <div><strong>理解一个复杂概念，通常需要区分它的定义、成立条件与适用边界。</strong><small>合成阅读样本</small></div>
+                    </div>
+                    <div class="demo-reader-actions">
+                      <button type="button" data-demo-passive aria-disabled="true" aria-label="搜索" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></button>
+                      <button type="button" data-demo-passive aria-disabled="true" aria-label="书籍详情" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>
+                      <button class="is-bordered" type="button" data-demo-passive aria-disabled="true" aria-label="返回阅读位置" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+                      <button class="is-bordered" type="button" data-demo-passive aria-disabled="true" aria-label="阅读设置" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></svg></button>
+                      <div class="demo-reading-progress"><span>全文</span><strong>42%</strong><div><i></i></div></div>
+                    </div>
+                  </header>
+                  <section class="demo-reader-surface" aria-label="演示原文">
+                    <article class="demo-reader-paper">
+                      <h2>理解复杂概念</h2>
+                      <p>定义回答“它是什么”，但定义本身并不保证某个判断在现实中成立。</p>
+                      <p class="demo-selected-paragraph">
+                        <mark id="demo-source-passage" data-demo-selection tabindex="-1">成立条件描述一个结论依赖哪些前提；只要其中一个关键前提变化，原来的结论就可能失效。</mark>
+                        <span class="demo-selection-toolbar" role="toolbar" aria-label="选区操作">
+                          <span class="demo-selection-spark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 1.2 4.1L17 9l-3.8 1.9L12 15l-1.2-4.1L7 9l3.8-1.9zM5 15l.7 2.3L8 18l-2.3.7L5 21l-.7-2.3L2 18l2.3-.7z"/></svg></span>
+                          <button type="button" data-demo-explain><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 17 8.5-8.5 4 4L7 21H3zM14 6l2-2 4 4-2 2M3 21h6"/></svg><span data-demo-explain-label>解释这段</span></button>
+                          <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2.5M6 19h12"/></svg>联系上下文</button>
+                          <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4zM8 9h8M8 13h5"/></svg>自由提问</button>
+                          <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg>收藏</button>
+                          <button class="toolbar-close" type="button" data-demo-passive aria-disabled="true" aria-label="关闭选区工具" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+                        </span>
+                      </p>
+                      <p>适用边界提醒读者，不要把局部有效的模型扩展到所有情境。可靠的阅读笔记应当保留它在原文中的位置。</p>
+                      <blockquote>When a model is useful, its limits remain visible.</blockquote>
+                    </article>
+                  </section>
+                </section>
+
+                <aside class="demo-right-sidebar" aria-label="演示阅读助手">
+                  <header class="demo-assistant-header">
+                    <div class="demo-assistant-title"><span aria-hidden="true">✦</span><strong>阅读助手</strong></div>
+                    <div class="demo-assistant-actions">
+                      <button class="demo-expand-button" type="button" data-demo-passive aria-disabled="true" aria-label="展开阅读助手" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+                      <div class="demo-window-controls" role="group" aria-label="窗口控制">
+                        <button type="button" data-demo-passive aria-label="最小化" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+                        <button type="button" data-demo-passive aria-label="最大化" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg></button>
+                        <button class="is-close" type="button" data-demo-passive aria-label="关闭" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+                      </div>
+                    </div>
+                  </header>
+                  <div class="demo-assistant-scroll" aria-live="polite">
+                    <section class="demo-source-card">
+                      <header><span>当前原文</span><small>全文 · 1 个段落</small></header>
+                      <p>成立条件描述一个结论依赖哪些前提；只要其中一个关键前提变化……</p>
+                    </section>
+                    <div class="demo-assistant-empty" data-demo-empty>
+                      <span aria-hidden="true">✦</span><strong>围绕选区提问</strong><p>点击正文旁的“解释这段”查看模拟回答。</p>
+                    </div>
+                    <div class="demo-answer" data-demo-answer hidden>
+                      <div class="demo-user-message"><small>解释这段</small><p>请用清晰、准确的语言解释这段内容。</p></div>
+                      <article class="demo-answer-card">
+                        <header><span aria-hidden="true">✦</span><strong>mock-reader</strong></header>
+                        <p>这段话区分了“定义”和“成立条件”：知道概念是什么，还要检查结论依赖的前提是否仍然成立。</p>
+                        <button type="button" data-demo-citation aria-describedby="demo-citation-status">
+                          <span>原文</span><strong>成立条件描述一个结论依赖哪些前提……</strong><em data-citation-action>返回原文</em>
+                        </button>
+                        <footer><span>32 tokens</span><span>归档</span></footer>
+                      </article>
+                    </div>
+                    <span class="visually-hidden" id="demo-citation-status" data-demo-status aria-live="polite"></span>
+                  </div>
+                  <footer class="demo-assistant-composer">
+                    <label class="visually-hidden" for="demo-followup">继续追问</label>
+                    <textarea id="demo-followup" rows="2" readonly placeholder="继续追问这段原文…"></textarea>
+                    <button type="button" data-demo-passive aria-disabled="true" aria-label="发送" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4zM22 2 11 13"/></svg></button>
+                  </footer>
+                </aside>
+              </div>
+
+              <noscript>
+                <style>.reader-demo { display: none; } .product-image-fallback { display: block; }</style>
+                <img
+                  class="product-image product-image-fallback"
+                  src="./reader-workspace.png"
+                  width="1536"
+                  height="864"
+                  alt="LLM Reader 浅色界面，左侧是目录，中间显示被选中的原文，右侧阅读助手给出带原文引用的解释"
+                />
+              </noscript>
+            </div>
+          </div>
+          <figcaption id="demo-caption">悬停查看桌面端同款反馈，点击“解释这段”体验原文锚定。</figcaption>
+        </figure>
+      </section>
+
+      <section class="promise-strip shell" aria-label="产品特点">
+        <article>
+          <span class="promise-index">01</span>
+          <div>
+            <strong>以原文为锚</strong>
+            <p>解释、追问与收藏都保留阅读位置。</p>
+          </div>
+        </article>
+        <article>
+          <span class="promise-index">02</span>
+          <div>
+            <strong>保持上下文边界</strong>
+            <p>只发送选区与当前章节的有限上下文。</p>
+          </div>
+        </article>
+        <article>
+          <span class="promise-index">03</span>
+          <div>
+            <strong>把阅读留在本机</strong>
+            <p>书籍、进度、收藏与归档默认本地保存。</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="section shell" id="capabilities" aria-labelledby="capabilities-title">
+        <div class="section-heading">
+          <p class="section-kicker">产品能力</p>
+          <h2 id="capabilities-title">阅读，不离开语境。</h2>
+          <p>
+            LLM Reader 不是把聊天框放在书旁边，而是把问题、回答与原文位置连成一条可以复查的阅读路径。
+          </p>
+        </div>
+
+        <div class="capability-grid">
+          <article class="capability-card capability-card-wide">
+            <span class="capability-number">01</span>
+            <div class="capability-copy">
+              <h3>选中，即可开始理解</h3>
+              <p>解释这段、联系上下文或自由提问。助手只围绕你正在阅读的内容工作。</p>
+            </div>
+            <div class="selection-demo" aria-hidden="true">
+              <p>成立条件描述一个结论依赖哪些前提。</p>
+              <span>解释这段</span>
+            </div>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-number">02</span>
+            <div class="capability-copy">
+              <h3>引用可以回到原文</h3>
+              <p>已验证的引用可跳转并临时高亮；未知引用会明确标记，不假装可靠。</p>
+            </div>
+            <div class="citation-demo" aria-hidden="true">
+              <span>原文</span>
+              <p>模型必须与适用边界一起理解。</p>
+              <strong>← 回到原文</strong>
+            </div>
+          </article>
+
+          <article class="capability-card">
+            <span class="capability-number">03</span>
+            <div class="capability-copy">
+              <h3>有价值的回答，继续生长</h3>
+              <p>手动归档回答，在助手工作台继续追问、搜索，并按需要导出 Markdown。</p>
+            </div>
+            <div class="archive-demo" aria-hidden="true">
+              <span></span><span></span><span></span>
+              <i>本地归档</i>
+            </div>
+          </article>
         </div>
       </section>
 
-      <section class="features" aria-label="核心能力">
-        <article class="feature-card">
-          <span class="feature-number">01</span>
-          <div class="feature-icon feature-icon-book" aria-hidden="true"><span></span><span></span></div>
-          <h2>导入并阅读</h2>
-          <p>EPUB 与 TXT</p>
-        </article>
-        <article class="feature-card">
-          <span class="feature-number">02</span>
-          <div class="feature-icon feature-icon-anchor" aria-hidden="true"><span></span><span></span></div>
-          <h2>围绕原文提问</h2>
-          <p>解释、追问与引用</p>
-        </article>
-        <article class="feature-card">
-          <span class="feature-number">03</span>
-          <div class="feature-icon feature-icon-local" aria-hidden="true"><span></span><span></span></div>
-          <h2>把阅读留在本机</h2>
-          <p>书籍、进度与收藏</p>
-        </article>
+      <section class="section shell format-section" id="formats" aria-labelledby="formats-title">
+        <div class="format-intro">
+          <p class="section-kicker">阅读核心</p>
+          <h2 id="formats-title">常用格式，统一阅读。</h2>
+          <p>连续滚动、目录、搜索与自然阅读位置恢复，让不同文件回到同一套阅读体验。</p>
+        </div>
+        <div class="format-list" aria-label="支持的书籍格式">
+          <article>
+            <strong>EPUB</strong>
+            <span>连续阅读 · 目录 · 搜索</span>
+          </article>
+          <article>
+            <strong>TXT</strong>
+            <span>UTF-8 · 轻量导入</span>
+          </article>
+          <article>
+            <strong>PDF</strong>
+            <span>固定页面 · 搜索 · 单页选区</span>
+          </article>
+          <article>
+            <strong>MOBI / AZW3</strong>
+            <span>通过本机 Calibre 转换无 DRM 文件</span>
+          </article>
+        </div>
+        <p class="format-note">扫描版 PDF 可浏览，但当前不提供 OCR；不处理 DRM 内容。</p>
+      </section>
+
+      <section class="section shell local-section" aria-labelledby="local-title">
+        <div class="local-copy">
+          <p class="section-kicker">本地优先</p>
+          <h2 id="local-title">你的阅读记录，<br />首先属于你的电脑。</h2>
+          <p>
+            不需要注册云端账户。书库与阅读状态保存在本机，模型接口由你配置，API Key 使用系统安全能力加密保存。
+          </p>
+        </div>
+        <ul class="local-list">
+          <li><span aria-hidden="true">✓</span>书籍、进度、收藏与归档保存在本机</li>
+          <li><span aria-hidden="true">✓</span>API Key 不进入数据库或渲染进程持久状态</li>
+          <li><span aria-hidden="true">✓</span>EPUB 与 PDF 内容按不可信输入隔离处理</li>
+          <li><span aria-hidden="true">✓</span>不包含账号、同步、遥测或自动上传</li>
+        </ul>
+      </section>
+
+      <section class="final-cta shell" aria-labelledby="cta-title">
+        <p class="section-kicker">LLM READER</p>
+        <h2 id="cta-title">让每次理解，都能回到原文。</h2>
+        <p>Windows 优先、本地优先。项目以 GPL-3.0-or-later 开源。</p>
+        <a class="button button-primary" href="https://github.com/maaoding/llm-reader">
+          在 GitHub 查看项目
+          <span aria-hidden="true">↗</span>
+        </a>
       </section>
     </main>
+
+    <footer class="footer shell">
+      <div class="footer-brand">
+        <img src="./icon.png" width="30" height="30" alt="" />
+        <strong>LLM READER</strong>
+      </div>
+      <p>本地优先的 AI 辅助阅读器</p>
+      <div class="footer-links">
+        <a href="https://github.com/maaoding/llm-reader">GitHub</a>
+        <a href="https://github.com/maaoding/llm-reader/blob/main/LICENSE">GPL-3.0</a>
+      </div>
+      <p class="footer-copy">© 2026 LLM Reader</p>
+    </footer>
+    <script src="./script.js" defer></script>
   </body>
 </html>
