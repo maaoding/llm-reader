@@ -2,6 +2,8 @@ import { Bookmark, Download, LoaderCircle, Search, SearchX, Trash2 } from 'lucid
 import { useMemo, useState, type ReactNode } from 'react'
 import type { InsightArchiveRecord, InsightExportScope } from '@shared/contracts'
 import { copy } from '@shared/copy'
+import { MarkedText } from './MarkedText'
+import { normalizeNeedle } from './highlight'
 import { AnswerText } from './AnswerText'
 
 type InsightScope = 'all' | 'book'
@@ -17,24 +19,6 @@ function formatDate(iso: string): string {
   } catch {
     return ''
   }
-}
-
-function highlightParts(value: string, needle: string, keyPrefix: string): ReactNode[] {
-  if (!needle) return [value]
-  const lower = value.toLocaleLowerCase('zh-CN')
-  const parts: ReactNode[] = []
-  let cursor = 0
-  let index = lower.indexOf(needle)
-  let key = 0
-  while (index !== -1) {
-    if (index > cursor) parts.push(value.slice(cursor, index))
-    parts.push(<mark key={`${keyPrefix}-${key}`}>{value.slice(index, index + needle.length)}</mark>)
-    key += 1
-    cursor = index + needle.length
-    index = lower.indexOf(needle, cursor)
-  }
-  if (cursor < value.length) parts.push(value.slice(cursor))
-  return parts
 }
 
 function EmptyState({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }): ReactNode {
@@ -72,13 +56,13 @@ export default function InsightsView({
 }): ReactNode {
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<InsightScope>('all')
+  const needle = normalizeNeedle(query)
 
   const scopeRecords = useMemo(
     () => (scope === 'all' || !activeBookId ? insights : insights.filter((insight) => insight.bookId === activeBookId)),
     [activeBookId, insights, scope]
   )
   const visibleRecords = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase('zh-CN')
     if (!needle) return scopeRecords
     return scopeRecords.filter((insight) => [
       insight.book.title,
@@ -88,7 +72,7 @@ export default function InsightsView({
       insight.question,
       insight.answer
     ].some((value) => value.toLocaleLowerCase('zh-CN').includes(needle)))
-  }, [query, scopeRecords])
+  }, [needle, scopeRecords])
 
   const exportScope = (): InsightExportScope | null => {
     if (scope === 'all') return { kind: 'all' }
@@ -163,7 +147,6 @@ export default function InsightsView({
       {!loading && visibleRecords.length > 0 && (
         <div className="insight-list">
           {visibleRecords.map((insight) => {
-            const needle = query.trim().toLocaleLowerCase('zh-CN')
             return (
               <article
                 className="insight-item"
@@ -185,12 +168,12 @@ export default function InsightsView({
                   }}
                 >
                   <span className="insight-book">
-                    {highlightParts(insight.book.title, needle, 'book-title')}
-                    {insight.book.author ? <> · {highlightParts(insight.book.author, needle, 'book-author')}</> : null}
+                    <MarkedText value={insight.book.title} needle={needle} />
+                    {insight.book.author ? <> · <MarkedText value={insight.book.author} needle={needle} /></> : null}
                   </span>
-                  <span className="insight-quote">“{highlightParts(insight.selection.quote, needle, 'quote')}”</span>
-                  <strong className="insight-question">{highlightParts(insight.question, needle, 'question')}</strong>
-                  <AnswerText text={insight.answer} selection={insight.selection} readOnly />
+                  <span className="insight-quote">“<MarkedText value={insight.selection.quote} needle={needle} />”</span>
+                  <strong className="insight-question"><MarkedText value={insight.question} needle={needle} /></strong>
+                  <AnswerText text={insight.answer} selection={insight.selection} readOnly highlight={needle} />
                 </div>
               <footer>
                 <span>{insight.selection.chapterTitle || copy('common.currentChapter')} · {formatDate(insight.createdAt)}</span>
