@@ -77,6 +77,7 @@ import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
 import { AnswerText } from './AnswerText'
 import InsightsView from './InsightsView'
+import { readableError } from './readable-error'
 import {
   assistantActionLabel,
   createDefaultAssistantActionSettings,
@@ -546,11 +547,6 @@ function PdfSelectionReviewDialog({ draft }: { draft: ReaderSelectionDraft }): R
 
 function createId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-function readableError(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) return error.message
-  return fallback
 }
 
 function formatDate(iso: string): string {
