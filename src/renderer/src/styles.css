@@ -3345,6 +3345,7 @@ button.citation-valid:hover {
   justify-content: center;
   gap: 5px;
   min-height: 39px;
+  margin-top: 0;
   padding: 0 12px;
   color: var(--danger);
   background: transparent;
