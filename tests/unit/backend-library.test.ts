@@ -82,6 +82,11 @@ describe('LibraryService', () => {
         created_at TEXT NOT NULL,
         UNIQUE(book_id, anchor)
       ) STRICT;
+      CREATE TABLE provider_settings (
+        singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+        base_url TEXT NOT NULL,
+        model TEXT NOT NULL
+      ) STRICT;
       INSERT INTO schema_migrations(version, applied_at) VALUES
         (1, '2026-01-01'), (2, '2026-01-01'), (3, '2026-01-01'),
         (4, '2026-01-01'), (5, '2026-01-01');
@@ -94,6 +99,8 @@ describe('LibraryService', () => {
       );
       INSERT INTO highlights(id, book_id, quote, anchor, chapter_title, created_at)
       VALUES ('legacy-highlight', 'legacy-txt', 'Legacy', 'txt:0:6', '全文', '2026-01-01');
+      INSERT INTO provider_settings(singleton, base_url, model)
+      VALUES (1, 'https://legacy.example.test', 'legacy-model');
       INSERT INTO insights(
         id, book_id, selection_json, question, answer, model, created_at, history_json
       ) VALUES (
@@ -109,7 +116,16 @@ describe('LibraryService', () => {
       expect.objectContaining({ id: 'legacy-txt', format: 'txt', sourceFormat: 'txt' })
     ])
     expect(database.connection.prepare('SELECT MAX(version) AS version FROM schema_migrations').get())
-      .toMatchObject({ version: 7 })
+      .toMatchObject({ version: 8 })
+    expect(database.listProviderProfiles()).toEqual([
+      expect.objectContaining({
+        id: 'legacy',
+        name: '现有配置',
+        base_url: 'https://legacy.example.test',
+        model: 'legacy-model',
+        is_active: 1
+      })
+    ])
     expect(database.listHighlights('legacy-txt')).toEqual([
       expect.objectContaining({ id: 'legacy-highlight', quote: 'Legacy' })
     ])

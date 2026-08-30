@@ -24,6 +24,7 @@ import {
   PanelLeftClose,
   Palette,
   PenLine,
+  Plus,
   Quote,
   RefreshCw,
   Save,
@@ -65,6 +66,8 @@ import type {
   LlmEvent,
   LlmUsage,
   ProviderSettings,
+  ProviderOverview,
+  ProviderProfile,
   ProviderTestResult,
   SavedInsight,
   SelectionContext,
@@ -233,6 +236,11 @@ const EMPTY_PROVIDER: ProviderSettings = {
   hasApiKey: false
 }
 
+const EMPTY_PROVIDER_OVERVIEW: ProviderOverview = {
+  profiles: [],
+  activeProfileId: null
+}
+
 const THEME_STORAGE_KEY = 'llm-reader.theme'
 const INTERFACE_SCALE_STORAGE_KEY = 'llm-reader.interface-scale'
 const READING_PREFERENCES_STORAGE_KEY = 'llm-reader.reading-preferences'
@@ -390,6 +398,13 @@ function providerIsConfigured(provider: ProviderSettings): boolean {
   return Boolean(provider.baseUrl.trim() && provider.model.trim() && provider.hasApiKey)
 }
 
+function activeProviderSettings(overview: ProviderOverview): ProviderSettings {
+  const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
+  return active
+    ? { baseUrl: active.baseUrl, model: active.model, hasApiKey: active.hasApiKey }
+    : EMPTY_PROVIDER
+}
+
 function providerStatusLabel(status: ProviderConnectionStatus): string {
   if (status === 'checking') return copy('provider.statusChecking')
   if (status === 'connected') return copy('provider.statusConnected')
@@ -455,6 +470,7 @@ function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject
       }
       if (event.key !== 'Tab' || !dialogRef.current) return
       const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE))
+        .filter((element) => !element.closest('[hidden]') && element.getClientRects().length > 0)
       if (!focusable.length) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
@@ -1204,7 +1220,7 @@ function AboutPanel(): ReactNode {
 }
 
 function SettingsModal({
-  initial,
+  initialOverview,
   initialSection,
   themePreference,
   interfaceScale,
@@ -1212,15 +1228,14 @@ function SettingsModal({
   assistantActions,
   returnFocusRef,
   onClose,
-  onSaved,
-  onTest,
+  onOverviewChange,
   onThemeChange,
   onInterfaceScaleChange,
   onReadingPreferencesChange,
   onAssistantActionsChange,
   pushToast
 }: {
-  initial: ProviderSettings
+  initialOverview: ProviderOverview
   initialSection: SettingsSectionId
   themePreference: ThemePreference
   interfaceScale: InterfaceScale
@@ -1228,18 +1243,31 @@ function SettingsModal({
   assistantActions: AssistantActionSettings
   returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
-  onSaved: (settings: ProviderSettings) => void
-  onTest: (settings: ProviderSettings) => Promise<ProviderCheckOutcome>
+  onOverviewChange: (overview: ProviderOverview, checkActive: boolean) => void
   onThemeChange: (preference: ThemePreference) => void
   onInterfaceScaleChange: (scale: InterfaceScale) => void
   onReadingPreferencesChange: (preferences: ReadingPreferences) => void
   onAssistantActionsChange: (settings: AssistantActionSettings) => void
   pushToast: (message: string, tone?: ToastState['tone']) => void
 }): ReactNode {
-  const [baseUrl, setBaseUrl] = useState(initial.baseUrl)
-  const [model, setModel] = useState(initial.model)
-  const [busy, setBusy] = useState<'save' | 'test' | null>(null)
+  const initiallySelected = initialOverview.profiles.find((profile) => profile.id === initialOverview.activeProfileId)
+    ?? initialOverview.profiles[0]
+    ?? null
+  const [overview, setOverview] = useState(initialOverview)
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(initiallySelected?.id ?? null)
+  const [profileName, setProfileName] = useState(initiallySelected?.name ?? '')
+  const [baseUrl, setBaseUrl] = useState(initiallySelected?.baseUrl ?? 'https://api.openai.com')
+  const [model, setModel] = useState(initiallySelected?.model ?? 'gpt-4.1-mini')
+  const [baseline, setBaseline] = useState({
+    name: initiallySelected?.name ?? '',
+    baseUrl: initiallySelected?.baseUrl ?? 'https://api.openai.com',
+    model: initiallySelected?.model ?? 'gpt-4.1-mini'
+  })
+  const [keyDirty, setKeyDirty] = useState(false)
+  const [busy, setBusy] = useState<'save' | 'test' | 'models' | 'activate' | 'delete' | null>(null)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
+  const [modelStatus, setModelStatus] = useState<{ ok: boolean; message: string } | null>(null)
+  const [modelOptions, setModelOptions] = useState<string[]>([])
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
   const [fonts, setFonts] = useState<string[] | null>(null)
   const keyRef = useRef<HTMLInputElement>(null)
@@ -1247,8 +1275,18 @@ function SettingsModal({
   const panelRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(true)
   const testSequenceRef = useRef(0)
+  const modelCacheRef = useRef(new Map<string, { baseUrl: string; models: string[]; truncated: boolean }>())
 
-  useDialogFocus(true, onClose, dialogRef, returnFocusRef)
+  const selectedProfile = overview.profiles.find((profile) => profile.id === selectedProfileId) ?? null
+  const dirty = keyDirty || profileName !== baseline.name || baseUrl !== baseline.baseUrl || model !== baseline.model
+
+  const confirmDiscard = (): boolean => !dirty || window.confirm(copy('settings.discardChanges'))
+
+  const requestClose = useCallback((): void => {
+    if (!dirty || window.confirm(copy('settings.discardChanges'))) onClose()
+  }, [dirty, onClose])
+
+  useDialogFocus(true, requestClose, dialogRef, returnFocusRef)
 
   useEffect(() => {
     panelRef.current?.scrollTo(0, 0)
@@ -1269,6 +1307,49 @@ function SettingsModal({
       alive = false
     }
   }, [])
+
+  const cacheKey = (profileId: string | null): string => profileId ?? '__new__'
+
+  const resetSecretInput = (): void => {
+    if (keyRef.current) keyRef.current.value = ''
+    setKeyDirty(false)
+  }
+
+  const loadProfile = (profile: ProviderProfile): void => {
+    setSelectedProfileId(profile.id)
+    setProfileName(profile.name)
+    setBaseUrl(profile.baseUrl)
+    setModel(profile.model)
+    setBaseline({ name: profile.name, baseUrl: profile.baseUrl, model: profile.model })
+    resetSecretInput()
+    setStatus(null)
+    const cached = modelCacheRef.current.get(cacheKey(profile.id))
+    setModelOptions(cached?.baseUrl === profile.baseUrl ? cached.models : [])
+    setModelStatus(cached
+      ? { ok: true, message: cached.truncated
+        ? copy('settings.modelsTruncated', { count: cached.models.length })
+        : copy('settings.modelsFetched', { count: cached.models.length }) }
+      : null)
+  }
+
+  const loadNewProfile = (): void => {
+    const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
+    const next = {
+      name: '',
+      baseUrl: active?.baseUrl ?? 'https://api.openai.com',
+      model: active?.model ?? 'gpt-4.1-mini'
+    }
+    setSelectedProfileId(null)
+    setProfileName(next.name)
+    setBaseUrl(next.baseUrl)
+    setModel(next.model)
+    setBaseline(next)
+    resetSecretInput()
+    setStatus(null)
+    const cached = modelCacheRef.current.get(cacheKey(null))
+    setModelOptions(cached?.baseUrl === next.baseUrl ? cached.models : [])
+    setModelStatus(null)
+  }
 
   const fontGroups = useMemo(() => groupReadingFonts(fonts ?? []), [fonts])
 
@@ -1306,27 +1387,36 @@ function SettingsModal({
     }
   }, [])
 
-  const persist = async (): Promise<ProviderSettings> => {
-    const key = keyRef.current?.value.trim()
-    const saved = await window.readerApi.saveProviderSettings({
-      baseUrl: baseUrl.trim(),
-      model: model.trim(),
-      ...(key ? { apiKey: key } : {})
-    })
-    if (keyRef.current) keyRef.current.value = ''
-    return saved
-  }
-
   const handleSave = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
     setBusy('save')
     setStatus(null)
     try {
-      const saved = await persist()
-      onSaved(saved)
+      const key = keyRef.current?.value.trim()
+      const input = {
+        name: profileName.trim(),
+        baseUrl: baseUrl.trim(),
+        model: model.trim(),
+        ...(key ? { apiKey: key } : {})
+      }
+      const previousIds = new Set(overview.profiles.map((profile) => profile.id))
+      const next = selectedProfileId
+        ? await window.readerApi.updateProviderProfile({ id: selectedProfileId, ...input })
+        : await window.readerApi.createProviderProfile(input)
       if (mountedRef.current) {
+        setOverview(next)
+        const saved = selectedProfileId
+          ? next.profiles.find((profile) => profile.id === selectedProfileId)
+          : next.profiles.find((profile) => !previousIds.has(profile.id))
+        if (saved) {
+          if (!selectedProfileId) {
+            const cached = modelCacheRef.current.get(cacheKey(null))
+            if (cached) modelCacheRef.current.set(cacheKey(saved.id), cached)
+          }
+          loadProfile(saved)
+        }
+        onOverviewChange(next, Boolean(saved?.isActive))
         pushToast(copy('settings.savedToast'), 'success')
-        onClose()
       }
     } catch (error) {
       if (mountedRef.current) {
@@ -1343,9 +1433,14 @@ function SettingsModal({
     setBusy('test')
     setStatus(null)
     try {
-      const saved = await persist()
-      const result = await onTest(saved)
-      if (!mountedRef.current || sequence !== testSequenceRef.current || !result.current) return
+      const key = keyRef.current?.value.trim()
+      const result = await window.readerApi.testProviderConfiguration({
+        ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
+        baseUrl: baseUrl.trim(),
+        model: model.trim(),
+        ...(key ? { apiKey: key } : {})
+      })
+      if (!mountedRef.current || sequence !== testSequenceRef.current) return
       setStatus(result)
       if (result.ok) pushToast(copy('settings.testSuccessToast'), 'success')
     } catch (error) {
@@ -1357,14 +1452,87 @@ function SettingsModal({
     }
   }
 
+  const handleFetchModels = async (): Promise<void> => {
+    setBusy('models')
+    setModelStatus(null)
+    try {
+      const key = keyRef.current?.value.trim()
+      const result = await window.readerApi.listProviderModels({
+        ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
+        baseUrl: baseUrl.trim(),
+        ...(key ? { apiKey: key } : {})
+      })
+      if (!mountedRef.current) return
+      modelCacheRef.current.set(cacheKey(selectedProfileId), {
+        baseUrl: baseUrl.trim(),
+        models: result.models,
+        truncated: result.truncated
+      })
+      setModelOptions(result.models)
+      setModelStatus({
+        ok: true,
+        message: result.truncated
+          ? copy('settings.modelsTruncated', { count: result.models.length })
+          : copy('settings.modelsFetched', { count: result.models.length })
+      })
+    } catch (error) {
+      if (mountedRef.current) {
+        setModelStatus({ ok: false, message: readableError(error, copy('settings.testFailed')) })
+      }
+    } finally {
+      if (mountedRef.current) setBusy(null)
+    }
+  }
+
+  const handleActivate = async (): Promise<void> => {
+    if (!selectedProfileId || dirty) return
+    setBusy('activate')
+    setStatus(null)
+    try {
+      const next = await window.readerApi.activateProviderProfile(selectedProfileId)
+      if (!mountedRef.current) return
+      setOverview(next)
+      const selected = next.profiles.find((profile) => profile.id === selectedProfileId)
+      if (selected) loadProfile(selected)
+      onOverviewChange(next, true)
+      pushToast(copy('settings.profileActivatedToast'), 'success')
+    } catch (error) {
+      if (mountedRef.current) setStatus({ ok: false, message: readableError(error, copy('settings.saveFailed')) })
+    } finally {
+      if (mountedRef.current) setBusy(null)
+    }
+  }
+
+  const handleDelete = async (): Promise<void> => {
+    if (!selectedProfile || !confirmDiscard()) return
+    if (!window.confirm(copy('settings.deleteProfileQuestion', { name: selectedProfile.name }))) return
+    setBusy('delete')
+    setStatus(null)
+    try {
+      const deletedName = selectedProfile.name
+      const next = await window.readerApi.deleteProviderProfile(selectedProfile.id)
+      if (!mountedRef.current) return
+      setOverview(next)
+      const nextSelected = next.profiles[0] ?? null
+      if (nextSelected) loadProfile(nextSelected)
+      else loadNewProfile()
+      onOverviewChange(next, false)
+      pushToast(copy('settings.profileDeletedToast', { name: deletedName }), 'success')
+    } catch (error) {
+      if (mountedRef.current) setStatus({ ok: false, message: readableError(error, copy('settings.saveFailed')) })
+    } finally {
+      if (mountedRef.current) setBusy(null)
+    }
+  }
+
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && requestClose()}>
       <section ref={dialogRef} className="settings-modal" data-testid="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="modal-header">
           <div>
             <h2 id="settings-title">{copy('settings.title')}</h2>
           </div>
-          <button className="icon-button" data-testid="settings-close" type="button" onClick={onClose} aria-label={copy('settings.closeAria')}>
+          <button className="icon-button" data-testid="settings-close" type="button" onClick={requestClose} aria-label={copy('settings.closeAria')}>
             <X size={18} />
           </button>
         </header>
@@ -1528,81 +1696,185 @@ function SettingsModal({
               </section>
             )}
 
-            {activeSection === 'model' && (
-              <section className="settings-section" id="settings-panel-model" role="tabpanel" aria-labelledby="settings-tab-model">
+            <section
+              className="settings-section"
+              id="settings-panel-model"
+              role="tabpanel"
+              aria-labelledby="settings-tab-model"
+              hidden={activeSection !== 'model'}
+            >
                 <h3 id="model-settings-title">{copy('settings.modelTitle')}</h3>
                 <form onSubmit={handleSave}>
-          <label className="field-label" htmlFor="provider-base-url">{copy('settings.baseUrlLabel')}</label>
-          <input
-            id="provider-base-url"
-            data-testid="provider-base-url"
-            value={baseUrl}
-            onChange={(event) => setBaseUrl(event.target.value)}
-            disabled={busy !== null}
-            placeholder={copy('settings.baseUrlPlaceholder')}
-            spellCheck={false}
-            required
-          />
-          <p className="field-hint">{copy('settings.baseUrlHint', { path: '/v1/chat/completions' })}</p>
+                  <div className="provider-profile-toolbar">
+                    <div className="provider-profile-select">
+                      <label className="field-label" htmlFor="provider-profile">{copy('settings.profileLabel')}</label>
+                      <select
+                        id="provider-profile"
+                        data-testid="provider-profile"
+                        value={selectedProfileId ?? ''}
+                        disabled={busy !== null}
+                        onChange={(event) => {
+                          if (!confirmDiscard()) return
+                          const profile = overview.profiles.find((item) => item.id === event.target.value)
+                          if (profile) loadProfile(profile)
+                          else loadNewProfile()
+                        }}
+                      >
+                        {!selectedProfileId && <option value="">{copy('settings.newProfile')}</option>}
+                        {overview.profiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {profile.name}{profile.isActive ? ` · ${copy('settings.activeProfile')}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="provider-profile-actions">
+                      <button
+                        className="secondary-button compact-button"
+                        data-testid="provider-new"
+                        type="button"
+                        disabled={busy !== null || overview.profiles.length >= 10}
+                        onClick={() => { if (confirmDiscard()) loadNewProfile() }}
+                      >
+                        <Plus size={14} /> {copy('settings.newProfile')}
+                      </button>
+                      <button
+                        className="text-button danger-text"
+                        data-testid="provider-delete"
+                        type="button"
+                        disabled={busy !== null || !selectedProfile}
+                        onClick={handleDelete}
+                      >
+                        <Trash2 size={14} /> {copy('settings.deleteProfile')}
+                      </button>
+                    </div>
+                  </div>
+                  {overview.profiles.length >= 10 && <p className="field-hint">{copy('settings.profileLimit')}</p>}
 
-          <label className="field-label" htmlFor="provider-model">{copy('settings.modelLabel')}</label>
-          <input
-            id="provider-model"
-            data-testid="provider-model"
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            disabled={busy !== null}
-            placeholder={copy('settings.modelPlaceholder')}
-            spellCheck={false}
-            required
-          />
+                  <label className="field-label" htmlFor="provider-profile-name">{copy('settings.profileNameLabel')}</label>
+                  <input
+                    id="provider-profile-name"
+                    data-testid="provider-profile-name"
+                    value={profileName}
+                    onChange={(event) => setProfileName(event.target.value)}
+                    disabled={busy !== null}
+                    placeholder={copy('settings.profileNamePlaceholder')}
+                    maxLength={60}
+                    required
+                  />
 
-          <div className="label-row">
-            <label className="field-label" htmlFor="provider-api-key">{copy('settings.apiKeyLabel')}</label>
-            {initial.hasApiKey && <span className="saved-key"><Check size={12} /> {copy('settings.apiKeySaved')}</span>}
-          </div>
-          <input
-            id="provider-api-key"
-            data-testid="provider-api-key"
-            ref={keyRef}
-            type="password"
-            autoComplete="off"
-            disabled={busy !== null}
-            placeholder={initial.hasApiKey ? copy('settings.apiKeyPlaceholderSaved') : copy('settings.apiKeyPlaceholderEmpty')}
-          />
-          <p className="field-hint">{copy('settings.apiKeyHint')}</p>
+                  <label className="field-label" htmlFor="provider-base-url">{copy('settings.baseUrlLabel')}</label>
+                  <input
+                    id="provider-base-url"
+                    data-testid="provider-base-url"
+                    value={baseUrl}
+                    onChange={(event) => {
+                      setBaseUrl(event.target.value)
+                      modelCacheRef.current.delete(cacheKey(selectedProfileId))
+                      setModelOptions([])
+                      setModelStatus(null)
+                    }}
+                    disabled={busy !== null}
+                    placeholder={copy('settings.baseUrlPlaceholder')}
+                    spellCheck={false}
+                    required
+                  />
+                  <p className="field-hint">{copy('settings.baseUrlHint', { path: '/v1/chat/completions' })}</p>
 
-          {status && (
-            <div className={`provider-status ${status.ok ? 'is-success' : 'is-error'}`} data-testid="provider-status" role="status">
-              {status.ok ? <Check size={16} /> : <AlertCircle size={16} />}
-              <span>{status.message}</span>
-            </div>
-          )}
+                  <div className="provider-model-heading">
+                    <label className="field-label" htmlFor="provider-model">{copy('settings.modelLabel')}</label>
+                    <button
+                      className="text-button"
+                      data-testid="provider-models-fetch"
+                      type="button"
+                      disabled={busy !== null || !baseUrl.trim()}
+                      onClick={handleFetchModels}
+                    >
+                      {busy === 'models' ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+                      {busy === 'models' ? copy('settings.fetchingModels') : copy('settings.fetchModels')}
+                    </button>
+                  </div>
+                  <input
+                    id="provider-model"
+                    data-testid="provider-model"
+                    list="provider-model-options"
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    disabled={busy !== null}
+                    placeholder={copy('settings.modelPlaceholder')}
+                    spellCheck={false}
+                    required
+                  />
+                  <datalist id="provider-model-options">
+                    {modelOptions.map((option) => <option key={option} value={option} />)}
+                  </datalist>
+                  {modelStatus && (
+                    <p className={`field-hint ${modelStatus.ok ? 'is-success-text' : 'is-error-text'}`} data-testid="provider-models-status" role="status">
+                      {modelStatus.message}
+                    </p>
+                  )}
 
-          <footer className="modal-actions">
-            <button
-              className="secondary-button"
-              data-testid="provider-test"
-              type="button"
-              disabled={busy !== null || !baseUrl.trim() || !model.trim()}
-              onClick={handleTest}
-            >
-              {busy === 'test' ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}
-              {copy('settings.testConnection')}
-            </button>
-            <button
-              className="primary-button"
-              data-testid="provider-save"
-              type="submit"
-              disabled={busy !== null || !baseUrl.trim() || !model.trim()}
-            >
-              {busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
-              {copy('settings.save')}
-            </button>
-          </footer>
-            </form>
-              </section>
-            )}
+                  <div className="label-row">
+                    <label className="field-label" htmlFor="provider-api-key">{copy('settings.apiKeyLabel')}</label>
+                    {selectedProfile?.hasApiKey && <span className="saved-key"><Check size={12} /> {copy('settings.apiKeySaved')}</span>}
+                  </div>
+                  <input
+                    id="provider-api-key"
+                    data-testid="provider-api-key"
+                    ref={keyRef}
+                    type="password"
+                    autoComplete="off"
+                    disabled={busy !== null}
+                    onChange={() => {
+                      setKeyDirty(true)
+                      modelCacheRef.current.delete(cacheKey(selectedProfileId))
+                      setModelOptions([])
+                      setModelStatus(null)
+                    }}
+                    placeholder={selectedProfile?.hasApiKey ? copy('settings.apiKeyPlaceholderSaved') : copy('settings.apiKeyPlaceholderEmpty')}
+                  />
+                  <p className="field-hint">{copy('settings.apiKeyHint')}</p>
+
+                  {status && (
+                    <div className={`provider-status ${status.ok ? 'is-success' : 'is-error'}`} data-testid="provider-status" role="status">
+                      {status.ok ? <Check size={16} /> : <AlertCircle size={16} />}
+                      <span>{status.message}</span>
+                    </div>
+                  )}
+
+                  <footer className="modal-actions provider-modal-actions">
+                    <button
+                      className="secondary-button"
+                      data-testid="provider-test"
+                      type="button"
+                      disabled={busy !== null || !baseUrl.trim() || !model.trim()}
+                      onClick={handleTest}
+                    >
+                      {busy === 'test' ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}
+                      {copy('settings.testConnection')}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      data-testid="provider-activate"
+                      type="button"
+                      disabled={busy !== null || !selectedProfile || dirty || !selectedProfile.hasApiKey || selectedProfile.isActive}
+                      onClick={handleActivate}
+                    >
+                      {busy === 'activate' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
+                      {selectedProfile?.isActive ? copy('settings.activeProfile') : copy('settings.setActive')}
+                    </button>
+                    <button
+                      className="primary-button"
+                      data-testid="provider-save"
+                      type="submit"
+                      disabled={busy !== null || !profileName.trim() || !baseUrl.trim() || !model.trim()}
+                    >
+                      {busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
+                      {copy('settings.save')}
+                    </button>
+                  </footer>
+                </form>
+            </section>
 
             {activeSection === 'about' && <AboutPanel />}
           </div>
@@ -1656,6 +1928,7 @@ export default function App(): ReactNode {
   const [assistantDialogView, setAssistantDialogView] = useState<AssistantDialogView>('conversation')
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
+  const [providerOverview, setProviderOverview] = useState<ProviderOverview>(EMPTY_PROVIDER_OVERVIEW)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
   const [providerConnection, setProviderConnection] = useState<ProviderConnectionState>({
     status: 'not-configured',
@@ -1802,9 +2075,13 @@ export default function App(): ReactNode {
     return { ...result, current }
   }, [])
 
-  const handleProviderSaved = useCallback((settings: ProviderSettings): void => {
+  const handleProviderOverviewChange = useCallback((overview: ProviderOverview, checkActive: boolean): void => {
+    setProviderOverview(overview)
+    const settings = activeProviderSettings(overview)
+    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey
+    if (!checkActive && !changed) return
     const revision = commitProviderSettings(settings)
-    if (!providerIsConfigured(settings)) return
+    if (!checkActive || !providerIsConfigured(settings)) return
     const check = runProviderCheck(revision)
     const sequence = providerCheckSequenceRef.current
     void check.then((result) => {
@@ -1812,15 +2089,7 @@ export default function App(): ReactNode {
         pushToast(result.message || copy('provider.backgroundTestFailed'), 'error')
       }
     })
-  }, [commitProviderSettings, pushToast, runProviderCheck])
-
-  const handleProviderTest = useCallback(async (settings: ProviderSettings): Promise<ProviderCheckOutcome> => {
-    const revision = commitProviderSettings(settings)
-    if (!providerIsConfigured(settings)) {
-      return { ok: false, message: providerStatusLabel('not-configured'), current: true }
-    }
-    return runProviderCheck(revision)
-  }, [commitProviderSettings, runProviderCheck])
+  }, [commitProviderSettings, provider, pushToast, runProviderCheck])
 
   useEffect(() => {
     readingPreferencesRef.current = readingPreferences
@@ -2077,12 +2346,14 @@ export default function App(): ReactNode {
         setLibraryError(copy('reader.bridgeFailed'))
         return
       }
-      const [, , settings] = await Promise.all([
+      const [, , overview] = await Promise.all([
         refreshBooks(),
         refreshInsights(),
-        window.readerApi.getProviderSettings().catch(() => EMPTY_PROVIDER)
+        window.readerApi.getProviderOverview().catch(() => EMPTY_PROVIDER_OVERVIEW)
       ])
       if (!alive || providerRevisionRef.current !== 0) return
+      setProviderOverview(overview)
+      const settings = activeProviderSettings(overview)
       const revision = commitProviderSettings(settings)
       if (providerIsConfigured(settings)) void runProviderCheck(revision)
     }
@@ -3235,7 +3506,7 @@ export default function App(): ReactNode {
 
       {settingsOpen && (
         <SettingsModal
-          initial={provider}
+          initialOverview={providerOverview}
           initialSection={settingsInitialSection}
           themePreference={themePreference}
           interfaceScale={interfaceScale}
@@ -3243,8 +3514,7 @@ export default function App(): ReactNode {
           assistantActions={assistantActions}
           returnFocusRef={settingsReturnFocusRef}
           onClose={closeSettings}
-          onSaved={handleProviderSaved}
-          onTest={handleProviderTest}
+          onOverviewChange={handleProviderOverviewChange}
           onThemeChange={setThemePreference}
           onInterfaceScaleChange={setInterfaceScale}
           onReadingPreferencesChange={setReadingPreferences}

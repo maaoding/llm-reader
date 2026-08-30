@@ -53,6 +53,26 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.appInfo)
   })
 
+  it('exposes provider profile management and model discovery through dedicated IPC channels', async () => {
+    const overview = { profiles: [], activeProfileId: null }
+    const profileInput = {
+      name: '日常', baseUrl: 'https://models.example.test', model: 'reader', apiKey: 'secret'
+    }
+    const modelInput = { baseUrl: profileInput.baseUrl, apiKey: 'secret' }
+    electronMocks.invoke
+      .mockResolvedValueOnce(overview)
+      .mockResolvedValueOnce(overview)
+      .mockResolvedValueOnce({ models: ['reader'], truncated: false })
+
+    await expect(readerApi.getProviderOverview()).resolves.toEqual(overview)
+    await expect(readerApi.createProviderProfile(profileInput)).resolves.toEqual(overview)
+    await expect(readerApi.listProviderModels(modelInput)).resolves.toEqual({ models: ['reader'], truncated: false })
+
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.providerOverview)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.providerCreate, profileInput)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.providerModels, modelInput)
+  })
+
   beforeEach(() => {
     electronMocks.invoke.mockReset()
   })

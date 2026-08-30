@@ -9,6 +9,7 @@ import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
 import {
   bookIdSchema,
+  createProviderProfileSchema,
   highlightIdSchema,
   highlightSchema,
   insightExportScopeSchema,
@@ -18,8 +19,11 @@ import {
   llmRequestSchema,
   metadataSchema,
   progressSchema,
-  providerSettingsSchema,
-  requestIdSchema
+  providerConfigurationSchema,
+  providerModelListSchema,
+  providerProfileIdSchema,
+  requestIdSchema,
+  updateProviderProfileSchema
 } from './schemas'
 
 interface IpcDependencies {
@@ -142,11 +146,26 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.insightsUpdateHistory, dependencies, (_event, value) =>
     dependencies.library.updateInsightHistory(parse(insightHistorySchema, value))
   )
-  handle(IPC_CHANNELS.providerGet, dependencies, () => dependencies.provider.getSettings())
-  handle(IPC_CHANNELS.providerSave, dependencies, (_event, value) =>
-    dependencies.provider.saveSettings(parse(providerSettingsSchema, value))
+  handle(IPC_CHANNELS.providerOverview, dependencies, () => dependencies.provider.getOverview())
+  handle(IPC_CHANNELS.providerCreate, dependencies, (_event, value) =>
+    dependencies.provider.createProfile(parse(createProviderProfileSchema, value))
+  )
+  handle(IPC_CHANNELS.providerUpdate, dependencies, (_event, value) =>
+    dependencies.provider.updateProfile(parse(updateProviderProfileSchema, value))
+  )
+  handle(IPC_CHANNELS.providerActivate, dependencies, (_event, value) =>
+    dependencies.provider.activateProfile(parse(providerProfileIdSchema, value))
+  )
+  handle(IPC_CHANNELS.providerDelete, dependencies, (_event, value) =>
+    dependencies.provider.deleteProfile(parse(providerProfileIdSchema, value))
   )
   handle(IPC_CHANNELS.providerTest, dependencies, () => dependencies.provider.testConnection())
+  handle(IPC_CHANNELS.providerTestConfiguration, dependencies, (_event, value) =>
+    dependencies.provider.testConfiguration(parse(providerConfigurationSchema, value))
+  )
+  handle(IPC_CHANNELS.providerModels, dependencies, (_event, value) =>
+    dependencies.provider.listModels(parse(providerModelListSchema, value))
+  )
   handle(IPC_CHANNELS.fontsList, dependencies, () => listSystemFonts())
   handle(IPC_CHANNELS.llmStart, dependencies, (event, value) => {
     const request = parse(llmRequestSchema, value)

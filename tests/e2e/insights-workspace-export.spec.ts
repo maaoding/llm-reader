@@ -28,10 +28,13 @@ async function selectNodeContents(locator: Locator): Promise<void> {
 async function configureProvider(page: Page): Promise<void> {
   await page.getByTestId('settings-button').click()
   await page.getByTestId('settings-nav-model').click()
+  await page.getByTestId('provider-profile-name').fill('归档测试')
   await page.getByTestId('provider-base-url').fill(endpoint)
   await page.getByTestId('provider-model').fill('mock-insights-export')
   await page.getByTestId('provider-api-key').fill('test-only-key')
   await page.getByTestId('provider-save').click()
+  await page.getByTestId('provider-activate').click()
+  await page.getByTestId('settings-close').click()
   await expect(page.getByTestId('settings-modal')).toHaveCount(0)
 }
 

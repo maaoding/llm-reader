@@ -56,9 +56,14 @@ interface HighlightRow {
   created_at: string
 }
 
-interface ProviderRow {
+export interface ProviderProfileRecord {
+  id: string
+  name: string
   base_url: string
   model: string
+  is_active: number
+  created_at: string
+  updated_at: string
 }
 
 const migrations = [
@@ -206,6 +211,32 @@ const migrations = [
       ALTER TABLE highlights_v2 RENAME TO highlights;
       CREATE INDEX insights_book_created_idx ON insights(book_id, created_at DESC);
       CREATE INDEX highlights_book_created_idx ON highlights(book_id, created_at DESC);
+    `,
+    `
+      CREATE TABLE provider_profiles (
+        id TEXT PRIMARY KEY CHECK(length(id) BETWEEN 1 AND 128),
+        name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(name) BETWEEN 1 AND 60),
+        base_url TEXT NOT NULL,
+        model TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 0 CHECK(is_active IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+
+      CREATE UNIQUE INDEX provider_profiles_single_active_idx
+        ON provider_profiles(is_active) WHERE is_active = 1;
+
+      INSERT INTO provider_profiles(
+        id, name, base_url, model, is_active, created_at, updated_at
+      )
+      SELECT
+        'legacy', '现有配置', base_url, model, 1,
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      FROM provider_settings
+      WHERE singleton = 1;
+
+      DROP TABLE provider_settings;
     `
 ] as const
 
@@ -537,26 +568,84 @@ export class AppDatabase {
     return result.changes > 0
   }
 
-  getProvider(): { baseUrl: string; model: string } | null {
-    const row = this.connection
-      .prepare('SELECT base_url, model FROM provider_settings WHERE singleton = 1')
-      .get() as unknown as ProviderRow | undefined
-    if (!row) return null
-    return {
-      baseUrl: row.base_url,
-      model: row.model
+  listProviderProfiles(): ProviderProfileRecord[] {
+    return this.connection
+      .prepare(
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at
+         FROM provider_profiles ORDER BY created_at ASC, id ASC`
+      )
+      .all() as unknown as ProviderProfileRecord[]
+  }
+
+  getProviderProfile(id: string): ProviderProfileRecord | null {
+    return (this.connection
+      .prepare(
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at
+         FROM provider_profiles WHERE id = ?`
+      )
+      .get(id) as unknown as ProviderProfileRecord | undefined) ?? null
+  }
+
+  getActiveProviderProfile(): ProviderProfileRecord | null {
+    return (this.connection
+      .prepare(
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at
+         FROM provider_profiles WHERE is_active = 1`
+      )
+      .get() as unknown as ProviderProfileRecord | undefined) ?? null
+  }
+
+  createProviderProfile(record: ProviderProfileRecord): void {
+    this.connection
+      .prepare(
+        `INSERT INTO provider_profiles(
+           id, name, base_url, model, is_active, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        record.id,
+        record.name,
+        record.base_url,
+        record.model,
+        record.is_active,
+        record.created_at,
+        record.updated_at
+      )
+  }
+
+  updateProviderProfile(id: string, name: string, baseUrl: string, model: string, updatedAt: string): boolean {
+    const result = this.connection
+      .prepare(
+        `UPDATE provider_profiles
+         SET name = ?, base_url = ?, model = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(name, baseUrl, model, updatedAt, id)
+    return result.changes > 0
+  }
+
+  activateProviderProfile(id: string, updatedAt: string): boolean {
+    this.connection.exec('BEGIN IMMEDIATE')
+    try {
+      const exists = this.connection.prepare('SELECT 1 FROM provider_profiles WHERE id = ?').get(id)
+      if (!exists) {
+        this.connection.exec('ROLLBACK')
+        return false
+      }
+      this.connection.prepare('UPDATE provider_profiles SET is_active = 0 WHERE is_active = 1').run()
+      this.connection
+        .prepare('UPDATE provider_profiles SET is_active = 1, updated_at = ? WHERE id = ?')
+        .run(updatedAt, id)
+      this.connection.exec('COMMIT')
+      return true
+    } catch (error) {
+      this.connection.exec('ROLLBACK')
+      throw error
     }
   }
 
-  saveProvider(baseUrl: string, model: string): void {
-    this.connection
-      .prepare(
-        `INSERT INTO provider_settings(singleton, base_url, model)
-         VALUES (1, ?, ?)
-         ON CONFLICT(singleton) DO UPDATE SET
-           base_url = excluded.base_url,
-           model = excluded.model`
-      )
-      .run(baseUrl, model)
+  deleteProviderProfile(id: string): boolean {
+    const result = this.connection.prepare('DELETE FROM provider_profiles WHERE id = ?').run(id)
+    return result.changes > 0
   }
 }

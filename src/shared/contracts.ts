@@ -24,9 +24,14 @@ export const IPC_CHANNELS = {
   insightsDelete: 'insights:delete',
   insightsUpdateHistory: 'insights:update-history',
   insightsExport: 'insights:export',
-  providerGet: 'provider:get',
-  providerSave: 'provider:save',
+  providerOverview: 'provider:overview',
+  providerCreate: 'provider:create',
+  providerUpdate: 'provider:update',
+  providerActivate: 'provider:activate',
+  providerDelete: 'provider:delete',
   providerTest: 'provider:test',
+  providerTestConfiguration: 'provider:test-configuration',
+  providerModels: 'provider:models',
   fontsList: 'fonts:list',
   llmStart: 'llm:start',
   llmCancel: 'llm:cancel',
@@ -139,10 +144,46 @@ export interface ProviderSettings {
   hasApiKey: boolean
 }
 
-export interface SaveProviderSettingsInput {
+export interface ProviderProfile extends ProviderSettings {
+  id: string
+  name: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProviderOverview {
+  profiles: ProviderProfile[]
+  activeProfileId: string | null
+}
+
+export interface CreateProviderProfileInput {
+  name: string
   baseUrl: string
   model: string
   apiKey?: string
+}
+
+export interface UpdateProviderProfileInput extends CreateProviderProfileInput {
+  id: string
+}
+
+export interface ProviderConfigurationInput {
+  profileId?: string
+  baseUrl: string
+  model: string
+  apiKey?: string
+}
+
+export interface ProviderModelListInput {
+  profileId?: string
+  baseUrl: string
+  apiKey?: string
+}
+
+export interface ProviderModelList {
+  models: string[]
+  truncated: boolean
 }
 
 export interface ProviderTestResult {
@@ -234,9 +275,14 @@ export interface ReaderApi {
   saveInsight(input: SaveInsightInput): Promise<SavedInsight>
   deleteInsight(id: string): Promise<boolean>
   updateInsightHistory(input: UpdateInsightHistoryInput): Promise<SavedInsight>
-  getProviderSettings(): Promise<ProviderSettings>
-  saveProviderSettings(input: SaveProviderSettingsInput): Promise<ProviderSettings>
+  getProviderOverview(): Promise<ProviderOverview>
+  createProviderProfile(input: CreateProviderProfileInput): Promise<ProviderOverview>
+  updateProviderProfile(input: UpdateProviderProfileInput): Promise<ProviderOverview>
+  activateProviderProfile(id: string): Promise<ProviderOverview>
+  deleteProviderProfile(id: string): Promise<ProviderOverview>
   testProvider(): Promise<ProviderTestResult>
+  testProviderConfiguration(input: ProviderConfigurationInput): Promise<ProviderTestResult>
+  listProviderModels(input: ProviderModelListInput): Promise<ProviderModelList>
   listSystemFonts(): Promise<string[]>
   startLlm(request: LlmRequest): Promise<void>
   cancelLlm(requestId: string): Promise<void>

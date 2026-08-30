@@ -148,7 +148,7 @@ function buildPayload(request: LlmRequest, model: string, contextLimit: number, 
   }
 }
 
-export function buildChatCompletionsUrl(baseUrl: string): string {
+function normalizedProviderUrl(baseUrl: string): URL {
   let url: URL
   try {
     url = new URL(baseUrl)
@@ -167,6 +167,11 @@ export function buildChatCompletionsUrl(baseUrl: string): string {
   }
   url.search = ''
   url.hash = ''
+  return url
+}
+
+export function buildChatCompletionsUrl(baseUrl: string): string {
+  const url = normalizedProviderUrl(baseUrl)
   const path = url.pathname.replace(/\/+$/, '')
   if (path.endsWith('/chat/completions')) {
     url.pathname = path
@@ -174,6 +179,19 @@ export function buildChatCompletionsUrl(baseUrl: string): string {
     url.pathname = `${path}/chat/completions`
   } else {
     url.pathname = `${path}/v1/chat/completions`.replace(/\/{2,}/g, '/')
+  }
+  return url.toString()
+}
+
+export function buildModelsUrl(baseUrl: string): string {
+  const url = normalizedProviderUrl(baseUrl)
+  const path = url.pathname.replace(/\/+$/, '')
+  if (path.endsWith('/chat/completions')) {
+    url.pathname = `${path.slice(0, -'/chat/completions'.length)}/models`.replace(/\/{2,}/g, '/')
+  } else if (path.endsWith('/v1')) {
+    url.pathname = `${path}/models`
+  } else {
+    url.pathname = `${path}/v1/models`.replace(/\/{2,}/g, '/')
   }
   return url.toString()
 }
@@ -189,7 +207,7 @@ export async function readSafeErrorStatus(response: Response): Promise<string> {
   return messages[response.status] ?? copy('error.httpOther', { status: response.status })
 }
 
-async function readResponseTextBounded(
+export async function readResponseTextBounded(
   response: Response,
   maximumBytes: number,
   truncate = false

@@ -80,8 +80,7 @@ export const insightExportScopeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('insight'), insightId: idSchema })
 ])
 
-export const providerSettingsSchema = z.object({
-  baseUrl: z
+const providerBaseUrlSchema = z
     .string()
     .trim()
     .min(1)
@@ -100,8 +99,34 @@ export const providerSettingsSchema = z.object({
       } catch {
         return false
       }
-    }, '接口地址必须是 HTTP(S) 地址'),
+    }, '接口地址必须是 HTTP(S) 地址')
+
+export const providerProfileIdSchema = z.string().trim().min(1).max(128).regex(/^[\w-]+$/u)
+
+const providerProfileFields = {
+  name: z.string().trim().min(1).max(60),
+  baseUrl: providerBaseUrlSchema,
   model: shortText(256),
+  apiKey: z.string().trim().min(1).max(10_000).optional()
+}
+
+export const createProviderProfileSchema = z.object(providerProfileFields)
+
+export const updateProviderProfileSchema = z.object({
+  id: providerProfileIdSchema,
+  ...providerProfileFields
+})
+
+export const providerConfigurationSchema = z.object({
+  profileId: providerProfileIdSchema.optional(),
+  baseUrl: providerBaseUrlSchema,
+  model: shortText(256),
+  apiKey: z.string().trim().min(1).max(10_000).optional()
+})
+
+export const providerModelListSchema = z.object({
+  profileId: providerProfileIdSchema.optional(),
+  baseUrl: providerBaseUrlSchema,
   apiKey: z.string().trim().min(1).max(10_000).optional()
 })
 

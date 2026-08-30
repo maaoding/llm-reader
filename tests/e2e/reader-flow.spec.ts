@@ -6,7 +6,7 @@ import {
   type Page
 } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import JSZip from 'jszip'
 import {
@@ -123,6 +123,13 @@ async function createEpubFixture(path: string): Promise<void> {
 
 test.beforeAll(async () => {
   mockServer = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({
+        data: [{ id: 'z-reader' }, { id: 'configured-alias' }, { id: 'configured-alias' }]
+      }))
+      return
+    }
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
       response.writeHead(404).end()
       return
@@ -218,10 +225,10 @@ test('keeps escaped keyboard focus inside settings and assistant dialogs', async
       .toBe(true)
     await expect
       .poll(() => settingsDialog.evaluate((dialog) => {
-        const focusable = dialog.querySelectorAll<HTMLElement>(
+        const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-        return document.activeElement === focusable.item(focusable.length - 1)
+        )).filter((element) => !element.closest('[hidden]') && element.getClientRects().length > 0)
+        return document.activeElement === focusable[focusable.length - 1]
       }))
       .toBe(true)
 
@@ -419,13 +426,16 @@ test('keeps the home quiet and applies unified appearance, reading and provider 
     }
 
     await page.getByTestId('settings-nav-model').click()
+    await page.getByTestId('provider-profile-name').fill('阅读设置测试')
     await page.getByTestId('provider-base-url').fill(endpoint)
     await page.getByTestId('provider-model').fill('configured-alias')
     await page.getByTestId('provider-api-key').fill('test-only-key')
     await page.getByTestId('provider-test').click()
     await expect(page.getByTestId('provider-status')).toContainText('连接成功。')
-    await expect(providerStatus).toHaveAttribute('aria-label', 'API 连接正常')
+    await expect(providerStatus).toHaveAttribute('aria-label', 'API 未配置')
     await page.getByTestId('provider-save').click()
+    await page.getByTestId('provider-activate').click()
+    await page.getByTestId('settings-close').click()
     await expect(settings).toHaveCount(0)
     await expect(settingsButton).toBeFocused()
     await expect(providerStatus).toHaveAttribute('aria-label', '正在检测 API 连接')
@@ -539,12 +549,15 @@ test('persists reading, conversation and insight deletion after restart', async 
     await page.getByTestId('reading-content-width').selectOption('narrow')
     await page.getByTestId('reading-paragraph-spacing').selectOption('compact')
     await page.getByTestId('settings-nav-model').click()
+    await page.getByTestId('provider-profile-name').fill('重启恢复测试')
     await page.getByTestId('provider-base-url').fill(endpoint)
     await page.getByTestId('provider-model').fill('configured-alias')
     await page.getByTestId('provider-api-key').fill('test-only-key')
     await page.getByTestId('provider-test').click()
     await expect(page.getByTestId('provider-status')).toContainText('连接成功。')
     await page.getByTestId('provider-save').click()
+    await page.getByTestId('provider-activate').click()
+    await page.getByTestId('settings-close').click()
     await expect(settings).toHaveCount(0)
 
     const txtDocument = page.locator('.reader-document--txt')
@@ -754,21 +767,19 @@ test('keeps provider status consistent across overlapping checks and saves', asy
 
     await restoredSettingsButton.click()
     await restoredPage.getByTestId('settings-nav-model').click()
+    await restoredPage.getByTestId('provider-profile-name').fill('状态测试')
     await restoredPage.getByTestId('provider-base-url').fill(endpoint)
     await restoredPage.getByTestId('provider-model').fill('configured-alias')
     await restoredPage.getByTestId('provider-api-key').fill('test-only-key')
     await restoredPage.getByTestId('provider-save').click()
+    await restoredPage.getByTestId('provider-activate').click()
     await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 连接正常')
 
-    await restoredSettingsButton.click()
-
-    await restoredPage.getByTestId('settings-nav-model').click()
     await restoredPage.getByTestId('provider-model').fill('slow-ok')
     await restoredPage.getByTestId('provider-test').click()
-    await expect(restoredProviderStatus).toHaveAttribute('aria-label', '正在检测 API 连接')
-    await restoredPage.getByTestId('settings-close').click()
-    await restoredSettingsButton.click()
-    await restoredPage.getByTestId('settings-nav-model').click()
+    await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 连接正常')
+    await expect(restoredPage.getByTestId('provider-status')).toContainText('连接成功。')
+
     await restoredPage.getByTestId('provider-model').fill('failing-reader')
     await restoredPage.getByTestId('provider-save').click()
     await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 未连接')
@@ -776,24 +787,106 @@ test('keeps provider status consistent across overlapping checks and saves', asy
     await expect(restoredPage.getByText('模型连接正常')).toHaveCount(0)
     await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 未连接')
 
-    await restoredSettingsButton.click()
-    await restoredPage.getByTestId('settings-nav-model').click()
     await restoredPage.getByTestId('provider-model').fill('slow-fail')
     await restoredPage.getByTestId('provider-save').click()
-    await restoredSettingsButton.click()
-    await restoredPage.getByTestId('settings-nav-model').click()
     await restoredPage.getByTestId('provider-model').fill('configured-alias')
     await restoredPage.getByTestId('provider-save').click()
     await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 连接正常')
     await restoredPage.waitForTimeout(600)
     await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 连接正常')
 
-    await restoredSettingsButton.click()
-    await restoredPage.getByTestId('settings-nav-model').click()
     await restoredPage.getByTestId('provider-model').fill('failing-reader')
     await restoredPage.getByTestId('provider-save').click()
     await expect(restoredProviderStatus).toHaveAttribute('aria-label', 'API 未连接')
     await expect(restoredProviderStatus).not.toHaveClass(/is-connected/u)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('manages multiple provider profiles and discovers models without persisting the candidate list', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-provider-profiles-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    let launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    let page = launched.page
+    const providerStatus = page.getByTestId('provider-connection-status')
+
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-model').click()
+    await page.getByTestId('provider-profile-name').fill('日常配置')
+    await page.getByTestId('provider-base-url').fill(endpoint)
+    await page.getByTestId('provider-api-key').fill('daily-key')
+    await page.getByTestId('provider-models-fetch').click()
+    await expect(page.getByTestId('provider-models-status')).toContainText('已获取 2 个模型')
+    await expect(page.locator('#provider-model-options option')).toHaveCount(2)
+    const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+    if (visualDirectory) {
+      await mkdir(visualDirectory, { recursive: true })
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1536, 864))
+      await page.screenshot({ path: join(visualDirectory, 'provider-profiles-light-1536x864.png') })
+      await application.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        window.setMinimumSize(300, 400)
+        window.setContentSize(390, 800)
+      })
+      await page.screenshot({ path: join(visualDirectory, 'provider-profiles-light-390x800.png') })
+      await page.getByTestId('settings-nav-appearance').click()
+      await page.getByTestId('theme-dark').click()
+      await page.getByTestId('settings-nav-model').click()
+      await page.screenshot({ path: join(visualDirectory, 'provider-profiles-dark-390x800.png') })
+      await application.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        window.setContentSize(1536, 864)
+        window.setMinimumSize(940, 600)
+      })
+    }
+    await page.getByTestId('provider-model').fill('configured-alias')
+    await page.getByTestId('provider-save').click()
+    await page.getByTestId('provider-activate').click()
+    await expect(providerStatus).toHaveAttribute('aria-label', 'API 连接正常')
+    const firstId = await page.getByTestId('provider-profile').inputValue()
+
+    await page.getByTestId('provider-new').click()
+    await page.getByTestId('provider-profile-name').fill('研究配置')
+    await page.getByTestId('provider-base-url').fill(endpoint)
+    await page.getByTestId('provider-model').fill('z-reader')
+    await page.getByTestId('provider-api-key').fill('research-key')
+    await page.getByTestId('provider-save').click()
+    await expect(page.getByTestId('provider-profile')).not.toHaveValue('')
+    const secondId = await page.getByTestId('provider-profile').inputValue()
+    expect(secondId).not.toBe(firstId)
+    await expect(providerStatus).toHaveAttribute('aria-label', 'API 连接正常')
+
+    await page.getByTestId('provider-model').fill('unsaved-model')
+    page.once('dialog', (dialog) => dialog.dismiss())
+    await page.getByTestId('provider-profile').selectOption(firstId)
+    await expect(page.getByTestId('provider-profile')).toHaveValue(secondId)
+    page.once('dialog', (dialog) => dialog.accept())
+    await page.getByTestId('provider-profile').selectOption(firstId)
+    await expect(page.getByTestId('provider-profile')).toHaveValue(firstId)
+    await page.getByTestId('provider-profile').selectOption(secondId)
+    await page.getByTestId('provider-activate').click()
+    await expect(providerStatus).toHaveAttribute('aria-label', 'API 连接正常')
+    await page.getByTestId('settings-close').click()
+
+    launched = await restartReader(application, { userData: workspace.userData })
+    application = launched.application
+    page = launched.page
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-model').click()
+    await expect(page.getByTestId('provider-profile').locator('option')).toHaveCount(2)
+    await expect(page.getByTestId('provider-profile')).toHaveValue(secondId)
+    await expect(page.locator('#provider-model-options option')).toHaveCount(0)
+
+    page.once('dialog', (dialog) => dialog.accept())
+    await page.getByTestId('provider-delete').click()
+    await expect(page.getByTestId('provider-connection-status')).toHaveAttribute('aria-label', 'API 未配置')
+    await expect(page.getByTestId('provider-profile')).toHaveValue(firstId)
+    await page.getByTestId('provider-activate').click()
+    await expect(page.getByTestId('provider-connection-status')).toHaveAttribute('aria-label', 'API 连接正常')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

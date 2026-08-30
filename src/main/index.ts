@@ -7,7 +7,7 @@ import { registerIpcHandlers, unregisterIpcHandlers } from './ipc'
 import { LibraryService } from './library-service'
 import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
-import { FileSecretStore } from './secret-store'
+import { ProfileSecretStore } from './secret-store'
 import { createMainWindow, loadMainWindow } from './window'
 
 registerAppScheme()
@@ -47,7 +47,7 @@ async function initialize(): Promise<void> {
   provider = new ProviderService(
     database,
     new ElectronKeyProtector(),
-    new FileSecretStore(join(userData, 'api-key.bin'))
+    new ProfileSecretStore(join(userData, 'provider-keys'), join(userData, 'api-key.bin'))
   )
   llm = new LlmService(provider)
 

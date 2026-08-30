@@ -2,11 +2,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   unlinkSync,
   writeFileSync
 } from 'node:fs'
-import { dirname, isAbsolute } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { copy } from '@shared/copy'
 import { AppError } from './errors'
 
@@ -61,6 +62,114 @@ export class FileSecretStore implements SecretStore {
     } catch (error) {
       if (existsSync(temporaryPath)) unlinkSync(temporaryPath)
       throw new AppError('KEY_WRITE_FAILED', copy('error.keyWriteFailed'), false, { cause: error })
+    }
+  }
+}
+
+const PROFILE_ID_PATTERN = /^[\w-]{1,128}$/u
+const PENDING_SUFFIX = '.pending-delete'
+
+export class ProfileSecretStore {
+  constructor(
+    private readonly directory: string,
+    private readonly legacyPath: string
+  ) {
+    if (!isAbsolute(directory) || !isAbsolute(legacyPath)) {
+      throw new Error('Profile secret paths must be absolute')
+    }
+  }
+
+  private profilePath(profileId: string): string {
+    if (!PROFILE_ID_PATTERN.test(profileId)) throw new Error('Invalid provider profile id')
+    return join(this.directory, `${profileId}.bin`)
+  }
+
+  private pendingPath(profileId: string): string {
+    return `${this.profilePath(profileId)}${PENDING_SUFFIX}`
+  }
+
+  private store(profileId: string): FileSecretStore {
+    return new FileSecretStore(this.profilePath(profileId))
+  }
+
+  reconcile(validProfileIds: ReadonlySet<string>): void {
+    mkdirSync(this.directory, { recursive: true })
+    for (const entry of readdirSync(this.directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(PENDING_SUFFIX)) continue
+      const profileId = entry.name.slice(0, -`${'.bin'}${PENDING_SUFFIX}`.length)
+      if (!PROFILE_ID_PATTERN.test(profileId)) continue
+      const pendingPath = this.pendingPath(profileId)
+      const profilePath = this.profilePath(profileId)
+      if (validProfileIds.has(profileId) && !existsSync(profilePath)) {
+        renameSync(pendingPath, profilePath)
+      } else {
+        unlinkSync(pendingPath)
+      }
+    }
+    if (validProfileIds.has('legacy')) this.migrateLegacy('legacy')
+  }
+
+  private migrateLegacy(profileId: string): void {
+    if (profileId !== 'legacy' || !existsSync(this.legacyPath)) return
+    const target = this.store(profileId)
+    if (!target.has()) {
+      const ciphertext = new FileSecretStore(this.legacyPath).read()
+      if (!ciphertext) return
+      target.write(ciphertext)
+      const verified = target.read()
+      if (!verified || !Buffer.from(verified).equals(Buffer.from(ciphertext))) {
+        throw new AppError('KEY_WRITE_FAILED', copy('error.keyWriteFailed'))
+      }
+    }
+    unlinkSync(this.legacyPath)
+  }
+
+  has(profileId: string): boolean {
+    return this.store(profileId).has() || (profileId === 'legacy' && existsSync(this.legacyPath))
+  }
+
+  read(profileId: string): Uint8Array | null {
+    const target = this.store(profileId)
+    if (target.has()) return target.read()
+    if (profileId === 'legacy' && existsSync(this.legacyPath)) {
+      return new FileSecretStore(this.legacyPath).read()
+    }
+    return null
+  }
+
+  write(profileId: string, ciphertext: Uint8Array): void {
+    this.store(profileId).write(ciphertext)
+    if (profileId === 'legacy' && existsSync(this.legacyPath)) unlinkSync(this.legacyPath)
+  }
+
+  prepareDelete(profileId: string): boolean {
+    const targetPath = this.profilePath(profileId)
+    const sourcePath = existsSync(targetPath)
+      ? targetPath
+      : profileId === 'legacy' && existsSync(this.legacyPath)
+        ? this.legacyPath
+        : null
+    if (!sourcePath) return false
+    const pendingPath = this.pendingPath(profileId)
+    if (existsSync(pendingPath)) unlinkSync(pendingPath)
+    mkdirSync(this.directory, { recursive: true })
+    renameSync(sourcePath, pendingPath)
+    return true
+  }
+
+  commitDelete(profileId: string): void {
+    const pendingPath = this.pendingPath(profileId)
+    if (existsSync(pendingPath)) unlinkSync(pendingPath)
+  }
+
+  rollbackDelete(profileId: string): void {
+    const pendingPath = this.pendingPath(profileId)
+    if (!existsSync(pendingPath)) return
+    const targetPath = this.profilePath(profileId)
+    if (existsSync(targetPath)) {
+      unlinkSync(pendingPath)
+    } else {
+      renameSync(pendingPath, targetPath)
     }
   }
 }

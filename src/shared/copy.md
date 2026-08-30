@@ -207,11 +207,26 @@
 | settings.followBookDefault | 跟随原书 / 默认 |
 | settings.noIndent | 无缩进 |
 | settings.modelTitle | 模型 |
+| settings.profileLabel | 配置 |
+| settings.profileNameLabel | 配置名称 |
+| settings.profileNamePlaceholder | 例如 OpenRouter 日常 |
+| settings.newProfile | 新建配置 |
+| settings.deleteProfile | 删除配置 |
+| settings.activeProfile | 当前使用 |
+| settings.setActive | 设为当前 |
+| settings.profileLimit | 最多保存 10 套配置。 |
+| settings.noProfiles | 暂无模型配置，请新建一套配置。 |
+| settings.discardChanges | 当前修改尚未保存，确定放弃吗？ |
+| settings.deleteProfileQuestion | 确定删除配置“{name}”及其密钥吗？ |
 | settings.baseUrlLabel | 接口地址 |
 | settings.baseUrlPlaceholder | https://api.openai.com |
 | settings.baseUrlHint | 应用会请求此地址下的 {path}。 |
 | settings.modelLabel | 模型名称 |
 | settings.modelPlaceholder | 例如 gpt-5-mini |
+| settings.fetchModels | 获取模型 |
+| settings.fetchingModels | 正在获取模型 |
+| settings.modelsFetched | 已获取 {count} 个模型，可输入筛选或直接填写。 |
+| settings.modelsTruncated | 模型较多，仅显示前 {count} 个。 |
 | settings.apiKeyLabel | API 密钥 |
 | settings.apiKeySaved | 已安全保存 |
 | settings.apiKeyPlaceholderSaved | 留空以继续使用已保存的密钥 |
@@ -220,6 +235,8 @@
 | settings.testConnection | 测试连接 |
 | settings.save | 保存设置 |
 | settings.savedToast | 模型设置已安全保存 |
+| settings.profileActivatedToast | 已切换当前模型配置 |
+| settings.profileDeletedToast | 已删除配置“{name}” |
 | settings.saveFailed | 保存失败，请检查输入。 |
 | settings.testSuccessToast | 模型连接正常 |
 | settings.testFailed | 连接失败，请检查地址、模型与密钥。 |
@@ -460,3 +477,9 @@
 | error.keyCipherInvalid | API 密钥密文文件无效，请重新保存。 |
 | error.keyCipherSize | API 密钥密文大小无效。 |
 | error.keyWriteFailed | 无法保存加密的 API 密钥。 |
+| error.providerProfileNameExists | 配置名称已存在。 |
+| error.providerProfileLimit | 最多只能保存 10 套模型配置。 |
+| error.providerProfileNotFound | 找不到这套模型配置。 |
+| error.providerProfileKeyRequired | 请先输入或保存这套配置的 API 密钥。 |
+| error.providerModelsInvalid | 模型服务返回了无效的模型列表。 |
+| error.providerModelsEmpty | 模型服务没有返回可用的模型 ID。 |

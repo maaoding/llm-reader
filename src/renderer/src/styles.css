@@ -2961,7 +2961,8 @@ button.citation-valid:hover {
   font-weight: 700;
 }
 
-.settings-modal input {
+.settings-modal input,
+.settings-modal select {
   display: block;
   width: 100%;
   height: 39px;
@@ -2973,7 +2974,12 @@ button.citation-valid:hover {
   font-size: calc(10px * var(--interface-scale));
 }
 
-.settings-modal input:focus {
+.settings-modal select {
+  appearance: auto;
+}
+
+.settings-modal input:focus,
+.settings-modal select:focus {
   border-color: var(--accent);
   outline: 0;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
@@ -3282,6 +3288,71 @@ button.citation-valid:hover {
   font-size: calc(8px * var(--interface-scale));
 }
 
+.provider-profile-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.provider-profile-select {
+  min-width: 0;
+  flex: 1;
+}
+
+.provider-profile-select .field-label {
+  margin-top: 0;
+}
+
+.provider-profile-actions,
+.provider-model-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-profile-actions {
+  flex: 0 0 auto;
+}
+
+.provider-profile-actions .compact-button {
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.provider-profile-actions .danger-text {
+  min-height: 30px;
+  padding: 0 6px;
+  color: var(--danger);
+}
+
+.provider-model-heading {
+  justify-content: space-between;
+  margin-top: 13px;
+}
+
+.provider-model-heading .field-label {
+  margin: 0;
+}
+
+.provider-model-heading .text-button {
+  min-height: 28px;
+  padding: 0 5px;
+  color: var(--accent);
+}
+
+.field-hint.is-success-text {
+  color: var(--accent);
+}
+
+.field-hint.is-error-text {
+  color: var(--danger);
+}
+
 .provider-status {
   display: flex;
   align-items: flex-start;
@@ -3316,6 +3387,61 @@ button.citation-valid:hover {
   margin-top: 20px;
   padding-top: 15px;
   border-top: 1px solid var(--line);
+}
+
+.provider-modal-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 520px) {
+  .settings-modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+  }
+
+  .settings-modal .modal-header {
+    padding: 13px 15px 12px;
+  }
+
+  .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    padding: 7px 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .settings-nav button {
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
+  }
+
+  .settings-panel {
+    padding: 14px 15px 16px;
+  }
+
+  .provider-profile-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .provider-profile-actions,
+  .provider-modal-actions {
+    width: 100%;
+  }
+
+  .provider-profile-actions > button,
+  .provider-modal-actions > button {
+    min-width: 0;
+    flex: 1;
+  }
 }
 
 .primary-button,

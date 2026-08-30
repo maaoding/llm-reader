@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { LlmEvent, LlmRequest } from '../../src/shared/contracts'
-import { buildChatCompletionsUrl, LlmService, selectContextPassages } from '../../src/main/llm-service'
+import { buildChatCompletionsUrl, buildModelsUrl, LlmService, selectContextPassages } from '../../src/main/llm-service'
 
 const credentials = {
   getCredentials: () => ({ baseUrl: 'https://models.example.test', model: 'reader-model', apiKey: 'secret' })
@@ -151,5 +151,10 @@ describe('LLM request bounds', () => {
       'http://localhost:11434/v1/chat/completions'
     )
     expect(() => buildChatCompletionsUrl('http://api.example.test')).toThrow()
+    expect(buildModelsUrl('https://api.example.test')).toBe('https://api.example.test/v1/models')
+    expect(buildModelsUrl('https://api.example.test/v1')).toBe('https://api.example.test/v1/models')
+    expect(buildModelsUrl('https://api.example.test/v1/chat/completions?ignored=1')).toBe(
+      'https://api.example.test/v1/models'
+    )
   })
 })
