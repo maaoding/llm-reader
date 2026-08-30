@@ -53,6 +53,7 @@ test('deletes an unopened book from its details modal and keeps it gone after re
     await expect(modal).toHaveCount(0)
     await expect(bookItem).toHaveCount(0)
     await expect(page.locator('.toast')).toContainText('已删除')
+    await expect(page.locator('.toast')).toHaveCSS('pointer-events', 'none')
     await expectStoredTxtRemoved(workspace.userData)
 
     await application.close()

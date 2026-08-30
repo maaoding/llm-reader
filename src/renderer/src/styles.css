@@ -3523,6 +3523,7 @@ button.citation-valid:hover {
   border-radius: 4px;
   box-shadow: var(--shadow-md);
   font-size: calc(9px * var(--interface-scale));
+  pointer-events: none;
   animation: toast-in 180ms ease-out;
 }
 
