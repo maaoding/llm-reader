@@ -258,7 +258,7 @@
 | library.loading | 正在读取书库 |
 | library.unavailableTitle | 书库暂不可用 |
 | library.emptyTitle | 书库为空 |
-| library.emptyDetail | 可导入 EPUB、TXT、MOBI 或 AZW3。 |
+| library.emptyDetail | 可导入 EPUB、TXT、PDF、MOBI 或 AZW3。 |
 | library.epubDescription | EPUB 电子书 |
 | library.txtDescription | TXT 文档 |
 | library.pdfDescription | PDF 文档 |
