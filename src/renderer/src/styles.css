@@ -3311,12 +3311,7 @@ button.citation-valid:hover {
 .provider-profile-toolbar {
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  gap: 8px;
 }
 
 .provider-profile-select {
@@ -3332,7 +3327,7 @@ button.citation-valid:hover {
 .provider-model-heading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .provider-profile-actions {
@@ -3340,14 +3335,26 @@ button.citation-valid:hover {
 }
 
 .provider-profile-actions .compact-button {
-  min-height: 30px;
-  padding: 0 8px;
+  min-height: 39px;
+  padding: 0 12px;
 }
 
 .provider-profile-actions .danger-text {
-  min-height: 30px;
-  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 39px;
+  padding: 0 12px;
   color: var(--danger);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
+  border-radius: 4px;
+}
+
+.provider-profile-actions .danger-text:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--line));
 }
 
 .provider-model-heading {
