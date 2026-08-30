@@ -19,6 +19,24 @@ function formatDate(iso: string): string {
   }
 }
 
+function highlightParts(value: string, needle: string, keyPrefix: string): ReactNode[] {
+  if (!needle) return [value]
+  const lower = value.toLocaleLowerCase('zh-CN')
+  const parts: ReactNode[] = []
+  let cursor = 0
+  let index = lower.indexOf(needle)
+  let key = 0
+  while (index !== -1) {
+    if (index > cursor) parts.push(value.slice(cursor, index))
+    parts.push(<mark key={`${keyPrefix}-${key}`}>{value.slice(index, index + needle.length)}</mark>)
+    key += 1
+    cursor = index + needle.length
+    index = lower.indexOf(needle, cursor)
+  }
+  if (cursor < value.length) parts.push(value.slice(cursor))
+  return parts
+}
+
 function EmptyState({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }): ReactNode {
   return (
     <div className="empty-state">
@@ -144,31 +162,36 @@ export default function InsightsView({
 
       {!loading && visibleRecords.length > 0 && (
         <div className="insight-list">
-          {visibleRecords.map((insight) => (
-            <article
-              className="insight-item"
-              data-testid="insight-item"
-              data-insight-id={insight.id}
-              data-book-id={insight.book.id}
-              key={insight.id}
-            >
-              <div
-                className="insight-content"
-                role="button"
-                tabIndex={0}
-                onClick={() => onOpenInsight(insight)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    onOpenInsight(insight)
-                  }
-                }}
+          {visibleRecords.map((insight) => {
+            const needle = query.trim().toLocaleLowerCase('zh-CN')
+            return (
+              <article
+                className="insight-item"
+                data-testid="insight-item"
+                data-insight-id={insight.id}
+                data-book-id={insight.book.id}
+                key={insight.id}
               >
-                <span className="insight-book">{insight.book.title}{insight.book.author ? ` · ${insight.book.author}` : ''}</span>
-                <span className="insight-quote">“{insight.selection.quote}”</span>
-                <strong className="insight-question">{insight.question}</strong>
-                <AnswerText text={insight.answer} selection={insight.selection} readOnly />
-              </div>
+                <div
+                  className="insight-content"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpenInsight(insight)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onOpenInsight(insight)
+                    }
+                  }}
+                >
+                  <span className="insight-book">
+                    {highlightParts(insight.book.title, needle, 'book-title')}
+                    {insight.book.author ? <> · {highlightParts(insight.book.author, needle, 'book-author')}</> : null}
+                  </span>
+                  <span className="insight-quote">“{highlightParts(insight.selection.quote, needle, 'quote')}”</span>
+                  <strong className="insight-question">{highlightParts(insight.question, needle, 'question')}</strong>
+                  <AnswerText text={insight.answer} selection={insight.selection} readOnly />
+                </div>
               <footer>
                 <span>{insight.selection.chapterTitle || copy('common.currentChapter')} · {formatDate(insight.createdAt)}</span>
                 {pendingDeleteInsightId === insight.id ? (
@@ -193,8 +216,9 @@ export default function InsightsView({
                   </span>
                 )}
               </footer>
-            </article>
-          ))}
+              </article>
+            )
+          })}
         </div>
       )}
     </div>

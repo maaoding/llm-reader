@@ -189,6 +189,10 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     await search.fill('这是第二本书的归档回答。')
     await expect(page.getByTestId('insight-item')).toHaveCount(1)
     await expect(page.getByTestId('insight-item')).toContainText('这是第二本书的归档回答。')
+    await search.fill('第二本书开篇')
+    const quoteMatch = page.getByTestId('insight-item').filter({ hasText: '这是第二本书的归档回答。' })
+    await expect(quoteMatch).toHaveCount(1)
+    await expect(quoteMatch.locator('.insight-quote mark')).toHaveText(['第二本书开篇'])
     await search.fill('')
     await expect(page.getByTestId('insight-item')).toHaveCount(2)
 

@@ -2444,6 +2444,12 @@ button.citation-valid:hover {
   font-size: var(--assistant-aux-size);
 }
 
+.insight-item mark {
+  color: var(--ink);
+  background: var(--accent-soft);
+  font-weight: 650;
+}
+
 .insight-item footer > span:first-child {
   min-width: 0;
   overflow: hidden;
