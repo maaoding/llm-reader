@@ -3,6 +3,7 @@ import { app, BrowserWindow, Menu } from 'electron'
 import electronUpdater from 'electron-updater'
 import { IPC_CHANNELS } from '@shared/contracts'
 import { registerAppScheme, installAppProtocol } from './app-protocol'
+import { BookImportCoordinator } from './book-import-coordinator'
 import { AppDatabase } from './database'
 import { ElectronKeyProtector } from './electron-key-protector'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc'
@@ -28,14 +29,29 @@ let llm: LlmService | undefined
 let library: LibraryService | undefined
 let provider: ProviderService | undefined
 let updater: UpdaterService | undefined
+let bookImporter: BookImportCoordinator | undefined
 
 const { autoUpdater } = electronUpdater
+
+function createE2eImportDelay(): (() => Promise<void>) | undefined {
+  if (app.isPackaged) return undefined
+  const milliseconds = Number(process.env.LLM_READER_E2E_IMPORT_DELAY_MS)
+  if (!Number.isInteger(milliseconds) || milliseconds < 1 || milliseconds > 1_000) return undefined
+  return () => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
+}
 
 async function openWindow(): Promise<void> {
   if (!library || !provider || !llm) throw new Error('Application services are not initialized')
   updater?.dispose()
   updater = undefined
+  bookImporter?.dispose()
+  bookImporter = undefined
   const created = createMainWindow()
+  bookImporter = new BookImportCoordinator(library, (event) => {
+    if (!created.window.isDestroyed() && !created.window.webContents.isDestroyed()) {
+      created.window.webContents.send(IPC_CHANNELS.booksImportEvent, event)
+    }
+  }, createE2eImportDelay())
   updater = new UpdaterService(
     (phase) => {
       if (!created.window.isDestroyed() && !created.window.webContents.isDestroyed()) {
@@ -48,6 +64,7 @@ async function openWindow(): Promise<void> {
   registerIpcHandlers({
     window: created.window,
     library,
+    bookImporter,
     provider,
     llm,
     updater,
@@ -96,6 +113,8 @@ app.on('will-quit', () => {
   unregisterIpcHandlers()
   updater?.dispose()
   updater = undefined
+  bookImporter?.dispose()
+  bookImporter = undefined
   llm?.cancelAll()
   database?.close()
   database = undefined

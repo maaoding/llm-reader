@@ -163,7 +163,8 @@ button:disabled {
 .right-sidebar,
 .modal-backdrop,
 .selection-toolbar,
-.toast {
+.toast,
+.book-drop-overlay {
   --bg: var(--ui-bg);
   --panel: var(--ui-panel);
   --panel-solid: var(--ui-surface);
@@ -2505,6 +2506,59 @@ button.citation-valid:hover {
 
 /* ===================== 弹层 / 设置 / 关于 ===================== */
 
+.book-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: grid;
+  padding: 28px;
+  place-items: center;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  pointer-events: none;
+  animation: fade-in 120ms ease-out;
+}
+
+.book-drop-overlay > div {
+  display: grid;
+  width: min(520px, calc(100vw - 56px));
+  min-height: 220px;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 28px;
+  text-align: center;
+  background: var(--panel-solid);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.book-drop-overlay.is-busy > div {
+  border-color: var(--line-strong);
+}
+
+.book-drop-overlay svg {
+  color: var(--accent);
+}
+
+.book-drop-overlay.is-busy svg {
+  color: var(--muted);
+}
+
+.book-drop-overlay strong {
+  font-family: ui-serif, "Noto Serif SC", serif;
+  font-size: calc(20px * var(--interface-scale));
+  font-weight: 650;
+}
+
+.book-drop-overlay p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(10px * var(--interface-scale));
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -2515,6 +2569,162 @@ button.citation-valid:hover {
   background: rgb(27 37 43 / 46%);
   backdrop-filter: blur(3px);
   animation: fade-in 120ms ease-out;
+}
+
+.book-import-modal {
+  display: flex;
+  width: min(calc(560px * var(--interface-scale)), calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  animation: modal-in 160ms ease-out;
+}
+
+.book-import-modal .modal-header {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.book-import-modal .modal-header h2 {
+  margin: 0;
+}
+
+.book-import-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  overflow: auto;
+}
+
+.book-import-current,
+.book-import-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+  color: var(--ink-soft);
+  background: var(--accent-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.book-import-current > svg,
+.book-import-summary > svg {
+  margin-top: 1px;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.book-import-current > div,
+.book-import-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.book-import-current strong,
+.book-import-summary strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: calc(11px * var(--interface-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-import-current span,
+.book-import-summary span,
+.book-import-counts {
+  color: var(--muted);
+  font-size: calc(9px * var(--interface-scale));
+}
+
+.book-import-progress {
+  height: 8px;
+  overflow: hidden;
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+
+.book-import-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 160ms ease-out;
+}
+
+.book-import-counts {
+  margin: -6px 0 0;
+}
+
+.book-import-failures {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.book-import-failures h3 {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: calc(10px * var(--interface-scale));
+}
+
+.book-import-failures ul {
+  display: grid;
+  max-height: min(270px, 42vh);
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  list-style: none;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.book-import-failures li {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.book-import-failures li:last-child {
+  border-bottom: 0;
+}
+
+.book-import-failures strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: calc(10px * var(--interface-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-import-failures span {
+  color: var(--danger);
+  font-size: calc(9px * var(--interface-scale));
+}
+
+.book-import-actions {
+  display: flex;
+  min-height: calc(54px * var(--interface-scale));
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 9px 18px;
+  border-top: 1px solid var(--line);
 }
 
 .pdf-selection-review-modal {
@@ -3528,7 +3738,8 @@ button.citation-valid:hover {
 
 .left-sidebar :is(.primary-button, .secondary-button, .text-button),
 .right-sidebar :is(.primary-button, .secondary-button, .text-button),
-.settings-modal :is(.primary-button, .secondary-button, .text-button) {
+.settings-modal :is(.primary-button, .secondary-button, .text-button),
+.book-import-modal :is(.primary-button, .secondary-button, .text-button) {
   border-radius: 4px;
 }
 

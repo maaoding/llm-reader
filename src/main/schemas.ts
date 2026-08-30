@@ -4,6 +4,7 @@ const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
 
 export const bookIdSchema = idSchema
+export const bookImportPathsSchema = z.array(z.string().min(1).max(32_768)).min(1).max(300)
 export const insightIdSchema = idSchema
 export const highlightIdSchema = idSchema
 export const metadataSchema = z.object({

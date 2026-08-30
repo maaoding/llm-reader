@@ -14,6 +14,9 @@ export const IPC_CHANNELS = {
   windowMaximizedChange: 'window:maximized-change',
   booksList: 'books:list',
   booksImport: 'books:import',
+  booksImportDropped: 'books:import-dropped',
+  booksImportCancel: 'books:import-cancel',
+  booksImportEvent: 'books:import-event',
   booksDelete: 'books:delete',
   booksRead: 'books:read',
   booksUpdateMetadata: 'books:update-metadata',
@@ -77,6 +80,37 @@ export interface ImportedBookResult {
   book: BookRecord
   duplicate: boolean
 }
+
+export type BookImportItemResult =
+  | { status: 'imported'; fileName: string; book: BookRecord }
+  | { status: 'duplicate'; fileName: string; book: BookRecord }
+  | { status: 'failed'; fileName: string; code: string; message: string }
+
+export interface BookImportBatchResult {
+  total: number
+  processed: number
+  imported: number
+  duplicates: number
+  failed: number
+  skipped: number
+  canceled: boolean
+  items: BookImportItemResult[]
+}
+
+export type BookImportEvent =
+  | { type: 'started'; total: number }
+  | { type: 'itemStarted'; total: number; processed: number; fileName: string }
+  | {
+      type: 'progress'
+      total: number
+      processed: number
+      fileName: string
+      imported: number
+      duplicates: number
+      failed: number
+    }
+  | { type: 'cancelRequested'; total: number; processed: number }
+  | { type: 'completed'; result: BookImportBatchResult }
 
 export interface BookPayload {
   book: BookRecord
@@ -279,7 +313,10 @@ export interface ReaderApi {
   installAppUpdate(): Promise<void>
   onAppUpdateEvent(listener: (phase: AppUpdatePhase) => void): () => void
   listBooks(): Promise<BookRecord[]>
-  importBook(): Promise<ImportedBookResult | null>
+  importBooks(): Promise<BookImportBatchResult | null>
+  importDroppedBooks(files: File[]): Promise<BookImportBatchResult>
+  cancelBookImport(): Promise<void>
+  onBookImportEvent(listener: (event: BookImportEvent) => void): () => void
   deleteBook(bookId: string): Promise<boolean>
   readBook(bookId: string): Promise<BookPayload>
   getBookCover(bookId: string): Promise<BookCoverPayload | null>

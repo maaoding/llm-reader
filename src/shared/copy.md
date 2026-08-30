@@ -286,6 +286,23 @@
 | library.tocCollapseAria | 折叠{title} |
 | library.import | 导入书籍 |
 | library.importing | 正在导入… |
+| library.importProgressTitle | 导入书籍 |
+| library.importProgressAria | 书籍导入进度 |
+| library.importCurrent | 正在处理：{fileName} |
+| library.importProgress | {processed} / {total} |
+| library.importCancel | 停止导入 |
+| library.importStopping | 正在停止，将在当前文件完成后结束… |
+| library.importSummaryTitle | 导入完成 |
+| library.importSummary | 已导入 {imported} 本 · 重复 {duplicates} 本 · 失败 {failed} 本 · 跳过 {skipped} 本 |
+| library.importFailuresTitle | 失败详情 |
+| library.importClose | 关闭 |
+| library.importCanceled | 导入已停止。 |
+| library.importBusy | 当前已有导入任务，请等待完成。 |
+| library.dropTitle | 释放以导入书籍 |
+| library.dropDetail | 支持 EPUB、TXT、PDF、MOBI 和 AZW3；单次最多 300 个文件。 |
+| library.dropBusyTitle | 正在导入书籍 |
+| library.dropBusyDetail | 请等待当前批次完成后再导入。 |
+| library.unknownFile | 未知文件 |
 | library.duplicateToast | 这本书已在书库中，已为你打开。 |
 | library.importedToast | 书籍已导入本地书库。 |
 | library.importFailed | 导入失败。请确认文件无 DRM 且格式受支持。 |
@@ -408,6 +425,8 @@
 | error.importEmpty | 不能导入空文件。 |
 | error.importTooLarge | 文件超过 250 MB 的导入上限。 |
 | error.importUnsupported | 只支持导入 .epub、.txt、.pdf、.mobi 和 .azw3 文件。 |
+| error.importBatchTooLarge | 单次最多导入 300 个文件，请分批处理。 |
+| error.importBusy | 当前已有导入任务。 |
 | error.txtTooLarge | TXT 文件超过 64 MB 的导入上限。 |
 | error.pdfInvalid | 文件不是有效的 PDF。 |
 | error.calibreNotFound | 未检测到 Calibre。请安装 Calibre，或先手动将文件转换为 EPUB。 |

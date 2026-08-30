@@ -59,6 +59,8 @@ import type {
   ArchivedChatMessage,
   BookCoverPayload,
   BookDetails,
+  BookImportBatchResult,
+  BookImportEvent,
   BookRecord,
   HighlightRecord,
   InsightArchiveRecord,
@@ -77,6 +79,7 @@ import type {
 import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
 import { AnswerText } from './AnswerText'
+import { BookCoverCache, observeBookCoverVisibility } from './book-cover-cache'
 import InsightsView from './InsightsView'
 import { readableError } from './readable-error'
 import {
@@ -113,6 +116,19 @@ type ResolvedTheme = Exclude<ThemePreference, 'system'>
 type InterfaceScale = 90 | 100 | 110 | 125
 type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'model' | 'about'
 type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
+type BookImportDialogPhase = 'running' | 'stopping' | 'completed'
+type DropOverlayState = 'ready' | 'busy' | null
+
+interface BookImportDialogState {
+  phase: BookImportDialogPhase
+  total: number
+  processed: number
+  currentFileName: string
+  imported: number
+  duplicates: number
+  failed: number
+  result?: BookImportBatchResult
+}
 
 interface ProviderConnectionState {
   status: ProviderConnectionStatus
@@ -462,7 +478,7 @@ function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject
   useEffect(() => {
     if (!open) return undefined
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : returnRef.current
-    const returnTarget = previous ?? returnRef.current
+    const returnTarget = returnRef.current ?? previous
     dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus()
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if (event.key === 'Escape') {
@@ -606,37 +622,6 @@ function findSelectionAnchorRect(host: HTMLElement | null): SelectionAnchorRect 
   return null
 }
 
-function useBookCoverUrl(book: BookRecord): string | null {
-  const [loaded, setLoaded] = useState<{ bookId: string; url: string } | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    let objectUrl: string | null = null
-    if (book.format !== 'epub' || !window.readerApi) return undefined
-
-    void window.readerApi
-      .getBookCover(book.id)
-      .then((cover) => {
-        if (!alive || !cover) return
-        try {
-          const blob = new Blob([cover.bytes as BlobPart], { type: cover.mimeType })
-          objectUrl = URL.createObjectURL(blob)
-          if (alive) setLoaded({ bookId: book.id, url: objectUrl })
-        } catch {
-          // Keep the format placeholder when the cover cannot be rendered.
-        }
-      })
-      .catch(() => undefined)
-
-    return () => {
-      alive = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [book.format, book.id])
-
-  return loaded?.bookId === book.id ? loaded.url : null
-}
-
 function useCoverPayloadUrl(cover: BookCoverPayload | null | undefined): string | null {
   const [loaded, setLoaded] = useState<{ cover: BookCoverPayload; url: string } | null>(null)
 
@@ -668,11 +653,13 @@ function useCoverPayloadUrl(cover: BookCoverPayload | null | undefined): string 
 function BookCoverView({
   url,
   book,
-  size
+  size,
+  elementRef
 }: {
   url: string | null
   book: BookRecord
   size: 'small' | 'large'
+  elementRef?: RefObject<HTMLSpanElement | null>
 }): ReactNode {
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
 
@@ -683,6 +670,7 @@ function BookCoverView({
 
   return (
     <span
+      ref={elementRef}
       className={'book-cover is-' + book.format + ' is-' + size}
       data-testid="book-cover"
       data-has-cover={showImage ? 'true' : 'false'}
@@ -698,9 +686,33 @@ function BookCoverView({
   )
 }
 
-function BookCover({ book, size = 'small' }: { book: BookRecord; size?: 'small' | 'large' }): ReactNode {
-  const url = useBookCoverUrl(book)
-  return <BookCoverView url={url} book={book} size={size} />
+export function BookCover({ book, cache }: { book: BookRecord; cache: BookCoverCache }): ReactNode {
+  const hostRef = useRef<HTMLSpanElement>(null)
+  const [nearby, setNearby] = useState(book.format !== 'epub')
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (book.format !== 'epub') return undefined
+    const host = hostRef.current
+    if (!host) {
+      setNearby(true)
+      return undefined
+    }
+    return observeBookCoverVisibility(host, () => setNearby(true))
+  }, [book.format, book.id])
+
+  useEffect(() => {
+    let alive = true
+    if (!nearby || book.format !== 'epub') return undefined
+    void cache.load(book.id).then((coverUrl) => {
+      if (alive) setUrl(coverUrl)
+    })
+    return () => {
+      alive = false
+    }
+  }, [book.format, book.id, cache, nearby])
+
+  return <BookCoverView url={url} book={book} size="small" elementRef={hostRef} />
 }
 
 function formatFileSize(bytes: number): string {
@@ -921,6 +933,152 @@ function BookDetailsModal({
             >
               <Trash2 size={14} />
               {copy('library.deleteBook')}
+            </button>
+          )}
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+function BookImportDialog({
+  state,
+  returnFocusRef,
+  onCancel,
+  onClose
+}: {
+  state: BookImportDialogState
+  returnFocusRef: RefObject<HTMLButtonElement | null>
+  onCancel: () => void
+  onClose: () => void
+}): ReactNode {
+  const dialogRef = useRef<HTMLElement>(null)
+  const completed = state.phase === 'completed'
+  const completedRef = useRef(completed)
+  const closeIfCompleted = useCallback(() => {
+    if (completedRef.current) onClose()
+  }, [onClose])
+  const result = state.result
+  const failures = result?.items.filter((item) => item.status === 'failed') ?? []
+  const percent = state.total > 0 ? Math.round((state.processed / state.total) * 100) : 0
+
+  useEffect(() => {
+    completedRef.current = completed
+  }, [completed])
+  useDialogFocus(true, closeIfCompleted, dialogRef, returnFocusRef)
+
+  useEffect(() => {
+    if (!completed) return undefined
+    const frame = window.requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [completed])
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => event.target === event.currentTarget && closeIfCompleted()}
+    >
+      <section
+        ref={dialogRef}
+        className="book-import-modal"
+        data-testid="book-import-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="book-import-title"
+      >
+        <header className="modal-header">
+          <div>
+            <h2 id="book-import-title">
+              {copy(completed ? 'library.importSummaryTitle' : 'library.importProgressTitle')}
+            </h2>
+          </div>
+          {completed && (
+            <button className="icon-button" type="button" onClick={onClose} aria-label={copy('library.importClose')}>
+              <X size={18} />
+            </button>
+          )}
+        </header>
+
+        <div className="book-import-body">
+          {!completed && (
+            <>
+              <div className="book-import-current" data-testid="book-import-current" role="status">
+                {state.phase === 'stopping' ? <CircleStop size={18} /> : <LoaderCircle className="spin" size={18} />}
+                <div>
+                  <strong>{state.phase === 'stopping' ? copy('library.importStopping') : copy('library.importCurrent', { fileName: state.currentFileName || copy('library.unknownFile') })}</strong>
+                  <span>{copy('library.importProgress', { processed: state.processed, total: state.total })}</span>
+                </div>
+              </div>
+              <div
+                className="book-import-progress"
+                data-testid="book-import-progress"
+                role="progressbar"
+                aria-label={copy('library.importProgressAria')}
+                aria-valuemin={0}
+                aria-valuemax={state.total}
+                aria-valuenow={state.processed}
+                aria-valuetext={copy('library.importProgress', { processed: state.processed, total: state.total })}
+              >
+                <i style={{ width: percent + '%' }} />
+              </div>
+              <p className="book-import-counts">
+                {copy('library.importSummary', {
+                  imported: state.imported,
+                  duplicates: state.duplicates,
+                  failed: state.failed,
+                  skipped: 0
+                })}
+              </p>
+            </>
+          )}
+
+          {completed && result && (
+            <>
+              <div className="book-import-summary" data-testid="book-import-summary" role="status">
+                <Check size={20} />
+                <div>
+                  <strong>{copy('library.importSummary', {
+                    imported: result.imported,
+                    duplicates: result.duplicates,
+                    failed: result.failed,
+                    skipped: result.skipped
+                  })}</strong>
+                  {result.canceled && <span>{copy('library.importCanceled')}</span>}
+                </div>
+              </div>
+              {failures.length > 0 && (
+                <section className="book-import-failures" aria-labelledby="book-import-failures-title">
+                  <h3 id="book-import-failures-title">{copy('library.importFailuresTitle')}</h3>
+                  <ul>
+                    {failures.map((failure, index) => (
+                      <li data-testid="book-import-failure" key={`${failure.fileName}-${index}`}>
+                        <strong>{failure.fileName}</strong>
+                        <span>{failure.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+
+        <footer className="book-import-actions">
+          {completed ? (
+            <button className="primary-button" data-testid="book-import-close" type="button" onClick={onClose}>
+              {copy('library.importClose')}
+            </button>
+          ) : (
+            <button
+              className="secondary-button"
+              data-testid="book-import-cancel"
+              type="button"
+              disabled={state.phase === 'stopping'}
+              onClick={onCancel}
+            >
+              {state.phase === 'stopping' ? <LoaderCircle className="spin" size={15} /> : <CircleStop size={15} />}
+              {state.phase === 'stopping' ? copy('library.importStopping') : copy('library.importCancel')}
             </button>
           )}
         </footer>
@@ -1981,6 +2139,9 @@ export default function App(): ReactNode {
   const [libraryState, setLibraryState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [libraryError, setLibraryError] = useState('')
   const [importing, setImporting] = useState(false)
+  const [importDialogState, setImportDialogState] = useState<BookImportDialogState | null>(null)
+  const [dropOverlay, setDropOverlay] = useState<DropOverlayState>(null)
+  const [coverCache] = useState(() => new BookCoverCache((bookId) => window.readerApi.getBookCover(bookId)))
   const [toc, setToc] = useState<TocItem[]>([])
   const [collapsedTocItems, setCollapsedTocItems] = useState<Set<string>>(() => new Set())
   const [leftView, setLeftView] = useState<LeftView>('library')
@@ -2052,6 +2213,11 @@ export default function App(): ReactNode {
   const requestProviderRevisionRef = useRef(new Map<string, number>())
   const searchSequenceRef = useRef(0)
   const leftViewRevisionRef = useRef(0)
+  const importingRef = useRef(false)
+  const acceptImportEventsRef = useRef(false)
+  const importDialogStateRef = useRef<BookImportDialogState | null>(null)
+  const importReturnFocusRef = useRef<HTMLButtonElement>(null)
+  const dragDepthRef = useRef(0)
 
   const selectLeftView = useCallback((view: LeftView): void => {
     leftViewRevisionRef.current += 1
@@ -2075,6 +2241,12 @@ export default function App(): ReactNode {
   useEffect(() => {
     activeBookRef.current = activeBook
   }, [activeBook])
+
+  useEffect(() => {
+    importDialogStateRef.current = importDialogState
+  }, [importDialogState])
+
+  useEffect(() => () => coverCache.dispose(), [coverCache])
 
   useEffect(() => {
     if (leftView !== 'search') return undefined
@@ -2530,21 +2702,195 @@ export default function App(): ReactNode {
     })
   }, [flushProgress])
 
-  const importBook = useCallback(async (): Promise<void> => {
-    if (importing) return
+  useEffect(() => {
+    if (!window.readerApi) return undefined
+    return window.readerApi.onBookImportEvent((event: BookImportEvent) => {
+      if (!acceptImportEventsRef.current) return
+      if (event.type === 'started') {
+        setImportDialogState({
+          phase: 'running',
+          total: event.total,
+          processed: 0,
+          currentFileName: '',
+          imported: 0,
+          duplicates: 0,
+          failed: 0
+        })
+        return
+      }
+      if (event.type === 'itemStarted') {
+        setImportDialogState((current) => ({
+          phase: current?.phase === 'stopping' ? 'stopping' : 'running',
+          total: event.total,
+          processed: event.processed,
+          currentFileName: event.fileName,
+          imported: current?.imported ?? 0,
+          duplicates: current?.duplicates ?? 0,
+          failed: current?.failed ?? 0
+        }))
+        return
+      }
+      if (event.type === 'progress') {
+        setImportDialogState((current) => ({
+          phase: current?.phase === 'stopping' ? 'stopping' : 'running',
+          total: event.total,
+          processed: event.processed,
+          currentFileName: event.fileName,
+          imported: event.imported,
+          duplicates: event.duplicates,
+          failed: event.failed
+        }))
+        return
+      }
+      if (event.type === 'cancelRequested') {
+        setImportDialogState((current) => current ? { ...current, phase: 'stopping' } : current)
+        return
+      }
+      // The invoke result owns the final UI transition. IPC event delivery and invoke
+      // resolution are separate queues, so rendering completion here could reopen a
+      // summary that the user already closed or flash one for a single-file import.
+    })
+  }, [])
+
+  const runBookImport = useCallback(async (
+    start: () => Promise<BookImportBatchResult | null>,
+    trigger?: HTMLButtonElement
+  ): Promise<void> => {
+    if (importingRef.current || importDialogStateRef.current) {
+      pushToast(copy('library.importBusy'), 'neutral')
+      return
+    }
+    dismissToast()
+    importReturnFocusRef.current = trigger ?? (document.activeElement instanceof HTMLButtonElement ? document.activeElement : null)
+    importingRef.current = true
+    acceptImportEventsRef.current = true
     setImporting(true)
     try {
-      const result = await window.readerApi.importBook()
-      if (!result) return
+      const result = await start()
+      acceptImportEventsRef.current = false
+      if (!result) {
+        importDialogStateRef.current = null
+        setImportDialogState(null)
+        return
+      }
       await refreshBooks()
-      pushToast(result.duplicate ? copy('library.duplicateToast') : copy('library.importedToast'), result.duplicate ? 'neutral' : 'success')
-      await openBook(result.book)
+
+      if (result.total === 1) {
+        importDialogStateRef.current = null
+        setImportDialogState(null)
+        const item = result.items[0]
+        if (item?.status === 'failed') {
+          pushToast(item.message, 'error')
+          return
+        }
+        if (item) {
+          pushToast(item.status === 'duplicate' ? copy('library.duplicateToast') : copy('library.importedToast'), item.status === 'duplicate' ? 'neutral' : 'success')
+          await openBook(item.book)
+        }
+        return
+      }
+
+      const completed: BookImportDialogState = {
+        phase: 'completed',
+        total: result.total,
+        processed: result.processed,
+        currentFileName: '',
+        imported: result.imported,
+        duplicates: result.duplicates,
+        failed: result.failed,
+        result
+      }
+      importDialogStateRef.current = completed
+      setImportDialogState(completed)
+      selectLeftView('library')
     } catch (error) {
+      acceptImportEventsRef.current = false
+      importDialogStateRef.current = null
+      setImportDialogState(null)
       pushToast(readableError(error, copy('library.importFailed')), 'error')
     } finally {
+      acceptImportEventsRef.current = false
+      importingRef.current = false
       setImporting(false)
     }
-  }, [importing, openBook, pushToast, refreshBooks])
+  }, [dismissToast, openBook, pushToast, refreshBooks, selectLeftView])
+
+  const importBooks = useCallback((trigger?: HTMLButtonElement): Promise<void> => (
+    runBookImport(() => window.readerApi.importBooks(), trigger)
+  ), [runBookImport])
+
+  const importDroppedBooks = useCallback((files: File[]): Promise<void> => (
+    runBookImport(() => window.readerApi.importDroppedBooks(files))
+  ), [runBookImport])
+
+  const cancelBookImport = useCallback(async (): Promise<void> => {
+    setImportDialogState((current) => current && current.phase !== 'completed' ? { ...current, phase: 'stopping' } : current)
+    try {
+      await window.readerApi.cancelBookImport()
+    } catch (error) {
+      pushToast(readableError(error, copy('library.importFailed')), 'error')
+    }
+  }, [pushToast])
+
+  const closeBookImportDialog = useCallback((): void => {
+    if (importDialogStateRef.current?.phase !== 'completed') return
+    importDialogStateRef.current = null
+    setImportDialogState(null)
+  }, [])
+
+  useEffect(() => {
+    const hasFiles = (event: globalThis.DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes('Files')
+    const importUiBusy = (): boolean => importingRef.current || importDialogStateRef.current !== null
+    const onDragEnter = (event: globalThis.DragEvent): void => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      dragDepthRef.current += 1
+      setDropOverlay(importUiBusy() ? 'busy' : 'ready')
+    }
+    const onDragOver = (event: globalThis.DragEvent): void => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      if (event.dataTransfer) event.dataTransfer.dropEffect = importUiBusy() ? 'none' : 'copy'
+      setDropOverlay(importUiBusy() ? 'busy' : 'ready')
+    }
+    const onDragLeave = (event: globalThis.DragEvent): void => {
+      if (dragDepthRef.current === 0) return
+      event.preventDefault()
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+      if (dragDepthRef.current === 0) setDropOverlay(null)
+    }
+    const onDrop = (event: globalThis.DragEvent): void => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      dragDepthRef.current = 0
+      setDropOverlay(null)
+      if (importUiBusy()) {
+        pushToast(copy('library.importBusy'), 'neutral')
+        return
+      }
+      const files = Array.from(event.dataTransfer?.files ?? [])
+      if (files.length > 0) void importDroppedBooks(files)
+    }
+    const clearDropOverlay = (): void => {
+      dragDepthRef.current = 0
+      setDropOverlay(null)
+    }
+
+    window.addEventListener('dragenter', onDragEnter, true)
+    window.addEventListener('dragover', onDragOver, true)
+    window.addEventListener('dragleave', onDragLeave, true)
+    window.addEventListener('drop', onDrop, true)
+    window.addEventListener('dragend', clearDropOverlay, true)
+    window.addEventListener('blur', clearDropOverlay)
+    return () => {
+      window.removeEventListener('dragenter', onDragEnter, true)
+      window.removeEventListener('dragover', onDragOver, true)
+      window.removeEventListener('dragleave', onDragLeave, true)
+      window.removeEventListener('drop', onDrop, true)
+      window.removeEventListener('dragend', clearDropOverlay, true)
+      window.removeEventListener('blur', clearDropOverlay)
+    }
+  }, [importDroppedBooks, pushToast])
 
   const openSearchView = useCallback((): void => {
     if (!activeBookRef.current || !adapterRef.current) return
@@ -2986,6 +3332,7 @@ export default function App(): ReactNode {
         await closeBookSessionForDeletion(book.id)
       }
       const deleted = await window.readerApi.deleteBook(book.id)
+      coverCache.remove(book.id)
       if (detailsBook?.id === book.id) setDetailsBook(null)
       if (deleted) {
         setBooks((current) => current.filter((item) => item.id !== book.id))
@@ -3188,7 +3535,7 @@ export default function App(): ReactNode {
                     type="button"
                     onClick={() => void openBook(book)}
                   >
-                    <BookCover book={book} />
+                    <BookCover book={book} cache={coverCache} />
                     <span className="book-meta">
                       <strong title={book.title}>{book.title}</strong>
                       <small>{book.author || bookFallbackDescription(book)}</small>
@@ -3358,7 +3705,7 @@ export default function App(): ReactNode {
 
         <footer className="sidebar-footer">
           {leftView === 'library' && (
-            <button className="import-button" data-testid="import-book" type="button" onClick={() => void importBook()} disabled={importing}>
+            <button className="import-button" data-testid="import-book" type="button" onClick={(event) => void importBooks(event.currentTarget)} disabled={importing}>
               {importing ? <LoaderCircle className="spin" size={17} /> : <Import size={17} />}
               <span>{importing ? copy('library.importing') : copy('library.import')}</span>
             </button>
@@ -3421,7 +3768,7 @@ export default function App(): ReactNode {
                   className="primary-button welcome-import"
                   data-testid="welcome-import"
                   type="button"
-                  onClick={() => void importBook()}
+                  onClick={(event) => void importBooks(event.currentTarget)}
                   disabled={importing}
                 >
                   {importing ? <LoaderCircle className="spin" size={15} /> : <Import size={15} />}
@@ -3631,6 +3978,30 @@ export default function App(): ReactNode {
           onClose={closeBookDetails}
           onDelete={(book) => void deleteBook(book)}
         />
+      )}
+
+      {importDialogState && (
+        <BookImportDialog
+          state={importDialogState}
+          returnFocusRef={importReturnFocusRef}
+          onCancel={() => void cancelBookImport()}
+          onClose={closeBookImportDialog}
+        />
+      )}
+
+      {dropOverlay && (
+        <div
+          className={`book-drop-overlay is-${dropOverlay}`}
+          data-testid="book-drop-overlay"
+          role="status"
+          aria-live="polite"
+        >
+          <div>
+            {dropOverlay === 'busy' ? <LoaderCircle className="spin" size={28} /> : <Import size={28} />}
+            <strong>{copy(dropOverlay === 'busy' ? 'library.dropBusyTitle' : 'library.dropTitle')}</strong>
+            <p>{copy(dropOverlay === 'busy' ? 'library.dropBusyDetail' : 'library.dropDetail')}</p>
+          </div>
+        </div>
       )}
 
       {toast && (

@@ -2,6 +2,7 @@ import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } fro
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
 import { copy } from '@shared/copy'
+import { BookImportCoordinator } from './book-import-coordinator'
 import { AppError, toPublicError } from './errors'
 import { listSystemFonts } from './fonts'
 import { LibraryService } from './library-service'
@@ -10,6 +11,7 @@ import { ProviderService } from './provider-service'
 import { UpdaterService } from './updater-service'
 import {
   bookIdSchema,
+  bookImportPathsSchema,
   createProviderProfileSchema,
   highlightIdSchema,
   highlightSchema,
@@ -30,12 +32,15 @@ import {
 interface IpcDependencies {
   window: BrowserWindow
   library: LibraryService
+  bookImporter: BookImportCoordinator
   provider: ProviderService
   llm: LlmService
   updater: UpdaterService
   allowedRendererOrigins: ReadonlySet<string>
   completeClose: () => void
 }
+
+let bookImportDialogOpen = false
 
 function trustedSender(event: IpcMainInvokeEvent, dependencies: IpcDependencies): boolean {
   if (event.sender.id !== dependencies.window.webContents.id) return false
@@ -89,13 +94,28 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.appUpdateInstall, dependencies, () => dependencies.updater.install())
   handle(IPC_CHANNELS.booksList, dependencies, () => dependencies.library.listBooks())
   handle(IPC_CHANNELS.booksImport, dependencies, async () => {
-    const result = await dialog.showOpenDialog(dependencies.window, {
-      title: copy('dialog.importTitle'),
-      properties: ['openFile'],
-      filters: [{ name: copy('dialog.importFilter'), extensions: ['epub', 'txt', 'pdf', 'mobi', 'azw3'] }]
-    })
-    if (result.canceled || result.filePaths.length !== 1) return null
-    return dependencies.library.importFromPath(result.filePaths[0])
+    if (bookImportDialogOpen || dependencies.bookImporter.isBusy()) {
+      throw new AppError('IMPORT_BUSY', copy('error.importBusy'))
+    }
+    bookImportDialogOpen = true
+    try {
+      const result = await dialog.showOpenDialog(dependencies.window, {
+        title: copy('dialog.importTitle'),
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: copy('dialog.importFilter'), extensions: ['epub', 'txt', 'pdf', 'mobi', 'azw3'] }]
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      return dependencies.bookImporter.importPaths(parse(bookImportPathsSchema, result.filePaths))
+    } finally {
+      bookImportDialogOpen = false
+    }
+  })
+  handle(IPC_CHANNELS.booksImportDropped, dependencies, (_event, value) => {
+    if (bookImportDialogOpen) throw new AppError('IMPORT_BUSY', copy('error.importBusy'))
+    return dependencies.bookImporter.importPaths(parse(bookImportPathsSchema, value))
+  })
+  handle(IPC_CHANNELS.booksImportCancel, dependencies, () => {
+    dependencies.bookImporter.cancel()
   })
   handle(IPC_CHANNELS.booksRead, dependencies, (_event, value) =>
     dependencies.library.readBook(parse(bookIdSchema, value))
@@ -203,12 +223,14 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
 }
 
 export function unregisterIpcHandlers(): void {
+  bookImportDialogOpen = false
   Object.values(IPC_CHANNELS)
     .filter(
       (channel) =>
         channel !== IPC_CHANNELS.llmEvent &&
         channel !== IPC_CHANNELS.appBeforeClose &&
         channel !== IPC_CHANNELS.appUpdateEvent &&
+        channel !== IPC_CHANNELS.booksImportEvent &&
         channel !== IPC_CHANNELS.windowMaximizedChange
     )
     .forEach((channel) => ipcMain.removeHandler(channel))

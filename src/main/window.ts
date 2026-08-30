@@ -39,6 +39,7 @@ export function createMainWindow(): CreatedWindow {
       nodeIntegration: false,
       webSecurity: true,
       allowRunningInsecureContent: false,
+      navigateOnDragDrop: false,
       spellcheck: false
     }
   })

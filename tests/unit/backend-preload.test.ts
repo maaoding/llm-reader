@@ -5,7 +5,8 @@ const electronMocks = vi.hoisted(() => ({
   exposeInMainWorld: vi.fn(),
   invoke: vi.fn(),
   on: vi.fn(),
-  removeListener: vi.fn()
+  removeListener: vi.fn(),
+  getPathForFile: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -16,6 +17,9 @@ vi.mock('electron', () => ({
     invoke: electronMocks.invoke,
     on: electronMocks.on,
     removeListener: electronMocks.removeListener
+  },
+  webUtils: {
+    getPathForFile: electronMocks.getPathForFile
   }
 }))
 
@@ -75,6 +79,56 @@ describe('preload ReaderApi', () => {
 
   beforeEach(() => {
     electronMocks.invoke.mockReset()
+    electronMocks.on.mockReset()
+    electronMocks.removeListener.mockReset()
+    electronMocks.getPathForFile.mockReset()
+  })
+
+  it('keeps dropped file paths inside preload and exposes batch controls', async () => {
+    const file = { name: 'reader.epub' } as File
+    const result = {
+      total: 1,
+      processed: 1,
+      imported: 0,
+      duplicates: 0,
+      failed: 1,
+      skipped: 0,
+      canceled: false,
+      items: [{ status: 'failed', fileName: 'reader.epub', code: 'EPUB_INVALID', message: 'EPUB 文件无效。' }]
+    }
+    electronMocks.getPathForFile.mockReturnValue('C:\\private\\reader.epub')
+    electronMocks.invoke.mockResolvedValueOnce(result).mockResolvedValueOnce(undefined)
+
+    await expect(readerApi.importDroppedBooks([file])).resolves.toEqual(result)
+    await expect(readerApi.cancelBookImport()).resolves.toBeUndefined()
+
+    expect(electronMocks.getPathForFile).toHaveBeenCalledWith(file)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.booksImportDropped, ['C:\\private\\reader.epub'])
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.booksImportCancel)
+    expect(result).not.toHaveProperty('path')
+  })
+
+  it('opens the native batch picker through one path-free API call', async () => {
+    electronMocks.invoke.mockResolvedValueOnce(null)
+
+    await expect(readerApi.importBooks()).resolves.toBeNull()
+
+    expect(electronMocks.invoke).toHaveBeenCalledOnce()
+    expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.booksImport)
+  })
+
+  it('subscribes to import progress and removes the exact listener', () => {
+    const listener = vi.fn()
+    const unsubscribe = readerApi.onBookImportEvent(listener)
+    const handler = electronMocks.on.mock.calls[0][1]
+    const event = { type: 'started' as const, total: 3 }
+
+    handler({}, event)
+    unsubscribe()
+
+    expect(electronMocks.on).toHaveBeenCalledWith(IPC_CHANNELS.booksImportEvent, handler)
+    expect(listener).toHaveBeenCalledWith(event)
+    expect(electronMocks.removeListener).toHaveBeenCalledWith(IPC_CHANNELS.booksImportEvent, handler)
   })
 
   it('exposes book cover and details through their dedicated IPC channels', async () => {

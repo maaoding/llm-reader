@@ -1,5 +1,11 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, type AppUpdatePhase, type LlmEvent, type ReaderApi } from '@shared/contracts'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import {
+  IPC_CHANNELS,
+  type AppUpdatePhase,
+  type BookImportEvent,
+  type LlmEvent,
+  type ReaderApi
+} from '@shared/contracts'
 
 export const readerApi: ReaderApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
@@ -14,7 +20,16 @@ export const readerApi: ReaderApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.appUpdateEvent, handler)
   },
   listBooks: () => ipcRenderer.invoke(IPC_CHANNELS.booksList),
-  importBook: () => ipcRenderer.invoke(IPC_CHANNELS.booksImport),
+  importBooks: () => ipcRenderer.invoke(IPC_CHANNELS.booksImport),
+  importDroppedBooks: (files) =>
+    ipcRenderer.invoke(IPC_CHANNELS.booksImportDropped, files.map((file) => webUtils.getPathForFile(file))),
+  cancelBookImport: () => ipcRenderer.invoke(IPC_CHANNELS.booksImportCancel),
+  onBookImportEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void =>
+      listener(value as BookImportEvent)
+    ipcRenderer.on(IPC_CHANNELS.booksImportEvent, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.booksImportEvent, handler)
+  },
   deleteBook: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksDelete, bookId),
   readBook: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksRead, bookId),
   getBookCover: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksCover, bookId),
