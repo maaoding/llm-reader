@@ -1581,6 +1581,60 @@ h1 em {
   outline-offset: 4px;
 }
 
+/* 平板:演示整体等比缩放,保证三栏与窗口控制完整可见;每档的舞台宽度
+   按 zoom*1040 取值,恰好在档位下缘填满视口,不裁剪也不留空。 */
+@media (min-width: 984px) and (max-width: 1088px) {
+  .product-stage {
+    width: 936px;
+  }
+
+  .product-viewport {
+    height: 531px;
+  }
+
+  .reader-demo {
+    height: 590px;
+    zoom: 0.9;
+  }
+}
+
+@media (min-width: 881px) and (max-width: 983px) {
+  .product-stage {
+    width: 832px;
+  }
+
+  .product-viewport {
+    height: 472px;
+  }
+
+  .reader-demo {
+    height: 590px;
+    zoom: 0.8;
+  }
+}
+
+@media (min-width: 781px) and (max-width: 880px) {
+  .product-stage {
+    width: 733px;
+  }
+
+  .product-viewport {
+    height: 416px;
+  }
+
+  .reader-demo {
+    height: 590px;
+    zoom: 0.705;
+  }
+}
+
+/* 手机端放不下桌面比例的演示,直接不展示。 */
+@media (max-width: 780px) {
+  .product-stage {
+    display: none;
+  }
+}
+
 @media (max-width: 980px) {
   .promise-strip {
     grid-template-columns: 1fr;
@@ -1686,10 +1740,6 @@ h1 em {
 
   .button {
     width: 100%;
-  }
-
-  .product-stage {
-    display: none;
   }
 
   .promise-strip {
