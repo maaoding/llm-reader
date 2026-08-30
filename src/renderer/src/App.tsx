@@ -1692,6 +1692,9 @@ function SettingsModal({
               </section>
             )}
 
+            {/* 关于保持在常驻的模型区块之前，避免吃到 .settings-section 的分组上边框 */}
+            {activeSection === 'about' && <AboutPanel />}
+
             <section
               className="settings-section"
               id="settings-panel-model"
@@ -1871,8 +1874,6 @@ function SettingsModal({
                   </footer>
                 </form>
             </section>
-
-            {activeSection === 'about' && <AboutPanel />}
           </div>
         </div>
       </section>
