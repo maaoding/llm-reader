@@ -7,6 +7,7 @@ import { listSystemFonts } from './fonts'
 import { LibraryService } from './library-service'
 import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
+import { UpdaterService } from './updater-service'
 import {
   bookIdSchema,
   createProviderProfileSchema,
@@ -31,6 +32,7 @@ interface IpcDependencies {
   library: LibraryService
   provider: ProviderService
   llm: LlmService
+  updater: UpdaterService
   allowedRendererOrigins: ReadonlySet<string>
   completeClose: () => void
 }
@@ -81,6 +83,10 @@ function handle(
 
 export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
+  handle(IPC_CHANNELS.appUpdatePhase, dependencies, () => dependencies.updater.getPhase())
+  handle(IPC_CHANNELS.appUpdateCheck, dependencies, () => dependencies.updater.check('manual'))
+  handle(IPC_CHANNELS.appUpdateDownload, dependencies, () => dependencies.updater.download())
+  handle(IPC_CHANNELS.appUpdateInstall, dependencies, () => dependencies.updater.install())
   handle(IPC_CHANNELS.booksList, dependencies, () => dependencies.library.listBooks())
   handle(IPC_CHANNELS.booksImport, dependencies, async () => {
     const result = await dialog.showOpenDialog(dependencies.window, {
@@ -202,6 +208,7 @@ export function unregisterIpcHandlers(): void {
       (channel) =>
         channel !== IPC_CHANNELS.llmEvent &&
         channel !== IPC_CHANNELS.appBeforeClose &&
+        channel !== IPC_CHANNELS.appUpdateEvent &&
         channel !== IPC_CHANNELS.windowMaximizedChange
     )
     .forEach((channel) => ipcMain.removeHandler(channel))

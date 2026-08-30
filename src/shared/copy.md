@@ -34,6 +34,7 @@
 | about.thirdPartyNoticesTitle | 第三方许可证 |
 | about.thirdPartyNoticesIntro | 本软件使用了以下开源组件： |
 | about.noticeElectron | Electron（MIT） |
+| about.noticeElectronUpdater | electron-updater（MIT） |
 | about.noticeEpubjs | epub.js（BSD-2-Clause） |
 | about.noticeJszip | JSZip（MIT OR GPL-3.0-or-later） |
 | about.noticeLocalforage | localforage（Apache-2.0） |
@@ -42,6 +43,19 @@
 | about.noticeReact | React、React DOM（MIT） |
 | about.noticeZod | Zod（MIT） |
 | about.thirdPartyNoticesFull | 完整许可文本见仓库中的 THIRD_PARTY_NOTICES.md。 |
+| about.updateLabel | 更新 |
+| about.updateStatusIdle | 尚未检查更新 |
+| about.updateStatusChecking | 正在检查更新… |
+| about.updateStatusUpToDate | 已是最新版本 |
+| about.updateStatusAvailable | 发现新版本 {version} |
+| about.updateStatusDownloading | 正在下载更新… {percent}% |
+| about.updateStatusDownloaded | 更新已下载完成 |
+| about.updateStatusError | 更新失败，请稍后重试 |
+| about.updateStatusUnsupported | 当前环境不支持更新检查 |
+| about.updateCheckAction | 检查更新 |
+| about.updateDownloadAction | 下载更新 |
+| about.updateInstallAction | 重启并安装 |
+| about.updateDownloadedHint | 重启后安装新版本，未保存的阅读进度不受影响。 |
 
 ## 助手与对话
 

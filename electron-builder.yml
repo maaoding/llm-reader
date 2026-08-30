@@ -3,6 +3,10 @@ productName: LLM Reader
 directories:
   buildResources: resources
   output: release
+publish:
+  provider: github
+  owner: maaoding
+  repo: llm-reader
 files:
   - out/**
   - package.json

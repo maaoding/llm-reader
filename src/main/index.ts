@@ -1,5 +1,7 @@
 import { isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, Menu } from 'electron'
+import electronUpdater from 'electron-updater'
+import { IPC_CHANNELS } from '@shared/contracts'
 import { registerAppScheme, installAppProtocol } from './app-protocol'
 import { AppDatabase } from './database'
 import { ElectronKeyProtector } from './electron-key-protector'
@@ -8,6 +10,7 @@ import { LibraryService } from './library-service'
 import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
 import { ProfileSecretStore } from './secret-store'
+import { UpdaterService } from './updater-service'
 import { createMainWindow, loadMainWindow } from './window'
 
 registerAppScheme()
@@ -24,19 +27,35 @@ let database: AppDatabase | undefined
 let llm: LlmService | undefined
 let library: LibraryService | undefined
 let provider: ProviderService | undefined
+let updater: UpdaterService | undefined
+
+const { autoUpdater } = electronUpdater
 
 async function openWindow(): Promise<void> {
   if (!library || !provider || !llm) throw new Error('Application services are not initialized')
+  updater?.dispose()
+  updater = undefined
   const created = createMainWindow()
+  updater = new UpdaterService(
+    (phase) => {
+      if (!created.window.isDestroyed() && !created.window.webContents.isDestroyed()) {
+        created.window.webContents.send(IPC_CHANNELS.appUpdateEvent, phase)
+      }
+    },
+    app.isPackaged && process.env.LLM_READER_UPDATER_DISABLED !== '1',
+    autoUpdater
+  )
   registerIpcHandlers({
     window: created.window,
     library,
     provider,
     llm,
+    updater,
     allowedRendererOrigins: created.allowedOrigins,
     completeClose: created.completeClose
   })
   await loadMainWindow(created.window)
+  updater.scheduleStartupCheck()
 }
 
 async function initialize(): Promise<void> {
@@ -75,6 +94,8 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   unregisterIpcHandlers()
+  updater?.dispose()
+  updater = undefined
   llm?.cancelAll()
   database?.close()
   database = undefined

@@ -2,6 +2,11 @@ export const IPC_CHANNELS = {
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
   appInfo: 'app:info',
+  appUpdatePhase: 'app:update-phase',
+  appUpdateCheck: 'app:update-check',
+  appUpdateDownload: 'app:update-download',
+  appUpdateInstall: 'app:update-install',
+  appUpdateEvent: 'app:update-event',
   windowMinimize: 'window:minimize',
   windowToggleMaximize: 'window:toggle-maximize',
   windowClose: 'window:close',
@@ -44,6 +49,16 @@ export type BookSourceFormat = BookFormat | 'mobi' | 'azw3'
 export interface AppInfo {
   version: string
 }
+
+export type AppUpdatePhase =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'upToDate' }
+  | { status: 'available'; version: string }
+  | { status: 'downloading'; percent: number }
+  | { status: 'downloaded'; version: string }
+  | { status: 'error' }
+  | { status: 'unsupported' }
 
 export interface BookRecord {
   id: string
@@ -258,6 +273,11 @@ export interface SaveHighlightInput {
 
 export interface ReaderApi {
   getAppInfo(): Promise<AppInfo>
+  getAppUpdatePhase(): Promise<AppUpdatePhase>
+  checkForAppUpdate(): Promise<AppUpdatePhase>
+  downloadAppUpdate(): Promise<AppUpdatePhase>
+  installAppUpdate(): Promise<void>
+  onAppUpdateEvent(listener: (phase: AppUpdatePhase) => void): () => void
   listBooks(): Promise<BookRecord[]>
   importBook(): Promise<ImportedBookResult | null>
   deleteBook(bookId: string): Promise<boolean>

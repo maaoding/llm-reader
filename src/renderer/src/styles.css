@@ -2754,6 +2754,41 @@ button.citation-valid:hover {
   user-select: text;
 }
 
+.about-update {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--accent-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.about-update-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.about-update-label {
+  color: var(--muted);
+  font-size: calc(10px * var(--interface-scale));
+  font-weight: 650;
+}
+
+.about-update-status {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  font-size: calc(10px * var(--interface-scale));
+  line-height: 1.6;
+}
+
+.about-update-hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: calc(9px * var(--interface-scale));
+  line-height: 1.6;
+}
+
 .about-license-note {
   margin: 14px 0 0;
   padding: 10px 12px;

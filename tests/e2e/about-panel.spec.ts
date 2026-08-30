@@ -27,9 +27,30 @@ test('shows version, license and third-party notices in the About settings secti
     await expect(aboutPanel).toContainText('GPL-3.0-or-later')
     await expect(aboutPanel).toContainText('https://github.com/maaoding/llm-reader')
     await expect(aboutPanel).toContainText('Electron（MIT）')
+    await expect(aboutPanel).toContainText('electron-updater（MIT）')
     await expect(aboutPanel).toContainText('epub.js（BSD-2-Clause）')
     await expect(aboutPanel).toContainText('React、React DOM（MIT）')
     await expect(aboutPanel).toContainText('THIRD_PARTY_NOTICES.md')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('explains that update checks are unavailable in the test environment', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-about-update-')
+  const { application, page } = await launchReader({ userData: workspace.userData })
+
+  try {
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-about').click()
+
+    const updateBlock = page.getByTestId('about-update')
+    await expect(updateBlock).toBeVisible()
+    await expect(page.getByTestId('update-status')).toHaveText('尚未检查更新')
+
+    await page.getByTestId('update-action-button').click()
+    await expect(page.getByTestId('update-status')).toHaveText('当前环境不支持更新检查')
+    await expect(page.getByTestId('update-action-button')).toBeDisabled()
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

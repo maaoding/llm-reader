@@ -1,8 +1,18 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, type LlmEvent, type ReaderApi } from '@shared/contracts'
+import { IPC_CHANNELS, type AppUpdatePhase, type LlmEvent, type ReaderApi } from '@shared/contracts'
 
 export const readerApi: ReaderApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
+  getAppUpdatePhase: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatePhase),
+  checkForAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateCheck),
+  downloadAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateDownload),
+  installAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateInstall),
+  onAppUpdateEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void =>
+      listener(value as AppUpdatePhase)
+    ipcRenderer.on(IPC_CHANNELS.appUpdateEvent, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.appUpdateEvent, handler)
+  },
   listBooks: () => ipcRenderer.invoke(IPC_CHANNELS.booksList),
   importBook: () => ipcRenderer.invoke(IPC_CHANNELS.booksImport),
   deleteBook: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.booksDelete, bookId),

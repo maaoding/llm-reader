@@ -33,6 +33,7 @@
     "test:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:electron && pnpm test:e2e:run"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "epubjs": "0.3.93",
     "jszip": "3.10.1",
     "lucide-react": "1.31.0",

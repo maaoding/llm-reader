@@ -31,7 +31,8 @@ export async function launchReader(options: LaunchReaderOptions): Promise<{
       ...process.env,
       ...options.env,
       LLM_READER_USER_DATA: options.userData,
-      LLM_READER_E2E_IMPORT: options.importPath ?? ''
+      LLM_READER_E2E_IMPORT: options.importPath ?? '',
+      LLM_READER_UPDATER_DISABLED: '1'
     }
   })
   return { application, page: await application.firstWindow() }
