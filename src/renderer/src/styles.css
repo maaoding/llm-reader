@@ -1038,6 +1038,20 @@ button:disabled {
   background: var(--reader-frame);
 }
 
+/* 放大产生横向溢出时,按住拖拽即可平移;光标提示抓取状态。 */
+.pdf-reader.is-pannable {
+  cursor: grab;
+}
+
+.pdf-reader.is-pannable :is(button, a) {
+  cursor: pointer;
+}
+
+.pdf-reader.is-panning,
+.pdf-reader.is-panning :is(button, a) {
+  cursor: grabbing;
+}
+
 .pdf-toolbar {
   position: sticky;
   z-index: 12;

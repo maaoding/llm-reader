@@ -178,6 +178,26 @@ test('reads, searches, disables native selection, zooms and follows only interna
     await expect(fitWidth).toHaveAttribute('aria-pressed', 'true')
     await assertFitWidth(page)
 
+    // 适宽无横向溢出:不提供拖拽平移;放大溢出后按住拖拽即可平移。
+    await expect(page.locator('.pdf-reader')).not.toHaveClass(/is-pannable/u)
+    await page.getByRole('button', { name: '放大', exact: true }).click()
+    await page.getByRole('button', { name: '放大', exact: true }).click()
+    await expect(page.locator('.pdf-reader')).toHaveClass(/is-pannable/u)
+    const hostBox = await page.getByTestId('reader-host').boundingBox()
+    if (!hostBox) throw new Error('Expected a reader host box')
+    const scrollLeftBeforePan = await page.getByTestId('reader-host').evaluate((element) => element.scrollLeft)
+    await page.mouse.move(hostBox.x + hostBox.width * 0.72, hostBox.y + hostBox.height * 0.5)
+    await page.mouse.down()
+    await page.mouse.move(hostBox.x + hostBox.width * 0.32, hostBox.y + hostBox.height * 0.5, { steps: 8 })
+    await expect(page.locator('.pdf-reader')).toHaveClass(/is-panning/u)
+    await page.mouse.up()
+    await expect
+      .poll(() => page.getByTestId('reader-host').evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(scrollLeftBeforePan)
+    await expect(page.locator('.pdf-reader')).not.toHaveClass(/is-panning/u)
+    await fitWidth.click()
+    await expect(page.locator('.pdf-reader')).not.toHaveClass(/is-pannable/u)
+
     await page.keyboard.press('Control+f')
     await page.getByTestId('reader-search-input').fill('星河')
     await page.keyboard.press('Enter')

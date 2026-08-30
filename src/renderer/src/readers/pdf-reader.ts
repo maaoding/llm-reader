@@ -84,6 +84,15 @@ interface PdfRegionDrag {
   overlay: HTMLElement
 }
 
+interface PdfPanDrag {
+  pointerId: number
+  startX: number
+  startY: number
+  scrollLeft: number
+  scrollTop: number
+  active: boolean
+}
+
 interface PdfOutlineNode {
   title: string
   dest: string | unknown[] | null
@@ -149,6 +158,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private activeRegionElement: HTMLElement | null = null
   private temporaryRegionElements: HTMLElement[] = []
   private persistentRegionElements: HTMLElement[] = []
+  private panDrag: PdfPanDrag | null = null
+  private panable = false
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
     this.host = host
@@ -253,6 +264,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.document.addEventListener('pointermove', this.handleRegionPointerMove)
     this.document.addEventListener('pointerup', this.handleRegionPointerUp)
     this.document.addEventListener('pointercancel', this.handleRegionPointerCancel)
+    documentElement.addEventListener('pointerdown', this.handlePanPointerDown)
+    this.document.addEventListener('pointermove', this.handlePanPointerMove)
+    this.document.addEventListener('pointerup', this.handlePanPointerUp)
+    this.document.addEventListener('pointercancel', this.handlePanPointerCancel)
     this.host.addEventListener('scroll', this.handleScroll, { passive: true })
     this.textPromise = this.loadAllPageText()
 
@@ -269,6 +284,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     } else {
       this.emitRelocationForPage(initialPage, 0, 'restore')
     }
+    this.updatePanAvailability()
 
     return { metadata, toc }
   }
@@ -581,6 +597,68 @@ export class PdfReaderAdapter implements ReaderAdapter {
     drag.overlay.remove()
   }
 
+  // 放大后横向溢出时允许按住拖拽平移;区域框选优先,普通点击(链接/按钮)不受影响。
+  private updatePanAvailability(): void {
+    const panable = this.host.scrollWidth > this.host.clientWidth + 1
+    if (panable === this.panable) return
+    this.panable = panable
+    this.root?.classList.toggle('is-pannable', panable)
+    if (!panable && this.panDrag?.active) {
+      this.root?.classList.remove('is-panning')
+      this.panDrag = null
+    }
+  }
+
+  private readonly handlePanPointerDown = (event: PointerEvent): void => {
+    if (this.regionMode || !this.panable || event.button !== 0 || this.panDrag) return
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('button, a, input, select, textarea')) return
+    this.panDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: this.host.scrollLeft,
+      scrollTop: this.host.scrollTop,
+      active: false
+    }
+  }
+
+  private readonly handlePanPointerMove = (event: PointerEvent): void => {
+    const pan = this.panDrag
+    if (!pan || pan.pointerId !== event.pointerId) return
+    const deltaX = event.clientX - pan.startX
+    const deltaY = event.clientY - pan.startY
+    if (!pan.active) {
+      if (Math.hypot(deltaX, deltaY) < 5) return
+      pan.active = true
+      this.host.setPointerCapture?.(event.pointerId)
+      this.root?.classList.add('is-panning')
+    }
+    this.host.scrollLeft = pan.scrollLeft - deltaX
+    this.host.scrollTop = pan.scrollTop - deltaY
+    event.preventDefault()
+  }
+
+  private readonly handlePanPointerUp = (event: PointerEvent): void => {
+    if (this.panDrag?.pointerId !== event.pointerId) return
+    this.finishPanDrag()
+  }
+
+  private readonly handlePanPointerCancel = (event: PointerEvent): void => {
+    if (this.panDrag?.pointerId !== event.pointerId) return
+    this.finishPanDrag()
+  }
+
+  private finishPanDrag(): void {
+    const pan = this.panDrag
+    this.panDrag = null
+    if (!pan?.active) return
+    if (this.host.hasPointerCapture?.(pan.pointerId)) {
+      this.host.releasePointerCapture(pan.pointerId)
+    }
+    this.root?.classList.remove('is-panning')
+  }
+
   private clearRegionDraft(notify = true): void {
     this.regionDraftRevision += 1
     this.draftRegionElement?.remove()
@@ -719,6 +797,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     if (!anchor) return
     this.relocateProgrammatically(anchor.pageNumber, anchor.fraction, 'navigation')
     if (this.zoomMode === 'fit-width') this.host.scrollLeft = 0
+    // 布局落定后再判定平移可用性,updateZoomUi 时的 scrollWidth 还是旧布局。
+    this.updatePanAvailability()
     await this.applyPersistentHighlights()
   }
 
@@ -1372,6 +1452,12 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.document.removeEventListener('pointermove', this.handleRegionPointerMove)
     this.document.removeEventListener('pointerup', this.handleRegionPointerUp)
     this.document.removeEventListener('pointercancel', this.handleRegionPointerCancel)
+    this.documentElement?.removeEventListener('pointerdown', this.handlePanPointerDown)
+    this.document.removeEventListener('pointermove', this.handlePanPointerMove)
+    this.document.removeEventListener('pointerup', this.handlePanPointerUp)
+    this.document.removeEventListener('pointercancel', this.handlePanPointerCancel)
+    this.panDrag = null
+    this.panable = false
     this.host.removeEventListener('scroll', this.handleScroll)
     this.observer?.disconnect()
     this.resizeObserver?.disconnect()
