@@ -4,7 +4,7 @@
 
 <h1 align="center">LLM Reader</h1>
 
-<p align="center">本地优先、以 LLM 辅助理解复杂非虚构内容为核心的 Windows 桌面阅读器（当前版本 0.3.0）。</p>
+<p align="center">本地优先、以 LLM 辅助理解复杂非虚构内容为核心的 Windows 桌面阅读器。</p>
 
 <p align="center">项目主页：<a href="https://llm-reader.maaoding.icu/">https://llm-reader.maaoding.icu/</a></p>
 
@@ -12,10 +12,11 @@
 
 ### 书库与阅读
 
-- 导入无 DRM 的 EPUB 或 UTF-8 TXT；文件复制到应用数据目录并按 SHA-256 去重，重复导入会直接打开已有书籍。单文件导入上限为 250 MB，其中 TXT 为 64 MB。
+- 导入无 DRM 的 EPUB、UTF-8 TXT 或 PDF；本机已安装 Calibre 时，也可将无 DRM 的 MOBI/AZW3 转换为 EPUB 后导入。文件复制到应用数据目录并按 SHA-256 去重，重复导入会直接打开已有书籍。单文件导入上限为 250 MB，其中 TXT 为 64 MB。
 - 左侧提供书库、可折叠的层级目录和本书句段收藏三个视图；EPUB 书籍显示封面，并可打开书籍信息查看格式、文件大小、语言、出版社、出版日期、简介等元数据。
 - 书籍详情页支持删除书籍；删除会同时清理本地书籍文件、封面缓存、句段收藏与归档回答，且无法恢复。
-- 连续滚动阅读并恢复上次自然阅读位置；目录、句段收藏与回答内引用的跳转不会覆盖该位置。
+- 连续滚动阅读并恢复上次自然阅读位置；目录、句段收藏与回答内引用的跳转不会覆盖该位置。PDF 以连续页方式阅读，支持适合宽度、缩放、页码进度与单页文字选择。
+- 支持在本书内全文搜索，命中可逐个跳转且不破坏自然阅读位置。
 - 标题栏显示当前章节与本章阅读进度；阅读区提供独立于界面主题的浅色、米黄、深色纸张主题。
 - 阅读设置可调整正文字号（80%–140%）、系统字体、行间距、首行缩进、正文宽度与段落间距。
 
@@ -31,7 +32,7 @@
 ### 设置与安全
 
 - 界面主题支持浅色、深色与跟随系统，界面缩放可选 90%、100%、110%、125%。
-- 模型设置支持保存后测试连接，并在设置入口显示 API 连接状态。
+- 模型设置支持保存多套命名配置并随时切换，可从接口拉取模型列表辅助填写；保存后可测试连接，设置入口显示 API 连接状态。
 - 书籍、自然阅读位置、句段收藏、回答归档（含追问历史）与模型设置保存在本机 SQLite（`node:sqlite`）。
 - API Key 由 Electron `safeStorage` 加密后写入独立密文文件，不进入 SQLite、日志或渲染进程持久状态。
 - Renderer 保持 `sandbox: true`、`contextIsolation: true`、`nodeIntegration: false`；窗口创建、导航、权限请求和外部网络请求均被拒绝，EPUB 内容按不可信输入处理。
@@ -45,7 +46,7 @@ pnpm dev
 
 开发环境需要 Node.js 24+ 与 pnpm 11+。
 
-重装依赖后若 `pnpm dev` 报 `Error: Electron uninstall`,是 Electron 二进制的 postinstall 下载未执行,手动运行 `node node_modules\electron\install.js` 即可。
+重装依赖后若 `pnpm dev` 报 `Error: Electron uninstall`，是 Electron 二进制的 postinstall 下载未执行，手动运行 `node node_modules\electron\install.js` 即可。
 
 首次使用时在左侧栏底部打开“设置”，填写 Base URL、API Key 和 model。应用会请求该地址下的 `/v1/chat/completions`；远程接口必须使用 HTTPS，仅 `localhost`、`127.0.0.1` 与 `::1` 允许 HTTP。
 
