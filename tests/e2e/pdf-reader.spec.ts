@@ -1,4 +1,4 @@
-import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { mkdir, readFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { join, resolve } from 'node:path'
@@ -600,32 +600,46 @@ test('clears a PDF region draft when switching books or destroying the reader', 
   try {
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
+    await page.getByTestId('library-tab').click()
+    const complexBookId = await page.getByTestId('book-item').first().getAttribute('data-book-id')
+    if (!complexBookId) throw new Error('Expected a stable id for the complex PDF book')
+    const bookItemById = (targetPage: Page, bookId: string): Locator =>
+      targetPage.locator(`button[data-testid="book-item"][data-book-id="${bookId}"]`)
+
     await application.evaluate(({ dialog }, fixturePath) => {
       dialog.showOpenDialog = (async () => (
         { canceled: false, filePaths: [fixturePath], bookmarks: [] }
       )) as unknown as typeof dialog.showOpenDialog
     }, textPdf)
-    await page.getByTestId('library-tab').click()
     await page.getByTestId('import-book').click()
     await expect(page.getByTestId('book-item')).toHaveCount(2)
+    const textBookId = (await page.getByTestId('book-item').evaluateAll((buttons) => (
+      buttons.map((button) => button.getAttribute('data-book-id'))
+    ))).find((bookId) => bookId !== complexBookId)
+    if (!textBookId) throw new Error('Expected a stable id for the text PDF book')
     await expect(page.getByRole('heading', { name: 'PDF 阅读测试', exact: true })).toBeVisible()
 
     await page.getByTestId('library-tab').click()
-    await page.getByTestId('book-item').filter({ hasText: '复杂排版 PDF 划词测试' }).click()
+    const firstComplexBook = bookItemById(page, complexBookId)
+    await expect(firstComplexBook).toBeVisible()
+    await firstComplexBook.evaluate((button) => (button as HTMLButtonElement).click())
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
     await page.getByTestId('pdf-region-select').click()
     await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
     await expect(page.getByTestId('pdf-selection-review')).toBeVisible()
 
     await page.getByTestId('library-tab').evaluate((button) => (button as HTMLButtonElement).click())
-    const otherBook = page.getByTestId('book-item').filter({ hasText: 'PDF 阅读测试' })
+    const otherBook = bookItemById(page, textBookId)
     await otherBook.evaluate((button) => (button as HTMLButtonElement).click())
     await expect(page.getByTestId('pdf-selection-review')).toHaveCount(0)
     await expect(page.locator('.pdf-region-overlay.is-draft')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'PDF 阅读测试', exact: true })).toBeVisible()
 
     await page.getByTestId('library-tab').click()
-    await page.getByTestId('book-item').filter({ hasText: '复杂排版 PDF 划词测试' }).click()
+    await expect(page.getByTestId('book-item')).toHaveCount(2, { timeout: 30_000 })
+    const secondComplexBook = bookItemById(page, complexBookId)
+    await expect(secondComplexBook).toBeVisible({ timeout: 30_000 })
+    await secondComplexBook.evaluate((button) => (button as HTMLButtonElement).click())
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
     await page.getByTestId('pdf-region-select').click()
     await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })

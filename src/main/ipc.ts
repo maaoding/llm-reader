@@ -11,6 +11,7 @@ import {
   bookIdSchema,
   highlightIdSchema,
   highlightSchema,
+  insightExportScopeSchema,
   insightHistorySchema,
   insightIdSchema,
   insightSchema,
@@ -89,6 +90,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.booksRead, dependencies, (_event, value) =>
     dependencies.library.readBook(parse(bookIdSchema, value))
   )
+  handle(IPC_CHANNELS.booksDelete, dependencies, (_event, value) =>
+    dependencies.library.deleteBook(parse(bookIdSchema, value))
+  )
   handle(IPC_CHANNELS.booksCover, dependencies, (_event, value) =>
     dependencies.library.getBookCover(parse(bookIdSchema, value))
   )
@@ -115,6 +119,20 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.insightsList, dependencies, (_event, value) =>
     dependencies.library.listInsights(parse(bookIdSchema, value))
   )
+  handle(IPC_CHANNELS.insightsListAll, dependencies, () =>
+    dependencies.library.listAllInsights()
+  )
+  handle(IPC_CHANNELS.insightsExport, dependencies, async (_event, value) => {
+    const scope = parse(insightExportScopeSchema, value)
+    const result = await dialog.showSaveDialog(dependencies.window, {
+      title: copy('dialog.exportTitle'),
+      defaultPath: dependencies.library.insightExportDefaultName(scope),
+      filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    const fileName = await dependencies.library.exportInsights(scope, result.filePath)
+    return { canceled: false, fileName }
+  })
   handle(IPC_CHANNELS.insightsSave, dependencies, (_event, value) =>
     dependencies.library.saveInsight(parse(insightSchema, value))
   )

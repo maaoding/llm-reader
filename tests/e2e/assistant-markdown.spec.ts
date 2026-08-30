@@ -58,6 +58,12 @@ async function configureAndAsk(page: Page): Promise<void> {
   await page.getByTestId('action-explain').click()
 }
 
+async function openInsightsWorkspace(page: Page): Promise<void> {
+  await page.getByTestId('assistant-expand-button').click()
+  await expect(page.getByTestId('assistant-dialog')).toBeVisible()
+  await page.getByTestId('assistant-dialog-tab-insights').click()
+}
+
 test.beforeEach(() => {
   streamRequestCount = 0
 })
@@ -156,8 +162,8 @@ test('renders assistant markdown without breaking citation navigation', async ()
     await expect(answer.locator('.answer-footer')).toBeVisible()
     await expect(page.getByTestId('answer-save')).toContainText('归档')
     await page.getByTestId('answer-save').click()
-    await page.getByTestId('insights-tab').click()
-    await expect(page.getByTestId('insights-tab')).toContainText('归档')
+    await openInsightsWorkspace(page)
+    await expect(page.getByTestId('assistant-dialog-tab-insights')).toContainText('归档')
 
     const insight = page.getByTestId('insight-item')
     await expect(insight.locator('.answer-text h3')).toHaveText('解释')
@@ -178,7 +184,7 @@ test('renders assistant markdown without breaking citation navigation', async ()
 
     await insight.locator('.insight-content').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
-    await expect(page.getByTestId('insights-tab')).toBeVisible()
+    await expect(page.getByTestId('assistant-dialog-tab-insights')).toBeVisible()
     await expect(page.getByTestId('answer-current')).toBeVisible()
     await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('mock-assistant-markdown')
     await expect(page.locator('.question-bubble')).toContainText('请用清晰、准确的语言解释这段内容。')
@@ -245,7 +251,7 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     await configureAndAsk(page)
     await expect(page.getByTestId('answer-current').locator('.answer-footer')).toBeVisible()
     await page.getByTestId('answer-save').click()
-    await page.getByTestId('insights-tab').click()
+    await openInsightsWorkspace(page)
 
     await page.getByTestId('insight-item').locator('.insight-content').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
@@ -258,11 +264,10 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     await page.getByTestId('assistant-dialog-close').click()
     await expect(page.getByTestId('assistant-dialog')).toHaveCount(0)
 
-    // The temporary sidebar conversation stays intact while the archive dialog is closed.
-    await page.locator('.assistant-tabs button').first().click()
+    // The temporary sidebar conversation stays intact while the workspace is closed.
     await expect(page.getByTestId('answer-current')).toContainText('这段')
     await expect(page.locator('.question-bubble')).toHaveCount(1)
-    await page.getByTestId('insights-tab').click()
+    await openInsightsWorkspace(page)
     await page.getByTestId('insight-item').locator('.insight-content').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
     await expect(page.locator('.assistant-dialog .question-bubble')).toHaveCount(2)
@@ -273,9 +278,8 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     const restoredPage = restarted.page
     await restoredPage.getByTestId('book-item').first().click()
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
-    await restoredPage.locator('.assistant-tabs button').first().click()
     await expect(restoredPage.locator('.conversation-turn')).toHaveCount(0)
-    await restoredPage.getByTestId('insights-tab').click()
+    await openInsightsWorkspace(restoredPage)
     await restoredPage.getByTestId('insight-item').locator('.insight-content').click()
     await expect(restoredPage.getByTestId('assistant-dialog')).toBeVisible()
     await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(2)

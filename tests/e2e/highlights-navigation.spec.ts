@@ -83,8 +83,11 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
 
     await page.getByRole('button', { name: '目录', exact: true }).click()
     await page.locator('[data-testid="toc-item"][data-current="true"]').click()
-    await expect(page.getByTestId('reader-return-button')).toBeEnabled()
-    await page.getByTestId('reader-return-button').click()
+    const returnButton = page.getByTestId('reader-return-button')
+    await expect(returnButton).toBeEnabled()
+    await page.waitForTimeout(250)
+    await expect(returnButton).toBeEnabled()
+    await returnButton.click()
     await expect
       .poll(() => host.evaluate((element) => element.scrollTop))
       .toBeGreaterThan(naturalScrollTop - 96)

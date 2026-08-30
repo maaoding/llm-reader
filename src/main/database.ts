@@ -7,6 +7,8 @@ import type {
   BookRecord,
   BookSourceFormat,
   HighlightRecord,
+  InsightArchiveRecord,
+  InsightBookRef,
   SavedInsight,
   SaveHighlightInput,
   SaveInsightInput,
@@ -37,6 +39,12 @@ interface InsightRow {
   model: string
   created_at: string
   history_json: string
+}
+
+interface InsightArchiveRow extends InsightRow {
+  book_title: string
+  book_author: string | null
+  book_format: BookFormat
 }
 
 interface HighlightRow {
@@ -365,6 +373,11 @@ export class AppDatabase {
     this.connection.prepare('UPDATE books SET last_opened_at = ? WHERE id = ?').run(openedAt, id)
   }
 
+  deleteBook(id: string): boolean {
+    const result = this.connection.prepare('DELETE FROM books WHERE id = ?').run(id)
+    return result.changes > 0
+  }
+
   updateBookMetadata(id: string, title: string, author: string | null): BookRecord | null {
     const result = this.connection
       .prepare('UPDATE books SET title = ?, author = ? WHERE id = ?')
@@ -396,6 +409,37 @@ export class AppDatabase {
       createdAt: row.created_at,
       history: parseInsightHistory(row.history_json)
     }))
+  }
+
+  listAllInsights(): InsightArchiveRecord[] {
+    const rows = this.connection
+      .prepare(
+        `SELECT insights.*, books.title AS book_title, books.author AS book_author, books.format AS book_format
+         FROM insights
+         JOIN books ON books.id = insights.book_id
+         ORDER BY insights.created_at DESC`
+      )
+      .all() as unknown as InsightArchiveRow[]
+
+    return rows.map((row) => {
+      const book: InsightBookRef = {
+        id: row.book_id,
+        title: row.book_title,
+        author: row.book_author,
+        format: row.book_format
+      }
+      return {
+        id: row.id,
+        bookId: row.book_id,
+        book,
+        selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
+        question: row.question,
+        answer: row.answer,
+        model: row.model,
+        createdAt: row.created_at,
+        history: parseInsightHistory(row.history_json)
+      }
+    })
   }
 
   insertInsight(id: string, input: SaveInsightInput, createdAt: string): SavedInsight {

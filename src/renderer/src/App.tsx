@@ -59,6 +59,8 @@ import type {
   BookDetails,
   BookRecord,
   HighlightRecord,
+  InsightArchiveRecord,
+  InsightExportScope,
   LlmAction,
   LlmEvent,
   LlmUsage,
@@ -71,6 +73,7 @@ import type {
 import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
 import { AnswerText } from './AnswerText'
+import InsightsView from './InsightsView'
 import {
   assistantActionLabel,
   createDefaultAssistantActionSettings,
@@ -97,7 +100,6 @@ import {
 } from './readers'
 
 type LeftView = 'library' | 'toc' | 'highlights' | 'search'
-type RightView = 'assistant' | 'insights'
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type SearchState = 'idle' | 'searching' | 'ready' | 'error'
 type TurnStatus = 'streaming' | 'completed' | 'error'
@@ -131,13 +133,18 @@ interface ConversationTurn {
   saved?: boolean
 }
 
-type AssistantSession = 'conversation' | 'archive'
-type AssistantDialogSource = AssistantSession
+type AssistantDialogView = 'conversation' | 'insights'
+type ConversationTabKind = 'live' | 'archive'
 
-interface ArchiveSessionState {
-  insightId: string
-  selection: SelectionContext
+interface ConversationTab {
+  id: string
+  kind: ConversationTabKind
+  bookId: string
+  title: string
+  selection: SelectionContext | null
   turns: ConversationTurn[]
+  draft: string
+  insightId?: string
 }
 
 function turnsFromInsight(insight: SavedInsight): ConversationTurn[] {
@@ -168,6 +175,36 @@ function turnsFromInsight(insight: SavedInsight): ConversationTurn[] {
     index += 1
   }
   return turns
+}
+
+function compactTabTitle(value: string, fallback: string): string {
+  const compact = Array.from(value.replace(/\s+/gu, ' ').trim()).slice(0, 18).join('')
+  return compact || fallback
+}
+
+function createLiveTab(book: BookRecord): ConversationTab {
+  return {
+    id: `live-${book.id}`,
+    kind: 'live',
+    bookId: book.id,
+    title: book.title,
+    selection: null,
+    turns: [],
+    draft: ''
+  }
+}
+
+function createArchiveTab(insight: InsightArchiveRecord): ConversationTab {
+  return {
+    id: `archive-${insight.id}`,
+    kind: 'archive',
+    bookId: insight.bookId,
+    title: compactTabTitle(insight.question || insight.selection.quote, copy('assistant.insightLabel')),
+    selection: insight.selection,
+    turns: turnsFromInsight(insight),
+    draft: '',
+    insightId: insight.id
+  }
 }
 
 function historyFromTurns(turns: ConversationTurn[]): ArchivedChatMessage[] {
@@ -725,16 +762,21 @@ function BookProgressRow({ progress }: { progress: number }): ReactNode {
 function BookDetailsModal({
   book,
   returnFocusRef,
-  onClose
+  deleting,
+  onClose,
+  onDelete
 }: {
   book: BookRecord
   returnFocusRef: RefObject<HTMLButtonElement | null>
+  deleting: boolean
   onClose: () => void
+  onDelete: (book: BookRecord) => void
 }): ReactNode {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [details, setDetails] = useState<BookDetails | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const dialogRef = useRef<HTMLElement>(null)
   const coverUrl = useCoverPayloadUrl(details?.cover ?? null)
 
@@ -819,6 +861,51 @@ function BookDetailsModal({
             </div>
           </div>
         )}
+
+        <footer className="book-details-footer">
+          {confirmDelete ? (
+            <div
+              className="book-details-delete-confirmation"
+              data-testid="book-details-delete-confirmation"
+              role="group"
+              aria-label={copy('library.deleteQuestion', { title: book.title })}
+            >
+              <div>
+                <strong>{copy('library.deleteQuestion', { title: book.title })}</strong>
+                <p>{copy('library.deleteDetail')}</p>
+              </div>
+              <div className="book-details-delete-actions">
+                <button
+                  data-testid="book-details-delete-confirm"
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => onDelete(book)}
+                >
+                  {deleting && <LoaderCircle className="spin" size={14} />}
+                  {copy('common.confirm')}
+                </button>
+                <button
+                  data-testid="book-details-delete-cancel"
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  {copy('common.back')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="book-details-delete"
+              data-testid="book-details-delete"
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 size={14} />
+              {copy('library.deleteBook')}
+            </button>
+          )}
+        </footer>
       </section>
     </div>
   )
@@ -1536,18 +1623,18 @@ export default function App(): ReactNode {
   const [toc, setToc] = useState<TocItem[]>([])
   const [collapsedTocItems, setCollapsedTocItems] = useState<Set<string>>(() => new Set())
   const [leftView, setLeftView] = useState<LeftView>('library')
-  const [rightView, setRightView] = useState<RightView>('assistant')
   const [selection, setSelection] = useState<SelectionContext | null>(null)
   const [selectionDraft, setSelectionDraft] = useState<ReaderSelectionDraft | null>(null)
-  const [conversationSelection, setConversationSelection] = useState<SelectionContext | null>(null)
-  const [turns, setTurns] = useState<ConversationTurn[]>([])
+  const [conversationTabs, setConversationTabs] = useState<ConversationTab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
-  const [insights, setInsights] = useState<SavedInsight[]>([])
+  const [insights, setInsights] = useState<InsightArchiveRecord[]>([])
   const [insightsLoading, setInsightsLoading] = useState(false)
+  const [exportingInsights, setExportingInsights] = useState(false)
   const [highlights, setHighlights] = useState<HighlightRecord[]>([])
   const [highlightsLoading, setHighlightsLoading] = useState(false)
   const [pendingDeleteHighlightId, setPendingDeleteHighlightId] = useState<string | null>(null)
+  const [deletingBookId, setDeletingBookId] = useState<string | null>(null)
   const [currentLocator, setCurrentLocator] = useState<string | null>(null)
   const [naturalLocator, setNaturalLocator] = useState<string | null>(null)
   const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
@@ -1561,9 +1648,7 @@ export default function App(): ReactNode {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
-  const [assistantDialogSource, setAssistantDialogSource] = useState<AssistantDialogSource>('conversation')
-  const [archiveSession, setArchiveSession] = useState<ArchiveSessionState | null>(null)
-  const [archiveDraft, setArchiveDraft] = useState('')
+  const [assistantDialogView, setAssistantDialogView] = useState<AssistantDialogView>('conversation')
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
@@ -1579,8 +1664,9 @@ export default function App(): ReactNode {
   const adapterRef = useRef<ReaderAdapter | null>(null)
   const activeBookRef = useRef<BookRecord | null>(null)
   const activeRequestRef = useRef<string | null>(null)
-  const requestSessionRef = useRef(new Map<string, AssistantSession>())
-  const archiveSessionRef = useRef<ArchiveSessionState | null>(null)
+  const requestSessionRef = useRef(new Map<string, string>())
+  const conversationTabsRef = useRef<ConversationTab[]>([])
+  const activeTabIdRef = useRef<string | null>(null)
   const openSequenceRef = useRef(0)
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastProgressFlushRef = useRef(0)
@@ -1621,10 +1707,6 @@ export default function App(): ReactNode {
   useEffect(() => {
     activeBookRef.current = activeBook
   }, [activeBook])
-
-  useEffect(() => {
-    archiveSessionRef.current = archiveSession
-  }, [archiveSession])
 
   useEffect(() => {
     if (leftView !== 'search') return undefined
@@ -1768,11 +1850,10 @@ export default function App(): ReactNode {
     }
   }, [])
 
-  const refreshInsights = useCallback(async (bookId: string): Promise<void> => {
+  const refreshInsights = useCallback(async (): Promise<void> => {
     setInsightsLoading(true)
     try {
-      const records = await window.readerApi.listInsights(bookId)
-      if (activeBookRef.current?.id === bookId) setInsights(records)
+      setInsights(await window.readerApi.listAllInsights())
     } catch (error) {
       pushToast(readableError(error, copy('insights.readFailed')), 'error')
     } finally {
@@ -1839,28 +1920,56 @@ export default function App(): ReactNode {
     if (hostRef.current) hostRef.current.replaceChildren()
   }, [flushProgress])
 
+  const commitConversationTabs = useCallback(
+    (updater: (current: ConversationTab[]) => ConversationTab[]): ConversationTab[] => {
+      const next = updater(conversationTabsRef.current)
+      conversationTabsRef.current = next
+      setConversationTabs(next)
+      return next
+    },
+    []
+  )
+
+  const updateConversationTab = useCallback((tabId: string, updater: (tab: ConversationTab) => ConversationTab): void => {
+    commitConversationTabs((current) => current.map((tab) => tab.id === tabId ? updater(tab) : tab))
+  }, [commitConversationTabs])
+
+  const ensureLiveTab = useCallback((book: BookRecord): string => {
+    const existing = conversationTabsRef.current.find((tab) => tab.kind === 'live' && tab.bookId === book.id)
+    if (existing) return existing.id
+    const tab = createLiveTab(book)
+    commitConversationTabs((current) => [...current, tab])
+    return tab.id
+  }, [commitConversationTabs])
+
+  const focusConversationTab = useCallback((tabId: string): void => {
+    activeTabIdRef.current = tabId
+    setActiveTabId(tabId)
+  }, [])
+
+  const removeConversationTabsForBook = useCallback((bookId: string): void => {
+    const removedActiveId = activeTabIdRef.current
+      ? conversationTabsRef.current.find((tab) => tab.id === activeTabIdRef.current && tab.bookId === bookId)?.id
+      : undefined
+    const remaining = commitConversationTabs((current) => current.filter((tab) => tab.bookId !== bookId))
+    if (removedActiveId) {
+      const fallback = remaining[0]
+      activeTabIdRef.current = fallback?.id ?? null
+      setActiveTabId(fallback?.id ?? null)
+    }
+  }, [commitConversationTabs])
+
   const openBook = useCallback(async (book: BookRecord): Promise<void> => {
     const sequence = ++openSequenceRef.current
-    const previousRequest = activeRequestRef.current
-    if (previousRequest) {
-      activeRequestRef.current = null
-      void window.readerApi.cancelLlm(previousRequest).catch(() => undefined)
-    }
     destroyReader()
+    const liveTabId = ensureLiveTab(book)
+    focusConversationTab(liveTabId)
     setActiveBook(book)
     activeBookRef.current = book
     setBookState('loading')
     setBookError('')
     setSelection(null)
     setSelectionDraft(null)
-    setConversationSelection(null)
-    setTurns([])
-    setArchiveSession(null)
-    setArchiveDraft('')
-    archiveSessionRef.current = null
-    setActiveRequestId(null)
-    activeRequestRef.current = null
-    requestSessionRef.current.clear()
     setToc([])
     setCollapsedTocItems(new Set())
     setInsights([])
@@ -1916,7 +2025,7 @@ export default function App(): ReactNode {
       setToc(result.toc)
       setBookState('ready')
       setLeftView('toc')
-      void refreshInsights(book.id)
+      void refreshInsights()
       void refreshHighlights(book.id)
 
       const nextTitle = result.metadata.title.trim() || book.title
@@ -1939,7 +2048,7 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [destroyReader, pushToast, refreshHighlights, refreshInsights, scheduleProgress])
+  }, [destroyReader, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress])
 
   useEffect(() => {
     let alive = true
@@ -1949,8 +2058,9 @@ export default function App(): ReactNode {
         setLibraryError(copy('reader.bridgeFailed'))
         return
       }
-      const [, settings] = await Promise.all([
+      const [, , settings] = await Promise.all([
         refreshBooks(),
+        refreshInsights(),
         window.readerApi.getProviderSettings().catch(() => EMPTY_PROVIDER)
       ])
       if (!alive || providerRevisionRef.current !== 0) return
@@ -1966,11 +2076,9 @@ export default function App(): ReactNode {
       destroyReader()
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
-  }, [commitProviderSettings, destroyReader, refreshBooks, runProviderCheck])
+  }, [commitProviderSettings, destroyReader, refreshBooks, refreshInsights, runProviderCheck])
 
-  const persistArchiveHistory = useCallback(async (insightId: string, sessionTurns: ConversationTurn[]): Promise<void> => {
-    const bookId = activeBookRef.current?.id
-    if (!bookId) return
+  const persistArchiveHistory = useCallback(async (bookId: string, insightId: string, sessionTurns: ConversationTurn[]): Promise<void> => {
     const history = historyFromTurns(sessionTurns)
     if (history.length < 2) return
     try {
@@ -1984,7 +2092,8 @@ export default function App(): ReactNode {
   useEffect(() => {
     if (!window.readerApi) return undefined
     return window.readerApi.onLlmEvent((event: LlmEvent) => {
-      const session = requestSessionRef.current.get(event.requestId) ?? 'conversation'
+      const tabId = requestSessionRef.current.get(event.requestId)
+      const tab = tabId ? conversationTabsRef.current.find((candidate) => candidate.id === tabId) : undefined
       const applyUpdate = (current: ConversationTurn[]): ConversationTurn[] => current.map((turn) => {
         if (turn.requestId !== event.requestId) return turn
         if (event.type === 'delta') return { ...turn, answer: turn.answer + event.delta }
@@ -1992,17 +2101,12 @@ export default function App(): ReactNode {
         if (event.type === 'completed') return { ...turn, model: event.model, status: 'completed' }
         return { ...turn, status: 'error', error: event.message }
       })
-      if (session === 'archive') {
-        const current = archiveSessionRef.current
-        if (current) {
-          const turns = applyUpdate(current.turns)
-          const next = { ...current, turns }
-          archiveSessionRef.current = next
-          setArchiveSession(next)
-          if (event.type === 'completed') void persistArchiveHistory(current.insightId, turns)
+      if (tab) {
+        const turns = applyUpdate(tab.turns)
+        updateConversationTab(tab.id, (current) => ({ ...current, turns }))
+        if (event.type === 'completed' && tab.kind === 'archive' && tab.insightId) {
+          void persistArchiveHistory(tab.bookId, tab.insightId, turns)
         }
-      } else {
-        setTurns(applyUpdate)
       }
 
       if (event.type === 'completed' || event.type === 'error') {
@@ -2024,7 +2128,7 @@ export default function App(): ReactNode {
         }
       }
     })
-  }, [persistArchiveHistory])
+  }, [persistArchiveHistory, updateConversationTab])
   useEffect(() => {
     if (!window.readerApi) return undefined
     return window.readerApi.onBeforeClose(async () => {
@@ -2122,19 +2226,15 @@ export default function App(): ReactNode {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [assistantDialogOpen, bookState, detailsBook, openSearchView, settingsOpen])
 
-  const startRequest = useCallback(async (action: LlmAction, question: string, sourceSelection?: SelectionContext, session: AssistantSession = 'conversation'): Promise<void> => {
+  const startRequest = useCallback(async (action: LlmAction, question: string, tabId: string, sourceSelection?: SelectionContext): Promise<void> => {
     const cleanQuestion = question.trim()
     if (!cleanQuestion || activeRequestRef.current) return
-    const currentArchive = session === 'archive' ? archiveSession : null
-    if (session === 'archive' && !currentArchive) return
-
-    const context = session === 'archive'
-      ? currentArchive?.selection
-      : (sourceSelection ?? conversationSelection ?? selection)
+    const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
+    if (!tab) return
+    const context = sourceSelection ?? tab.selection
     if (!context) return
 
-    const sessionTurns = currentArchive ? currentArchive.turns : turns
-    const priorTurns = sessionTurns.filter((turn) => turn.status === 'completed' && turn.answer)
+    const priorTurns = tab.turns.filter((turn) => turn.status === 'completed' && turn.answer)
     const requestId = createId()
     const turn: ConversationTurn = {
       id: createId(),
@@ -2148,23 +2248,19 @@ export default function App(): ReactNode {
       status: 'streaming'
     }
 
-    if (session === 'archive' && currentArchive) {
-      const next = { ...currentArchive, turns: [...currentArchive.turns, turn] }
-      archiveSessionRef.current = next
-      setArchiveSession(next)
-      setArchiveDraft('')
-    } else {
-      const newContext = !conversationSelection || conversationSelection.anchor !== context.anchor
-      setConversationSelection(context)
-      setTurns(newContext ? [turn] : [...turns, turn])
-      setDraft('')
-      setRightView('assistant')
-    }
+    const newContext = !tab.selection || tab.selection.anchor !== context.anchor
+    updateConversationTab(tab.id, (current) => ({
+      ...current,
+      selection: context,
+      turns: newContext ? [turn] : [...current.turns, turn],
+      draft: ''
+    }))
+    focusConversationTab(tab.id)
     adapterRef.current?.clearSelection()
     setSelection(null)
     setActiveRequestId(requestId)
     activeRequestRef.current = requestId
-    requestSessionRef.current.set(requestId, session)
+    requestSessionRef.current.set(requestId, tab.id)
     const providerRevision = providerRevisionRef.current
     requestProviderRevisionRef.current.set(requestId, providerRevision)
 
@@ -2181,14 +2277,12 @@ export default function App(): ReactNode {
       })
     } catch (error) {
       const message = readableError(error, copy('error.requestStartFailed'))
-      const markFailed = (current: ConversationTurn[]): ConversationTurn[] => current.map((item) => (
-        item.requestId === requestId ? { ...item, status: 'error', error: message } : item
-      ))
-      if (session === 'archive') {
-        setArchiveSession((current) => current ? { ...current, turns: markFailed(current.turns) } : current)
-      } else {
-        setTurns(markFailed)
-      }
+      updateConversationTab(tab.id, (current) => ({
+        ...current,
+        turns: current.turns.map((item) => (
+          item.requestId === requestId ? { ...item, status: 'error', error: message } : item
+        ))
+      }))
       activeRequestRef.current = null
       setActiveRequestId(null)
       requestProviderRevisionRef.current.delete(requestId)
@@ -2198,7 +2292,7 @@ export default function App(): ReactNode {
         setProviderConnection({ status: 'disconnected', message })
       }
     }
-  }, [archiveSession, assistantActions, conversationSelection, provider.model, selection, turns])
+  }, [assistantActions, focusConversationTab, provider.model, updateConversationTab])
   // 划词工具栏跟随选区:出现时同步定位,滚动/缩放时按帧重算并直接写样式,
   // 避免经过 React 状态造成级联渲染。
   useLayoutEffect(() => {
@@ -2249,40 +2343,46 @@ export default function App(): ReactNode {
   }, [selection, bookState, interfaceScale])
 
   const handleSelectionAction = (action: LlmAction): void => {
-    if (!selection) return
+    if (!selection || !activeBook) return
+    const liveTabId = ensureLiveTab(activeBook)
     if (action === 'ask') {
-      const isNew = !conversationSelection || conversationSelection.anchor !== selection.anchor
-      setConversationSelection(selection)
-      if (isNew) setTurns([])
-      setRightView('assistant')
+      const liveTab = conversationTabsRef.current.find((tab) => tab.id === liveTabId)
+      const isNew = !liveTab?.selection || liveTab.selection.anchor !== selection.anchor
+      updateConversationTab(liveTabId, (tab) => ({
+        ...tab,
+        selection,
+        turns: isNew ? [] : tab.turns,
+        draft: tab.draft
+      }))
+      focusConversationTab(liveTabId)
       adapterRef.current?.clearSelection()
       setSelection(null)
       window.setTimeout(() => followupRef.current?.focus(), 0)
       return
     }
-    void startRequest(action, assistantActions[action].prompt, selection)
+    void startRequest(action, assistantActions[action].prompt, liveTabId, selection)
   }
 
   const cancelRequest = async (): Promise<void> => {
     const requestId = activeRequestRef.current
     if (!requestId) return
-    const session = requestSessionRef.current.get(requestId) ?? 'conversation'
+    const tabId = requestSessionRef.current.get(requestId)
     try {
       await window.readerApi.cancelLlm(requestId)
     } finally {
-      const markCancelled = (current: ConversationTurn[]): ConversationTurn[] => current.map((turn) => (
-        turn.requestId === requestId
-          ? {
-              ...turn,
-              status: 'error',
-              error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty')
-            }
-          : turn
-      ))
-      if (session === 'archive') {
-        setArchiveSession((current) => current ? { ...current, turns: markCancelled(current.turns) } : current)
-      } else {
-        setTurns(markCancelled)
+      if (tabId) {
+        updateConversationTab(tabId, (tab) => ({
+          ...tab,
+          turns: tab.turns.map((turn) => (
+            turn.requestId === requestId
+              ? {
+                  ...turn,
+                  status: 'error',
+                  error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty')
+                }
+              : turn
+          ))
+        }))
       }
       activeRequestRef.current = null
       setActiveRequestId(null)
@@ -2290,34 +2390,25 @@ export default function App(): ReactNode {
     }
   }
 
-  useEffect(() => {
-    if (assistantDialogOpen || assistantDialogSource !== 'archive') return
-    const requestId = activeRequestRef.current
-    if (!requestId) return
-    void window.readerApi.cancelLlm(requestId).catch(() => undefined)
-    const session = requestSessionRef.current.get(requestId)
-    if (session === 'archive') {
-      setArchiveSession((current) => current ? { ...current, turns: current.turns.map((turn) => (
-        turn.requestId === requestId
-          ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
-          : turn
-      )) } : current)
-    }
-    activeRequestRef.current = null
-    setActiveRequestId(null)
-    requestSessionRef.current.delete(requestId)
-  }, [assistantDialogOpen, assistantDialogSource])
-
-  const submitQuestion = (event: FormEvent): void => {
-    event.preventDefault()
-    if (!conversationSelection || !draft.trim()) return
-    void startRequest('ask', draft)
+  const submitTabQuestion = (tabId: string): void => {
+    const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
+    if (!tab?.selection || !tab.draft.trim()) return
+    void startRequest('ask', tab.draft, tabId)
   }
 
-  const submitArchiveQuestion = (event: FormEvent): void => {
+  const submitActiveQuestion = (event: FormEvent): void => {
     event.preventDefault()
-    if (!archiveSession || !archiveDraft.trim()) return
-    void startRequest('ask', archiveDraft, undefined, 'archive')
+    const tabId = activeTabIdRef.current
+    if (!tabId) return
+    submitTabQuestion(tabId)
+  }
+
+  const submitSidebarQuestion = (event: FormEvent): void => {
+    event.preventDefault()
+    const bookId = activeBookRef.current?.id
+    const tab = bookId ? conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId) : undefined
+    if (!tab) return
+    submitTabQuestion(tab.id)
   }
   const handleComposerKey = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -2355,27 +2446,51 @@ export default function App(): ReactNode {
     setCurrentChapterProgress(0)
   }, [navigateToAnchor])
 
-  const openInsight = useCallback((insight: SavedInsight): void => {
-    const requestId = activeRequestRef.current
-    if (requestId) {
-      activeRequestRef.current = null
-      setActiveRequestId(null)
-      requestSessionRef.current.delete(requestId)
-      void window.readerApi.cancelLlm(requestId).catch(() => undefined)
+  const openInsight = useCallback(async (insight: InsightArchiveRecord): Promise<void> => {
+    if (activeBookRef.current?.id !== insight.bookId) {
+      const book = books.find((candidate) => candidate.id === insight.bookId)
+      if (!book) {
+        pushToast(copy('insights.bookMissing'), 'error')
+        return
+      }
+      await openBook(book)
+      if (activeBookRef.current?.id !== insight.bookId || !adapterRef.current) {
+        pushToast(copy('reader.openFailed'), 'error')
+        return
+      }
+    }
+
+    let tabId = conversationTabsRef.current.find((tab) => tab.kind === 'archive' && tab.insightId === insight.id)?.id
+    if (!tabId) {
+      const tab = createArchiveTab(insight)
+      commitConversationTabs((current) => [...current, tab])
+      tabId = tab.id
     }
     adapterRef.current?.clearSelection()
     setSelection(null)
-    const session: ArchiveSessionState = {
-      insightId: insight.id,
-      selection: insight.selection,
-      turns: turnsFromInsight(insight)
-    }
-    archiveSessionRef.current = session
-    setArchiveSession(session)
-    setArchiveDraft('')
-    setAssistantDialogSource('archive')
+    focusConversationTab(tabId)
+    setAssistantDialogView('conversation')
     setAssistantDialogOpen(true)
-  }, [])
+  }, [books, commitConversationTabs, focusConversationTab, openBook, pushToast])
+
+  const activateSessionTab = useCallback(async (tabId: string): Promise<void> => {
+    const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
+    if (!tab) return
+    if (activeBookRef.current?.id !== tab.bookId) {
+      const book = books.find((candidate) => candidate.id === tab.bookId)
+      if (!book) {
+        pushToast(copy('insights.bookMissing'), 'error')
+        return
+      }
+      await openBook(book)
+      if (activeBookRef.current?.id !== tab.bookId || !adapterRef.current) {
+        pushToast(copy('reader.openFailed'), 'error')
+        return
+      }
+    }
+    focusConversationTab(tabId)
+    setAssistantDialogView('conversation')
+  }, [books, focusConversationTab, openBook, pushToast])
   const navigateToToc = useCallback(async (href: string, chapterTitle?: string): Promise<void> => {
     const adapter = adapterRef.current
     if (!adapter) return
@@ -2434,6 +2549,71 @@ export default function App(): ReactNode {
     }
   }
 
+  const closeBookSessionForDeletion = async (bookId: string): Promise<void> => {
+    if (activeBookRef.current?.id !== bookId) return
+    openSequenceRef.current += 1
+    const previousRequest = activeRequestRef.current
+    if (previousRequest) {
+      activeRequestRef.current = null
+      void window.readerApi.cancelLlm(previousRequest).catch(() => undefined)
+    }
+    activeRequestRef.current = null
+    requestSessionRef.current.delete(previousRequest ?? '')
+    setActiveRequestId(null)
+    await flushProgress()
+    destroyReader()
+    activeBookRef.current = null
+    setActiveBook(null)
+    setBookState('idle')
+    setBookError('')
+    setSelection(null)
+    setAssistantDialogOpen(false)
+    setToc([])
+    setCollapsedTocItems(new Set())
+    setInsights([])
+    setHighlights([])
+    setPendingDeleteHighlightId(null)
+    setCurrentLocator(null)
+    setNaturalLocator(null)
+    setCurrentChapterProgress(0)
+    setCurrentChapterTitle('')
+    setCurrentChapterHref(null)
+    setSearchQuery('')
+    setSearchResults([])
+    setSearchState('idle')
+    setSearchError('')
+    naturalPositionRef.current = { locator: null, progress: 0 }
+    if (detailsBook?.id === bookId) setDetailsBook(null)
+    setLeftView('library')
+
+    removeConversationTabsForBook(bookId)
+  }
+
+  const deleteBook = async (book: BookRecord): Promise<void> => {
+    if (deletingBookId) return
+    setDeletingBookId(book.id)
+    try {
+      if (activeBookRef.current?.id === book.id) {
+        await closeBookSessionForDeletion(book.id)
+      }
+      const deleted = await window.readerApi.deleteBook(book.id)
+      if (detailsBook?.id === book.id) setDetailsBook(null)
+      if (deleted) {
+        setBooks((current) => current.filter((item) => item.id !== book.id))
+        removeConversationTabsForBook(book.id)
+        await refreshInsights()
+        pushToast(copy('library.deletedToast', { title: book.title }), 'success')
+      } else {
+        await refreshBooks()
+        pushToast(copy('library.alreadyRemoved'), 'neutral')
+      }
+    } catch (error) {
+      pushToast(readableError(error, copy('library.deleteFailed')), 'error')
+    } finally {
+      setDeletingBookId(null)
+    }
+  }
+
   const deleteHighlight = async (highlightId: string): Promise<void> => {
     try {
       const deleted = await window.readerApi.deleteHighlight(highlightId)
@@ -2451,42 +2631,106 @@ export default function App(): ReactNode {
       const deleted = await window.readerApi.deleteInsight(insightId)
       setPendingDeleteInsightId(null)
       setInsights((current) => current.filter((insight) => insight.id !== insightId))
-      if (archiveSessionRef.current?.insightId === insightId) {
-        archiveSessionRef.current = null
-        setArchiveSession(null)
-        setArchiveDraft('')
-        if (assistantDialogSource === 'archive' && assistantDialogOpen) setAssistantDialogOpen(false)
+
+      const removedTab = conversationTabsRef.current.find((tab) => tab.kind === 'archive' && tab.insightId === insightId)
+      const remaining = commitConversationTabs((current) => {
+        let next = current.filter((tab) => tab.kind !== 'archive' || tab.insightId !== insightId)
+        if (target) {
+          next = next.map((tab) => ({
+            ...tab,
+            turns: tab.turns.map((turn) => (
+              turn.question === target.question && turn.answer === target.answer
+                ? { ...turn, saved: false }
+                : turn
+            ))
+          }))
+        }
+        return next
+      })
+      if (removedTab && activeTabIdRef.current === removedTab.id) {
+        const activeBookId = activeBookRef.current?.id
+        const fallback = remaining.find((tab) => tab.kind === 'live' && tab.bookId === activeBookId) ?? remaining[0]
+        activeTabIdRef.current = fallback?.id ?? null
+        setActiveTabId(fallback?.id ?? null)
       }
-      if (target) {
-        setTurns((current) => current.map((turn) => turn.question === target.question && turn.answer === target.answer ? { ...turn, saved: false } : turn))
-      }
-      if (!deleted && activeBook) void refreshInsights(activeBook.id)
+
+      if (!deleted) void refreshInsights()
       pushToast(deleted ? copy('insights.removed') : copy('insights.alreadyRemoved'), 'neutral')
     } catch (error) {
       pushToast(readableError(error, copy('insights.removeFailed')), 'error')
     }
   }
 
-  const saveTurn = async (turn: ConversationTurn): Promise<void> => {
-    if (!activeBook || turn.status !== 'completed' || !turn.answer || turn.saved) return
+  const handleExportInsights = async (scope: InsightExportScope): Promise<void> => {
+    if (exportingInsights) return
+    setExportingInsights(true)
+    try {
+      const result = await window.readerApi.exportInsights(scope)
+      if (!result.canceled) {
+        pushToast(copy('insights.exportedToast', { fileName: result.fileName }), 'success')
+      }
+    } catch (error) {
+      pushToast(readableError(error, copy('insights.exportFailed')), 'error')
+    } finally {
+      setExportingInsights(false)
+    }
+  }
+
+  const saveTurn = async (tabId: string, turn: ConversationTurn): Promise<void> => {
+    const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
+    if (!tab || turn.status !== 'completed' || !turn.answer || turn.saved) return
     try {
       await window.readerApi.saveInsight({
-        bookId: activeBook.id,
+        bookId: tab.bookId,
         selection: turn.selection,
         question: turn.question,
         answer: turn.answer,
         model: turn.model || provider.model
       })
-      setTurns((current) => current.map((item) => item.id === turn.id ? { ...item, saved: true } : item))
-      await refreshInsights(activeBook.id)
+      updateConversationTab(tabId, (current) => ({
+        ...current,
+        turns: current.turns.map((item) => item.id === turn.id ? { ...item, saved: true } : item)
+      }))
+      await refreshInsights()
       pushToast(copy('insights.savedToast'), 'success')
     } catch (error) {
       pushToast(readableError(error, copy('insights.saveFailed')), 'error')
     }
   }
 
-  const canAsk = Boolean(conversationSelection && !activeRequestId)
-  const canAskArchive = Boolean(archiveSession && !activeRequestId)
+  const closeConversationTab = (tabId: string): void => {
+    const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
+    if (!tab || (tab.kind === 'live' && tab.bookId === activeBookRef.current?.id)) return
+    const remaining = commitConversationTabs((current) => current.filter((candidate) => candidate.id !== tabId))
+    if (activeTabIdRef.current === tabId) {
+      const activeBookId = activeBookRef.current?.id
+      const fallback = remaining.find((candidate) => candidate.kind === 'live' && candidate.bookId === activeBookId) ?? remaining[0]
+      activeTabIdRef.current = fallback?.id ?? null
+      setActiveTabId(fallback?.id ?? null)
+    }
+  }
+
+  const activeConversationTab = conversationTabs.find((tab) => tab.id === activeTabId)
+  const sidebarTab = activeBook
+    ? conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id)
+    : undefined
+  const visibleSessionTabs = useMemo(() => {
+    const tabs = conversationTabs.filter((tab) => (
+      tab.kind === 'archive' ||
+      tab.bookId === activeBook?.id ||
+      tab.turns.length > 0 ||
+      Boolean(tab.selection) ||
+      Boolean(tab.draft)
+    ))
+    const currentLiveIndex = tabs.findIndex((tab) => tab.kind === 'live' && tab.bookId === activeBook?.id)
+    if (currentLiveIndex > 0) {
+      const [currentLive] = tabs.splice(currentLiveIndex, 1)
+      tabs.unshift(currentLive)
+    }
+    return tabs
+  }, [activeBook?.id, conversationTabs])
+  const canAskSidebar = Boolean(sidebarTab?.selection && !activeRequestId)
+  const canAskWorkbench = Boolean(activeConversationTab?.selection && !activeRequestId)
   const visibleToc = useMemo(() => {
     const ancestorIds: string[] = []
     return toc.map((item, index) => {
@@ -2841,70 +3085,35 @@ export default function App(): ReactNode {
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
           <div className="assistant-header-actions">
-            <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => { setAssistantDialogSource('conversation'); setAssistantDialogOpen(true) }}><Maximize2 size={17} /></button>
+            <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => {
+              if (activeBook) focusConversationTab(ensureLiveTab(activeBook))
+              setAssistantDialogView('conversation')
+              setAssistantDialogOpen(true)
+            }}><Maximize2 size={17} /></button>
             <WindowControls />
           </div>
         </header>
 
-        <nav className="assistant-tabs" aria-label={copy('assistant.viewsAria')}>
-          <button className={rightView === 'assistant' ? 'is-active' : ''} type="button" onClick={() => setRightView('assistant')}>{copy('assistant.tabConversation')}</button>
-          <button className={rightView === 'insights' ? 'is-active' : ''} data-testid="insights-tab" type="button" onClick={() => setRightView('insights')}>
-            {copy('assistant.tabInsights')}{insights.length > 0 && <span>{insights.length}</span>}
-          </button>
-        </nav>
-
-        {rightView === 'assistant' && !assistantDialogOpen && (
-          <ConversationPane conversationSelection={conversationSelection} turns={turns} provider={provider} activeRequestId={activeRequestId} draft={draft} canAsk={canAsk} followupRef={followupRef} onDraftChange={setDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onSave={(turn) => void saveTurn(turn)} onCancel={() => void cancelRequest()} onSubmit={submitQuestion} onComposerKey={handleComposerKey} />
-        )}
-
-        {rightView === 'insights' && (
-          <div className="insights-view">
-            {insightsLoading && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('insights.loading')}</div>}
-            {!insightsLoading && !activeBook && <EmptyState icon={<Bookmark size={20} />} title={copy('insights.noBookTitle')} detail={copy('insights.noBookDetail')} />}
-            {!insightsLoading && activeBook && insights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title={copy('insights.emptyTitle')} detail={copy('insights.emptyDetail')} />}
-            <div className="insight-list">
-              {insights.map((insight) => (
-                <article
-                  className="insight-item"
-                  data-testid="insight-item"
-                  data-insight-id={insight.id}
-                  key={insight.id}
-                >
-                  <div
-                    className="insight-content"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => void openInsight(insight)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        openInsight(insight)
-                      }
-                    }}
-                  >
-                    <span className="insight-quote">“{insight.selection.quote}”</span>
-                    <strong className="insight-question">{insight.question}</strong>
-                    <AnswerText text={insight.answer} selection={insight.selection} readOnly />
-                  </div>
-                  <footer>
-                    <span>{insight.selection.chapterTitle || copy('common.currentChapter')} · {formatDate(insight.createdAt)}</span>
-                    {pendingDeleteInsightId === insight.id ? (
-                      <span className="insight-delete-confirmation">
-                        <span>{copy('insights.removeQuestion')}</span>
-                        <button data-testid="insight-delete-confirm" type="button" onClick={() => void deleteInsight(insight.id)}>{copy('common.confirm')}</button>
-                        <button data-testid="insight-delete-cancel" type="button" onClick={() => setPendingDeleteInsightId(null)}>{copy('common.back')}</button>
-                      </span>
-                    ) : (
-                      <span className="insight-actions">
-                        <button type="button" onClick={() => void navigateToAnchor(insight.selection.anchor)}>{copy('insights.backToSource')} <ChevronRight size={12} /></button>
-                        <button data-testid="insight-delete" type="button" aria-label={copy('insights.removeAria')} onClick={() => setPendingDeleteInsightId(insight.id)}><Trash2 size={13} /></button>
-                      </span>
-                    )}
-                  </footer>
-                </article>
-              ))}
-            </div>
-          </div>
+        {!assistantDialogOpen && (
+          <ConversationPane
+            conversationSelection={sidebarTab?.selection ?? null}
+            turns={sidebarTab?.turns ?? []}
+            provider={provider}
+            activeRequestId={activeRequestId}
+            draft={sidebarTab?.draft ?? ''}
+            canAsk={canAskSidebar}
+            followupRef={followupRef}
+            onDraftChange={(value) => {
+              if (sidebarTab) updateConversationTab(sidebarTab.id, (tab) => ({ ...tab, draft: value }))
+            }}
+            onNavigate={(anchor) => void navigateToAnchor(anchor)}
+            onSave={(turn) => {
+              if (sidebarTab) void saveTurn(sidebarTab.id, turn)
+            }}
+            onCancel={() => void cancelRequest()}
+            onSubmit={submitSidebarQuestion}
+            onComposerKey={handleComposerKey}
+          />
         )}
       </aside>
 
@@ -2917,11 +3126,88 @@ export default function App(): ReactNode {
               <div><h2 id="assistant-dialog-title">{copy('assistant.dialogTitle')}</h2></div>
               <button className="icon-button" data-testid="assistant-dialog-close" type="button" onClick={closeAssistantDialog} aria-label={copy('assistant.closeDialog')}><X size={18} /></button>
             </header>
+            <nav className="assistant-workspace-nav" aria-label={copy('assistant.viewsAria')}>
+              <div className="assistant-session-tabs" role="tablist" aria-label={copy('assistant.viewsAria')}>
+                {visibleSessionTabs.map((tab) => {
+                  const isActive = assistantDialogView === 'conversation' && activeTabId === tab.id
+                  const isCurrentLive = tab.kind === 'live' && tab.bookId === activeBook?.id
+                  const closable = !isCurrentLive
+                  return (
+                    <div className={`assistant-session-tab ${isActive ? 'is-active' : ''}`} key={tab.id}>
+                      <button
+                        className="assistant-session-tab-select"
+                        data-testid="assistant-session-tab"
+                        data-tab-id={tab.id}
+                        data-tab-kind={tab.kind}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        title={isCurrentLive ? copy('assistant.tabCurrent') : tab.title}
+                        onClick={() => void activateSessionTab(tab.id)}
+                      >
+                        <span>{isCurrentLive ? copy('assistant.tabCurrent') : tab.title}</span>
+                      </button>
+                      {closable && (
+                        <button
+                          className="assistant-session-tab-close"
+                          data-testid="assistant-session-tab-close"
+                          type="button"
+                          aria-label={copy('assistant.closeTab')}
+                          onClick={() => closeConversationTab(tab.id)}
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              <button
+                className="assistant-insights-toggle"
+                data-testid="assistant-dialog-tab-insights"
+                type="button"
+                role="tab"
+                aria-selected={assistantDialogView === 'insights'}
+                onClick={() => setAssistantDialogView('insights')}
+              >
+                {copy('assistant.tabInsights')}{insights.length > 0 && <span>{insights.length}</span>}
+              </button>
+            </nav>
             <div className="assistant-dialog-body">
-              {assistantDialogSource === 'archive' && archiveSession ? (
-                <ConversationPane conversationSelection={archiveSession.selection} turns={archiveSession.turns} provider={provider} activeRequestId={activeRequestId} draft={archiveDraft} canAsk={canAskArchive} followupRef={followupRef} onDraftChange={setArchiveDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onCancel={() => void cancelRequest()} onSubmit={submitArchiveQuestion} onComposerKey={handleComposerKey} showSave={false} />
+              {assistantDialogView === 'insights' ? (
+                <InsightsView
+                  insights={insights}
+                  loading={insightsLoading}
+                  activeBookId={activeBook?.id ?? null}
+                  pendingDeleteInsightId={pendingDeleteInsightId}
+                  exporting={exportingInsights}
+                  onOpenInsight={(insight) => void openInsight(insight)}
+                  onRequestDeleteInsight={(id) => setPendingDeleteInsightId(id)}
+                  onDeleteInsight={(id) => void deleteInsight(id)}
+                  onCancelDeleteInsight={() => setPendingDeleteInsightId(null)}
+                  onExportInsights={(scope) => void handleExportInsights(scope)}
+                />
+              ) : activeConversationTab ? (
+                <ConversationPane
+                  conversationSelection={activeConversationTab.selection}
+                  turns={activeConversationTab.turns}
+                  provider={provider}
+                  activeRequestId={activeRequestId}
+                  draft={activeConversationTab.draft}
+                  canAsk={canAskWorkbench}
+                  followupRef={followupRef}
+                  onDraftChange={(value) => updateConversationTab(activeConversationTab.id, (tab) => ({ ...tab, draft: value }))}
+                  onNavigate={(anchor) => void navigateToAnchor(anchor)}
+                  onSave={activeConversationTab.kind === 'live' ? (turn) => void saveTurn(activeConversationTab.id, turn) : undefined}
+                  showSave={activeConversationTab.kind === 'live'}
+                  onCancel={() => void cancelRequest()}
+                  onSubmit={submitActiveQuestion}
+                  onComposerKey={handleComposerKey}
+                />
               ) : (
-                <ConversationPane conversationSelection={conversationSelection} turns={turns} provider={provider} activeRequestId={activeRequestId} draft={draft} canAsk={canAsk} followupRef={followupRef} onDraftChange={setDraft} onNavigate={(anchor) => void navigateToAnchor(anchor)} onSave={(turn) => void saveTurn(turn)} onCancel={() => void cancelRequest()} onSubmit={submitQuestion} onComposerKey={handleComposerKey} />
+                <div className="assistant-dialog-empty">
+                  <EmptyState icon={<Sparkles size={21} />} title={copy('assistant.emptyTitle')} detail={copy('assistant.emptyDetail')} />
+                </div>
               )}
             </div>
           </section>
@@ -2953,7 +3239,9 @@ export default function App(): ReactNode {
           key={detailsBook.id}
           book={detailsBook}
           returnFocusRef={detailsReturnFocusRef}
+          deleting={deletingBookId === detailsBook.id}
           onClose={closeBookDetails}
+          onDelete={(book) => void deleteBook(book)}
         />
       )}
 

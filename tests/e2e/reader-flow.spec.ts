@@ -643,8 +643,11 @@ test('persists reading, conversation and insight deletion after restart', async 
       await page.getByTestId('settings-close').click()
     }
     await page.getByTestId('answer-save').click()
-    await expect.poll(() => page.locator('.assistant-tabs button span').evaluate((element) => getComputedStyle(element).fontSize)).toBe('11.25px')
-    await page.getByTestId('insights-tab').click()
+    await page.getByTestId('assistant-expand-button').click()
+    const insightsTab = page.getByTestId('assistant-dialog-tab-insights')
+    await expect(insightsTab).toContainText('归档')
+    await expect.poll(() => insightsTab.locator('span').evaluate((element) => getComputedStyle(element).fontSize)).toBe('11.25px')
+    await insightsTab.click()
     const insight = page.getByTestId('insight-item')
     await expect(insight).toContainText('适用边界')
     await expect(insight).toContainText('原文：')
@@ -688,8 +691,11 @@ test('persists reading, conversation and insight deletion after restart', async 
     await expect
       .poll(() => restoredPage.getByTestId('reader-host').evaluate((element) => element.scrollTop))
       .toBeGreaterThan(50)
-    await restoredPage.getByTestId('insights-tab').click()
+    await restoredPage.getByTestId('assistant-expand-button').click()
+    await restoredPage.getByTestId('assistant-dialog-tab-insights').click()
     await expect(restoredPage.getByTestId('insight-item')).toHaveCount(0)
+    await restoredPage.getByTestId('assistant-dialog-close').click()
+    await expect(restoredPage.getByTestId('assistant-dialog')).toHaveCount(0)
 
     const restoredDocument = restoredPage.locator('.reader-document--txt')
     await expect.poll(() => restoredDocument.evaluate((element) => element.style.fontSize)).toBe('125%')
