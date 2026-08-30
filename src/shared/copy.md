@@ -215,7 +215,7 @@
 | settings.activeProfile | 当前使用 |
 | settings.setActive | 设为当前 |
 | settings.profileLimit | 最多保存 10 套配置。 |
-| settings.noProfiles | 暂无模型配置，请新建一套配置。 |
+| settings.newProfilePlaceholder | 新配置（未保存） |
 | settings.discardChanges | 当前修改尚未保存，确定放弃吗？ |
 | settings.deleteProfileQuestion | 确定删除配置“{name}”及其密钥吗？ |
 | settings.baseUrlLabel | 接口地址 |

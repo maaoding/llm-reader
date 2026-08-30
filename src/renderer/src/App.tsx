@@ -1719,7 +1719,7 @@ function SettingsModal({
                           else loadNewProfile()
                         }}
                       >
-                        {!selectedProfileId && <option value="">{copy('settings.newProfile')}</option>}
+                        {!selectedProfileId && <option value="">{copy('settings.newProfilePlaceholder')}</option>}
                         {overview.profiles.map((profile) => (
                           <option key={profile.id} value={profile.id}>
                             {profile.name}{profile.isActive ? ` · ${copy('settings.activeProfile')}` : ''}
