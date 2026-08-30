@@ -1749,6 +1749,7 @@ function SettingsModal({
                     </div>
                   </div>
                   {overview.profiles.length >= 10 && <p className="field-hint">{copy('settings.profileLimit')}</p>}
+                  {dirty && <p className="field-hint" data-testid="provider-dirty-hint">{copy('settings.unsavedHint')}</p>}
 
                   <label className="field-label" htmlFor="provider-profile-name">{copy('settings.profileNameLabel')}</label>
                   <input

@@ -186,6 +186,7 @@ export const COPY_KEYS = [
   'settings.setActive',
   'settings.profileLimit',
   'settings.newProfilePlaceholder',
+  'settings.unsavedHint',
   'settings.discardChanges',
   'settings.deleteProfileQuestion',
   'settings.baseUrlLabel',

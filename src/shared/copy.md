@@ -216,6 +216,7 @@
 | settings.setActive | 设为当前 |
 | settings.profileLimit | 最多保存 10 套配置。 |
 | settings.newProfilePlaceholder | 新配置（未保存） |
+| settings.unsavedHint | 有未保存的修改，切换或关闭前请先保存。 |
 | settings.discardChanges | 当前修改尚未保存，确定放弃吗？ |
 | settings.deleteProfileQuestion | 确定删除配置“{name}”及其密钥吗？ |
 | settings.baseUrlLabel | 接口地址 |
