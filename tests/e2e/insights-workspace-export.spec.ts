@@ -76,7 +76,9 @@ test.beforeAll(async () => {
       }
 
       streamRequestCount += 1
-      const answer = streamRequestCount === 1 ? '这是第一本书的归档回答。' : '这是第二本书的归档回答。'
+      const answer = streamRequestCount === 1
+        ? '这是第一本书的归档回答。'
+        : '这是第二本书的归档回答。\n\n第二本书的回答还有很长的补充内容，用来验证归档卡片的回答预览会在超过三行时截断，并以渐隐提示还有更多内容。补充段落继续展开第二本书的上下文：先回顾开篇的边界条件，再说明行为如何随环境变化，最后给出适用于长文本截断场景的阅读建议，避免读者误以为正文到此为止。'
       response.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache',
@@ -199,6 +201,10 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     await expect(bodyMatch.locator('.answer-md mark')).toHaveText(['的归档回答'])
     await search.fill('')
     await expect(page.getByTestId('insight-item')).toHaveCount(2)
+    const longAnswerCard = page.locator('[data-testid="insight-item"]').filter({ hasText: '这是第二本书的归档回答。' })
+    await expect(longAnswerCard.locator('.answer-md')).toHaveClass(/is-clamped/)
+    const shortAnswerCard = page.locator('[data-testid="insight-item"]').filter({ hasText: '这是第一本书的归档回答。' })
+    await expect(shortAnswerCard.locator('.answer-md')).not.toHaveClass(/is-clamped/)
 
     await firstInsight.locator('.insight-content').click()
     await expect(page.locator('.assistant-session-tab.is-active [role="tab"]')).toHaveAttribute('aria-selected', 'true')

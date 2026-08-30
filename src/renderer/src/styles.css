@@ -2433,6 +2433,11 @@ button.citation-valid:hover {
   line-height: 1.55;
 }
 
+/* 仅当回答被三行截断时，末行渐隐提示“还有更多”；短回答不渐隐 */
+.insight-content .answer-text.is-clamped {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.55em), transparent);
+}
+
 .insight-item footer {
   display: flex;
   align-items: center;

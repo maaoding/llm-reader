@@ -1,5 +1,5 @@
 import { Bookmark, Download, LoaderCircle, Search, SearchX, Trash2 } from 'lucide-react'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { InsightArchiveRecord, InsightExportScope } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { MarkedText } from './MarkedText'
@@ -57,6 +57,7 @@ export default function InsightsView({
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<InsightScope>('all')
   const needle = normalizeNeedle(query)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const scopeRecords = useMemo(
     () => (scope === 'all' || !activeBookId ? insights : insights.filter((insight) => insight.bookId === activeBookId)),
@@ -73,6 +74,20 @@ export default function InsightsView({
       insight.answer
     ].some((value) => value.toLocaleLowerCase('zh-CN').includes(needle)))
   }, [needle, scopeRecords])
+
+  useEffect(() => {
+    const list = listRef.current
+    if (!list) return undefined
+    const update = (): void => {
+      for (const answer of list.querySelectorAll<HTMLElement>('.insight-content .answer-text')) {
+        answer.classList.toggle('is-clamped', answer.scrollHeight > answer.clientHeight + 1)
+      }
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(list)
+    return () => observer.disconnect()
+  }, [visibleRecords, needle, loading])
 
   const exportScope = (): InsightExportScope | null => {
     if (scope === 'all') return { kind: 'all' }
@@ -145,7 +160,7 @@ export default function InsightsView({
       )}
 
       {!loading && visibleRecords.length > 0 && (
-        <div className="insight-list">
+        <div className="insight-list" ref={listRef}>
           {visibleRecords.map((insight) => {
             return (
               <article
