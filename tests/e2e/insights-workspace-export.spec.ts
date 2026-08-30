@@ -145,6 +145,9 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
 
     await page.getByTestId('assistant-expand-button').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
+    const bookOneTab = page.locator('.assistant-session-tab-select').filter({ hasText: '理解一个复杂概念' })
+    await expect(bookOneTab).toHaveCount(1)
+    await expect(page.locator('.assistant-session-tab-select').filter({ hasText: 'complex-reading' })).toHaveCount(0)
     await page.getByTestId('assistant-dialog-tab-insights').click()
     await expect(page.getByTestId('insight-item')).toHaveCount(2)
     const firstInsight = page.getByTestId('insight-item').filter({ hasText: '这是第一本书的归档回答。' })

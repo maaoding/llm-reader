@@ -2332,6 +2332,9 @@ export default function App(): ReactNode {
           setActiveBook(updated)
           activeBookRef.current = updated
           setBooks((current) => current.map((item) => item.id === updated.id ? updated : item))
+          commitConversationTabs((current) => current.map((tab) => (
+            tab.kind === 'live' && tab.bookId === updated.id ? { ...tab, title: updated.title } : tab
+          )))
         } catch {
           // Metadata enrichment is optional; reading remains available.
         }
@@ -2344,7 +2347,7 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress])
+  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress])
 
   useEffect(() => {
     let alive = true
