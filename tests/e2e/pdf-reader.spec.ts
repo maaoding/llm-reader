@@ -165,14 +165,16 @@ test('reads, searches, disables native selection, zooms and follows only interna
 
     const fitWidth = page.getByRole('button', { name: '适合宽度', exact: true })
     await expect(fitWidth).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('适宽')
+    // 适宽时读数隐藏,避免与“适合宽度”开关同义并排。
+    await expect(page.getByTestId('pdf-zoom-value')).toBeHidden()
     await page.getByRole('button', { name: '放大', exact: true }).click()
     await page.getByRole('button', { name: '放大', exact: true }).click()
+    await expect(page.getByTestId('pdf-zoom-value')).toBeVisible()
     await expect(page.getByTestId('pdf-zoom-value')).toHaveText('130%')
     await expect(fitWidth).toHaveAttribute('aria-pressed', 'false')
     await assertHorizontalScroll(page)
     await fitWidth.click()
-    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('适宽')
+    await expect(page.getByTestId('pdf-zoom-value')).toBeHidden()
     await expect(fitWidth).toHaveAttribute('aria-pressed', 'true')
     await assertFitWidth(page)
 
@@ -304,7 +306,7 @@ test('tracks precise outline sections and keeps fit-width stable through rapid z
     await zoomIn.click()
     await zoomIn.click()
     await fitWidth.click()
-    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('适宽')
+    await expect(page.getByTestId('pdf-zoom-value')).toBeHidden()
     await expect(fitWidth).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('selection-toolbar')).toBeHidden()
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
@@ -424,8 +426,11 @@ test('disables native PDF selection and supports editable single-page region sel
     const regionButton = page.getByTestId('pdf-region-select')
     await regionButton.click()
     await expect(regionButton).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.toast')).toContainText('请在单页内框选')
     await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
     await expect(page.getByTestId('pdf-selection-review')).toBeVisible()
+    // 校对弹窗打开后,引导 toast 应被撤下,避免与弹窗说明重复。
+    await expect(page.locator('.toast')).toHaveCount(0)
     const reviewInput = page.getByTestId('pdf-selection-review-input')
     await expect(reviewInput).toHaveValue(/左栏第一行/u)
     await expect(reviewInput).not.toHaveValue(/右栏第一行/u)
@@ -735,7 +740,7 @@ test('accepts a local complex academic PDF without committing the source file', 
       await page.screenshot({ path: join(visualDirectory, 'pdf-real-custom-130-light-1440x900.png') })
     }
     await fitWidth.click()
-    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('适宽')
+    await expect(page.getByTestId('pdf-zoom-value')).toBeHidden()
     await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
       const pageForty = host.querySelector<HTMLElement>('.pdf-page[data-page-number="40"]')
       if (!pageForty) return false

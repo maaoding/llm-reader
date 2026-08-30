@@ -294,7 +294,6 @@ export const COPY_KEYS = [
   'reader.pdfZoomOut',
   'reader.pdfZoomIn',
   'reader.pdfFitWidth',
-  'reader.pdfFitWidthValue',
   'reader.pdfWholeDocument',
   'reader.pdfUntitledSection',
   'reader.pdfRegionSelect',

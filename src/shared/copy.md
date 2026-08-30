@@ -329,7 +329,6 @@
 | reader.pdfZoomOut | 缩小 |
 | reader.pdfZoomIn | 放大 |
 | reader.pdfFitWidth | 适合宽度 |
-| reader.pdfFitWidthValue | 适宽 |
 | reader.pdfWholeDocument | 全文 |
 | reader.pdfUntitledSection | 未命名小节 |
 | reader.pdfRegionSelect | 框选文字 |

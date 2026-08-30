@@ -426,7 +426,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const zoomValue = this.document.createElement('output')
     zoomValue.className = 'pdf-zoom-value'
     zoomValue.dataset.testid = 'pdf-zoom-value'
-    zoomValue.value = copy('reader.pdfFitWidthValue')
+    zoomValue.value = ''
+    zoomValue.toggleAttribute('hidden', true)
     const zoomIn = this.toolbarButton('+', copy('reader.pdfZoomIn'), () => this.changeZoom(ZOOM_STEP))
     const regionButton = this.toolbarButton(
       copy('reader.pdfRegionSelect'),
@@ -723,12 +724,12 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   private updateZoomUi(): void {
     const output = this.root?.querySelector<HTMLOutputElement>('.pdf-zoom-value')
-    if (output) {
-      output.value = this.zoomMode === 'fit-width'
-        ? copy('reader.pdfFitWidthValue')
-        : `${Math.round(this.zoomFactor * 100)}%`
-    }
     const isFitWidth = this.zoomMode === 'fit-width'
+    if (output) {
+      output.value = isFitWidth ? '' : `${Math.round(this.zoomFactor * 100)}%`
+      // 适宽时激活的开关即状态指示,隐藏读数,避免“适合宽度/适宽”同义并排。
+      output.toggleAttribute('hidden', isFitWidth)
+    }
     this.fitWidthButton?.setAttribute('aria-pressed', String(isFitWidth))
     this.fitWidthButton?.classList.toggle('is-active', isFitWidth)
   }

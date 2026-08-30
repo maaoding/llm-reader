@@ -2045,6 +2045,15 @@ export default function App(): ReactNode {
     toastTimerRef.current = setTimeout(() => setToast(null), 3200)
   }, [])
 
+  // PDF 框选校对弹窗打开时撤下引导 toast,避免与弹窗说明重复。
+  const dismissToast = useCallback((): void => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current)
+      toastTimerRef.current = null
+    }
+    setToast(null)
+  }, [])
+
   const commitProviderSettings = useCallback((settings: ProviderSettings): number => {
     const revision = providerRevisionRef.current + 1
     providerRevisionRef.current = revision
@@ -2298,7 +2307,10 @@ export default function App(): ReactNode {
           }
         },
         onSelectionChanged: setSelection,
-        onSelectionDraftChanged: setSelectionDraft,
+        onSelectionDraftChanged: (draft) => {
+          if (draft) dismissToast()
+          setSelectionDraft(draft)
+        },
         onNotice: ({ message, tone }) => pushToast(message, tone === 'info' ? 'neutral' : 'error')
       })
       adapterRef.current = adapter
@@ -2336,7 +2348,7 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [destroyReader, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress])
+  }, [destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress])
 
   useEffect(() => {
     let alive = true
