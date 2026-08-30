@@ -205,3 +205,64 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     await cleanupE2eWorkspace(application, workspace.root)
   }
 })
+
+test('keeps two archive tabs independent and closes the active one back to current', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-insights-tabs-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: firstFixture
+    })
+    application = launched.application
+    const { page } = launched
+
+    await page.getByTestId('book-item').first().click()
+    await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
+    await configureProvider(page)
+    await archiveSelection(page, '这是第一本书的归档回答。')
+
+    await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
+    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+    await page.getByTestId('action-explain').click()
+    await expect(page.getByTestId('answer-current')).toContainText('这是第二本书的归档回答。')
+    await expect(page.getByTestId('answer-save')).toBeVisible()
+    await page.getByTestId('answer-save').click()
+
+    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await expect(page.getByTestId('insight-item')).toHaveCount(2)
+
+    const firstInsight = page.getByTestId('insight-item').filter({ hasText: '这是第一本书的归档回答。' })
+    const secondInsight = page.getByTestId('insight-item').filter({ hasText: '这是第二本书的归档回答。' })
+    await firstInsight.locator('.insight-content').click()
+    await expect(page.locator('.assistant-session-tab.is-active [role="tab"]')).toHaveAttribute('aria-selected', 'true')
+    const followup = page.getByTestId('followup-input')
+    await followup.fill('第一份未发送草稿')
+    await expect(followup).toHaveValue('第一份未发送草稿')
+
+    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await secondInsight.locator('.insight-content').click()
+    await expect(followup).toHaveValue('')
+    await followup.fill('第二份未发送草稿')
+    await expect(followup).toHaveValue('第二份未发送草稿')
+
+    const archiveTabs = page.locator('.assistant-session-tab').filter({ has: page.locator('.assistant-session-tab-select[data-tab-kind="archive"]') })
+    await expect(archiveTabs).toHaveCount(2)
+    await archiveTabs.nth(0).locator('.assistant-session-tab-select').click()
+    await expect(followup).toHaveValue('第一份未发送草稿')
+    await archiveTabs.nth(1).locator('.assistant-session-tab-select').click()
+    await expect(followup).toHaveValue('第二份未发送草稿')
+
+    await archiveTabs.nth(1).locator('.assistant-session-tab-close').click()
+    await expect(archiveTabs).toHaveCount(1)
+    await expect(page.locator('.assistant-session-tab.is-active .assistant-session-tab-select[data-tab-kind="live"]')).toHaveAttribute('aria-selected', 'true')
+
+    await archiveTabs.nth(0).locator('.assistant-session-tab-select').click()
+    await expect(followup).toHaveValue('第一份未发送草稿')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
