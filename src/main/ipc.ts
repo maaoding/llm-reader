@@ -2,7 +2,7 @@ import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } fro
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
 import { copy } from '@shared/copy'
-import { BookImportCoordinator } from './book-import-coordinator'
+import { BookImportCoordinator, MAX_BOOK_IMPORT_BATCH } from './book-import-coordinator'
 import { AppError, toPublicError } from './errors'
 import { listSystemFonts } from './fonts'
 import { LibraryService } from './library-service'
@@ -60,6 +60,13 @@ function parse<T>(schema: ZodType<T>, value: unknown): T {
   return schema.parse(value)
 }
 
+function parseBatchPaths(value: unknown): string[] {
+  if (Array.isArray(value) && value.length > MAX_BOOK_IMPORT_BATCH) {
+    throw new AppError('IMPORT_BATCH_TOO_LARGE', copy('error.importBatchTooLarge'))
+  }
+  return parse(bookImportPathsSchema, value)
+}
+
 function safeIpcError(error: unknown): Error {
   if (error instanceof ZodError) {
     return new Error(`[INVALID_INPUT] ${copy('error.invalidInput')}`)
@@ -105,14 +112,14 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
         filters: [{ name: copy('dialog.importFilter'), extensions: ['epub', 'txt', 'pdf', 'mobi', 'azw3'] }]
       })
       if (result.canceled || result.filePaths.length === 0) return null
-      return dependencies.bookImporter.importPaths(parse(bookImportPathsSchema, result.filePaths))
+      return dependencies.bookImporter.importPaths(parseBatchPaths(result.filePaths))
     } finally {
       bookImportDialogOpen = false
     }
   })
   handle(IPC_CHANNELS.booksImportDropped, dependencies, (_event, value) => {
     if (bookImportDialogOpen) throw new AppError('IMPORT_BUSY', copy('error.importBusy'))
-    return dependencies.bookImporter.importPaths(parse(bookImportPathsSchema, value))
+    return dependencies.bookImporter.importPaths(parseBatchPaths(value))
   })
   handle(IPC_CHANNELS.booksImportCancel, dependencies, () => {
     dependencies.bookImporter.cancel()

@@ -96,6 +96,25 @@ describe('book import IPC', () => {
     expect(bookImporter.importPaths).not.toHaveBeenCalled()
   })
 
+  it('reports the batch-size limit before parsing oversized imports', async () => {
+    const oversized = Array.from({ length: 301 }, (_, index) => `C:\\books\\book-${index}.epub`)
+    const bookImporter = {
+      isBusy: vi.fn(() => false),
+      importPaths: vi.fn(async () => null),
+      cancel: vi.fn()
+    }
+    register(bookImporter)
+
+    electronMocks.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: oversized })
+    const picker = electronMocks.handlers.get(IPC_CHANNELS.booksImport)
+    await expect(picker?.(trustedEvent())).rejects.toThrow('[IMPORT_BATCH_TOO_LARGE]')
+
+    const dropped = electronMocks.handlers.get(IPC_CHANNELS.booksImportDropped)
+    await expect(dropped?.(trustedEvent(), oversized)).rejects.toThrow('[IMPORT_BATCH_TOO_LARGE]')
+
+    expect(bookImporter.importPaths).not.toHaveBeenCalled()
+  })
+
   it('forwards cancel only from the trusted renderer', async () => {
     const bookImporter = {
       isBusy: vi.fn(() => true),
