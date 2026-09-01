@@ -6,13 +6,23 @@
 
 <p align="center">本地优先、以 LLM 辅助理解复杂非虚构内容为核心的 Windows 桌面阅读器。</p>
 
-<p align="center">项目主页：<a href="https://llm-reader.maaoding.icu/">https://llm-reader.maaoding.icu/</a></p>
+<p align="center">
+  <a href="https://github.com/maaoding/llm-reader/releases/latest">下载最新版本</a>
+  ·
+  <a href="https://llm-reader.maaoding.icu/">项目主页</a>
+</p>
 
-## 当前状态
+<p align="center">
+  <img src="site/reader-workspace.png" alt="LLM Reader 阅读工作区截图" width="960" />
+</p>
+
+## 功能
 
 ### 书库与阅读
 
-- 导入无 DRM 的 EPUB、UTF-8 TXT 或 PDF；本机已安装 Calibre 时，也可将无 DRM 的 MOBI/AZW3 转换为 EPUB 后导入。支持文件多选与整窗拖拽，一次最多批量导入 300 个文件：逐本顺序处理、单项失败不中断批次，可随时取消，完成后显示汇总。文件复制到应用数据目录并按 SHA-256 去重，重复导入会直接打开已有书籍。单文件导入上限为 250 MB，其中 TXT 为 64 MB。
+- 支持导入无 DRM 的 EPUB、UTF-8 TXT 或 PDF；本机已安装 Calibre 时，还可将无 DRM 的 MOBI/AZW3 转换为 EPUB 后导入。
+- 支持文件多选与整窗拖拽批量导入（最多 300 个）：逐本顺序处理、单项失败不中断批次，可随时取消，完成后显示汇总；单文件上限为 250 MB，其中 TXT 为 64 MB。
+- 导入文件复制到应用数据目录并按 SHA-256 去重，重复导入会直接打开已有书籍。
 - 左侧提供书库、可折叠的层级目录和本书句段收藏三个视图；EPUB 书籍显示封面（大书库按可见范围懒加载），并可打开书籍信息查看格式、文件大小、语言、出版社、出版日期、简介等元数据。
 - 书籍详情页支持删除书籍；删除会同时清理本地书籍文件、封面缓存、句段收藏与归档回答，且无法恢复。
 - 连续滚动阅读并恢复上次自然阅读位置；目录、句段收藏与回答内引用的跳转不会覆盖该位置。PDF 以连续页方式阅读，支持适合宽度、缩放、页码进度与单页文字选择。
@@ -37,6 +47,12 @@
 - 书籍、自然阅读位置、句段收藏、回答归档（含追问历史）与模型设置保存在本机 SQLite（`node:sqlite`）。
 - API Key 由 Electron `safeStorage` 加密后写入独立密文文件，不进入 SQLite、日志或渲染进程持久状态。
 - Renderer 保持 `sandbox: true`、`contextIsolation: true`、`nodeIntegration: false`；窗口创建、导航、权限请求和外部网络请求均被拒绝，EPUB 内容按不可信输入处理。
+
+## 安装
+
+- 在 [GitHub Releases](https://github.com/maaoding/llm-reader/releases/latest) 下载最新的 `LLM Reader-x.y.z-setup.exe`。
+- 安装程序支持选择安装目录，并创建桌面与开始菜单快捷方式；当前安装包未签名，Windows 可能显示安全提示。
+- 如需导入 MOBI/AZW3，请先在系统中安装 [Calibre](https://calibre-ebook.com/)。
 
 ## 开发
 
