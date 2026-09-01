@@ -13,6 +13,7 @@ import {
   fontFamilyStack,
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
+  READING_PAGE_MARGIN_VALUES,
   READING_PARAGRAPH_SPACING_EM,
   READING_PAPER_THEME_TOKENS,
   readingPreferencesEqual
@@ -50,6 +51,7 @@ const READING_PREFERENCES_STYLE_ELEMENT_ID =
   `epubjs-inserted-css-${READING_PREFERENCES_STYLESHEET}`
 const ORDINARY_PARAGRAPH_SELECTOR =
   'p:not(:where(pre *, code *, blockquote *, li *, table *, figcaption *, figure *))'
+const TEXT_ALIGN_SELECTOR = 'p, li, dd, dt, blockquote, figcaption'
 const CODE_BLOCK_SELECTOR = 'pre, code, kbd, samp, var'
 const MONOSPACE_STACK = "ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace"
 const READER_FONT_FACE_FAMILY = 'llm-reader-selected-font'
@@ -403,7 +405,20 @@ async function boundedSectionMatches(
   return matches
 }
 
-function readingPreferencesCss(preferences: ReadingPreferences): string {
+interface ReadingSectionCssContext {
+  first: boolean
+  last: boolean
+}
+
+const NO_SECTION_CSS_CONTEXT: ReadingSectionCssContext = Object.freeze({
+  first: false,
+  last: false
+})
+
+function readingPreferencesCss(
+  preferences: ReadingPreferences,
+  section: ReadingSectionCssContext
+): string {
   const rules: string[] = []
   if (preferences.paperTheme !== 'light') {
     const paper = READING_PAPER_THEME_TOKENS[preferences.paperTheme]
@@ -434,6 +449,23 @@ function readingPreferencesCss(preferences: ReadingPreferences): string {
       `${ORDINARY_PARAGRAPH_SELECTOR} { margin-block-start: 0 !important; margin-block-end: ${spacing}em !important; }`
     )
   }
+  if (preferences.pageMargin !== 'original') {
+    const margin = READING_PAGE_MARGIN_VALUES[preferences.pageMargin]
+    rules.push(
+      `html { box-sizing: border-box !important; padding-inline: ${margin.inline} !important; }`
+    )
+    if (section.first) {
+      rules.push(`html { padding-block-start: ${margin.block}px !important; }`)
+    }
+    if (section.last) {
+      rules.push(`html { padding-block-end: ${margin.block}px !important; }`)
+    }
+  }
+  if (preferences.textAlign !== 'original') {
+    rules.push(
+      `body, ${TEXT_ALIGN_SELECTOR} { text-align: ${preferences.textAlign} !important; }`
+    )
+  }
   if (preferences.fontFamily) {
     const fontFamily = readingFontFamilyCss(preferences.fontFamily)
     rules.push(fontFamily.faceRule)
@@ -445,12 +477,16 @@ function readingPreferencesCss(preferences: ReadingPreferences): string {
   return rules.join('\n')
 }
 
-function readerStylesheetCss(preferences: ReadingPreferences, reflowable: boolean): string {
+function readerStylesheetCss(
+  preferences: ReadingPreferences,
+  reflowable: boolean,
+  section: ReadingSectionCssContext = NO_SECTION_CSS_CONTEXT
+): string {
   const rules = [
     `::selection { background: ${readerSelectionBackground(preferences.paperTheme)}; color: inherit; }`,
     '.llm-reader-internal-link { cursor: pointer; }',
     reflowable ? CONTINUOUS_REFLOW_CSS : '',
-    reflowable ? readingPreferencesCss(preferences) : ''
+    reflowable ? readingPreferencesCss(preferences, section) : ''
   ]
   return rules.filter(Boolean).join('\n')
 }
@@ -773,7 +809,12 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
   private applyPreferences(contents: Contents): void {
     contents.document.getElementById(READING_PREFERENCES_STYLE_ELEMENT_ID)?.remove()
-    const css = readerStylesheetCss(this.preferences, this.reflowable)
+    const sectionIndex = typeof contents.sectionIndex === 'number' ? contents.sectionIndex : -1
+    const section = {
+      first: sectionIndex === 0,
+      last: this.spineCount > 0 && sectionIndex === this.spineCount - 1
+    }
+    const css = readerStylesheetCss(this.preferences, this.reflowable, section)
     if (css) {
       void contents.addStylesheetCss(css, READING_PREFERENCES_STYLESHEET)
     }

@@ -6,6 +6,7 @@ import {
   fontFamilyStack,
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
+  READING_PAGE_MARGIN_VALUES,
   READING_PAPER_THEME_TOKENS,
   READING_PARAGRAPH_SPACING_EM,
   readingPreferencesEqual
@@ -49,6 +50,9 @@ const GENERIC_FRONT_MATTER_TITLE_PATTERNS = [
 ]
 const TOC_LIKE_HEADING_GAP = 256
 const TOC_LIKE_HEADING_RUN_MINIMUM = 4
+const DEFAULT_TXT_PAGE_MARGIN_BLOCK = '48px'
+const DEFAULT_TXT_PAGE_MARGIN_INLINE = 'clamp(28px, 6vw, 72px)'
+const TXT_BOTTOM_READING_TAIL = '35vh'
 
 interface TextAnchor {
   start: number
@@ -287,7 +291,10 @@ export class TextReaderAdapter implements ReaderAdapter {
     root.style.margin = '0 auto'
     root.style.maxWidth = '760px'
     root.style.minHeight = '100%'
-    root.style.padding = '48px clamp(28px, 6vw, 72px) 35vh'
+    root.style.paddingTop = DEFAULT_TXT_PAGE_MARGIN_BLOCK
+    root.style.paddingBottom = TXT_BOTTOM_READING_TAIL
+    root.style.paddingLeft = DEFAULT_TXT_PAGE_MARGIN_INLINE
+    root.style.paddingRight = DEFAULT_TXT_PAGE_MARGIN_INLINE
     root.style.whiteSpace = 'pre-wrap'
     root.style.overflowWrap = 'break-word'
     root.style.lineHeight = '1.82'
@@ -568,6 +575,19 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.root.style.color = paper.color
     this.root.style.colorScheme = paper.colorScheme
 
+    if (this.preferences.pageMargin === 'original') {
+      this.root.style.paddingTop = DEFAULT_TXT_PAGE_MARGIN_BLOCK
+      this.root.style.paddingBottom = TXT_BOTTOM_READING_TAIL
+      this.root.style.paddingLeft = DEFAULT_TXT_PAGE_MARGIN_INLINE
+      this.root.style.paddingRight = DEFAULT_TXT_PAGE_MARGIN_INLINE
+    } else {
+      const margin = READING_PAGE_MARGIN_VALUES[this.preferences.pageMargin]
+      this.root.style.paddingTop = `${margin.block}px`
+      this.root.style.paddingBottom = TXT_BOTTOM_READING_TAIL
+      this.root.style.paddingLeft = margin.inline
+      this.root.style.paddingRight = margin.inline
+    }
+
     for (const paragraph of this.paragraphs) {
       if (paragraph.element.tagName !== 'P') {
         continue
@@ -581,6 +601,11 @@ export class TextReaderAdapter implements ReaderAdapter {
         paragraph.element.style.removeProperty('text-indent')
       } else {
         paragraph.element.style.textIndent = this.preferences.indent === 'none' ? '0' : '2em'
+      }
+      if (this.preferences.textAlign === 'original') {
+        paragraph.element.style.removeProperty('text-align')
+      } else {
+        paragraph.element.style.textAlign = this.preferences.textAlign
       }
       paragraph.element.style.marginBottom = this.preferences.paragraphSpacing === 'original'
         ? '1.35em'

@@ -28,6 +28,7 @@ export {
   MIN_READING_FONT_SCALE,
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
+  READING_PAGE_MARGIN_VALUES,
   READING_PARAGRAPH_SPACING_EM,
   READING_PAPER_THEME_TOKENS
 } from './reading-preferences'
@@ -35,9 +36,11 @@ export type {
   ReadingContentWidth,
   ReadingIndent,
   ReadingLineHeight,
+  ReadingPageMargin,
   ReadingParagraphSpacing,
   ReadingPaperTheme,
   ReadingPreferences,
+  ReadingTextAlign,
   ReaderAdapter,
   ReaderCallbacks,
   ReaderDocumentInfo,

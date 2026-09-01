@@ -58,6 +58,8 @@ export type ReadingIndent = 'original' | 'none' | '2em'
 export type ReadingContentWidth = 'original' | 'narrow' | 'standard' | 'wide'
 export type ReadingParagraphSpacing = 'original' | 'compact' | 'standard' | 'relaxed'
 export type ReadingPaperTheme = 'light' | 'sepia' | 'dark'
+export type ReadingPageMargin = 'original' | 'compact' | 'standard' | 'wide'
+export type ReadingTextAlign = 'original' | 'justify' | 'left'
 
 export interface ReadingPreferences {
   fontScale: number
@@ -67,6 +69,8 @@ export interface ReadingPreferences {
   contentWidth: ReadingContentWidth
   paragraphSpacing: ReadingParagraphSpacing
   paperTheme: ReadingPaperTheme
+  pageMargin: ReadingPageMargin
+  textAlign: ReadingTextAlign
 }
 
 export const DEFAULT_READING_PREFERENCES: Readonly<ReadingPreferences> = Object.freeze({
@@ -76,7 +80,9 @@ export const DEFAULT_READING_PREFERENCES: Readonly<ReadingPreferences> = Object.
   fontFamily: null,
   contentWidth: 'original',
   paragraphSpacing: 'original',
-  paperTheme: 'light'
+  paperTheme: 'light',
+  pageMargin: 'original',
+  textAlign: 'original'
 })
 
 /** Warm beige background for native text selection in the reading area (replaces the browser default blue). */

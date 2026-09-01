@@ -103,8 +103,10 @@ import {
   type ReaderAdapter,
   type ReaderSearchResult,
   type ReaderSelectionDraft,
+  type ReadingPageMargin,
   type ReadingPaperTheme,
-  type ReadingPreferences
+  type ReadingPreferences,
+  type ReadingTextAlign
 } from './readers'
 
 type LeftView = 'library' | 'toc' | 'highlights' | 'search'
@@ -1915,6 +1917,8 @@ function SettingsModal({
               <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
               <label htmlFor="reading-content-width"><span>{copy('settings.contentWidth')}</span><select id="reading-content-width" data-testid="reading-content-width" value={readingPreferences.contentWidth} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, contentWidth: event.target.value as ReadingPreferences['contentWidth'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="narrow">{copy('settings.contentWidthNarrow')}</option><option value="standard">{copy('settings.contentWidthStandard')}</option><option value="wide">{copy('settings.contentWidthWide')}</option></select></label>
               <label htmlFor="reading-paragraph-spacing"><span>{copy('settings.paragraphSpacing')}</span><select id="reading-paragraph-spacing" data-testid="reading-paragraph-spacing" value={readingPreferences.paragraphSpacing} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, paragraphSpacing: event.target.value as ReadingPreferences['paragraphSpacing'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="compact">{copy('settings.spacingCompact')}</option><option value="standard">{copy('settings.spacingStandard')}</option><option value="relaxed">{copy('settings.spacingRelaxed')}</option></select></label>
+              <label htmlFor="reading-page-margin"><span>{copy('settings.pageMargin')}</span><select id="reading-page-margin" data-testid="reading-page-margin" value={readingPreferences.pageMargin} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, pageMargin: event.target.value as ReadingPageMargin })}><option value="original">{copy('settings.followBookDefault')}</option><option value="compact">{copy('settings.pageMarginCompact')}</option><option value="standard">{copy('settings.pageMarginStandard')}</option><option value="wide">{copy('settings.pageMarginWide')}</option></select></label>
+              <label htmlFor="reading-text-align"><span>{copy('settings.textAlign')}</span><select id="reading-text-align" data-testid="reading-text-align" value={readingPreferences.textAlign} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, textAlign: event.target.value as ReadingTextAlign })}><option value="original">{copy('settings.followBookDefault')}</option><option value="justify">{copy('settings.textAlignJustify')}</option><option value="left">{copy('settings.textAlignLeft')}</option></select></label>
             </div>
               </section>
             )}

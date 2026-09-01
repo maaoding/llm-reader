@@ -3,9 +3,11 @@ import {
   type ReadingContentWidth,
   type ReadingIndent,
   type ReadingLineHeight,
+  type ReadingPageMargin,
   type ReadingParagraphSpacing,
   type ReadingPaperTheme,
-  type ReadingPreferences
+  type ReadingPreferences,
+  type ReadingTextAlign
 } from './types'
 
 export const MIN_READING_FONT_SCALE = 80
@@ -17,6 +19,8 @@ const INDENTS = new Set<ReadingIndent>(['original', 'none', '2em'])
 const CONTENT_WIDTHS = new Set<ReadingContentWidth>(['original', 'narrow', 'standard', 'wide'])
 const PARAGRAPH_SPACINGS = new Set<ReadingParagraphSpacing>(['original', 'compact', 'standard', 'relaxed'])
 const PAPER_THEMES = new Set<ReadingPaperTheme>(['light', 'sepia', 'dark'])
+const PAGE_MARGINS = new Set<ReadingPageMargin>(['original', 'compact', 'standard', 'wide'])
+const TEXT_ALIGNS = new Set<ReadingTextAlign>(['original', 'justify', 'left'])
 
 export interface ReadingPaperTokens {
   background: string
@@ -40,6 +44,17 @@ export const READING_PARAGRAPH_SPACING_EM: Readonly<Record<Exclude<ReadingParagr
   compact: 0.8,
   standard: 1.35,
   relaxed: 1.8
+})
+
+export interface ReadingPageMarginValues {
+  block: number
+  inline: string
+}
+
+export const READING_PAGE_MARGIN_VALUES: Readonly<Record<Exclude<ReadingPageMargin, 'original'>, ReadingPageMarginValues>> = Object.freeze({
+  compact: Object.freeze({ block: 24, inline: 'clamp(16px, 3vw, 40px)' }),
+  standard: Object.freeze({ block: 48, inline: 'clamp(28px, 6vw, 72px)' }),
+  wide: Object.freeze({ block: 72, inline: 'clamp(40px, 7vw, 96px)' })
 })
 
 export function normalizeFontFamily(value: unknown): string | null {
@@ -87,7 +102,13 @@ export function normalizeReadingPreferences(
       : DEFAULT_READING_PREFERENCES.paragraphSpacing,
     paperTheme: PAPER_THEMES.has(preferences.paperTheme)
       ? preferences.paperTheme
-      : DEFAULT_READING_PREFERENCES.paperTheme
+      : DEFAULT_READING_PREFERENCES.paperTheme,
+    pageMargin: PAGE_MARGINS.has(preferences.pageMargin)
+      ? preferences.pageMargin
+      : DEFAULT_READING_PREFERENCES.pageMargin,
+    textAlign: TEXT_ALIGNS.has(preferences.textAlign)
+      ? preferences.textAlign
+      : DEFAULT_READING_PREFERENCES.textAlign
   }
 }
 
@@ -102,6 +123,8 @@ export function readingPreferencesEqual(
     left.fontFamily === right.fontFamily &&
     left.contentWidth === right.contentWidth &&
     left.paragraphSpacing === right.paragraphSpacing &&
-    left.paperTheme === right.paperTheme
+    left.paperTheme === right.paperTheme &&
+    left.pageMargin === right.pageMargin &&
+    left.textAlign === right.textAlign
   )
 }

@@ -213,6 +213,13 @@
 | settings.spacingCompact | 紧凑 |
 | settings.spacingStandard | 标准 |
 | settings.spacingRelaxed | 宽松 |
+| settings.pageMargin | 页边距 |
+| settings.pageMarginCompact | 紧凑 |
+| settings.pageMarginStandard | 标准 |
+| settings.pageMarginWide | 宽松 |
+| settings.textAlign | 对齐 |
+| settings.textAlignJustify | 两端对齐 |
+| settings.textAlignLeft | 左对齐 |
 | settings.paperTheme | 纸张主题 |
 | settings.paperThemeHint | 阅读区纸张独立于界面主题。 |
 | settings.paperThemeLight | 浅色 |
