@@ -45,6 +45,7 @@ export const COPY_KEYS = [
   'about.updateCheckAction',
   'about.updateDownloadAction',
   'about.updateInstallAction',
+  'about.updateNotesTitle',
   'about.updateDownloadedHint',
   'assistant.title',
   'assistant.viewsAria',

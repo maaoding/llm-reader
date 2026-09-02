@@ -55,6 +55,7 @@
 | about.updateCheckAction | 检查更新 |
 | about.updateDownloadAction | 下载更新 |
 | about.updateInstallAction | 重启并安装 |
+| about.updateNotesTitle | 更新内容 |
 | about.updateDownloadedHint | 重启后安装新版本，未保存的阅读进度不受影响。 |
 
 ## 助手与对话

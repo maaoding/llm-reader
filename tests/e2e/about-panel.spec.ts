@@ -46,11 +46,9 @@ test('explains that update checks are unavailable in the test environment', asyn
 
     const updateBlock = page.getByTestId('about-update')
     await expect(updateBlock).toBeVisible()
-    await expect(page.getByTestId('update-status')).toHaveText('尚未检查更新')
-
-    await page.getByTestId('update-action-button').click()
     await expect(page.getByTestId('update-status')).toHaveText('当前环境不支持更新检查')
     await expect(page.getByTestId('update-action-button')).toBeDisabled()
+    await expect(page.getByTestId('update-release-notes')).toHaveCount(0)
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

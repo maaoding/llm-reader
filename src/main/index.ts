@@ -33,6 +33,10 @@ let bookImporter: BookImportCoordinator | undefined
 
 const { autoUpdater } = electronUpdater
 
+if (process.env.LLM_READER_UPDATER_DEBUG === '1') {
+  autoUpdater.logger = console
+}
+
 function createE2eImportDelay(): (() => Promise<void>) | undefined {
   if (app.isPackaged) return undefined
   const milliseconds = Number(process.env.LLM_READER_E2E_IMPORT_DELAY_MS)

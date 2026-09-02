@@ -1364,7 +1364,16 @@ function AboutPanel(): ReactNode {
     void window.readerApi
       .getAppUpdatePhase()
       .then((phase) => {
-        if (alive) setUpdatePhase(phase)
+        if (!alive) return
+        setUpdatePhase(phase)
+        if (phase.status === 'idle') {
+          void window.readerApi
+            ?.checkForAppUpdate()
+            .then((checked) => {
+              if (alive) setUpdatePhase(checked)
+            })
+            .catch(() => undefined)
+        }
       })
       .catch(() => undefined)
     const unsubscribe = window.readerApi.onAppUpdateEvent((phase) => {
@@ -1441,6 +1450,13 @@ function AboutPanel(): ReactNode {
           <p className="about-update-status" data-testid="update-status" aria-live="polite">
             {updateStatusText(updatePhase)}
           </p>
+        )}
+        {(updatePhase?.status === 'available' || updatePhase?.status === 'downloaded') &&
+          updatePhase.releaseNotes && (
+          <div className="about-update-notes" data-testid="update-release-notes">
+            <h4>{copy('about.updateNotesTitle')}</h4>
+            <p>{updatePhase.releaseNotes}</p>
+          </div>
         )}
         {updatePhase?.status === 'downloaded' && (
           <p className="about-update-hint">{copy('about.updateDownloadedHint')}</p>

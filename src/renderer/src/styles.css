@@ -2992,6 +2992,28 @@ button.citation-valid:hover {
   line-height: 1.6;
 }
 
+.about-update-notes {
+  margin: 10px 0 0;
+}
+
+.about-update-notes h4 {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: calc(10px * var(--interface-scale));
+  font-weight: 650;
+}
+
+.about-update-notes p {
+  max-height: calc(160px * var(--interface-scale));
+  margin: 0;
+  overflow-y: auto;
+  color: var(--ink-soft);
+  font-size: calc(10px * var(--interface-scale));
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .about-update-hint {
   margin: 4px 0 0;
   color: var(--muted);

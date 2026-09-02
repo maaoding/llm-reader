@@ -57,9 +57,9 @@ export type AppUpdatePhase =
   | { status: 'idle' }
   | { status: 'checking' }
   | { status: 'upToDate' }
-  | { status: 'available'; version: string }
+  | { status: 'available'; version: string; releaseNotes: string | null }
   | { status: 'downloading'; percent: number }
-  | { status: 'downloaded'; version: string }
+  | { status: 'downloaded'; version: string; releaseNotes: string | null }
   | { status: 'error' }
   | { status: 'unsupported' }
 

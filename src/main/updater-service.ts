@@ -12,11 +12,52 @@ export interface AppUpdaterLike {
 }
 
 const STARTUP_CHECK_DELAY_MS = 3_000
+const MAX_RELEASE_NOTES_LENGTH = 800
 
 function readVersion(payload: unknown): string | null {
   if (typeof payload !== 'object' || payload === null) return null
   const version = (payload as { version?: unknown }).version
   return typeof version === 'string' && version.length > 0 ? version : null
+}
+
+function normalizeReleaseNotes(notes: unknown): string | null {
+  const parts = typeof notes === 'string'
+    ? [notes]
+    : Array.isArray(notes)
+      ? notes.map((entry) => {
+        if (typeof entry === 'string') return entry
+        if (typeof entry === 'object' && entry !== null) {
+          return [entry.title, entry.note]
+            .filter((part): part is string => typeof part === 'string' && part.length > 0)
+            .join('\n')
+        }
+        return ''
+      })
+      : []
+  const text = parts
+    .map((part) =>
+      part
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/gu, ' ')
+        .replace(/&amp;/gu, '&')
+        .replace(/&lt;/gu, '<')
+        .replace(/&gt;/gu, '>')
+        .replace(/&quot;/gu, '"')
+        .replace(/&#0?39;/gu, "'")
+        .trim()
+    )
+    .filter((part) => part.length > 0)
+    .join('\n\n')
+  if (text.length === 0) return null
+  return text.length > MAX_RELEASE_NOTES_LENGTH
+    ? `${text.slice(0, MAX_RELEASE_NOTES_LENGTH).trimEnd()}…`
+    : text
+}
+
+function readReleaseNotes(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  return normalizeReleaseNotes((payload as { releaseNotes?: unknown }).releaseNotes)
 }
 
 function readPercent(payload: unknown): number | null {
@@ -39,7 +80,9 @@ export class UpdaterService {
     updater.autoDownload = false
     updater.on('update-available', (payload: unknown) => {
       const version = readVersion(payload)
-      if (version && this.phase.status === 'checking') this.setPhase({ status: 'available', version })
+      if (version && this.phase.status === 'checking') {
+        this.setPhase({ status: 'available', version, releaseNotes: readReleaseNotes(payload) })
+      }
     })
     updater.on('update-not-available', () => {
       if (this.phase.status === 'checking') this.setPhase({ status: 'upToDate' })
@@ -50,7 +93,7 @@ export class UpdaterService {
     })
     updater.on('update-downloaded', (payload: unknown) => {
       const version = readVersion(payload)
-      if (version) this.setPhase({ status: 'downloaded', version })
+      if (version) this.setPhase({ status: 'downloaded', version, releaseNotes: readReleaseNotes(payload) })
     })
     updater.on('error', (payload: unknown) => {
       if (this.phase.status !== 'checking' && this.phase.status !== 'downloading') return

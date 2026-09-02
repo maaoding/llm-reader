@@ -9,6 +9,8 @@ class FakeUpdater implements AppUpdaterLike {
 
   checkForUpdatesResult: 'available' | 'not-available' | 'reject' = 'not-available'
   downloadShouldReject = false
+  availableReleaseNotes?: unknown
+  downloadedReleaseNotes?: unknown
 
   private readonly listeners = new Map<AppUpdaterEvent, Listener[]>()
 
@@ -39,7 +41,10 @@ class FakeUpdater implements AppUpdaterLike {
   async checkForUpdates(): Promise<unknown> {
     if (this.checkForUpdatesResult === 'reject') throw new Error('network unreachable')
     if (this.checkForUpdatesResult === 'available') {
-      this.emit('update-available', { version: '1.0.1' })
+      this.emit('update-available', {
+        version: '1.0.1',
+        ...(this.availableReleaseNotes !== undefined ? { releaseNotes: this.availableReleaseNotes } : {})
+      })
     } else {
       this.emit('update-not-available', { version: '0.3.0' })
     }
@@ -50,7 +55,10 @@ class FakeUpdater implements AppUpdaterLike {
     if (this.downloadShouldReject) throw new Error('download interrupted')
     this.emit('download-progress', { percent: 42.4 })
     this.emit('download-progress', { percent: 100 })
-    this.emit('update-downloaded', { version: '1.0.1' })
+    this.emit('update-downloaded', {
+      version: '1.0.1',
+      ...(this.downloadedReleaseNotes !== undefined ? { releaseNotes: this.downloadedReleaseNotes } : {})
+    })
     return ['LLM Reader-1.0.1-setup.exe']
   }
 
@@ -82,8 +90,8 @@ describe('UpdaterService', () => {
     const { service, updater } = makeUpdaterService()
     updater.checkForUpdatesResult = 'available'
 
-    await expect(service.check('manual')).resolves.toEqual({ status: 'available', version: '1.0.1' })
-    expect(service.getPhase()).toEqual({ status: 'available', version: '1.0.1' })
+    await expect(service.check('manual')).resolves.toEqual({ status: 'available', version: '1.0.1', releaseNotes: null })
+    expect(service.getPhase()).toEqual({ status: 'available', version: '1.0.1', releaseNotes: null })
   })
 
   it('reports up to date when no newer release exists', async () => {
@@ -116,7 +124,7 @@ describe('UpdaterService', () => {
     updater.checkForUpdatesResult = 'available'
     await service.check('manual')
 
-    await expect(service.download()).resolves.toEqual({ status: 'downloaded', version: '1.0.1' })
+    await expect(service.download()).resolves.toEqual({ status: 'downloaded', version: '1.0.1', releaseNotes: null })
     const downloading = phases.filter((phase) => phase.status === 'downloading')
     expect(downloading[0]).toEqual({ status: 'downloading', percent: 0 })
     expect(downloading[1]).toEqual({ status: 'downloading', percent: 42 })
@@ -214,7 +222,7 @@ describe('UpdaterService', () => {
       vi.useRealTimers()
     }
     expect(checkForUpdates).toHaveBeenCalledTimes(1)
-    expect(service.getPhase()).toEqual({ status: 'available', version: '1.0.1' })
+    expect(service.getPhase()).toEqual({ status: 'available', version: '1.0.1', releaseNotes: null })
   })
 
   it('stops listening for updater events after dispose', async () => {
@@ -225,5 +233,50 @@ describe('UpdaterService', () => {
 
     expect(phases).toEqual([])
     expect(service.getPhase()).toEqual({ status: 'idle' })
+  })
+
+  it('carries plain-text release notes into the available phase', async () => {
+    const { service, updater } = makeUpdaterService()
+    updater.checkForUpdatesResult = 'available'
+    updater.availableReleaseNotes = '- 修复了导入问题\n- 新增批量导入'
+
+    await expect(service.check('manual')).resolves.toEqual({
+      status: 'available',
+      version: '1.0.1',
+      releaseNotes: '- 修复了导入问题\n- 新增批量导入'
+    })
+  })
+
+  it('truncates oversized release notes and keeps the downloaded phase notes', async () => {
+    const { service, updater } = makeUpdaterService()
+    updater.checkForUpdatesResult = 'available'
+    updater.availableReleaseNotes = 'x'.repeat(900)
+    updater.downloadedReleaseNotes = '已修复批量导入。'
+    await service.check('manual')
+
+    const available = service.getPhase()
+    expect(available.status === 'available' && available.releaseNotes).toBe(`${'x'.repeat(800)}…`)
+
+    await service.download()
+    expect(service.getPhase()).toEqual({
+      status: 'downloaded',
+      version: '1.0.1',
+      releaseNotes: '已修复批量导入。'
+    })
+  })
+
+  it('normalizes array release notes and strips markup', async () => {
+    const { service, updater } = makeUpdaterService()
+    updater.checkForUpdatesResult = 'available'
+    updater.availableReleaseNotes = [
+      { title: '修复', note: '<b>导入失败</b><br/>的问题 &amp; 提示' },
+      '纯文本条目'
+    ]
+
+    await expect(service.check('manual')).resolves.toEqual({
+      status: 'available',
+      version: '1.0.1',
+      releaseNotes: '修复\n导入失败\n的问题 & 提示\n\n纯文本条目'
+    })
   })
 })
