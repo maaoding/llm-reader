@@ -462,7 +462,8 @@ test('keeps the home quiet and applies unified appearance, reading and provider 
       (element) => element.querySelector('style')?.textContent ?? ''
     )
     expect(txtSelectionCss).toContain('.reader-document ::selection')
-    expect(txtSelectionCss).toContain('rgba(240, 220, 160, 0.55)')
+    // 界面为深色时纸张跟随界面，选区使用深色纸张的低透明琥珀变体。
+    expect(txtSelectionCss).toContain('rgba(240, 220, 160, 0.32)')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

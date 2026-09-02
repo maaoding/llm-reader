@@ -58,6 +58,11 @@ export type ReadingIndent = 'original' | 'none' | '2em'
 export type ReadingContentWidth = 'original' | 'narrow' | 'standard' | 'wide'
 export type ReadingParagraphSpacing = 'original' | 'compact' | 'standard' | 'relaxed'
 export type ReadingPaperTheme = 'light' | 'sepia' | 'dark'
+/**
+ * `interface` follows the resolved UI theme; `custom` keeps the last manual
+ * paper choice fixed regardless of interface or system theme changes.
+ */
+export type PaperThemeMode = 'interface' | 'custom'
 export type ReadingPageMargin = 'original' | 'compact' | 'standard' | 'wide'
 export type ReadingTextAlign = 'original' | 'justify' | 'left'
 

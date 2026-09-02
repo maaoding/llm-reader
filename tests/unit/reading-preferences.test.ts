@@ -6,7 +6,10 @@ import {
   DEFAULT_READING_PREFERENCES,
   EpubReaderAdapter,
   fontFamilyStack,
+  isPaperThemeMode,
+  normalizePaperThemeMode,
   normalizeReadingPreferences,
+  resolveEffectivePaperTheme,
   TextReaderAdapter,
   type ReadingPreferences
 } from '../../src/renderer/src/readers'
@@ -645,5 +648,34 @@ describe('reading preferences', () => {
     expect(harness.rendition.display).toHaveBeenCalledOnce()
 
     adapter.destroy()
+  })
+})
+
+describe('paper theme mode', () => {
+  it('accepts only the supported modes', () => {
+    expect(isPaperThemeMode('interface')).toBe(true)
+    expect(isPaperThemeMode('custom')).toBe(true)
+    expect(isPaperThemeMode('light')).toBe(false)
+    expect(isPaperThemeMode('')).toBe(false)
+    expect(isPaperThemeMode(null)).toBe(false)
+    expect(isPaperThemeMode(undefined)).toBe(false)
+    expect(isPaperThemeMode(42)).toBe(false)
+  })
+
+  it('migrates missing or invalid stored modes to following the interface', () => {
+    expect(normalizePaperThemeMode(null)).toBe('interface')
+    expect(normalizePaperThemeMode(undefined)).toBe('interface')
+    expect(normalizePaperThemeMode('sepia')).toBe('interface')
+    expect(normalizePaperThemeMode('custom')).toBe('custom')
+    expect(normalizePaperThemeMode('interface')).toBe('interface')
+  })
+
+  it('maps the resolved interface theme while following, and keeps manual papers fixed', () => {
+    expect(resolveEffectivePaperTheme('interface', 'sepia', 'light')).toBe('light')
+    expect(resolveEffectivePaperTheme('interface', 'sepia', 'dark')).toBe('dark')
+    expect(resolveEffectivePaperTheme('interface', 'dark', 'light')).toBe('light')
+    expect(resolveEffectivePaperTheme('custom', 'sepia', 'dark')).toBe('sepia')
+    expect(resolveEffectivePaperTheme('custom', 'light', 'dark')).toBe('light')
+    expect(resolveEffectivePaperTheme('custom', 'dark', 'light')).toBe('dark')
   })
 })

@@ -222,7 +222,8 @@
 | settings.textAlignJustify | 两端对齐 |
 | settings.textAlignLeft | 左对齐 |
 | settings.paperTheme | 纸张主题 |
-| settings.paperThemeHint | 阅读区纸张独立于界面主题。 |
+| settings.paperThemeFollowInterface | 跟随界面 |
+| settings.paperThemeHint | 默认跟随界面；选择具体纸张后保持固定。 |
 | settings.paperThemeLight | 浅色 |
 | settings.paperThemeSepia | 米黄 |
 | settings.paperThemeDark | 深色 |

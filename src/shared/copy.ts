@@ -192,6 +192,7 @@ export const COPY_KEYS = [
   'settings.textAlignJustify',
   'settings.textAlignLeft',
   'settings.paperTheme',
+  'settings.paperThemeFollowInterface',
   'settings.paperThemeHint',
   'settings.paperThemeLight',
   'settings.paperThemeSepia',

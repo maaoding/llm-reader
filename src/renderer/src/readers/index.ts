@@ -24,15 +24,19 @@ export { PdfReaderAdapter } from './pdf-reader'
 export { TextReaderAdapter } from './text-reader'
 export {
   fontFamilyStack,
+  isPaperThemeMode,
   MAX_READING_FONT_SCALE,
   MIN_READING_FONT_SCALE,
+  normalizePaperThemeMode,
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
   READING_PAGE_MARGIN_VALUES,
   READING_PARAGRAPH_SPACING_EM,
-  READING_PAPER_THEME_TOKENS
+  READING_PAPER_THEME_TOKENS,
+  resolveEffectivePaperTheme
 } from './reading-preferences'
 export type {
+  PaperThemeMode,
   ReadingContentWidth,
   ReadingIndent,
   ReadingLineHeight,

@@ -1,5 +1,6 @@
 import {
   DEFAULT_READING_PREFERENCES,
+  type PaperThemeMode,
   type ReadingContentWidth,
   type ReadingIndent,
   type ReadingLineHeight,
@@ -19,6 +20,7 @@ const INDENTS = new Set<ReadingIndent>(['original', 'none', '2em'])
 const CONTENT_WIDTHS = new Set<ReadingContentWidth>(['original', 'narrow', 'standard', 'wide'])
 const PARAGRAPH_SPACINGS = new Set<ReadingParagraphSpacing>(['original', 'compact', 'standard', 'relaxed'])
 const PAPER_THEMES = new Set<ReadingPaperTheme>(['light', 'sepia', 'dark'])
+const PAPER_THEME_MODES = new Set<PaperThemeMode>(['interface', 'custom'])
 const PAGE_MARGINS = new Set<ReadingPageMargin>(['original', 'compact', 'standard', 'wide'])
 const TEXT_ALIGNS = new Set<ReadingTextAlign>(['original', 'justify', 'left'])
 
@@ -56,6 +58,27 @@ export const READING_PAGE_MARGIN_VALUES: Readonly<Record<Exclude<ReadingPageMarg
   standard: Object.freeze({ block: 48, inline: 'clamp(28px, 6vw, 72px)' }),
   wide: Object.freeze({ block: 72, inline: 'clamp(40px, 7vw, 96px)' })
 })
+
+export function isPaperThemeMode(value: unknown): value is PaperThemeMode {
+  return typeof value === 'string' && PAPER_THEME_MODES.has(value as PaperThemeMode)
+}
+
+/** Missing or invalid stored values fall back to following the interface (legacy-user migration). */
+export function normalizePaperThemeMode(value: unknown): PaperThemeMode {
+  return isPaperThemeMode(value) ? value : 'interface'
+}
+
+/**
+ * `interface` maps the resolved UI theme straight onto the paper; `custom`
+ * keeps the user's manual paper choice (including sepia) fixed.
+ */
+export function resolveEffectivePaperTheme(
+  mode: PaperThemeMode,
+  manualPaperTheme: ReadingPaperTheme,
+  interfaceTheme: 'light' | 'dark'
+): ReadingPaperTheme {
+  return mode === 'custom' ? manualPaperTheme : interfaceTheme
+}
 
 export function normalizeFontFamily(value: unknown): string | null {
   if (typeof value !== 'string') return null
