@@ -6,8 +6,8 @@ import {
   DEFAULT_READING_PREFERENCES,
   EpubReaderAdapter,
   fontFamilyStack,
-  isPaperThemeMode,
-  normalizePaperThemeMode,
+  isPaperThemePreference,
+  normalizePaperThemePreference,
   normalizeReadingPreferences,
   resolveEffectivePaperTheme,
   TextReaderAdapter,
@@ -100,7 +100,6 @@ describe('reading preferences', () => {
       contentWidth: 'original',
       paperTheme: 'light',
       paragraphSpacing: 'original',
-      pageMargin: 'original',
       textAlign: 'original'
     })
     expect(
@@ -118,7 +117,6 @@ describe('reading preferences', () => {
       contentWidth: 'original',
       paperTheme: 'light',
       paragraphSpacing: 'original',
-      pageMargin: 'original',
       textAlign: 'original'
     })
     expect(
@@ -136,7 +134,6 @@ describe('reading preferences', () => {
       contentWidth: 'original',
       paperTheme: 'light',
       paragraphSpacing: 'original',
-      pageMargin: 'original',
       textAlign: 'original'
     })
     expect(
@@ -154,7 +151,6 @@ describe('reading preferences', () => {
       contentWidth: 'original',
       paperTheme: 'light',
       paragraphSpacing: 'original',
-      pageMargin: 'original',
       textAlign: 'original'
     })
   })
@@ -175,7 +171,6 @@ describe('reading preferences', () => {
       contentWidth: 'original',
       paperTheme: 'light',
       paragraphSpacing: 'original',
-      pageMargin: 'original',
       textAlign: 'original'
     })
     expect(
@@ -194,12 +189,8 @@ describe('reading preferences', () => {
         ...DEFAULT_READING_PREFERENCES,
         pageMargin: 'wide',
         textAlign: 'justify'
-      })
-    ).toEqual({
-      ...DEFAULT_READING_PREFERENCES,
-      pageMargin: 'wide',
-      textAlign: 'justify'
-    })
+      } as unknown as ReadingPreferences)
+    ).toEqual({ ...DEFAULT_READING_PREFERENCES, textAlign: 'justify' })
     expect(
       normalizeReadingPreferences({
         ...DEFAULT_READING_PREFERENCES,
@@ -251,6 +242,11 @@ describe('reading preferences', () => {
     expect(root.style.color).toBe('rgb(231, 233, 230)')
     expect(root.style.colorScheme).toBe('dark')
 
+    await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES, paperTheme: 'dark-eye-care' })
+    expect(root.style.backgroundColor).toBe('rgb(42, 38, 32)')
+    expect(root.style.color).toBe('rgb(232, 223, 207)')
+    expect(root.style.colorScheme).toBe('dark')
+
     adapter.destroy()
     host.remove()
   })
@@ -277,6 +273,12 @@ describe('reading preferences', () => {
     expect(css).toContain('color-scheme: dark')
     expect(css).toContain('background-color: #22292d !important')
     expect(css).toContain('color: #e7e9e6 !important')
+
+    await adapter.setPreferences({ ...DEFAULT_READING_PREFERENCES, paperTheme: 'dark-eye-care' })
+    css = contents.addStylesheetCss.mock.calls.at(-1)?.[0] as string
+    expect(css).toContain('color-scheme: dark')
+    expect(css).toContain('background-color: #2a2620 !important')
+    expect(css).toContain('color: #e8dfcf !important')
 
     adapter.destroy()
     host.remove()
@@ -379,7 +381,6 @@ describe('reading preferences', () => {
       fontFamily: '微软雅黑',
       contentWidth: 'narrow',
       paragraphSpacing: 'compact',
-      pageMargin: 'wide',
       textAlign: 'justify'
     })
 
@@ -387,9 +388,9 @@ describe('reading preferences', () => {
     expect(root.style.fontSize).toBe('125%')
     expect(root.style.fontFamily).toBe('"微软雅黑"')
     expect(root.style.maxWidth).toBe('640px')
-    expect(root.style.paddingTop).toBe('72px')
-    expect(root.style.paddingLeft).toBe('clamp(40px, 7vw, 96px)')
-    expect(root.style.paddingRight).toBe('clamp(40px, 7vw, 96px)')
+    expect(root.style.paddingTop).toBe('48px')
+    expect(root.style.paddingLeft).toBe('clamp(28px, 6vw, 72px)')
+    expect(root.style.paddingRight).toBe('clamp(28px, 6vw, 72px)')
     expect(root.style.paddingBottom).toBe('35vh')
     expect(paragraphs).toHaveLength(2)
     expect(paragraphs.every((paragraph) => paragraph.style.lineHeight === '1.7')).toBe(true)
@@ -437,7 +438,6 @@ describe('reading preferences', () => {
       fontFamily: '宋体',
       contentWidth: 'standard',
       paragraphSpacing: 'relaxed',
-      pageMargin: 'standard',
       textAlign: 'justify'
     })
     await adapter.open(new Uint8Array([1, 2, 3]))
@@ -459,8 +459,8 @@ describe('reading preferences', () => {
     expect(initialCss).toContain("@font-face { font-family: 'llm-reader-selected-font'; src: local('宋体'); }")
     expect(initialCss).toContain("font-family: 'llm-reader-selected-font', '宋体' !important")
     expect(initialCss).toContain('ui-monospace')
-    expect(initialCss).toContain('html { box-sizing: border-box !important; padding-inline: clamp(28px, 6vw, 72px) !important; }')
-    expect(initialCss).toContain('html { padding-block-start: 48px !important; }')
+    expect(initialCss).not.toContain('padding-inline')
+    expect(initialCss).not.toContain('padding-block-start')
     expect(initialCss).not.toContain('padding-block-end')
     expect(initialCss).toContain('body, p, li, dd, dt, blockquote, figcaption { text-align: justify !important; }')
 
@@ -473,7 +473,6 @@ describe('reading preferences', () => {
       indent: 'none',
       contentWidth: 'wide',
       paragraphSpacing: 'compact',
-      pageMargin: 'wide',
       textAlign: 'left'
     })
 
@@ -486,8 +485,8 @@ describe('reading preferences', () => {
     expect(updatedCss).toContain('max-width: 920px')
     expect(updatedCss).toContain('margin-block-end: 0.8em')
     expect(updatedCss).not.toContain('font-family')
-    expect(updatedCss).toContain('padding-inline: clamp(40px, 7vw, 96px)')
-    expect(updatedCss).toContain('padding-block-start: 72px')
+    expect(updatedCss).not.toContain('padding-inline')
+    expect(updatedCss).not.toContain('padding-block-start')
     expect(updatedCss).not.toContain('padding-block-end')
     expect(updatedCss).toContain('text-align: left !important')
 
@@ -531,31 +530,31 @@ describe('reading preferences', () => {
     host.remove()
   })
 
-  it('adds vertical page margins only to the first and last EPUB sections', async () => {
+  it('ignores legacy page margins instead of injecting padding into EPUB sections', async () => {
     const harness = createEpubHarness()
     const host = document.createElement('div')
     document.body.append(host)
-    const adapter = new EpubReaderAdapter(host, { bookId: 'epub-page-margins' })
+    const adapter = new EpubReaderAdapter(host, { bookId: 'epub-legacy-page-margins' })
     await adapter.setPreferences({
       ...DEFAULT_READING_PREFERENCES,
       pageMargin: 'compact',
       textAlign: 'justify'
-    })
+    } as unknown as ReadingPreferences)
     await adapter.open(new Uint8Array([1, 2, 3]))
 
     const first = createContents('<p>第一章</p>', 0)
     harness.contentHooks[0](first)
     const firstCss = first.addStylesheetCss.mock.calls.at(-1)?.[0] as string
-    expect(firstCss).toContain('padding-inline: clamp(16px, 3vw, 40px)')
-    expect(firstCss).toContain('padding-block-start: 24px')
+    expect(firstCss).not.toContain('padding-inline')
+    expect(firstCss).not.toContain('padding-block-start')
     expect(firstCss).not.toContain('padding-block-end')
 
     const last = createContents('<p>第二章</p>', 1)
     harness.contentHooks[0](last)
     const lastCss = last.addStylesheetCss.mock.calls.at(-1)?.[0] as string
-    expect(lastCss).toContain('padding-inline: clamp(16px, 3vw, 40px)')
+    expect(lastCss).not.toContain('padding-inline')
     expect(lastCss).not.toContain('padding-block-start')
-    expect(lastCss).toContain('padding-block-end: 24px')
+    expect(lastCss).not.toContain('padding-block-end')
 
     adapter.destroy()
     host.remove()
@@ -624,6 +623,7 @@ describe('reading preferences', () => {
       paragraphSpacing: 'relaxed'
     })
     await adapter.open(new Uint8Array([1, 2, 3]))
+    expect(host.dataset.epubLayout).toBe('fixed')
 
     const contents = createContents('<img src="cover.jpg" alt="封面">')
     harness.currentContents.push(contents)
@@ -648,34 +648,35 @@ describe('reading preferences', () => {
     expect(harness.rendition.display).toHaveBeenCalledOnce()
 
     adapter.destroy()
+    expect(host.dataset.epubLayout).toBeUndefined()
   })
 })
 
-describe('paper theme mode', () => {
-  it('accepts only the supported modes', () => {
-    expect(isPaperThemeMode('interface')).toBe(true)
-    expect(isPaperThemeMode('custom')).toBe(true)
-    expect(isPaperThemeMode('light')).toBe(false)
-    expect(isPaperThemeMode('')).toBe(false)
-    expect(isPaperThemeMode(null)).toBe(false)
-    expect(isPaperThemeMode(undefined)).toBe(false)
-    expect(isPaperThemeMode(42)).toBe(false)
+describe('paper theme preference', () => {
+  it('accepts only default and eye-care', () => {
+    expect(isPaperThemePreference('default')).toBe(true)
+    expect(isPaperThemePreference('eye-care')).toBe(true)
+    expect(isPaperThemePreference('interface')).toBe(false)
+    expect(isPaperThemePreference('custom')).toBe(false)
+    expect(isPaperThemePreference('')).toBe(false)
+    expect(isPaperThemePreference(null)).toBe(false)
+    expect(isPaperThemePreference(undefined)).toBe(false)
+    expect(isPaperThemePreference(42)).toBe(false)
   })
 
-  it('migrates missing or invalid stored modes to following the interface', () => {
-    expect(normalizePaperThemeMode(null)).toBe('interface')
-    expect(normalizePaperThemeMode(undefined)).toBe('interface')
-    expect(normalizePaperThemeMode('sepia')).toBe('interface')
-    expect(normalizePaperThemeMode('custom')).toBe('custom')
-    expect(normalizePaperThemeMode('interface')).toBe('interface')
+  it('migrates every legacy or invalid stored mode to default', () => {
+    expect(normalizePaperThemePreference(null)).toBe('default')
+    expect(normalizePaperThemePreference(undefined)).toBe('default')
+    expect(normalizePaperThemePreference('sepia')).toBe('default')
+    expect(normalizePaperThemePreference('custom')).toBe('default')
+    expect(normalizePaperThemePreference('interface')).toBe('default')
+    expect(normalizePaperThemePreference('eye-care')).toBe('eye-care')
   })
 
-  it('maps the resolved interface theme while following, and keeps manual papers fixed', () => {
-    expect(resolveEffectivePaperTheme('interface', 'sepia', 'light')).toBe('light')
-    expect(resolveEffectivePaperTheme('interface', 'sepia', 'dark')).toBe('dark')
-    expect(resolveEffectivePaperTheme('interface', 'dark', 'light')).toBe('light')
-    expect(resolveEffectivePaperTheme('custom', 'sepia', 'dark')).toBe('sepia')
-    expect(resolveEffectivePaperTheme('custom', 'light', 'dark')).toBe('light')
-    expect(resolveEffectivePaperTheme('custom', 'dark', 'light')).toBe('dark')
+  it('maps default and eye-care across both resolved interface themes', () => {
+    expect(resolveEffectivePaperTheme('default', 'light')).toBe('light')
+    expect(resolveEffectivePaperTheme('default', 'dark')).toBe('dark')
+    expect(resolveEffectivePaperTheme('eye-care', 'light')).toBe('sepia')
+    expect(resolveEffectivePaperTheme('eye-care', 'dark')).toBe('dark-eye-care')
   })
 })

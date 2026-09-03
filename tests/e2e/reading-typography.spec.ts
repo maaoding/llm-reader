@@ -47,8 +47,8 @@ async function createTwoChapterEpub(path: string): Promise<void> {
 </body></html>`
   )
   for (const [file, title, text] of [
-    ['chapter-1.xhtml', '第一章', '页边距应当只在全书开头和结尾出现。'],
-    ['chapter-2.xhtml', '第二章', '这里检验章节之间的排版不会被纵向边距打断。']
+    ['chapter-1.xhtml', '第一章', '原书页边距应当由 EPUB 自己控制。'],
+    ['chapter-2.xhtml', '第二章', '这里检验章节之间不会被额外页边距打断。']
   ] as const) {
     zip.file(
       `OEBPS/${file}`,
@@ -62,7 +62,7 @@ async function createTwoChapterEpub(path: string): Promise<void> {
   await writeFile(path, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
 }
 
-test('adjusts page margins and alignment for TXT and keeps them across restarts', async () => {
+test('keeps fixed TXT padding while persisting alignment across restarts', async () => {
   const workspace = await createE2eWorkspace('llm-reader-typography-txt-')
   const fixture = resolve('tests/fixtures/complex-reading.txt')
   let application: ElectronApplication | undefined
@@ -77,7 +77,7 @@ test('adjusts page margins and alignment for TXT and keeps them across restarts'
 
     await page.getByTestId('settings-button').click()
     await page.getByTestId('settings-nav-reading').click()
-    await page.getByTestId('reading-page-margin').selectOption('wide')
+    await expect(page.getByTestId('reading-page-margin')).toHaveCount(0)
     await page.getByTestId('reading-text-align').selectOption('justify')
 
     const txtDocument = page.locator('.reader-document--txt')
@@ -91,8 +91,8 @@ test('adjusts page margins and alignment for TXT and keeps them across restarts'
         }
       }))
       .toEqual({
-        paddingTop: '72px',
-        paddingLeft: '96px',
+        paddingTop: '48px',
+        paddingLeft: '72px',
         paragraphAlign: 'justify'
       })
 
@@ -114,8 +114,8 @@ test('adjusts page margins and alignment for TXT and keeps them across restarts'
         }
       }))
       .toEqual({
-        paddingTop: '72px',
-        paddingLeft: '96px',
+        paddingTop: '48px',
+        paddingLeft: '72px',
         paragraphAlign: 'justify'
       })
   } finally {
@@ -123,7 +123,7 @@ test('adjusts page margins and alignment for TXT and keeps them across restarts'
   }
 })
 
-test('applies EPUB page margins and alignment inside the rendered chapter', async () => {
+test('does not inject EPUB page padding and still applies alignment', async () => {
   const workspace = await createE2eWorkspace('llm-reader-typography-epub-')
   const fixture = join(workspace.root, 'typography.epub')
   await createTwoChapterEpub(fixture)
@@ -136,11 +136,11 @@ test('applies EPUB page margins and alignment inside the rendered chapter', asyn
 
     await page.getByTestId('book-item').first().click()
     const chapterFrame = page.getByTestId('reader-host').frameLocator('iframe').first()
-    await expect(chapterFrame.getByText('页边距应当只在全书开头和结尾出现。')).toBeVisible()
+    await expect(chapterFrame.getByText('原书页边距应当由 EPUB 自己控制。')).toBeVisible()
 
     await page.getByTestId('settings-button').click()
     await page.getByTestId('settings-nav-reading').click()
-    await page.getByTestId('reading-page-margin').selectOption('standard')
+    await expect(page.getByTestId('reading-page-margin')).toHaveCount(0)
     await page.getByTestId('reading-text-align').selectOption('justify')
 
     await expect
@@ -153,15 +153,13 @@ test('applies EPUB page margins and alignment inside the rendered chapter', asyn
         }
       }))
       .toEqual({
-        paddingTop: '48px',
+        paddingTop: '0px',
         paragraphAlign: 'justify'
       })
 
-    const paddingLeft = await chapterFrame.locator('html').evaluate((element) =>
-      Number.parseFloat(getComputedStyle(element).paddingLeft)
-    )
-    expect(paddingLeft).toBeGreaterThan(28)
-    expect(paddingLeft).toBeLessThanOrEqual(72)
+    const injectedStyles = await chapterFrame.locator('style').allTextContents()
+    expect(injectedStyles.join('\n')).not.toContain('padding-inline')
+    expect(injectedStyles.join('\n')).not.toContain('padding-block')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

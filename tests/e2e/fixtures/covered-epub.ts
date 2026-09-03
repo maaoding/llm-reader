@@ -10,7 +10,12 @@ const COVER_PNG = Buffer.from(
  * Creates a small EPUB with a raster cover and common reading metadata so E2E
  * tests can observe both the shelf cover and the book details modal.
  */
-export async function createCoveredEpubFixture(path: string): Promise<void> {
+export async function createCoveredEpubFixture(
+  path: string,
+  options: { identifier?: string; title?: string } = {}
+): Promise<void> {
+  const identifier = options.identifier ?? 'urn:isbn:9787111111111'
+  const title = options.title ?? '带封面的元数据样本'
   const zip = new JSZip()
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
   zip.file(
@@ -25,8 +30,8 @@ export async function createCoveredEpubFixture(path: string): Promise<void> {
     `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="book-id">urn:isbn:9787111111111</dc:identifier>
-    <dc:title>带封面的元数据样本</dc:title>
+    <dc:identifier id="book-id">${identifier}</dc:identifier>
+    <dc:title>${title}</dc:title>
     <dc:creator>测试作者</dc:creator>
     <dc:language>zh-CN</dc:language>
     <dc:publisher>示例出版社</dc:publisher>

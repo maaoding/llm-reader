@@ -96,18 +96,16 @@ import {
 import {
   createReaderAdapter,
   DEFAULT_READING_PREFERENCES,
-  normalizePaperThemeMode,
+  normalizePaperThemePreference,
   normalizeReadingPreferences,
   READER_SEARCH_QUERY_MAX_LENGTH,
   READER_SEARCH_RESULT_LIMIT,
   resolveEffectivePaperTheme,
   splitSearchExcerpt,
-  type PaperThemeMode,
+  type PaperThemePreference,
   type ReaderAdapter,
   type ReaderSearchResult,
   type ReaderSelectionDraft,
-  type ReadingPageMargin,
-  type ReadingPaperTheme,
   type ReadingPreferences,
   type ReadingTextAlign
 } from './readers'
@@ -267,7 +265,8 @@ const EMPTY_PROVIDER_OVERVIEW: ProviderOverview = {
 const THEME_STORAGE_KEY = 'llm-reader.theme'
 const INTERFACE_SCALE_STORAGE_KEY = 'llm-reader.interface-scale'
 const READING_PREFERENCES_STORAGE_KEY = 'llm-reader.reading-preferences'
-const PAPER_THEME_MODE_STORAGE_KEY = 'llm-reader.paper-theme-mode'
+const PAPER_THEME_PREFERENCE_STORAGE_KEY = 'llm-reader.paper-theme-preference'
+const LEGACY_PAPER_THEME_MODE_STORAGE_KEY = 'llm-reader.paper-theme-mode'
 
 const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; ariaLabel: string }> = [
   { value: 'light', label: copy('settings.themeLight'), ariaLabel: copy('settings.themeLightAria') },
@@ -472,17 +471,22 @@ function readReadingPreferences(): ReadingPreferences {
   try {
     const stored = JSON.parse(window.localStorage.getItem(READING_PREFERENCES_STORAGE_KEY) ?? '{}') as unknown
     const value = stored && typeof stored === 'object' ? stored : {}
-    return normalizeReadingPreferences(value as ReadingPreferences)
+    return {
+      ...normalizeReadingPreferences(value as ReadingPreferences),
+      paperTheme: DEFAULT_READING_PREFERENCES.paperTheme
+    }
   } catch {
     return { ...DEFAULT_READING_PREFERENCES }
   }
 }
 
-function readPaperThemeMode(): PaperThemeMode {
+function readPaperThemePreference(): PaperThemePreference {
   try {
-    return normalizePaperThemeMode(window.localStorage.getItem(PAPER_THEME_MODE_STORAGE_KEY))
+    return normalizePaperThemePreference(
+      window.localStorage.getItem(PAPER_THEME_PREFERENCE_STORAGE_KEY)
+    )
   } catch {
-    return 'interface'
+    return 'default'
   }
 }
 
@@ -717,12 +721,24 @@ export function BookCover({ book, cache }: { book: BookRecord; cache: BookCoverC
 
   useEffect(() => {
     let alive = true
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
     if (!nearby || book.format !== 'epub') return undefined
-    void cache.load(book.id).then((coverUrl) => {
-      if (alive) setUrl(coverUrl)
-    })
+    const retryDelays = [250, 1_000] as const
+    const loadCover = async (attempt: number): Promise<void> => {
+      try {
+        const coverUrl = await cache.load(book.id)
+        if (alive) setUrl(coverUrl)
+      } catch {
+        if (!alive) return
+        const delay = retryDelays[attempt]
+        if (delay === undefined) return
+        retryTimer = setTimeout(() => void loadCover(attempt + 1), delay)
+      }
+    }
+    void loadCover(0)
     return () => {
       alive = false
+      if (retryTimer) clearTimeout(retryTimer)
     }
   }, [book.format, book.id, cache, nearby])
 
@@ -1495,7 +1511,7 @@ function SettingsModal({
   themePreference,
   interfaceScale,
   readingPreferences,
-  paperThemeMode,
+  paperThemePreference,
   assistantActions,
   returnFocusRef,
   onClose,
@@ -1503,7 +1519,7 @@ function SettingsModal({
   onThemeChange,
   onInterfaceScaleChange,
   onReadingPreferencesChange,
-  onPaperThemeModeChange,
+  onPaperThemePreferenceChange,
   onAssistantActionsChange,
   pushToast
 }: {
@@ -1512,7 +1528,7 @@ function SettingsModal({
   themePreference: ThemePreference
   interfaceScale: InterfaceScale
   readingPreferences: ReadingPreferences
-  paperThemeMode: PaperThemeMode
+  paperThemePreference: PaperThemePreference
   assistantActions: AssistantActionSettings
   returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
@@ -1520,7 +1536,7 @@ function SettingsModal({
   onThemeChange: (preference: ThemePreference) => void
   onInterfaceScaleChange: (scale: InterfaceScale) => void
   onReadingPreferencesChange: (preferences: ReadingPreferences) => void
-  onPaperThemeModeChange: (mode: PaperThemeMode) => void
+  onPaperThemePreferenceChange: (preference: PaperThemePreference) => void
   onAssistantActionsChange: (settings: AssistantActionSettings) => void
   pushToast: (message: string, tone?: ToastState['tone']) => void
 }): ReactNode {
@@ -1875,7 +1891,7 @@ function SettingsModal({
               <section className="settings-section" id="settings-panel-reading" role="tabpanel" aria-labelledby="settings-tab-reading">
                 <div className="settings-section-heading">
                   <h3 id="reading-settings-title">{copy('settings.readingTitle')}</h3>
-              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onPaperThemeModeChange('interface'); onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }) }}>{copy('settings.restoreDefaults')}</button>
+              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onPaperThemePreferenceChange('default'); onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }) }}>{copy('settings.restoreDefaults')}</button>
             </div>
             <label className="settings-range" htmlFor="reading-font-scale">
               <span><strong>{copy('settings.fontLabel')}</strong><output>{readingPreferences.fontScale}%</output></span>
@@ -1941,21 +1957,11 @@ function SettingsModal({
                 <select
                   id="reading-paper-theme"
                   data-testid="reading-paper-theme"
-                  value={paperThemeMode === 'interface' ? 'interface' : readingPreferences.paperTheme}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    if (value === 'interface') {
-                      onPaperThemeModeChange('interface')
-                      return
-                    }
-                    onPaperThemeModeChange('custom')
-                    onReadingPreferencesChange({ ...readingPreferences, paperTheme: value as ReadingPaperTheme })
-                  }}
+                  value={paperThemePreference}
+                  onChange={(event) => onPaperThemePreferenceChange(event.target.value as PaperThemePreference)}
                 >
-                  <option value="interface">{copy('settings.paperThemeFollowInterface')}</option>
-                  <option value="light">{copy('settings.paperThemeLight')}</option>
-                  <option value="sepia">{copy('settings.paperThemeSepia')}</option>
-                  <option value="dark">{copy('settings.paperThemeDark')}</option>
+                  <option value="default">{copy('settings.paperThemeDefault')}</option>
+                  <option value="eye-care">{copy('settings.paperThemeEyeCare')}</option>
                 </select>
                 <small className="settings-font-note">{copy('settings.paperThemeHint')}</small>
               </label>
@@ -1963,7 +1969,6 @@ function SettingsModal({
               <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
               <label htmlFor="reading-content-width"><span>{copy('settings.contentWidth')}</span><select id="reading-content-width" data-testid="reading-content-width" value={readingPreferences.contentWidth} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, contentWidth: event.target.value as ReadingPreferences['contentWidth'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="narrow">{copy('settings.contentWidthNarrow')}</option><option value="standard">{copy('settings.contentWidthStandard')}</option><option value="wide">{copy('settings.contentWidthWide')}</option></select></label>
               <label htmlFor="reading-paragraph-spacing"><span>{copy('settings.paragraphSpacing')}</span><select id="reading-paragraph-spacing" data-testid="reading-paragraph-spacing" value={readingPreferences.paragraphSpacing} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, paragraphSpacing: event.target.value as ReadingPreferences['paragraphSpacing'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="compact">{copy('settings.spacingCompact')}</option><option value="standard">{copy('settings.spacingStandard')}</option><option value="relaxed">{copy('settings.spacingRelaxed')}</option></select></label>
-              <label htmlFor="reading-page-margin"><span>{copy('settings.pageMargin')}</span><select id="reading-page-margin" data-testid="reading-page-margin" value={readingPreferences.pageMargin} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, pageMargin: event.target.value as ReadingPageMargin })}><option value="original">{copy('settings.followBookDefault')}</option><option value="compact">{copy('settings.pageMarginCompact')}</option><option value="standard">{copy('settings.pageMarginStandard')}</option><option value="wide">{copy('settings.pageMarginWide')}</option></select></label>
               <label htmlFor="reading-text-align"><span>{copy('settings.textAlign')}</span><select id="reading-text-align" data-testid="reading-text-align" value={readingPreferences.textAlign} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, textAlign: event.target.value as ReadingTextAlign })}><option value="original">{copy('settings.followBookDefault')}</option><option value="justify">{copy('settings.textAlignJustify')}</option><option value="left">{copy('settings.textAlignLeft')}</option></select></label>
             </div>
               </section>
@@ -2181,7 +2186,7 @@ export default function App(): ReactNode {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(themePreference))
   const [interfaceScale, setInterfaceScale] = useState<InterfaceScale>(readInterfaceScale)
   const [readingPreferences, setReadingPreferences] = useState<ReadingPreferences>(readReadingPreferences)
-  const [paperThemeMode, setPaperThemeMode] = useState<PaperThemeMode>(readPaperThemeMode)
+  const [paperThemePreference, setPaperThemePreference] = useState<PaperThemePreference>(readPaperThemePreference)
   const [assistantActions, setAssistantActions] = useState<AssistantActionSettings>(readAssistantActionSettings)
   const [books, setBooks] = useState<BookRecord[]>([])
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null)
@@ -2256,7 +2261,7 @@ export default function App(): ReactNode {
   const assistantDialogRef = useRef<HTMLElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
-  const effectivePaperTheme = resolveEffectivePaperTheme(paperThemeMode, readingPreferences.paperTheme, resolvedTheme)
+  const effectivePaperTheme = resolveEffectivePaperTheme(paperThemePreference, resolvedTheme)
   const effectiveReadingPreferences = useMemo(
     () => ({ ...readingPreferences, paperTheme: effectivePaperTheme }),
     [readingPreferences, effectivePaperTheme]
@@ -2349,11 +2354,12 @@ export default function App(): ReactNode {
 
   useLayoutEffect(() => {
     try {
-      window.localStorage.setItem(PAPER_THEME_MODE_STORAGE_KEY, paperThemeMode)
+      window.localStorage.setItem(PAPER_THEME_PREFERENCE_STORAGE_KEY, paperThemePreference)
+      window.localStorage.removeItem(LEGACY_PAPER_THEME_MODE_STORAGE_KEY)
     } catch {
-      // Follow mode still applies for this session when storage is unavailable.
+      // The selected paper preference still applies for this session when storage is unavailable.
     }
-  }, [paperThemeMode])
+  }, [paperThemePreference])
 
   useEffect(() => {
     activeRequestRef.current = activeRequestId
@@ -4021,7 +4027,7 @@ export default function App(): ReactNode {
           themePreference={themePreference}
           interfaceScale={interfaceScale}
           readingPreferences={readingPreferences}
-          paperThemeMode={paperThemeMode}
+          paperThemePreference={paperThemePreference}
           assistantActions={assistantActions}
           returnFocusRef={settingsReturnFocusRef}
           onClose={closeSettings}
@@ -4029,7 +4035,7 @@ export default function App(): ReactNode {
           onThemeChange={setThemePreference}
           onInterfaceScaleChange={setInterfaceScale}
           onReadingPreferencesChange={setReadingPreferences}
-          onPaperThemeModeChange={setPaperThemeMode}
+          onPaperThemePreferenceChange={setPaperThemePreference}
           onAssistantActionsChange={setAssistantActions}
           pushToast={pushToast}
         />

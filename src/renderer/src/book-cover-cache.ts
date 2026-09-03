@@ -38,12 +38,7 @@ export class BookCoverCache {
     entry.promise = this.loadCover(bookId)
       .then((cover) => {
         if (!cover || entry.removed || this.disposed) return null
-        let url: string
-        try {
-          url = this.createUrl(cover)
-        } catch {
-          return null
-        }
+        const url = this.createUrl(cover)
         if (entry.removed || this.disposed) {
           this.revokeUrl(url)
           return null
@@ -51,7 +46,12 @@ export class BookCoverCache {
         entry.url = url
         return url
       })
-      .catch(() => null)
+      .catch((error: unknown) => {
+        if (this.entries.get(bookId) === entry) {
+          this.entries.delete(bookId)
+        }
+        throw error
+      })
     this.entries.set(bookId, entry)
     return entry.promise
   }

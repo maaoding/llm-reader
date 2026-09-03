@@ -5,7 +5,7 @@ import { protocol } from 'electron'
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self' blob:",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' blob:",
   "img-src 'self' data: blob:",
   "font-src 'self' data: blob:",
   "connect-src 'self'",

@@ -55,6 +55,7 @@
   /* Reader chrome and paper stay independent from both legacy and peripheral tokens. */
   --reader-frame: #e8edef;
   --reader-header: #f5f7f7;
+  --reader-fixed-paper: #fdfcf9;
   --reader-paper: #fdfcf9;
   --reader-paper-deep: #f8f8f5;
   --reader-ink: #29363c;
@@ -877,9 +878,29 @@ button:disabled {
   --reader-shadow: 0 1px 2px rgb(0 0 0 / 30%);
 }
 
-.reader-surface[data-paper-theme="light"] .reader-host iframe { background: #fdfcf9 !important; }
-.reader-surface[data-paper-theme="sepia"] .reader-host iframe { background: #f6ecd8 !important; }
-.reader-surface[data-paper-theme="dark"] .reader-host iframe { background: #22292d !important; }
+.reader-surface[data-paper-theme="dark-eye-care"] {
+  --reader-paper: #2a2620;
+  --reader-paper-deep: #231f1a;
+  --reader-ink: #e8dfcf;
+  --reader-ink-soft: #c9bea9;
+  --reader-muted: #a1947e;
+  --reader-faint: #7d7261;
+  --reader-line: #40382e;
+  --reader-line-strong: #574b3c;
+  --reader-accent: #c0a36f;
+  --reader-accent-hover: #d1b98a;
+  --reader-accent-soft: #3a3126;
+  --reader-accent-faint: #302920;
+  --reader-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+}
+
+.reader-host[data-epub-layout="reflowable"] iframe {
+  background: var(--reader-paper) !important;
+}
+
+.reader-host[data-epub-layout="fixed"] iframe {
+  background: var(--reader-fixed-paper) !important;
+}
 
 .reader-header {
   display: flex;
@@ -3954,12 +3975,6 @@ button.citation-valid:hover {
   box-shadow:
     inset 1px 0 var(--reader-line),
     inset -1px 0 var(--reader-line);
-}
-
-/* 深色框架 + 浅色书页：EPUB 正文保留原书黑字，不强制反色。
-   仅当原书自身带背景/固定版式时，其自身样式会覆盖这里，因此不会破坏图书。 */
-:root[data-theme="dark"] .reader-host iframe {
-  background: #fdfcf9;
 }
 
 :root[data-theme="dark"] .modal-backdrop {

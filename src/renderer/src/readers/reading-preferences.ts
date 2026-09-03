@@ -1,10 +1,9 @@
 import {
   DEFAULT_READING_PREFERENCES,
-  type PaperThemeMode,
+  type PaperThemePreference,
   type ReadingContentWidth,
   type ReadingIndent,
   type ReadingLineHeight,
-  type ReadingPageMargin,
   type ReadingParagraphSpacing,
   type ReadingPaperTheme,
   type ReadingPreferences,
@@ -19,9 +18,8 @@ const LINE_HEIGHTS = new Set<ReadingLineHeight>(['original', '1.5', '1.7', '1.9'
 const INDENTS = new Set<ReadingIndent>(['original', 'none', '2em'])
 const CONTENT_WIDTHS = new Set<ReadingContentWidth>(['original', 'narrow', 'standard', 'wide'])
 const PARAGRAPH_SPACINGS = new Set<ReadingParagraphSpacing>(['original', 'compact', 'standard', 'relaxed'])
-const PAPER_THEMES = new Set<ReadingPaperTheme>(['light', 'sepia', 'dark'])
-const PAPER_THEME_MODES = new Set<PaperThemeMode>(['interface', 'custom'])
-const PAGE_MARGINS = new Set<ReadingPageMargin>(['original', 'compact', 'standard', 'wide'])
+const PAPER_THEMES = new Set<ReadingPaperTheme>(['light', 'sepia', 'dark', 'dark-eye-care'])
+const PAPER_THEME_PREFERENCES = new Set<PaperThemePreference>(['default', 'eye-care'])
 const TEXT_ALIGNS = new Set<ReadingTextAlign>(['original', 'justify', 'left'])
 
 export interface ReadingPaperTokens {
@@ -33,7 +31,8 @@ export interface ReadingPaperTokens {
 export const READING_PAPER_THEME_TOKENS: Readonly<Record<ReadingPaperTheme, ReadingPaperTokens>> = Object.freeze({
   light: Object.freeze({ background: '#fdfcf9', color: '#29363c', colorScheme: 'light' }),
   sepia: Object.freeze({ background: '#f6ecd8', color: '#433c2e', colorScheme: 'light' }),
-  dark: Object.freeze({ background: '#22292d', color: '#e7e9e6', colorScheme: 'dark' })
+  dark: Object.freeze({ background: '#22292d', color: '#e7e9e6', colorScheme: 'dark' }),
+  'dark-eye-care': Object.freeze({ background: '#2a2620', color: '#e8dfcf', colorScheme: 'dark' })
 })
 
 export const READING_CONTENT_WIDTH_PIXELS: Readonly<Record<Exclude<ReadingContentWidth, 'original'>, number>> = Object.freeze({
@@ -48,36 +47,23 @@ export const READING_PARAGRAPH_SPACING_EM: Readonly<Record<Exclude<ReadingParagr
   relaxed: 1.8
 })
 
-export interface ReadingPageMarginValues {
-  block: number
-  inline: string
+export function isPaperThemePreference(value: unknown): value is PaperThemePreference {
+  return typeof value === 'string' && PAPER_THEME_PREFERENCES.has(value as PaperThemePreference)
 }
 
-export const READING_PAGE_MARGIN_VALUES: Readonly<Record<Exclude<ReadingPageMargin, 'original'>, ReadingPageMarginValues>> = Object.freeze({
-  compact: Object.freeze({ block: 24, inline: 'clamp(16px, 3vw, 40px)' }),
-  standard: Object.freeze({ block: 48, inline: 'clamp(28px, 6vw, 72px)' }),
-  wide: Object.freeze({ block: 72, inline: 'clamp(40px, 7vw, 96px)' })
-})
-
-export function isPaperThemeMode(value: unknown): value is PaperThemeMode {
-  return typeof value === 'string' && PAPER_THEME_MODES.has(value as PaperThemeMode)
+/** Every legacy or invalid stored value deliberately migrates to the new default paper. */
+export function normalizePaperThemePreference(value: unknown): PaperThemePreference {
+  return isPaperThemePreference(value) ? value : 'default'
 }
 
-/** Missing or invalid stored values fall back to following the interface (legacy-user migration). */
-export function normalizePaperThemeMode(value: unknown): PaperThemeMode {
-  return isPaperThemeMode(value) ? value : 'interface'
-}
-
-/**
- * `interface` maps the resolved UI theme straight onto the paper; `custom`
- * keeps the user's manual paper choice (including sepia) fixed.
- */
 export function resolveEffectivePaperTheme(
-  mode: PaperThemeMode,
-  manualPaperTheme: ReadingPaperTheme,
+  preference: PaperThemePreference,
   interfaceTheme: 'light' | 'dark'
 ): ReadingPaperTheme {
-  return mode === 'custom' ? manualPaperTheme : interfaceTheme
+  if (preference === 'eye-care') {
+    return interfaceTheme === 'dark' ? 'dark-eye-care' : 'sepia'
+  }
+  return interfaceTheme
 }
 
 export function normalizeFontFamily(value: unknown): string | null {
@@ -126,9 +112,6 @@ export function normalizeReadingPreferences(
     paperTheme: PAPER_THEMES.has(preferences.paperTheme)
       ? preferences.paperTheme
       : DEFAULT_READING_PREFERENCES.paperTheme,
-    pageMargin: PAGE_MARGINS.has(preferences.pageMargin)
-      ? preferences.pageMargin
-      : DEFAULT_READING_PREFERENCES.pageMargin,
     textAlign: TEXT_ALIGNS.has(preferences.textAlign)
       ? preferences.textAlign
       : DEFAULT_READING_PREFERENCES.textAlign
@@ -147,7 +130,6 @@ export function readingPreferencesEqual(
     left.contentWidth === right.contentWidth &&
     left.paragraphSpacing === right.paragraphSpacing &&
     left.paperTheme === right.paperTheme &&
-    left.pageMargin === right.pageMargin &&
     left.textAlign === right.textAlign
   )
 }

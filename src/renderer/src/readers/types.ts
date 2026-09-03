@@ -57,13 +57,8 @@ export type ReadingLineHeight = 'original' | '1.5' | '1.7' | '1.9'
 export type ReadingIndent = 'original' | 'none' | '2em'
 export type ReadingContentWidth = 'original' | 'narrow' | 'standard' | 'wide'
 export type ReadingParagraphSpacing = 'original' | 'compact' | 'standard' | 'relaxed'
-export type ReadingPaperTheme = 'light' | 'sepia' | 'dark'
-/**
- * `interface` follows the resolved UI theme; `custom` keeps the last manual
- * paper choice fixed regardless of interface or system theme changes.
- */
-export type PaperThemeMode = 'interface' | 'custom'
-export type ReadingPageMargin = 'original' | 'compact' | 'standard' | 'wide'
+export type ReadingPaperTheme = 'light' | 'sepia' | 'dark' | 'dark-eye-care'
+export type PaperThemePreference = 'default' | 'eye-care'
 export type ReadingTextAlign = 'original' | 'justify' | 'left'
 
 export interface ReadingPreferences {
@@ -74,7 +69,6 @@ export interface ReadingPreferences {
   contentWidth: ReadingContentWidth
   paragraphSpacing: ReadingParagraphSpacing
   paperTheme: ReadingPaperTheme
-  pageMargin: ReadingPageMargin
   textAlign: ReadingTextAlign
 }
 
@@ -86,7 +80,6 @@ export const DEFAULT_READING_PREFERENCES: Readonly<ReadingPreferences> = Object.
   contentWidth: 'original',
   paragraphSpacing: 'original',
   paperTheme: 'light',
-  pageMargin: 'original',
   textAlign: 'original'
 })
 
@@ -97,7 +90,9 @@ export const READER_SELECTION_BACKGROUND = 'rgba(240, 220, 160, 0.55)'
 export const READER_SELECTION_BACKGROUND_DARK_PAPER = 'rgba(240, 220, 160, 0.32)'
 
 export function readerSelectionBackground(paperTheme: ReadingPaperTheme): string {
-  return paperTheme === 'dark' ? READER_SELECTION_BACKGROUND_DARK_PAPER : READER_SELECTION_BACKGROUND
+  return paperTheme === 'dark' || paperTheme === 'dark-eye-care'
+    ? READER_SELECTION_BACKGROUND_DARK_PAPER
+    : READER_SELECTION_BACKGROUND
 }
 
 export interface ReaderAdapter {

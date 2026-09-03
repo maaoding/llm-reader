@@ -214,19 +214,13 @@
 | settings.spacingCompact | 紧凑 |
 | settings.spacingStandard | 标准 |
 | settings.spacingRelaxed | 宽松 |
-| settings.pageMargin | 页边距 |
-| settings.pageMarginCompact | 紧凑 |
-| settings.pageMarginStandard | 标准 |
-| settings.pageMarginWide | 宽松 |
 | settings.textAlign | 对齐 |
 | settings.textAlignJustify | 两端对齐 |
 | settings.textAlignLeft | 左对齐 |
 | settings.paperTheme | 纸张主题 |
-| settings.paperThemeFollowInterface | 跟随界面 |
-| settings.paperThemeHint | 默认跟随界面；选择具体纸张后保持固定。 |
-| settings.paperThemeLight | 浅色 |
-| settings.paperThemeSepia | 米黄 |
-| settings.paperThemeDark | 深色 |
+| settings.paperThemeHint | 随界面明暗自动切换对应纸张。 |
+| settings.paperThemeDefault | 默认 |
+| settings.paperThemeEyeCare | 护眼 |
 | settings.followBookDefault | 跟随原书 / 默认 |
 | settings.noIndent | 无缩进 |
 | settings.modelTitle | 模型 |

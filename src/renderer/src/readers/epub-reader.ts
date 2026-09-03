@@ -13,7 +13,6 @@ import {
   fontFamilyStack,
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
-  READING_PAGE_MARGIN_VALUES,
   READING_PARAGRAPH_SPACING_EM,
   READING_PAPER_THEME_TOKENS,
   readingPreferencesEqual
@@ -405,20 +404,7 @@ async function boundedSectionMatches(
   return matches
 }
 
-interface ReadingSectionCssContext {
-  first: boolean
-  last: boolean
-}
-
-const NO_SECTION_CSS_CONTEXT: ReadingSectionCssContext = Object.freeze({
-  first: false,
-  last: false
-})
-
-function readingPreferencesCss(
-  preferences: ReadingPreferences,
-  section: ReadingSectionCssContext
-): string {
+function readingPreferencesCss(preferences: ReadingPreferences): string {
   const rules: string[] = []
   if (preferences.paperTheme !== 'light') {
     const paper = READING_PAPER_THEME_TOKENS[preferences.paperTheme]
@@ -449,18 +435,6 @@ function readingPreferencesCss(
       `${ORDINARY_PARAGRAPH_SELECTOR} { margin-block-start: 0 !important; margin-block-end: ${spacing}em !important; }`
     )
   }
-  if (preferences.pageMargin !== 'original') {
-    const margin = READING_PAGE_MARGIN_VALUES[preferences.pageMargin]
-    rules.push(
-      `html { box-sizing: border-box !important; padding-inline: ${margin.inline} !important; }`
-    )
-    if (section.first) {
-      rules.push(`html { padding-block-start: ${margin.block}px !important; }`)
-    }
-    if (section.last) {
-      rules.push(`html { padding-block-end: ${margin.block}px !important; }`)
-    }
-  }
   if (preferences.textAlign !== 'original') {
     rules.push(
       `body, ${TEXT_ALIGN_SELECTOR} { text-align: ${preferences.textAlign} !important; }`
@@ -479,14 +453,13 @@ function readingPreferencesCss(
 
 function readerStylesheetCss(
   preferences: ReadingPreferences,
-  reflowable: boolean,
-  section: ReadingSectionCssContext = NO_SECTION_CSS_CONTEXT
+  reflowable: boolean
 ): string {
   const rules = [
     `::selection { background: ${readerSelectionBackground(preferences.paperTheme)}; color: inherit; }`,
     '.llm-reader-internal-link { cursor: pointer; }',
     reflowable ? CONTINUOUS_REFLOW_CSS : '',
-    reflowable ? readingPreferencesCss(preferences, section) : ''
+    reflowable ? readingPreferencesCss(preferences) : ''
   ]
   return rules.filter(Boolean).join('\n')
 }
@@ -541,6 +514,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.toc = flattenToc(navigation.toc)
     this.spineCount = spine.length
     this.reflowable = metadata.layout !== 'pre-paginated'
+    this.host.dataset.epubLayout = this.reflowable ? 'reflowable' : 'fixed'
 
     const rendition = book.renderTo(this.host, {
       width: '100%',
@@ -558,6 +532,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     await rendition.started
     if (rendition.settings?.layout === 'pre-paginated') {
       this.reflowable = false
+      this.host.dataset.epubLayout = 'fixed'
     }
     if (this.reflowable) {
       stabilizeContinuousManager(rendition)
@@ -809,12 +784,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
   private applyPreferences(contents: Contents): void {
     contents.document.getElementById(READING_PREFERENCES_STYLE_ELEMENT_ID)?.remove()
-    const sectionIndex = typeof contents.sectionIndex === 'number' ? contents.sectionIndex : -1
-    const section = {
-      first: sectionIndex === 0,
-      last: this.spineCount > 0 && sectionIndex === this.spineCount - 1
-    }
-    const css = readerStylesheetCss(this.preferences, this.reflowable, section)
+    const css = readerStylesheetCss(this.preferences, this.reflowable)
     if (css) {
       void contents.addStylesheetCss(css, READING_PREFERENCES_STYLESHEET)
     }
@@ -1364,6 +1334,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.sectionPercentageBounds.clear()
     this.programmaticScroll = false
     this.preferencesRevision += 1
+    delete this.host.dataset.epubLayout
     this.host.replaceChildren()
   }
 }

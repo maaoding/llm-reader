@@ -6,7 +6,6 @@ import {
   fontFamilyStack,
   normalizeReadingPreferences,
   READING_CONTENT_WIDTH_PIXELS,
-  READING_PAGE_MARGIN_VALUES,
   READING_PAPER_THEME_TOKENS,
   READING_PARAGRAPH_SPACING_EM,
   readingPreferencesEqual
@@ -575,18 +574,10 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.root.style.color = paper.color
     this.root.style.colorScheme = paper.colorScheme
 
-    if (this.preferences.pageMargin === 'original') {
-      this.root.style.paddingTop = DEFAULT_TXT_PAGE_MARGIN_BLOCK
-      this.root.style.paddingBottom = TXT_BOTTOM_READING_TAIL
-      this.root.style.paddingLeft = DEFAULT_TXT_PAGE_MARGIN_INLINE
-      this.root.style.paddingRight = DEFAULT_TXT_PAGE_MARGIN_INLINE
-    } else {
-      const margin = READING_PAGE_MARGIN_VALUES[this.preferences.pageMargin]
-      this.root.style.paddingTop = `${margin.block}px`
-      this.root.style.paddingBottom = TXT_BOTTOM_READING_TAIL
-      this.root.style.paddingLeft = margin.inline
-      this.root.style.paddingRight = margin.inline
-    }
+    this.root.style.paddingTop = DEFAULT_TXT_PAGE_MARGIN_BLOCK
+    this.root.style.paddingBottom = TXT_BOTTOM_READING_TAIL
+    this.root.style.paddingLeft = DEFAULT_TXT_PAGE_MARGIN_INLINE
+    this.root.style.paddingRight = DEFAULT_TXT_PAGE_MARGIN_INLINE
 
     for (const paragraph of this.paragraphs) {
       if (paragraph.element.tagName !== 'P') {

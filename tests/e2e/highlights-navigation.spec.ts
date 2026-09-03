@@ -101,7 +101,7 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
     // The paper theme remains independent and persists across restart.
     await page.getByTestId('reader-settings-button').click()
     await page.getByTestId('settings-nav-reading').click()
-    await page.getByTestId('reading-paper-theme').selectOption('sepia')
+    await page.getByTestId('reading-paper-theme').selectOption('eye-care')
     await expect(page.locator('.reader-surface')).toHaveAttribute('data-paper-theme', 'sepia')
     await page.getByTestId('settings-close').click()
     await expect

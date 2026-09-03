@@ -3,7 +3,7 @@
 import React from 'react'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BookRecord } from '../../src/shared/contracts'
+import type { BookCoverPayload, BookRecord } from '../../src/shared/contracts'
 import { BookCover } from '../../src/renderer/src/App'
 import { BookCoverCache } from '../../src/renderer/src/book-cover-cache'
 
@@ -86,5 +86,78 @@ describe('lazy library covers', () => {
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(4))
     expect(observers[0].disconnect).not.toHaveBeenCalled()
     cache.dispose()
+  })
+
+  it('retries a visible cover twice after transient failures and then renders it', async () => {
+    vi.useFakeTimers()
+    try {
+      const cover: BookCoverPayload = {
+        mimeType: 'image/png',
+        bytes: new Uint8Array([1, 2, 3])
+      }
+      const loader = vi.fn()
+        .mockRejectedValueOnce(new Error('first transient failure'))
+        .mockRejectedValueOnce(new Error('second transient failure'))
+        .mockResolvedValueOnce(cover)
+      const cache = new BookCoverCache(loader, vi.fn(() => 'blob:recovered'), vi.fn())
+      const view = render(
+        <div className="library-list">
+          <BookCover book={book(1)} cache={cache} />
+        </div>
+      )
+
+      act(() => {
+        observers[0].callback(
+          [{ target: view.getByTestId('book-cover'), isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        )
+      })
+      await act(async () => { await Promise.resolve() })
+      expect(loader).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250)
+      })
+      expect(loader).toHaveBeenCalledTimes(2)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+      expect(loader).toHaveBeenCalledTimes(3)
+      expect(view.getByTestId('book-cover').getAttribute('data-has-cover')).toBe('true')
+      cache.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retry an explicit missing-cover result', async () => {
+    vi.useFakeTimers()
+    try {
+      const loader = vi.fn(async () => null)
+      const cache = new BookCoverCache(loader, vi.fn(() => 'blob:unused'), vi.fn())
+      const view = render(
+        <div className="library-list">
+          <BookCover book={book(1)} cache={cache} />
+        </div>
+      )
+
+      act(() => {
+        observers[0].callback(
+          [{ target: view.getByTestId('book-cover'), isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        )
+      })
+      await act(async () => {
+        await Promise.resolve()
+        await vi.advanceTimersByTimeAsync(2_000)
+      })
+
+      expect(loader).toHaveBeenCalledOnce()
+      expect(view.getByTestId('book-cover').getAttribute('data-has-cover')).toBe('false')
+      cache.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

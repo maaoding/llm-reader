@@ -20,17 +20,32 @@ describe('BookCoverCache', () => {
     expect(createUrl).toHaveBeenCalledOnce()
   })
 
-  it('negative-caches missing covers and loader failures', async () => {
-    const loader = vi.fn()
-      .mockResolvedValueOnce(null)
-      .mockRejectedValueOnce(new Error('private failure'))
+  it('negative-caches missing covers but evicts transient loader failures', async () => {
+    const loader = vi.fn(async (bookId: string) => {
+      if (bookId === 'missing') return null
+      if (loader.mock.calls.filter(([id]) => id === 'failed').length === 1) {
+        throw new Error('private failure')
+      }
+      return cover
+    })
     const cache = new BookCoverCache(loader, vi.fn(() => 'blob:unused'), vi.fn())
 
     await expect(cache.load('missing')).resolves.toBeNull()
     await expect(cache.load('missing')).resolves.toBeNull()
-    await expect(cache.load('failed')).resolves.toBeNull()
-    await expect(cache.load('failed')).resolves.toBeNull()
-    expect(loader).toHaveBeenCalledTimes(2)
+    await expect(cache.load('failed')).rejects.toThrow('private failure')
+    await expect(cache.load('failed')).resolves.toBe('blob:unused')
+    expect(loader).toHaveBeenCalledTimes(3)
+  })
+
+  it('evicts object URL creation failures so a later request can recover', async () => {
+    const createUrl = vi.fn()
+      .mockImplementationOnce(() => { throw new Error('blob unavailable') })
+      .mockReturnValueOnce('blob:recovered')
+    const cache = new BookCoverCache(vi.fn(async () => cover), createUrl, vi.fn())
+
+    await expect(cache.load('book-1')).rejects.toThrow('blob unavailable')
+    await expect(cache.load('book-1')).resolves.toBe('blob:recovered')
+    expect(createUrl).toHaveBeenCalledTimes(2)
   })
 
   it('revokes URLs on removal and disposal', async () => {
