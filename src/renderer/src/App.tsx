@@ -2307,8 +2307,6 @@ export default function App(): ReactNode {
     importDialogStateRef.current = importDialogState
   }, [importDialogState])
 
-  useEffect(() => () => coverCache.dispose(), [coverCache])
-
   useEffect(() => {
     if (leftView !== 'search') return undefined
     const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus())
@@ -2764,13 +2762,14 @@ export default function App(): ReactNode {
     if (!window.readerApi) return undefined
     return window.readerApi.onBeforeClose(async () => {
       closingRef.current = true
+      coverCache.dispose()
       if (progressTimerRef.current) {
         clearTimeout(progressTimerRef.current)
         progressTimerRef.current = null
       }
       await flushProgress()
     })
-  }, [flushProgress])
+  }, [coverCache, flushProgress])
 
   useEffect(() => {
     if (!window.readerApi) return undefined
