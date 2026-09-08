@@ -13,6 +13,7 @@ lockfile and dependency packages.
 | electron-updater | 6.8.9 | MIT | Copyright (c) Vladimir Krivosheev |
 | epub.js | 0.3.93 | BSD-2-Clause | Copyright (c) 2013, FuturePress |
 | JSZip | 3.10.1 | MIT OR GPL-3.0-or-later | Copyright (c) 2009-2025 Stuart Knightley and contributors |
+| parse5 | 8.0.1 | MIT | Copyright (c) 2013-2019 Ivan Nikulin |
 | localforage | 1.10.0 | Apache-2.0 | Copyright 2014 Mozilla |
 | PDF.js | 5.6.205 | Apache-2.0 | Copyright 2012 Mozilla Foundation |
 | lucide-react | 1.31.0 | ISC | Copyright (c) 2026 Lucide Icons and Contributors |

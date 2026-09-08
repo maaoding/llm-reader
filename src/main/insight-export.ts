@@ -1,8 +1,14 @@
-import type { InsightArchiveRecord, InsightExportScope } from '@shared/contracts'
+import type { InsightArchiveRecord, InsightExportScope, Passage } from '@shared/contracts'
 import { copy } from '@shared/copy'
 
 function singleLine(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
+}
+
+function evidenceLine(passage: Passage): string {
+  const pages = [...new Set(passage.sources?.flatMap((source) => source.page ? [source.page] : []) ?? [])]
+  const source = pages.length ? `（${passage.sources?.some((item) => item.precision === 'table') ? '整表页范围，未确定行级页码；' : ''}第 ${pages.join('、')} 页）` : ''
+  return `[${passage.id}] ${singleLine(passage.headingPath?.join(' / ') ?? passage.chapterTitle ?? '')}${source}：${singleLine(passage.text)}`
 }
 
 function blockquote(value: string): string {
@@ -105,13 +111,13 @@ export function buildInsightExportMarkdown(records: ReadonlyArray<InsightArchive
     insights.forEach((insight, insightIndex) => {
       lines.push(`### ${copy('export.entryHeading', { index: `${bookIndex}.${insightIndex + 1}` })}`)
       lines.push('')
-      lines.push(`- ${copy('export.chapterLabel')}：${singleLine(insight.selection.chapterTitle || copy('common.currentChapter'))}`)
+      lines.push(`- ${copy('export.chapterLabel')}：${singleLine(insight.selection?.chapterTitle || (insight.selection ? copy('common.currentChapter') : copy('analysis.bookSource')))}`)
       lines.push(`- ${copy('export.dateLabel')}：${formatDateTime(insight.createdAt)}`)
       lines.push(`- ${copy('export.modelLabel')}：${singleLine(insight.model)}`)
       lines.push('')
       lines.push(`**${copy('export.quoteLabel')}**`)
       lines.push('')
-      lines.push(blockquote(insight.selection.quote))
+      lines.push(blockquote(insight.selection?.quote || copy('analysis.bookSource')))
       lines.push('')
       lines.push(`**${copy('export.questionLabel')}**`)
       lines.push('')
@@ -120,6 +126,7 @@ export function buildInsightExportMarkdown(records: ReadonlyArray<InsightArchive
       lines.push(`**${copy('export.answerLabel')}**`)
       lines.push('')
       lines.push(insight.answer)
+      if (insight.context) for (const passage of insight.context.passages) lines.push(`\n- ${evidenceLine(passage)}`)
       lines.push('')
 
       const followups = insight.history.slice(2)
@@ -137,6 +144,7 @@ export function buildInsightExportMarkdown(records: ReadonlyArray<InsightArchive
           lines.push(`- ${copy('export.userLabel')}：${question.content}`)
           if (answer?.role === 'assistant') {
             lines.push(`- ${copy('export.assistantLabel')}：${answer.content}`)
+            if (answer.context) for (const passage of answer.context.passages) lines.push(`  - ${evidenceLine(passage)}`)
           }
           lines.push('')
         }

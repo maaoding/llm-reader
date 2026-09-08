@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   IPC_CHANNELS,
+  type BookExtractionApi,
   type AppUpdatePhase,
   type BookImportEvent,
   type LlmEvent,
@@ -56,7 +57,22 @@ export const readerApi: ReaderApi = {
   testProviderConfiguration: (input) => ipcRenderer.invoke(IPC_CHANNELS.providerTestConfiguration, input),
   listProviderModels: (input) => ipcRenderer.invoke(IPC_CHANNELS.providerModels, input),
   listSystemFonts: () => ipcRenderer.invoke(IPC_CHANNELS.fontsList),
+  getKnowledgeSettings: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeGet),
+  saveKnowledgeSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeSave, input),
+  testKnowledgeSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeTest, input),
+  startSemanticIndex: (input) => ipcRenderer.invoke(IPC_CHANNELS.semanticStart, input),
+  cancelSemanticIndex: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.semanticCancel, bookId),
   startLlm: (request) => ipcRenderer.invoke(IPC_CHANNELS.llmStart, request),
+  getBookAnalysis: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.analysisGet, bookId),
+  prepareBookDocument: (input) => ipcRenderer.invoke(IPC_CHANNELS.documentPrepare, input),
+  cancelBookDocument: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.documentCancel, bookId),
+  startBookAnalysis: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisStart, input),
+  cancelBookAnalysis: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.analysisCancel, bookId),
+  onBookAnalysisEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: Parameters<typeof listener>[0]): void => listener(state)
+    ipcRenderer.on(IPC_CHANNELS.analysisEvent, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.analysisEvent, handler)
+  },
   cancelLlm: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.llmCancel, requestId),
   onLlmEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => listener(value as LlmEvent)
@@ -84,4 +100,15 @@ export const readerApi: ReaderApi = {
   }
 }
 
-contextBridge.exposeInMainWorld('readerApi', readerApi)
+if (process.argv.includes('--llm-reader-extraction')) {
+  const api: BookExtractionApi = {
+    processPdf: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisPdf, input),
+    read: () => ipcRenderer.invoke(IPC_CHANNELS.analysisRead),
+    append: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisAppend, input),
+    finish: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisFinish, input),
+    fail: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisFail, input)
+  }
+  contextBridge.exposeInMainWorld('bookExtractor', api)
+} else {
+  contextBridge.exposeInMainWorld('readerApi', readerApi)
+}

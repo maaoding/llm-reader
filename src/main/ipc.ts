@@ -3,13 +3,25 @@ import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { BookImportCoordinator, MAX_BOOK_IMPORT_BATCH } from './book-import-coordinator'
+import type { BookAnalysisService } from './book-analysis'
+import type { BookExtractionRunner } from './book-extraction-runner'
 import { AppError, toPublicError } from './errors'
 import { listSystemFonts } from './fonts'
 import { LibraryService } from './library-service'
 import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
 import { UpdaterService } from './updater-service'
+import type { KnowledgeSettingsService } from './knowledge-settings'
+import type { KnowledgeHttp } from './knowledge-http'
+import { rerank } from './rerank-service'
+import { embed, type SemanticIndexService } from './semantic-index'
+import type { DocumentProcessingService } from './document-processing'
 import {
+  startBookAnalysisSchema,
+  prepareBookDocumentSchema,
+  knowledgeSettingsSchema,
+  testKnowledgeSettingsSchema,
+  startSemanticIndexSchema,
   bookIdSchema,
   bookImportPathsSchema,
   createProviderProfileSchema,
@@ -35,6 +47,12 @@ interface IpcDependencies {
   bookImporter: BookImportCoordinator
   provider: ProviderService
   llm: LlmService
+  analysis?: BookAnalysisService
+  extractor?: BookExtractionRunner
+  knowledge?: KnowledgeSettingsService
+  knowledgeHttp?: KnowledgeHttp
+  semantic?: SemanticIndexService
+  documents?: DocumentProcessingService
   updater: UpdaterService
   allowedRendererOrigins: ReadonlySet<string>
   completeClose: () => void
@@ -67,7 +85,7 @@ function parseBatchPaths(value: unknown): string[] {
   return parse(bookImportPathsSchema, value)
 }
 
-function safeIpcError(error: unknown): Error {
+export function safeIpcError(error: unknown): Error {
   if (error instanceof ZodError) {
     return new Error(`[INVALID_INPUT] ${copy('error.invalidInput')}`)
   }
@@ -127,9 +145,14 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.booksRead, dependencies, (_event, value) =>
     dependencies.library.readBook(parse(bookIdSchema, value))
   )
-  handle(IPC_CHANNELS.booksDelete, dependencies, (_event, value) =>
-    dependencies.library.deleteBook(parse(bookIdSchema, value))
-  )
+  handle(IPC_CHANNELS.booksDelete, dependencies, (_event, value) => {
+    const bookId = parse(bookIdSchema, value)
+    dependencies.analysis?.cancel(bookId)
+    dependencies.analysis?.cancelPreparation(bookId)
+    dependencies.semantic?.cancel(bookId)
+    dependencies.llm.cancelBook(bookId)
+    return dependencies.library.deleteBook(bookId)
+  })
   handle(IPC_CHANNELS.booksCover, dependencies, (_event, value) =>
     dependencies.library.getBookCover(parse(bookIdSchema, value))
   )
@@ -183,15 +206,19 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.providerCreate, dependencies, (_event, value) =>
     dependencies.provider.createProfile(parse(createProviderProfileSchema, value))
   )
-  handle(IPC_CHANNELS.providerUpdate, dependencies, (_event, value) =>
-    dependencies.provider.updateProfile(parse(updateProviderProfileSchema, value))
-  )
+  handle(IPC_CHANNELS.providerUpdate, dependencies, (_event, value) => {
+    const input = parse(updateProviderProfileSchema, value)
+    dependencies.analysis?.profileChanged(input.id)
+    return dependencies.provider.updateProfile(input)
+  })
   handle(IPC_CHANNELS.providerActivate, dependencies, (_event, value) =>
     dependencies.provider.activateProfile(parse(providerProfileIdSchema, value))
   )
-  handle(IPC_CHANNELS.providerDelete, dependencies, (_event, value) =>
-    dependencies.provider.deleteProfile(parse(providerProfileIdSchema, value))
-  )
+  handle(IPC_CHANNELS.providerDelete, dependencies, (_event, value) => {
+    const id = parse(providerProfileIdSchema, value)
+    dependencies.analysis?.profileChanged(id)
+    return dependencies.provider.deleteProfile(id)
+  })
   handle(IPC_CHANNELS.providerTest, dependencies, () => dependencies.provider.testConnection())
   handle(IPC_CHANNELS.providerTestConfiguration, dependencies, (_event, value) =>
     dependencies.provider.testConfiguration(parse(providerConfigurationSchema, value))
@@ -200,6 +227,49 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     dependencies.provider.listModels(parse(providerModelListSchema, value))
   )
   handle(IPC_CHANNELS.fontsList, dependencies, () => listSystemFonts())
+  if (dependencies.knowledge) {
+    const knowledge = dependencies.knowledge
+    handle(IPC_CHANNELS.knowledgeGet, dependencies, () => knowledge.get())
+    handle(IPC_CHANNELS.knowledgeSave, dependencies, (_event, value) => {
+      const previousRevision = knowledge.embeddingRevision()
+      const previousDocumentRevision = knowledge.documentRevision()
+      const previousEnabled = knowledge.get().embedding.enabled
+      const saved = knowledge.save(parse(knowledgeSettingsSchema, value))
+      const embeddingChanged = previousRevision !== knowledge.embeddingRevision() || previousEnabled !== saved.embedding.enabled
+      if (embeddingChanged) dependencies.semantic?.dispose()
+      if (embeddingChanged || previousDocumentRevision !== knowledge.documentRevision()) dependencies.analysis?.knowledgeChanged()
+      return saved
+    })
+    handle(IPC_CHANNELS.knowledgeTest, dependencies, async (_event, value) => {
+      const input = parse(testKnowledgeSettingsSchema, value)
+      const signal = AbortSignal.timeout(20_000)
+      if (input.target === 'embedding') await embed(dependencies.knowledgeHttp!, knowledge.embedding(input.embedding), ['这是用于检查语义检索接口的固定测试文本。'], signal)
+      else if (input.target === 'rerank') await rerank(dependencies.knowledgeHttp!, knowledge.rerank(input.rerank), '雨天出门应该带什么？', [
+        { id: 'test-a', text: '下雨时出门可以带雨伞。', chapterTitle: '固定测试文本', anchor: 'test:0' },
+        { id: 'test-b', text: '晴天可以观察蓝色的天空。', chapterTitle: '固定测试文本', anchor: 'test:1' }
+      ], signal)
+      else await dependencies.documents!.test(knowledge.document(input.document), signal)
+      return { ok: true, message: copy(input.target === 'embedding' ? 'knowledge.testOk' : input.target === 'rerank' ? 'rerank.testOk' : 'knowledge.documentTestOk') }
+    })
+    handle(IPC_CHANNELS.semanticStart, dependencies, (_event, value) => {
+      const input = parse(startSemanticIndexSchema, value)
+      dependencies.semantic!.start(input)
+      return dependencies.analysis!.state(input.bookId)
+    })
+    handle(IPC_CHANNELS.semanticCancel, dependencies, (_event, value) => dependencies.semantic!.cancel(parse(bookIdSchema, value)))
+  }
+  if (dependencies.analysis) {
+    const analysis = dependencies.analysis
+    handle(IPC_CHANNELS.analysisGet, dependencies, (_event, value) => analysis.state(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.documentPrepare, dependencies, (_event, value) => {
+      const state = analysis.prepare(parse(prepareBookDocumentSchema, value))
+      dependencies.extractor?.start(state)
+      return state
+    })
+    handle(IPC_CHANNELS.documentCancel, dependencies, (_event, value) => analysis.cancelPreparation(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.analysisStart, dependencies, (_event, value) => analysis.start(parse(startBookAnalysisSchema, value)))
+    handle(IPC_CHANNELS.analysisCancel, dependencies, (_event, value) => analysis.cancel(parse(bookIdSchema, value)))
+  }
   handle(IPC_CHANNELS.llmStart, dependencies, (event, value) => {
     const request = parse(llmRequestSchema, value)
     const emit = (llmEvent: LlmEvent): void => {
@@ -235,6 +305,7 @@ export function unregisterIpcHandlers(): void {
     .filter(
       (channel) =>
         channel !== IPC_CHANNELS.llmEvent &&
+        channel !== IPC_CHANNELS.analysisEvent &&
         channel !== IPC_CHANNELS.appBeforeClose &&
         channel !== IPC_CHANNELS.appUpdateEvent &&
         channel !== IPC_CHANNELS.booksImportEvent &&

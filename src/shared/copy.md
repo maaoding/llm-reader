@@ -6,6 +6,133 @@
 
 | key | text |
 | --- | --- |
+| knowledge.title | 知识处理 |
+| knowledge.description | 配置可选的语义检索、证据重排和 PDF 处理接口。向量保存在本机 SQLite，无需另行部署向量数据库。 |
+| rerank.title | 证据重排 |
+| rerank.enabled | 启用证据重排 |
+| rerank.hint | 保存并启用后，已分析书籍的适用问答自动重排。问题和候选原文将发送到所选服务；地址、模型和密钥独立于 Embedding。填写兼容 /rerank 的接口地址（如含 /v1 的服务地址）。每轮最多等待 5 秒，失败后继续使用原检索结果。 |
+| rerank.model | 重排模型 |
+| rerank.test | 测试重排 |
+| rerank.testOk | 重排接口检查通过。 |
+| rerank.required | 请填写重排接口地址和模型。 |
+| rerank.invalid | 重排服务返回的排序结构无效。 |
+| rerank.applied | 证据已重排 |
+| rerank.fallback | 重排未完成，已使用原检索结果 |
+| rerank.skipped | 本轮未使用重排 |
+| knowledge.embeddingTitle | 语义检索 |
+| knowledge.embeddingEnabled | 启用语义检索 |
+| knowledge.embeddingHint | 填写兼容 /v1/embeddings 的接口地址（含 /v1）和 Embedding 模型。本机服务可留空密钥。保存后，在书籍的全书上下文中手动建立索引。 |
+| knowledge.baseUrl | 接口地址 |
+| knowledge.model | Embedding 模型 |
+| knowledge.apiKey | API Key（可选） |
+| knowledge.keySaved | 已保存密钥；留空保留 |
+| knowledge.keyEmpty | 未保存密钥 |
+| knowledge.clearKey | 清除已存密钥 |
+| knowledge.endpointHint | 更换接口地址或文档服务时，请重新填写密钥。 |
+| knowledge.documentTitle | PDF 文档处理 |
+| knowledge.processor | 处理服务 |
+| knowledge.none | 未启用 |
+| knowledge.mineruLocal | MinerU 本地服务 |
+| knowledge.mineruCloud | MinerU 云服务 |
+| knowledge.docling | Docling Serve |
+| knowledge.documentHint | Docling Serve 和 MinerU 本地服务填写服务根地址；MinerU 云服务填写 https://mineru.net。需要自行部署本地服务，应用不会自动安装。 |
+| knowledge.ocr | 启用 OCR |
+| knowledge.language | 识别语言 |
+| knowledge.ch | 中文 |
+| knowledge.en | 英文 |
+| knowledge.testEmbedding | 测试 Embedding |
+| knowledge.testDocument | 检查处理服务 |
+| knowledge.testHint | Embedding 测试会发送一条固定短文本并可能消耗额度；文档检查不上传书籍。 |
+| knowledge.testOk | 接口检查通过。 |
+| knowledge.documentTestOk | 服务接口可用。实际文档处理需在书籍中验证。 |
+| knowledge.save | 保存知识处理设置 |
+| knowledge.saved | 知识处理设置已保存。 |
+| knowledge.testing | 正在检查… |
+| knowledge.indexTitle | 语义索引 |
+| knowledge.indexStart | 建立语义索引 |
+| knowledge.indexResume | 继续建立索引 |
+| knowledge.indexRebuild | 重建语义索引 |
+| knowledge.indexCancel | 暂停建立索引 |
+| knowledge.indexDisclosure | 将本书已提取的正文分批发送至所设 Embedding 接口，可能消耗额度。向量只保存在本机；启用后，提问也会发送至该接口用于查找相关原文。暂停或退出后不会自动续跑。 |
+| knowledge.pdfDisclosure | 准备 PDF 会发送整份文件至文档处理服务。暂停只停止本机等待，远端任务可能继续运行；续跑优先读取同一任务。识别文字可能有误，引用可返回 PDF 页面核对。 |
+| knowledge.pdfRequired | 请先在设置 → 知识处理中选择 PDF 文档处理服务。 |
+| knowledge.pdfPage | 第 {page} 页 |
+| knowledge.indexProgress | 已建立索引 {completed}/{total} 段 |
+| knowledge.status.disabled | 未启用语义检索 |
+| knowledge.status.empty | 尚未建立索引 |
+| knowledge.status.indexing | 正在建立索引 |
+| knowledge.status.paused | 索引已暂停 |
+| knowledge.status.ready | 混合检索已就绪 |
+| knowledge.status.error | 索引未完成 |
+| knowledge.status.stale | 配置已变化，请重建索引 |
+| knowledge.indexChanged | Embedding 配置已变化，请重建语义索引。已有章节笔记保留。 |
+| knowledge.indexBusy | 另一本书正在建立索引，请先暂停。 |
+| knowledge.embeddingRequired | 请先填写并启用 Embedding 接口和模型。 |
+| knowledge.vectorInvalid | Embedding 返回的向量数量、维度或数值无效。已保留完成进度。 |
+| knowledge.secretError | 无法安全保存或读取此密钥，请重新填写。 |
+| knowledge.httpError | 知识处理接口返回 HTTP {status}。请检查地址、密钥和服务状态。 |
+| knowledge.redirect | 接口返回跳转，请填写最终服务地址。 |
+| knowledge.timeout | 知识处理接口超时。已保存的进度会在继续时复用。 |
+| knowledge.network | 知识处理服务连接中断，请检查服务状态后继续。 |
+| knowledge.invalid | 文档处理返回的结构或页码无效，尚未开始正文分析。 |
+| knowledge.tooLarge | 处理内容超出本机限制，请使用较小的文档或较低维度的 Embedding 模型。 |
+| knowledge.documentFailed | 文档处理未完成。可继续读取现有任务；任务已失败或过期时，请重新分析。 |
+| knowledge.cloudKey | MinerU 云服务需要 API Token。 |
+| knowledge.documentChanged | PDF 处理配置已变化，请重新分析。已有归档保留。 |
+| knowledge.extractionPhase | 正在等待 PDF 文档处理 |
+| settings.compatibilityLabel | 请求适配 |
+| settings.compatibilityAuto | 自动（默认） |
+| settings.compatibilityGo | OpenCode Go |
+| settings.compatibilityHint | 官方 Go 地址会自动适配。通过中转调用 Go 时请选择 OpenCode Go，并确保中转支持透传会话标识。 |
+| error.providerRedirect | Go 接口返回了跳转。请在模型配置中填写最终接口地址后重试。 |
+| error.providerSessionRejected | 接口拒绝了 Go 会话标识。请检查请求适配设置，并确认中转支持透传会话标识。 |
+| analysis.title | 全书上下文 |
+| analysis.scopeLabel | 提问范围 |
+| analysis.selection | 本段 |
+| analysis.book | 全书 |
+| analysis.prepare | 生成章节笔记 |
+| analysis.resume | 继续生成笔记 |
+| analysis.rebuild | 重新生成章节笔记 |
+| analysis.cancel | 暂停生成笔记 |
+| analysis.profile | 分析模型配置 |
+| analysis.disclosure | 生成章节笔记会分节发送已准备的正文至所选分析模型，并消耗模型额度。暂停或退出后不会自动继续。重新生成只替换章节笔记，原文、语义索引与归档保留。 |
+| analysis.needed | 完成原文准备后即可书内提问，无需等待章节笔记；准备期间仍可解释选区。 |
+| analysis.unsupported | 全书分析目前支持 EPUB、TXT；PDF 可继续使用段落解释。 |
+| analysis.textSection | 文本分节 |
+| analysis.failed | 本书分析未完成，已保留进度。可继续分析以重试未完成的步骤。 |
+| analysis.summaryTooLong | 汇总返回了 {count} 字符，超过 {limit} 字符上限。已保留进度。 |
+| analysis.summaryEmpty | 汇总未返回有效正文。已保留进度。 |
+| analysis.noteInvalid | 分节笔记的格式或长度不符合要求。已保留进度。 |
+| analysis.referenceInvalid | 分节笔记引用了本节不存在的原文编号。已保留进度。 |
+| analysis.responseTooLarge | 分析响应超出长度限制。已保留进度。 |
+| analysis.networkError | 分析请求连接中断。已保留进度。 |
+| analysis.timeout | 分析请求超过 3 分钟未完成。已保留进度。 |
+| analysis.stage.sections | 分节分析 |
+| analysis.stage.chapters | 章节汇总 |
+| analysis.stage.overview | 全书合并 |
+| analysis.stageProgress | {stage}：{completed}/{total} |
+| analysis.summaryRound | 第 {round} 轮 |
+| analysis.retrying | 正在重试当前步骤（{attempt}/3），已完成结果会继续复用。 |
+| analysis.recentFailures | 最近失败记录 |
+| analysis.disclosureRetry | 临时请求错误或结果校验失败时，每步最多尝试 3 次；重试可能消耗额度。 |
+| analysis.busy | 另一本书正在分析，请先暂停该任务。 |
+| analysis.changed | 分析配置或处理版本已变化，请重新分析，避免混用结果。 |
+| analysis.tooLarge | 本书内容超出分析限制，请使用较小的分册。 |
+| analysis.sources | 原文依据 |
+| analysis.sourceCount | 本次实际证据：{count} 处原文 |
+| analysis.coverage | 笔记覆盖 {covered}/{total} 节 |
+| analysis.progress | 已分析分节 |
+| analysis.usageUnknown | 接口未返回用量 |
+| analysis.bookQuestion | 询问本书的观点、概念或章节联系… |
+| analysis.bookSource | 全书问答 |
+| analysis.status.empty | 尚未生成笔记 |
+| analysis.status.stale | 笔记待重建 |
+| analysis.status.extracting | 正在提取原文 |
+| analysis.status.analyzing | 正在分析 |
+| analysis.status.paused | 已暂停 |
+| analysis.status.ready | 章节笔记已完成 |
+| analysis.status.error | 分析未完成 |
+| analysis.status.unsupported | 暂不支持全书分析 |
 | app.name | LLM Reader |
 | common.retry | 重试 |
 | common.confirm | 确认 |

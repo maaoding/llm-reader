@@ -16,10 +16,12 @@ import { AppError } from './errors'
 import {
   buildChatCompletionsUrl,
   buildModelsUrl,
+  errorResponseDetails,
   readResponseTextBounded,
-  readSafeErrorStatus
+  type ProviderCredentials
 } from './llm-service'
 import { ProfileSecretStore } from './secret-store'
+import { ProviderTransport } from './provider-transport'
 
 const MAX_PROFILE_COUNT = 10
 const PROVIDER_TIMEOUT_MS = 15_000
@@ -41,6 +43,7 @@ function publicProfile(row: ProviderProfileRecord, hasApiKey: boolean): Provider
     name: row.name,
     baseUrl: row.base_url,
     model: row.model,
+    compatibility: row.compatibility,
     hasApiKey,
     isActive: row.is_active === 1,
     createdAt: row.created_at,
@@ -49,12 +52,15 @@ function publicProfile(row: ProviderProfileRecord, hasApiKey: boolean): Provider
 }
 
 export class ProviderService {
+  private readonly transport: ProviderTransport
   constructor(
     private readonly database: AppDatabase,
     private readonly keyProtector: KeyProtector,
     private readonly secretStore: ProfileSecretStore,
-    private readonly fetchImplementation: FetchImplementation = fetch
+    fetchImplementation: FetchImplementation = fetch,
+    applicationVersion = 'development'
   ) {
+    this.transport = new ProviderTransport(fetchImplementation, applicationVersion)
     this.secretStore.reconcile(new Set(this.database.listProviderProfiles().map((profile) => profile.id)))
   }
 
@@ -71,8 +77,8 @@ export class ProviderService {
   getSettings(): ProviderSettings {
     const active = this.database.getActiveProviderProfile()
     return active
-      ? { baseUrl: active.base_url, model: active.model, hasApiKey: this.secretStore.has(active.id) }
-      : { baseUrl: 'https://api.openai.com', model: 'gpt-4.1-mini', hasApiKey: false }
+      ? { baseUrl: active.base_url, model: active.model, compatibility: active.compatibility, hasApiKey: this.secretStore.has(active.id) }
+      : { baseUrl: 'https://api.openai.com', model: 'gpt-4.1-mini', compatibility: 'auto', hasApiKey: false }
   }
 
   private assertUniqueName(name: string, excludedId?: string): void {
@@ -106,6 +112,7 @@ export class ProviderService {
         name: input.name,
         base_url: input.baseUrl,
         model: input.model,
+        compatibility: input.compatibility ?? 'auto',
         is_active: 0,
         created_at: now,
         updated_at: now
@@ -124,7 +131,7 @@ export class ProviderService {
     buildChatCompletionsUrl(input.baseUrl)
     this.assertUniqueName(input.name, input.id)
     this.writeKey(input.id, input.apiKey)
-    if (!this.database.updateProviderProfile(input.id, input.name, input.baseUrl, input.model, new Date().toISOString())) {
+    if (!this.database.updateProviderProfile(input.id, input.name, input.baseUrl, input.model, new Date().toISOString(), input.compatibility ?? 'auto')) {
       throw new AppError('PROVIDER_PROFILE_NOT_FOUND', copy('error.providerProfileNotFound'))
     }
     return this.getOverview()
@@ -137,7 +144,7 @@ export class ProviderService {
     if (!this.secretStore.has(id)) {
       throw new AppError('PROVIDER_PROFILE_KEY_REQUIRED', copy('error.providerProfileKeyRequired'))
     }
-    if (!this.database.activateProviderProfile(id, new Date().toISOString())) {
+    if (!this.database.activateProviderProfile(id)) {
       throw new AppError('PROVIDER_PROFILE_NOT_FOUND', copy('error.providerProfileNotFound'))
     }
     return this.getOverview()
@@ -184,22 +191,19 @@ export class ProviderService {
     return this.decryptKey(profileId)
   }
 
-  getCredentials(): { baseUrl: string; model: string; apiKey: string } {
-    const active = this.database.getActiveProviderProfile()
+  getCredentials(profileId?: string): ProviderCredentials {
+    const active = profileId ? this.database.getProviderProfile(profileId) : this.database.getActiveProviderProfile()
     if (!active) throw new AppError('PROVIDER_NOT_CONFIGURED', copy('error.providerNotConfigured'))
-    return { baseUrl: active.base_url, model: active.model, apiKey: this.decryptKey(active.id) }
+    return { baseUrl: active.base_url, model: active.model, compatibility: active.compatibility, apiKey: this.decryptKey(active.id) }
   }
 
-  private async testCredentials(credentials: { baseUrl: string; model: string; apiKey: string }): Promise<ProviderTestResult> {
+  private async testCredentials(credentials: ProviderCredentials): Promise<ProviderTestResult> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS)
     try {
-      const response = await this.fetchImplementation(buildChatCompletionsUrl(credentials.baseUrl), {
+      const response = await this.transport.send(buildChatCompletionsUrl(credentials.baseUrl), credentials, { sessionId: randomUUID() }, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${credentials.apiKey}`,
-          'Content-Type': 'application/json'
-        },
+        accept: 'application/json',
         body: JSON.stringify({
           model: credentials.model,
           stream: false,
@@ -208,7 +212,7 @@ export class ProviderService {
         }),
         signal: controller.signal
       })
-      if (!response.ok) return { ok: false, message: await readSafeErrorStatus(response) }
+      if (!response.ok) return { ok: false, message: (await errorResponseDetails(response)).error.message }
       return { ok: true, message: copy('provider.testConnected') }
     } finally {
       clearTimeout(timer)
@@ -230,6 +234,7 @@ export class ProviderService {
       return await this.testCredentials({
         baseUrl: input.baseUrl,
         model: input.model,
+        compatibility: input.compatibility ?? 'auto',
         apiKey: this.resolveKey(input.profileId, input.apiKey)
       })
     } catch (error) {
@@ -244,12 +249,16 @@ export class ProviderService {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS)
     try {
-      const response = await this.fetchImplementation(buildModelsUrl(input.baseUrl), {
+      const response = await this.transport.send(buildModelsUrl(input.baseUrl), { apiKey, compatibility: input.compatibility ?? 'auto' }, { sessionId: randomUUID() }, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+        accept: 'application/json',
         signal: controller.signal
       })
-      if (!response.ok) throw new AppError('PROVIDER_MODELS_FAILED', await readSafeErrorStatus(response))
+      if (!response.ok) {
+        const { error } = await errorResponseDetails(response)
+        if (error.code === 'PROVIDER_SESSION_REJECTED') throw error
+        throw new AppError('PROVIDER_MODELS_FAILED', error.message)
+      }
       const text = await readResponseTextBounded(response, MAX_MODEL_LIST_BYTES)
       let parsed: unknown
       try {

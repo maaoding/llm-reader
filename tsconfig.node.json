@@ -22,6 +22,8 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
+    "scripts/rerank-*.ts",
+    "scripts/document-structure-*.ts",
     "tests/e2e/**/*.ts",
     "tests/unit/backend*.test.ts"
   ]

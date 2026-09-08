@@ -1,21 +1,18 @@
 /* global document, MouseEvent, process, window */
 
 import { _electron as electron, expect } from '@playwright/test'
-import { copyFile, mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { copyEvaluationProfile, evaluationSourceDirectory } from './real-provider-profile.mjs'
 
-const sourceUserData = resolve(
-  process.env.LLM_READER_REAL_API_SOURCE_USER_DATA
-    ?? join(process.env.APPDATA ?? '', 'llm-reader')
-)
+const sourceUserData = evaluationSourceDirectory()
 const fixturePath = resolve('tests/fixtures/complex-reading.txt')
 const testRoot = await mkdtemp(join(tmpdir(), 'llm-reader-real-api-smoke-'))
 const isolatedUserData = join(testRoot, 'profile')
 let application
 
-if (!isAbsolute(sourceUserData) || !process.env.APPDATA) {
+if (!isAbsolute(sourceUserData)) {
   throw new Error('无法确定已保存配置的绝对用户数据路径。')
 }
 if (dirname(testRoot) !== resolve(tmpdir())) {
@@ -28,45 +25,13 @@ async function launchReader(importPath = '') {
     env: {
       ...process.env,
       LLM_READER_USER_DATA: isolatedUserData,
-      LLM_READER_E2E_IMPORT: importPath
+      LLM_READER_E2E_IMPORT: importPath,
+      LLM_READER_UPDATER_DISABLED: '1'
     }
   })
   const page = await launchedApplication.firstWindow()
   await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 30_000 })
   return { application: launchedApplication, page }
-}
-
-function cloneProviderSettings() {
-  const sourceDatabase = new DatabaseSync(join(sourceUserData, 'reader.sqlite3'), {
-    readOnly: true
-  })
-  const targetDatabase = new DatabaseSync(join(isolatedUserData, 'reader.sqlite3'))
-  try {
-    const provider = sourceDatabase
-      .prepare('SELECT base_url, model FROM provider_settings WHERE singleton = 1')
-      .get()
-    if (
-      !provider
-      || typeof provider.base_url !== 'string'
-      || !provider.base_url
-      || typeof provider.model !== 'string'
-      || !provider.model
-    ) {
-      throw new Error('日常用户数据中没有完整的供应商配置。')
-    }
-    targetDatabase
-      .prepare(
-        `INSERT INTO provider_settings(singleton, base_url, model)
-         VALUES (1, ?, ?)
-         ON CONFLICT(singleton) DO UPDATE SET
-           base_url = excluded.base_url,
-           model = excluded.model`
-      )
-      .run(provider.base_url, provider.model)
-  } finally {
-    targetDatabase.close()
-    sourceDatabase.close()
-  }
 }
 
 try {
@@ -76,15 +41,7 @@ try {
   application = undefined
   process.stdout.write('1/3 已初始化隔离用户数据。\n')
 
-  cloneProviderSettings()
-  await copyFile(
-    join(sourceUserData, 'api-key.bin'),
-    join(isolatedUserData, 'api-key.bin')
-  )
-  await copyFile(
-    join(sourceUserData, 'Local State'),
-    join(isolatedUserData, 'Local State')
-  )
+  await copyEvaluationProfile(sourceUserData, isolatedUserData, process.env.LLM_READER_REAL_API_PROFILE_ID)
   process.stdout.write('2/3 已复制供应商设置和 safeStorage 加密上下文；密钥未解密。\n')
 
   const launched = await launchReader(fixturePath)

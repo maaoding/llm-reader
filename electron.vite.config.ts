@@ -30,6 +30,7 @@ export default defineConfig({
   renderer: {
     root: 'src/renderer',
     base: './',
+    build: { rollupOptions: { input: { index: resolve('src/renderer/index.html'), extraction: resolve('src/renderer/extraction.html') } } },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),

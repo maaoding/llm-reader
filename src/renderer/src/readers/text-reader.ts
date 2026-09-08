@@ -953,4 +953,4 @@ export class TextReaderAdapter implements ReaderAdapter {
   }
 }
 
-export { makeTextAnchor, parseTextAnchor, parseTextParagraphs }
+export { makeTextAnchor, parseTextAnchor, parseTextParagraphs, navigationalHeadingIndexes, cleanHeading }

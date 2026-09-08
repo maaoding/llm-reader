@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
 import type {
@@ -11,6 +12,7 @@ import type {
   InsightBookRef,
   SavedInsight,
   SaveHighlightInput,
+  ProviderCompatibility,
   SaveInsightInput,
   UpdateInsightHistoryInput
 } from '@shared/contracts'
@@ -32,6 +34,7 @@ interface BookRow {
 
 interface InsightRow {
   id: string
+  conversation_id: string
   book_id: string
   selection_json: string
   question: string
@@ -39,6 +42,7 @@ interface InsightRow {
   model: string
   created_at: string
   history_json: string
+  context_json: string | null
 }
 
 interface InsightArchiveRow extends InsightRow {
@@ -64,6 +68,7 @@ export interface ProviderProfileRecord {
   is_active: number
   created_at: string
   updated_at: string
+  compatibility: ProviderCompatibility
 }
 
 const migrations = [
@@ -237,6 +242,140 @@ const migrations = [
       WHERE singleton = 1;
 
       DROP TABLE provider_settings;
+    `,
+    `
+      ALTER TABLE insights ADD COLUMN context_json TEXT;
+      CREATE TABLE book_analysis (
+        book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL, fingerprint TEXT NOT NULL, profile_id TEXT NOT NULL,
+        model TEXT NOT NULL, status TEXT NOT NULL, extraction_done INTEGER NOT NULL DEFAULT 0,
+        characters INTEGER NOT NULL DEFAULT 0, usage_json TEXT, message TEXT, overview TEXT
+      ) STRICT;
+      CREATE TABLE book_sections (
+        book_id TEXT NOT NULL REFERENCES book_analysis(book_id) ON DELETE CASCADE,
+        section_id TEXT NOT NULL, chapter_id TEXT NOT NULL, chapter_title TEXT NOT NULL,
+        ordinal INTEGER NOT NULL, content_json TEXT NOT NULL, note_json TEXT,
+        PRIMARY KEY(book_id, section_id), UNIQUE(book_id, ordinal)
+      ) STRICT;
+      CREATE TABLE book_blocks (
+        id INTEGER PRIMARY KEY, book_id TEXT NOT NULL REFERENCES book_analysis(book_id) ON DELETE CASCADE,
+        block_id TEXT NOT NULL, section_id TEXT NOT NULL, chapter_id TEXT NOT NULL,
+        chapter_title TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, anchor TEXT NOT NULL,
+        UNIQUE(book_id, block_id)
+      ) STRICT;
+      CREATE VIRTUAL TABLE book_fts USING fts5(title, body, aliases, tokenize='unicode61');
+      CREATE TRIGGER book_blocks_delete AFTER DELETE ON book_blocks BEGIN
+        DELETE FROM book_fts WHERE rowid = old.id;
+      END;
+      CREATE TABLE book_summaries (
+        book_id TEXT NOT NULL REFERENCES book_analysis(book_id) ON DELETE CASCADE,
+        node_id TEXT NOT NULL, summary TEXT NOT NULL, PRIMARY KEY(book_id, node_id)
+      ) STRICT;
+    `,
+    `
+      ALTER TABLE provider_profiles ADD COLUMN compatibility TEXT NOT NULL DEFAULT 'auto'
+        CHECK(compatibility IN ('auto', 'opencode-go'));
+      ALTER TABLE insights ADD COLUMN conversation_id TEXT;
+      ALTER TABLE book_analysis ADD COLUMN session_id TEXT;
+    `,
+    `
+      ALTER TABLE book_analysis ADD COLUMN progress_json TEXT;
+      CREATE TABLE book_analysis_failures (
+        id INTEGER PRIMARY KEY,
+        book_id TEXT NOT NULL REFERENCES book_analysis(book_id) ON DELETE CASCADE,
+        node_id TEXT NOT NULL,
+        failure_json TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX book_analysis_failures_book ON book_analysis_failures(book_id, id);
+    `,
+    `
+      CREATE TABLE knowledge_settings (
+        kind TEXT PRIMARY KEY CHECK(kind IN ('embedding', 'document')),
+        config_json TEXT NOT NULL, secret BLOB, revision TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE semantic_indexes (
+        book_id TEXT PRIMARY KEY REFERENCES book_analysis(book_id) ON DELETE CASCADE,
+        fingerprint TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL,
+        dimension INTEGER, message TEXT
+      ) STRICT;
+      CREATE TABLE book_vectors (
+        block_rowid INTEGER PRIMARY KEY REFERENCES book_blocks(id) ON DELETE CASCADE,
+        book_id TEXT NOT NULL REFERENCES semantic_indexes(book_id) ON DELETE CASCADE,
+        vector BLOB NOT NULL
+      ) STRICT;
+      CREATE INDEX book_vectors_book ON book_vectors(book_id);
+      CREATE TABLE document_jobs (
+        book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+        fingerprint TEXT NOT NULL, task_id TEXT NOT NULL, result_json TEXT
+      ) STRICT;
+    `,
+    `
+      CREATE TABLE knowledge_settings_rerank (
+        kind TEXT PRIMARY KEY CHECK(kind IN ('embedding', 'document', 'rerank')),
+        config_json TEXT NOT NULL, secret BLOB, revision TEXT NOT NULL
+      ) STRICT;
+      INSERT INTO knowledge_settings_rerank(kind, config_json, secret, revision)
+        SELECT kind, config_json, secret, revision FROM knowledge_settings;
+      DROP TABLE knowledge_settings;
+      ALTER TABLE knowledge_settings_rerank RENAME TO knowledge_settings;
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS book_documents (
+        book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL, fingerprint TEXT NOT NULL, embedding_identity TEXT NOT NULL,
+        version INTEGER NOT NULL, status TEXT NOT NULL, characters INTEGER NOT NULL DEFAULT 0,
+        completed INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0,
+        message TEXT, document_json TEXT, diagnostics_json TEXT NOT NULL DEFAULT '[]'
+      ) STRICT;
+      INSERT OR IGNORE INTO book_documents(book_id, job_id, fingerprint, embedding_identity, version, status, characters, completed, total)
+        SELECT book_id, job_id, fingerprint, fingerprint, 1,
+          CASE WHEN extraction_done = 1 THEN 'ready' ELSE 'paused' END, characters,
+          (SELECT count(*) FROM book_sections s WHERE s.book_id = a.book_id),
+          (SELECT count(*) FROM book_sections s WHERE s.book_id = a.book_id) FROM book_analysis a;
+      CREATE TABLE book_sections_document (
+        book_id TEXT NOT NULL REFERENCES book_documents(book_id) ON DELETE CASCADE,
+        section_id TEXT NOT NULL, chapter_id TEXT NOT NULL, chapter_title TEXT NOT NULL,
+        ordinal INTEGER NOT NULL, content_json TEXT NOT NULL, note_json TEXT,
+        PRIMARY KEY(book_id, section_id), UNIQUE(book_id, ordinal)
+      ) STRICT;
+      INSERT INTO book_sections_document SELECT * FROM book_sections;
+      CREATE TABLE book_blocks_document (
+        id INTEGER PRIMARY KEY, book_id TEXT NOT NULL REFERENCES book_documents(book_id) ON DELETE CASCADE,
+        block_id TEXT NOT NULL, section_id TEXT NOT NULL, chapter_id TEXT NOT NULL,
+        chapter_title TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, anchor TEXT NOT NULL,
+        metadata_json TEXT, searchable INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(book_id, block_id)
+      ) STRICT;
+      INSERT INTO book_blocks_document(id, book_id, block_id, section_id, chapter_id, chapter_title, ordinal, text, anchor)
+        SELECT id, book_id, block_id, section_id, chapter_id, chapter_title, ordinal, text, anchor FROM book_blocks;
+      CREATE TABLE semantic_indexes_document (
+        book_id TEXT PRIMARY KEY REFERENCES book_documents(book_id) ON DELETE CASCADE,
+        fingerprint TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL,
+        dimension INTEGER, message TEXT
+      ) STRICT;
+      INSERT INTO semantic_indexes_document SELECT * FROM semantic_indexes;
+      CREATE TABLE book_vectors_document (
+        block_rowid INTEGER PRIMARY KEY REFERENCES book_blocks_document(id) ON DELETE CASCADE,
+        book_id TEXT NOT NULL REFERENCES semantic_indexes_document(book_id) ON DELETE CASCADE,
+        vector BLOB NOT NULL
+      ) STRICT;
+      INSERT INTO book_vectors_document SELECT * FROM book_vectors;
+      DROP TABLE book_vectors;
+      DROP TABLE semantic_indexes;
+      DROP TRIGGER book_blocks_delete;
+      DROP TABLE book_blocks;
+      DROP TABLE book_sections;
+      ALTER TABLE book_sections_document RENAME TO book_sections;
+      ALTER TABLE book_blocks_document RENAME TO book_blocks;
+      ALTER TABLE semantic_indexes_document RENAME TO semantic_indexes;
+      ALTER TABLE book_vectors_document RENAME TO book_vectors;
+      CREATE INDEX book_vectors_book ON book_vectors(book_id);
+      CREATE INDEX book_blocks_document_order ON book_blocks(book_id, ordinal);
+      CREATE TRIGGER book_blocks_delete AFTER DELETE ON book_blocks BEGIN
+        DELETE FROM book_fts WHERE rowid = old.id;
+      END;
+      ALTER TABLE document_jobs ADD COLUMN raw_json TEXT;
+      ALTER TABLE document_jobs ADD COLUMN structure_json TEXT;
     `
 ] as const
 
@@ -343,6 +482,14 @@ export class AppDatabase {
       this.connection.exec('BEGIN IMMEDIATE')
       try {
         this.connection.exec(sql)
+        if (version === 10) {
+          for (const row of this.connection.prepare('SELECT id FROM insights WHERE conversation_id IS NULL').all()) {
+            this.connection.prepare('UPDATE insights SET conversation_id = ? WHERE id = ?').run(randomUUID(), row.id)
+          }
+          for (const row of this.connection.prepare('SELECT book_id FROM book_analysis WHERE session_id IS NULL').all()) {
+            this.connection.prepare('UPDATE book_analysis SET session_id = ? WHERE book_id = ?').run(randomUUID(), row.book_id)
+          }
+        }
         this.connection
           .prepare('INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)')
           .run(version, new Date().toISOString())
@@ -432,8 +579,10 @@ export class AppDatabase {
 
     return rows.map((row) => ({
       id: row.id,
+      conversationId: row.conversation_id,
       bookId: row.book_id,
       selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
+      context: row.context_json ? JSON.parse(row.context_json) as SavedInsight['context'] : undefined,
       question: row.question,
       answer: row.answer,
       model: row.model,
@@ -461,9 +610,11 @@ export class AppDatabase {
       }
       return {
         id: row.id,
+        conversationId: row.conversation_id,
         bookId: row.book_id,
         book,
         selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
+        context: row.context_json ? JSON.parse(row.context_json) as SavedInsight['context'] : undefined,
         question: row.question,
         answer: row.answer,
         model: row.model,
@@ -474,12 +625,14 @@ export class AppDatabase {
   }
 
   insertInsight(id: string, input: SaveInsightInput, createdAt: string): SavedInsight {
+    const conversationId = input.conversationId ?? randomUUID()
     const history = insightHistory(input.question, input.answer, input.model)
+    if (input.context) history[1].context = input.context
     this.connection
       .prepare(
         `INSERT INTO insights(
-          id, book_id, selection_json, question, answer, model, created_at, history_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          id, book_id, selection_json, question, answer, model, created_at, history_json, context_json, conversation_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -489,10 +642,12 @@ export class AppDatabase {
         input.answer,
         input.model,
         createdAt,
-        JSON.stringify(history)
+        JSON.stringify(history),
+        input.context ? JSON.stringify(input.context) : null,
+        conversationId
       )
 
-    return { id, ...input, createdAt, history }
+    return { id, ...input, conversationId, createdAt, history }
   }
 
   updateInsightHistory(id: string, input: UpdateInsightHistoryInput): SavedInsight | null {
@@ -506,8 +661,10 @@ export class AppDatabase {
     if (!row) return null
     return {
       id: row.id,
+      conversationId: row.conversation_id,
       bookId: row.book_id,
       selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
+      context: row.context_json ? JSON.parse(row.context_json) as SavedInsight['context'] : undefined,
       question: row.question,
       answer: row.answer,
       model: row.model,
@@ -571,7 +728,7 @@ export class AppDatabase {
   listProviderProfiles(): ProviderProfileRecord[] {
     return this.connection
       .prepare(
-        `SELECT id, name, base_url, model, is_active, created_at, updated_at
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility
          FROM provider_profiles ORDER BY created_at ASC, id ASC`
       )
       .all() as unknown as ProviderProfileRecord[]
@@ -580,7 +737,7 @@ export class AppDatabase {
   getProviderProfile(id: string): ProviderProfileRecord | null {
     return (this.connection
       .prepare(
-        `SELECT id, name, base_url, model, is_active, created_at, updated_at
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility
          FROM provider_profiles WHERE id = ?`
       )
       .get(id) as unknown as ProviderProfileRecord | undefined) ?? null
@@ -589,7 +746,7 @@ export class AppDatabase {
   getActiveProviderProfile(): ProviderProfileRecord | null {
     return (this.connection
       .prepare(
-        `SELECT id, name, base_url, model, is_active, created_at, updated_at
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility
          FROM provider_profiles WHERE is_active = 1`
       )
       .get() as unknown as ProviderProfileRecord | undefined) ?? null
@@ -599,8 +756,8 @@ export class AppDatabase {
     this.connection
       .prepare(
         `INSERT INTO provider_profiles(
-           id, name, base_url, model, is_active, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+           id, name, base_url, model, is_active, created_at, updated_at, compatibility
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         record.id,
@@ -609,22 +766,23 @@ export class AppDatabase {
         record.model,
         record.is_active,
         record.created_at,
-        record.updated_at
+        record.updated_at,
+        record.compatibility
       )
   }
 
-  updateProviderProfile(id: string, name: string, baseUrl: string, model: string, updatedAt: string): boolean {
+  updateProviderProfile(id: string, name: string, baseUrl: string, model: string, updatedAt: string, compatibility: ProviderCompatibility = 'auto'): boolean {
     const result = this.connection
       .prepare(
         `UPDATE provider_profiles
-         SET name = ?, base_url = ?, model = ?, updated_at = ?
+         SET name = ?, base_url = ?, model = ?, updated_at = ?, compatibility = ?
          WHERE id = ?`
       )
-      .run(name, baseUrl, model, updatedAt, id)
+      .run(name, baseUrl, model, updatedAt, compatibility, id)
     return result.changes > 0
   }
 
-  activateProviderProfile(id: string, updatedAt: string): boolean {
+  activateProviderProfile(id: string): boolean {
     this.connection.exec('BEGIN IMMEDIATE')
     try {
       const exists = this.connection.prepare('SELECT 1 FROM provider_profiles WHERE id = ?').get(id)
@@ -634,8 +792,8 @@ export class AppDatabase {
       }
       this.connection.prepare('UPDATE provider_profiles SET is_active = 0 WHERE is_active = 1').run()
       this.connection
-        .prepare('UPDATE provider_profiles SET is_active = 1, updated_at = ? WHERE id = ?')
-        .run(updatedAt, id)
+        .prepare('UPDATE provider_profiles SET is_active = 1 WHERE id = ?')
+        .run(id)
       this.connection.exec('COMMIT')
       return true
     } catch (error) {

@@ -146,20 +146,23 @@ export const AnswerText = memo(function AnswerText({
   selection,
   onNavigate,
   readOnly = false,
-  highlight = ''
+  highlight = '',
+  context
 }: {
   text: string
-  selection: SelectionContext
+  selection: SelectionContext | null
+  context?: import('@shared/contracts').ContextSnapshot
   onNavigate?: (anchor: string) => void
   readOnly?: boolean
   highlight?: string
 }): ReactNode {
   const blocks = parseMarkdown(text)
   const navigate = readOnly ? null : (onNavigate ?? null)
+  const source = { passages: context?.passages ?? selection?.passages ?? [] } as SelectionContext
   return (
     <div className="answer-text answer-md">
       {blocks.map((block, index) => (
-        <BlockContent block={block} selection={selection} onNavigate={navigate} highlight={highlight} key={index} />
+        <BlockContent block={block} selection={source} onNavigate={navigate} highlight={highlight} key={index} />
       ))}
     </div>
   )

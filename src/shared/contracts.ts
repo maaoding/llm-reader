@@ -41,6 +41,22 @@ export const IPC_CHANNELS = {
   providerTestConfiguration: 'provider:test-configuration',
   providerModels: 'provider:models',
   fontsList: 'fonts:list',
+  knowledgeGet: 'knowledge:get',
+  knowledgeSave: 'knowledge:save',
+  knowledgeTest: 'knowledge:test',
+  semanticStart: 'semantic:start',
+  semanticCancel: 'semantic:cancel',
+  analysisGet: 'analysis:get',
+  documentPrepare: 'document:prepare',
+  documentCancel: 'document:cancel',
+  analysisRead: 'analysis:read',
+  analysisPdf: 'analysis:pdf',
+  analysisStart: 'analysis:start',
+  analysisAppend: 'analysis:append',
+  analysisFinish: 'analysis:finish',
+  analysisCancel: 'analysis:cancel',
+  analysisFail: 'analysis:fail',
+  analysisEvent: 'analysis:event',
   llmStart: 'llm:start',
   llmCancel: 'llm:cancel',
   llmEvent: 'llm:event'
@@ -150,6 +166,218 @@ export interface Passage {
   id: string
   text: string
   anchor: string
+  chapterTitle?: string
+  blockId?: string
+  chapterId?: string
+  /** Local evidence priority, retained across input-budget retries. */
+  evidenceRole?: 'nearby' | 'chapter' | 'extension'
+  nodeId?: string
+  unitId?: string
+  headingPath?: string[]
+  sources?: SourceRange[]
+  unitRange?: { start: number; end: number }
+  tableSlice?: TableSlice
+}
+
+/** Character offsets use Unicode code points; PDF coordinates retain their supplied coordinate system. */
+export interface SourceRange {
+  anchor: string
+  page?: number
+  bbox?: { left: number; top: number; right: number; bottom: number; origin: 'TOPLEFT' | 'BOTTOMLEFT'; width?: number; height?: number }
+  start?: number
+  end?: number
+  textStart?: number
+  textEnd?: number
+  /** A provider can locate the table but cannot identify the page of an individual row. */
+  precision: 'text' | 'block' | 'table'
+}
+export interface DocumentNode {
+  id: string
+  parentId: string | null
+  title: string
+  level: number
+  order: number
+  anchor: string
+  kind: 'section' | 'group'
+}
+export interface TableCell {
+  id: string
+  row: number
+  column: number
+  rowSpan: number
+  columnSpan: number
+  header: boolean
+  rowHeader?: boolean
+  text: string
+  sources?: SourceRange[]
+}
+export interface DocumentTable {
+  rows: number
+  columns: number
+  cells: TableCell[]
+  captionIds: string[]
+  noteIds: string[]
+}
+export interface TableSlice {
+  rows: number[]
+  cells: { id: string; start: number; end: number; textStart: number; textEnd: number; header: boolean; rows?: number[] }[]
+}
+export type DocumentUnitKind = 'heading' | 'paragraph' | 'list' | 'note' | 'table' | 'caption' | 'formula' | 'header' | 'footer' | 'unknown'
+export interface DocumentUnit {
+  id: string
+  nodeId: string
+  order: number
+  kind: DocumentUnitKind
+  text: string
+  sources: SourceRange[]
+  relatedIds: string[]
+  table?: DocumentTable
+  /** Only explicitly labelled furniture is excluded. Unknown content remains searchable. */
+  searchable: boolean
+}
+export interface DocumentDiagnostic {
+  code: 'missing-body' | 'unknown-structure' | 'unlinked-note' | 'table-degraded' | 'suspected-duplicate'
+  page?: number
+  unitId?: string
+}
+export interface NormalizedDocument {
+  version: number
+  nodes: DocumentNode[]
+  units: DocumentUnit[]
+  diagnostics: DocumentDiagnostic[]
+  pageCount?: number
+}
+export interface BookDocumentState {
+  status: 'empty' | 'preparing' | 'paused' | 'ready' | 'error'
+  jobId: string
+  version: number
+  characters: number
+  completed: number
+  total: number
+  message?: string
+  diagnostics: DocumentDiagnostic[]
+}
+export interface PrepareBookDocumentInput { bookId: string; rebuild?: boolean }
+
+export interface DocumentBlock extends Passage {
+  kind: DocumentUnitKind
+  searchable?: boolean
+}
+
+export interface DocumentSection {
+  id: string
+  chapterId: string
+  chapterTitle: string
+  order: number
+  blocks: DocumentBlock[]
+}
+
+export type BookAnalysisStage = 'sections' | 'chapters' | 'overview'
+
+export interface BookAnalysisProgress {
+  stage: BookAnalysisStage
+  completed: number
+  total: number
+  round?: number
+  retryAttempt?: number
+}
+
+export interface BookAnalysisFailure {
+  stage: BookAnalysisStage
+  code: string
+  message: string
+  occurredAt: string
+  attempt: number
+  responseCharacters?: number
+}
+
+export interface BookAnalysisState {
+  bookId: string
+  jobId: string
+  status: 'empty' | 'extracting' | 'analyzing' | 'paused' | 'ready' | 'error' | 'unsupported' | 'stale'
+  profileId: string
+  model: string
+  sections: number
+  completedSections: number
+  characters: number
+  message?: string
+  usage?: LlmUsage
+  progress?: BookAnalysisProgress
+  failures?: BookAnalysisFailure[]
+  semantic?: SemanticIndexState
+  documentProcessor?: DocumentProcessor
+  document?: BookDocumentState
+}
+
+export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling'
+export interface EmbeddingSettings { enabled: boolean; baseUrl: string; model: string }
+export interface RerankSettings { enabled: boolean; baseUrl: string; model: string }
+export interface DocumentSettings { processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en' }
+export interface KnowledgeSettings {
+  embedding: EmbeddingSettings & { hasApiKey: boolean }
+  rerank: RerankSettings & { hasApiKey: boolean }
+  document: DocumentSettings & { hasApiKey: boolean }
+}
+/** Omitted keys preserve the saved secret only when the endpoint is unchanged; null removes it. */
+export interface SaveKnowledgeSettingsInput {
+  embedding: EmbeddingSettings & { apiKey?: string | null }
+  /** Older clients omit this field; preserve the existing configuration in that case. */
+  rerank?: RerankSettings & { apiKey?: string | null }
+  document: DocumentSettings & { apiKey?: string | null }
+}
+export interface TestKnowledgeSettingsInput extends SaveKnowledgeSettingsInput { target: 'embedding' | 'rerank' | 'document' }
+export interface SemanticIndexState {
+  status: 'disabled' | 'empty' | 'indexing' | 'paused' | 'ready' | 'error' | 'stale'
+  completed: number
+  total: number
+  model: string
+  message?: string
+}
+export interface StartSemanticIndexInput { bookId: string; rebuild?: boolean }
+
+export interface StartBookAnalysisInput {
+  bookId: string
+  profileId: string
+  rebuild?: boolean
+}
+
+export interface BookExtractionInput {
+  bookId: string
+  jobId: string
+}
+
+export interface BookExtractionBatch extends BookExtractionInput {
+  sections: DocumentSection[]
+  document?: NormalizedDocument
+}
+
+export interface BookExtractionApi {
+  read(): Promise<{ input: BookExtractionInput; payload: BookPayload }>
+  append(input: BookExtractionBatch): Promise<void>
+  finish(input: BookExtractionInput): Promise<void>
+  fail(input: BookExtractionInput): Promise<void>
+  processPdf(input: BookExtractionInput & { pageCount: number }): Promise<void>
+}
+
+export type RerankReason = 'ranked' | 'disabled' | 'not-ready' | 'insufficient-candidates' | 'configuration' |
+  'timeout' | 'rate-limit' | 'authentication' | 'server' | 'http' | 'redirect' | 'too-large' | 'invalid-response' | 'network'
+export interface RerankRecord {
+  status: 'applied' | 'skipped' | 'fallback'
+  model: string
+  candidateCount: number
+  elapsedMs: number
+  reason: RerankReason
+}
+
+export interface ContextSnapshot {
+  scope: 'selection' | 'book'
+  bookId: string
+  selection: SelectionContext | null
+  passages: Passage[]
+  background: string
+  coverage: { covered: number; total: number }
+  planningUsage?: LlmUsage
+  rerank?: RerankRecord
 }
 
 export interface SelectionContext {
@@ -167,13 +395,18 @@ export interface ChatMessage {
   content: string
 }
 
-export interface LlmRequest {
+interface LlmRequestBase {
   requestId: string
+  conversationId: string
   action: LlmAction
   question: string
-  selection: SelectionContext
   history: ChatMessage[]
 }
+
+export type LlmRequest = LlmRequestBase & (
+  | { scope?: 'selection'; selection: SelectionContext }
+  | { scope: 'book'; bookId: string; selection?: never }
+)
 
 export interface LlmUsage {
   promptTokens?: number
@@ -182,15 +415,19 @@ export interface LlmUsage {
 }
 
 export type LlmEvent =
+  | { requestId: string; type: 'context'; context: ContextSnapshot }
   | { requestId: string; type: 'delta'; delta: string }
   | { requestId: string; type: 'usage'; usage: LlmUsage }
   | { requestId: string; type: 'completed'; model: string }
   | { requestId: string; type: 'error'; code: string; message: string; retryable: boolean }
 
+export type ProviderCompatibility = 'auto' | 'opencode-go'
+
 export interface ProviderSettings {
   baseUrl: string
   model: string
   hasApiKey: boolean
+  compatibility: ProviderCompatibility
 }
 
 export interface ProviderProfile extends ProviderSettings {
@@ -211,6 +448,7 @@ export interface CreateProviderProfileInput {
   baseUrl: string
   model: string
   apiKey?: string
+  compatibility?: ProviderCompatibility
 }
 
 export interface UpdateProviderProfileInput extends CreateProviderProfileInput {
@@ -222,12 +460,14 @@ export interface ProviderConfigurationInput {
   baseUrl: string
   model: string
   apiKey?: string
+  compatibility?: ProviderCompatibility
 }
 
 export interface ProviderModelListInput {
   profileId?: string
   baseUrl: string
   apiKey?: string
+  compatibility?: ProviderCompatibility
 }
 
 export interface ProviderModelList {
@@ -244,12 +484,15 @@ export interface ArchivedChatMessage {
   role: 'user' | 'assistant'
   content: string
   model?: string
+  context?: ContextSnapshot
 }
 
 export interface SavedInsight {
   id: string
+  conversationId: string
   bookId: string
-  selection: SelectionContext
+  selection: SelectionContext | null
+  context?: ContextSnapshot
   question: string
   answer: string
   model: string
@@ -277,7 +520,9 @@ export type InsightExportResult = { canceled: true } | { canceled: false; fileNa
 
 export interface SaveInsightInput {
   bookId: string
-  selection: SelectionContext
+  conversationId?: string
+  selection: SelectionContext | null
+  context?: ContextSnapshot
   question: string
   answer: string
   model: string
@@ -341,6 +586,17 @@ export interface ReaderApi {
   testProviderConfiguration(input: ProviderConfigurationInput): Promise<ProviderTestResult>
   listProviderModels(input: ProviderModelListInput): Promise<ProviderModelList>
   listSystemFonts(): Promise<string[]>
+  getKnowledgeSettings(): Promise<KnowledgeSettings>
+  saveKnowledgeSettings(input: SaveKnowledgeSettingsInput): Promise<KnowledgeSettings>
+  testKnowledgeSettings(input: TestKnowledgeSettingsInput): Promise<ProviderTestResult>
+  startSemanticIndex(input: StartSemanticIndexInput): Promise<BookAnalysisState>
+  cancelSemanticIndex(bookId: string): Promise<void>
+  getBookAnalysis(bookId: string): Promise<BookAnalysisState>
+  prepareBookDocument(input: PrepareBookDocumentInput): Promise<BookAnalysisState>
+  cancelBookDocument(bookId: string): Promise<void>
+  startBookAnalysis(input: StartBookAnalysisInput): Promise<BookAnalysisState>
+  cancelBookAnalysis(bookId: string): Promise<void>
+  onBookAnalysisEvent(listener: (state: BookAnalysisState) => void): () => void
   startLlm(request: LlmRequest): Promise<void>
   cancelLlm(requestId: string): Promise<void>
   onLlmEvent(listener: (event: LlmEvent) => void): () => void

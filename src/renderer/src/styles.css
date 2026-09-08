@@ -73,6 +73,30 @@
   --reader-shadow: 0 1px 2px rgb(39 55 64 / 6%);
 }
 
+/* ===================== 全书上下文与引用来源 ===================== */
+.book-analysis-controls { flex: 0 0 auto; max-height: 42%; overflow: auto; padding: 10px 14px; border-bottom: 1px solid var(--ui-line); font-size: 12px; color: var(--ui-ink); background: var(--ui-surface); }
+.analysis-scope { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.analysis-scope button, .analysis-actions button { padding: 5px 9px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink); cursor: pointer; }
+.analysis-scope button[aria-pressed="true"] { color: var(--accent-contrast); background: var(--ui-accent); border-color: var(--ui-accent); }
+.analysis-scope small { color: var(--ui-muted); font-size: 11px; }
+.analysis-details { margin-top: 8px; }
+.analysis-details summary, .answer-sources summary { cursor: pointer; color: var(--ui-ink-soft); }
+.analysis-details p, .analysis-hint, .analysis-error { margin: 8px 0; line-height: 1.6; overflow-wrap: anywhere; }
+.analysis-details label { display: grid; gap: 5px; }
+.analysis-details select { width: 100%; min-width: 0; padding: 6px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink); }
+.analysis-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.analysis-error { color: var(--danger); }
+.analysis-hint { color: var(--ui-muted); }
+.analysis-failures { margin-top: 10px; }
+.analysis-failures ol { margin: 8px 0; padding-left: 18px; }
+.analysis-failures li { margin: 8px 0; line-height: 1.6; overflow-wrap: anywhere; }
+.analysis-failures small { color: var(--ui-muted); }
+.answer-sources { margin: 4px 0 10px; font-size: 11px; }
+.answer-sources button { display: block; width: 100%; margin-top: 6px; padding: 6px; text-align: left; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-soft); background: var(--paper); cursor: pointer; }
+.answer-source-pages { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 8px; }
+.answer-source-pages small { flex-basis: 100%; color: var(--ink-soft); }
+.answer-source-pages button { width: auto; margin-top: 2px; }
+
 /* ===================== 基础重置与全局控件 ===================== */
 
 * {
@@ -2899,6 +2923,40 @@ button.citation-valid:hover {
   overflow: auto;
   scrollbar-color: var(--line-strong) transparent;
   scrollbar-width: thin;
+}
+
+/* 知识处理：与模型设置共用表单和主题 token。 */
+.knowledge-settings fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.knowledge-settings h4 {
+  margin: 20px 0 10px;
+  color: var(--ink);
+}
+
+.knowledge-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: calc(11px * var(--interface-scale));
+}
+
+.settings-modal .knowledge-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  flex: 0 0 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.knowledge-settings select + button {
+  margin-top: 12px;
 }
 
 .settings-section {

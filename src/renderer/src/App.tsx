@@ -57,6 +57,7 @@ import {
 import type {
   AppUpdatePhase,
   ArchivedChatMessage,
+  ContextSnapshot,
   BookCoverPayload,
   BookDetails,
   BookImportBatchResult,
@@ -69,6 +70,7 @@ import type {
   LlmEvent,
   LlmUsage,
   ProviderSettings,
+  ProviderCompatibility,
   ProviderOverview,
   ProviderProfile,
   ProviderTestResult,
@@ -79,6 +81,10 @@ import type {
 import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
 import { AnswerText } from './AnswerText'
+import { BookAnalysisControls } from './BookAnalysisControls'
+import { KnowledgeSettings } from './KnowledgeSettings'
+import { useBookAnalysis } from './use-book-analysis'
+import { EvidenceSources } from './EvidenceSources'
 import { BookCoverCache, observeBookCoverVisibility } from './book-cover-cache'
 import InsightsView from './InsightsView'
 import { readableError } from './readable-error'
@@ -117,7 +123,7 @@ type TurnStatus = 'streaming' | 'completed' | 'error'
 type ThemePreference = 'light' | 'system' | 'dark'
 type ResolvedTheme = Exclude<ThemePreference, 'system'>
 type InterfaceScale = 90 | 100 | 110 | 125
-type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'model' | 'about'
+type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'model' | 'knowledge' | 'about'
 type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
 type BookImportDialogPhase = 'running' | 'stopping' | 'completed'
 type DropOverlayState = 'ready' | 'busy' | null
@@ -145,7 +151,8 @@ interface ProviderCheckOutcome extends ProviderTestResult {
 interface ConversationTurn {
   id: string
   requestId: string
-  selection: SelectionContext
+  selection: SelectionContext | null
+  context?: ContextSnapshot
   action: LlmAction
   actionLabel: string
   question: string
@@ -162,10 +169,12 @@ type ConversationTabKind = 'live' | 'archive'
 
 interface ConversationTab {
   id: string
+  conversationId: string
   kind: ConversationTabKind
   bookId: string
   title: string
   selection: SelectionContext | null
+  scope: 'selection' | 'book'
   turns: ConversationTurn[]
   draft: string
   insightId?: string
@@ -192,7 +201,8 @@ function turnsFromInsight(insight: SavedInsight): ConversationTurn[] {
     turns.push({
       id: `insight-${insight.id}-${turns.length}`,
       requestId: `insight-${insight.id}-${turns.length}`,
-      selection: insight.selection,
+      selection: answer.context ? answer.context.selection : insight.selection,
+      context: answer.context ?? insight.context,
       action: 'ask',
       actionLabel: turns.length === 0 ? copy('assistant.insightLabel') : copy('assistant.insightFollowupLabel'),
       question: message.content,
@@ -214,23 +224,29 @@ function compactTabTitle(value: string, fallback: string): string {
 function createLiveTab(book: BookRecord): ConversationTab {
   return {
     id: `live-${book.id}`,
+    conversationId: crypto.randomUUID(),
     kind: 'live',
     bookId: book.id,
     title: book.title,
     selection: null,
+    scope: 'selection',
     turns: [],
     draft: ''
   }
 }
 
 function createArchiveTab(insight: InsightArchiveRecord): ConversationTab {
+  const turns = turnsFromInsight(insight)
+  const latest = turns.at(-1)
   return {
     id: `archive-${insight.id}`,
+    conversationId: insight.conversationId,
     kind: 'archive',
     bookId: insight.bookId,
-    title: compactTabTitle(insight.question || insight.selection.quote, copy('assistant.insightLabel')),
-    selection: insight.selection,
-    turns: turnsFromInsight(insight),
+    title: compactTabTitle(insight.question || insight.selection?.quote || '', copy('assistant.insightLabel')),
+    selection: latest ? latest.selection : insight.selection,
+    scope: latest?.context?.scope ?? insight.context?.scope ?? 'selection',
+    turns,
     draft: '',
     insightId: insight.id
   }
@@ -241,7 +257,7 @@ function historyFromTurns(turns: ConversationTurn[]): ArchivedChatMessage[] {
     .filter((turn) => turn.status === 'completed' && turn.answer)
     .flatMap((turn) => [
       { role: 'user' as const, content: turn.question },
-      { role: 'assistant' as const, content: turn.answer, model: turn.model || undefined }
+      { role: 'assistant' as const, content: turn.answer, model: turn.model || undefined, context: turn.context }
     ])
 }
 
@@ -252,6 +268,7 @@ interface ToastState {
 }
 
 const EMPTY_PROVIDER: ProviderSettings = {
+  compatibility: 'auto',
   baseUrl: 'https://api.openai.com',
   model: '',
   hasApiKey: false
@@ -424,7 +441,7 @@ function providerIsConfigured(provider: ProviderSettings): boolean {
 function activeProviderSettings(overview: ProviderOverview): ProviderSettings {
   const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
   return active
-    ? { baseUrl: active.baseUrl, model: active.model, hasApiKey: active.hasApiKey }
+    ? { baseUrl: active.baseUrl, model: active.model, compatibility: active.compatibility, hasApiKey: active.hasApiKey }
     : EMPTY_PROVIDER
 }
 
@@ -1142,9 +1159,13 @@ function ConversationPane({
   onCancel,
   onSubmit,
   onComposerKey,
+  scope = 'selection',
+  controls,
   showSave = true
 }: {
   conversationSelection: SelectionContext | null
+  scope?: 'selection' | 'book'
+  controls?: ReactNode
   turns: ConversationTurn[]
   provider: ProviderSettings
   activeRequestId: string | null
@@ -1152,7 +1173,7 @@ function ConversationPane({
   canAsk: boolean
   followupRef: RefObject<HTMLTextAreaElement | null>
   onDraftChange: (value: string) => void
-  onNavigate: (anchor: string) => void
+  onNavigate: (anchor: string, chapterTitle?: string) => void
   onSave?: (turn: ConversationTurn) => void
   showSave?: boolean
   onCancel: () => void
@@ -1171,6 +1192,7 @@ function ConversationPane({
 
   return (
     <>
+      {controls}
       <div
         className="assistant-scroll"
         ref={assistantScrollRef}
@@ -1179,25 +1201,29 @@ function ConversationPane({
           assistantFollowRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 40
         }}
       >
-        {!conversationSelection && turns.length === 0 && (
+        {!conversationSelection && turns.length === 0 && scope !== 'book' && (
           <EmptyState icon={<Sparkles size={21} />} title={copy('assistant.emptyTitle')} detail={copy('assistant.emptyDetail')} />
         )}
-        {conversationSelection && (
+        {conversationSelection && scope !== 'book' && (
           <div className="source-card">
             <div className="source-card-header"><span>{copy('assistant.sourceTitle')}</span><small>{copy('assistant.sourceSummary', { chapter: conversationSelection.chapterTitle || copy('common.currentChapter'), count: selectedPassageCount })}</small></div>
             <blockquote>“{conversationSelection.quote}”</blockquote>
-            <button type="button" onClick={() => onNavigate(conversationSelection.anchor)}><ArrowLeft size={13} />{copy('assistant.backToSource')}</button>
+            <button type="button" onClick={() => onNavigate(conversationSelection.anchor, conversationSelection.chapterTitle)}><ArrowLeft size={13} />{copy('assistant.backToSource')}</button>
           </div>
         )}
         <div className="conversation-list" aria-live="polite">
           {turns.map((turn, index) => {
             const isLatest = index === turns.length - 1
+            const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? turn.selection?.chapterTitle)
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
                 <div className="question-bubble"><span>{turn.actionLabel}</span><p>{turn.question}</p></div>
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                  {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} onNavigate={onNavigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
+                  {turn.context && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}{turn.context.coverage.total ? ` · ${copy('analysis.coverage', turn.context.coverage)}` : ''}</summary>
+                    {turn.context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(turn.context.rerank.status === 'applied' ? 'rerank.applied' : turn.context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
+                    <EvidenceSources passages={turn.context.passages} onNavigate={onNavigate} /></details>}
+                  {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
                   {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
                   {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
                   {turn.status === 'completed' && (
@@ -1219,7 +1245,7 @@ function ConversationPane({
       <div className="assistant-composer">
         {activeRequestId && <button className="cancel-generation" data-testid="cancel-request" type="button" onClick={onCancel}><CircleStop size={14} />{copy('assistant.stop')}</button>}
         <form onSubmit={onSubmit}>
-          <textarea data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} disabled={!canAsk} rows={2} maxLength={2000} />
+          <textarea data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} disabled={!canAsk} rows={2} maxLength={2000} />
           <button type="submit" aria-label={copy('assistant.sendAria')} disabled={!canAsk || !draft.trim()}><Send size={16} /></button>
         </form>
       </div>
@@ -1548,12 +1574,15 @@ function SettingsModal({
   const [profileName, setProfileName] = useState(initiallySelected?.name ?? '')
   const [baseUrl, setBaseUrl] = useState(initiallySelected?.baseUrl ?? 'https://api.openai.com')
   const [model, setModel] = useState(initiallySelected?.model ?? 'gpt-4.1-mini')
+  const [compatibility, setCompatibility] = useState<ProviderCompatibility>(initiallySelected?.compatibility ?? 'auto')
   const [baseline, setBaseline] = useState({
     name: initiallySelected?.name ?? '',
     baseUrl: initiallySelected?.baseUrl ?? 'https://api.openai.com',
-    model: initiallySelected?.model ?? 'gpt-4.1-mini'
+    model: initiallySelected?.model ?? 'gpt-4.1-mini',
+    compatibility: initiallySelected?.compatibility ?? 'auto' as ProviderCompatibility
   })
   const [keyDirty, setKeyDirty] = useState(false)
+  const [knowledgeDirty, setKnowledgeDirty] = useState(false)
   const [busy, setBusy] = useState<'save' | 'test' | 'models' | 'activate' | 'delete' | null>(null)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
   const [modelStatus, setModelStatus] = useState<{ ok: boolean; message: string } | null>(null)
@@ -1565,16 +1594,16 @@ function SettingsModal({
   const panelRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(true)
   const testSequenceRef = useRef(0)
-  const modelCacheRef = useRef(new Map<string, { baseUrl: string; models: string[]; truncated: boolean }>())
+  const modelCacheRef = useRef(new Map<string, { baseUrl: string; compatibility: ProviderCompatibility; models: string[]; truncated: boolean }>())
 
   const selectedProfile = overview.profiles.find((profile) => profile.id === selectedProfileId) ?? null
-  const dirty = keyDirty || profileName !== baseline.name || baseUrl !== baseline.baseUrl || model !== baseline.model
+  const dirty = keyDirty || profileName !== baseline.name || baseUrl !== baseline.baseUrl || model !== baseline.model || compatibility !== baseline.compatibility
 
   const confirmDiscard = (): boolean => !dirty || window.confirm(copy('settings.discardChanges'))
 
   const requestClose = useCallback((): void => {
-    if (!dirty || window.confirm(copy('settings.discardChanges'))) onClose()
-  }, [dirty, onClose])
+    if ((!dirty && !knowledgeDirty) || window.confirm(copy('settings.discardChanges'))) onClose()
+  }, [dirty, knowledgeDirty, onClose])
 
   useDialogFocus(true, requestClose, dialogRef, returnFocusRef)
 
@@ -1610,11 +1639,13 @@ function SettingsModal({
     setProfileName(profile.name)
     setBaseUrl(profile.baseUrl)
     setModel(profile.model)
-    setBaseline({ name: profile.name, baseUrl: profile.baseUrl, model: profile.model })
+    setCompatibility(profile.compatibility)
+    setBaseline({ name: profile.name, baseUrl: profile.baseUrl, model: profile.model, compatibility: profile.compatibility })
     resetSecretInput()
     setStatus(null)
-    const cached = modelCacheRef.current.get(cacheKey(profile.id))
-    setModelOptions(cached?.baseUrl === profile.baseUrl ? cached.models : [])
+    const entry = modelCacheRef.current.get(cacheKey(profile.id))
+    const cached = entry?.baseUrl === profile.baseUrl && entry.compatibility === profile.compatibility ? entry : undefined
+    setModelOptions(cached?.models ?? [])
     setModelStatus(cached
       ? { ok: true, message: cached.truncated
         ? copy('settings.modelsTruncated', { count: cached.models.length })
@@ -1627,17 +1658,19 @@ function SettingsModal({
     const next = {
       name: '',
       baseUrl: active?.baseUrl ?? 'https://api.openai.com',
-      model: active?.model ?? 'gpt-4.1-mini'
+      model: active?.model ?? 'gpt-4.1-mini',
+      compatibility: 'auto' as ProviderCompatibility
     }
     setSelectedProfileId(null)
     setProfileName(next.name)
     setBaseUrl(next.baseUrl)
     setModel(next.model)
+    setCompatibility(next.compatibility)
     setBaseline(next)
     resetSecretInput()
     setStatus(null)
     const cached = modelCacheRef.current.get(cacheKey(null))
-    setModelOptions(cached?.baseUrl === next.baseUrl ? cached.models : [])
+    setModelOptions(cached?.baseUrl === next.baseUrl && cached.compatibility === next.compatibility ? cached.models : [])
     setModelStatus(null)
   }
 
@@ -1666,6 +1699,7 @@ function SettingsModal({
     { id: 'reading', label: copy('settings.readingTitle'), icon: <BookOpen size={14} /> },
     { id: 'assistant', label: copy('settings.assistantTitle'), icon: <MessageSquareText size={14} /> },
     { id: 'model', label: copy('settings.modelTitle'), icon: <Cpu size={14} /> },
+    { id: 'knowledge', label: copy('knowledge.title'), icon: <BookOpen size={14} /> },
     { id: 'about', label: copy('about.title'), icon: <Info size={14} /> }
   ]
 
@@ -1685,6 +1719,7 @@ function SettingsModal({
       const key = keyRef.current?.value.trim()
       const input = {
         name: profileName.trim(),
+        compatibility,
         baseUrl: baseUrl.trim(),
         model: model.trim(),
         ...(key ? { apiKey: key } : {})
@@ -1725,6 +1760,7 @@ function SettingsModal({
     try {
       const key = keyRef.current?.value.trim()
       const result = await window.readerApi.testProviderConfiguration({
+        compatibility,
         ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
         baseUrl: baseUrl.trim(),
         model: model.trim(),
@@ -1748,12 +1784,14 @@ function SettingsModal({
     try {
       const key = keyRef.current?.value.trim()
       const result = await window.readerApi.listProviderModels({
+        compatibility,
         ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
         baseUrl: baseUrl.trim(),
         ...(key ? { apiKey: key } : {})
       })
       if (!mountedRef.current) return
       modelCacheRef.current.set(cacheKey(selectedProfileId), {
+        compatibility,
         baseUrl: baseUrl.trim(),
         models: result.models,
         truncated: result.truncated
@@ -1993,6 +2031,7 @@ function SettingsModal({
 
             {/* 关于保持在常驻的模型区块之前，避免吃到 .settings-section 的分组上边框 */}
             {activeSection === 'about' && <AboutPanel />}
+            <KnowledgeSettings hidden={activeSection !== 'knowledge'} onDirty={setKnowledgeDirty} />
 
             <section
               className="settings-section"
@@ -2079,6 +2118,20 @@ function SettingsModal({
                     required
                   />
                   <p className="field-hint">{copy('settings.baseUrlHint', { path: '/v1/chat/completions' })}</p>
+
+                  <label className="field-label" htmlFor="provider-compatibility">{copy('settings.compatibilityLabel')}</label>
+                  <select id="provider-compatibility" data-testid="provider-compatibility" value={compatibility} disabled={busy !== null}
+                    onChange={(event) => {
+                      setCompatibility(event.target.value as ProviderCompatibility)
+                      modelCacheRef.current.delete(cacheKey(selectedProfileId))
+                      setModelOptions([])
+                      setModelStatus(null)
+                      setStatus(null)
+                    }}>
+                    <option value="auto">{copy('settings.compatibilityAuto')}</option>
+                    <option value="opencode-go">{copy('settings.compatibilityGo')}</option>
+                  </select>
+                  <p className="field-hint">{copy('settings.compatibilityHint')}</p>
 
                   <div className="provider-model-heading">
                     <label className="field-label" htmlFor="provider-model">{copy('settings.modelLabel')}</label>
@@ -2189,6 +2242,8 @@ export default function App(): ReactNode {
   const [paperThemePreference, setPaperThemePreference] = useState<PaperThemePreference>(readPaperThemePreference)
   const [assistantActions, setAssistantActions] = useState<AssistantActionSettings>(readAssistantActionSettings)
   const [books, setBooks] = useState<BookRecord[]>([])
+  const analysis = useBookAnalysis()
+  const refreshAnalysis = analysis.refresh
   const [activeBook, setActiveBook] = useState<BookRecord | null>(null)
   const [bookState, setBookState] = useState<LoadState>('idle')
   const [bookError, setBookError] = useState('')
@@ -2411,7 +2466,7 @@ export default function App(): ReactNode {
   const handleProviderOverviewChange = useCallback((overview: ProviderOverview, checkActive: boolean): void => {
     setProviderOverview(overview)
     const settings = activeProviderSettings(overview)
-    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey
+    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey || settings.compatibility !== provider.compatibility
     if (!checkActive && !changed) return
     const revision = commitProviderSettings(settings)
     if (!checkActive || !providerIsConfigured(settings)) return
@@ -2725,6 +2780,7 @@ export default function App(): ReactNode {
       const tab = tabId ? conversationTabsRef.current.find((candidate) => candidate.id === tabId) : undefined
       const applyUpdate = (current: ConversationTurn[]): ConversationTurn[] => current.map((turn) => {
         if (turn.requestId !== event.requestId) return turn
+        if (event.type === 'context') return { ...turn, context: event.context }
         if (event.type === 'delta') return { ...turn, answer: turn.answer + event.delta }
         if (event.type === 'usage') return { ...turn, usage: event.usage }
         if (event.type === 'completed') return { ...turn, model: event.model, status: 'completed' }
@@ -3035,10 +3091,13 @@ export default function App(): ReactNode {
     if (!cleanQuestion || activeRequestRef.current) return
     const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
     if (!tab) return
-    const context = sourceSelection ?? tab.selection
-    if (!context) return
+    const scope = sourceSelection ? 'selection' : tab.scope
+    const context = scope === 'book' ? null : sourceSelection ?? tab.selection
+    if (scope === 'selection' && !context) return
 
-    const priorTurns = tab.turns.filter((turn) => turn.status === 'completed' && turn.answer)
+    const newContext = scope !== tab.scope || (scope === 'selection' && tab.selection?.anchor !== context?.anchor)
+    const conversationId = newContext ? crypto.randomUUID() : tab.conversationId
+    const priorTurns = newContext ? [] : tab.turns.filter((turn) => turn.status === 'completed' && turn.answer)
     const requestId = createId()
     const turn: ConversationTurn = {
       id: createId(),
@@ -3052,10 +3111,11 @@ export default function App(): ReactNode {
       status: 'streaming'
     }
 
-    const newContext = !tab.selection || tab.selection.anchor !== context.anchor
     updateConversationTab(tab.id, (current) => ({
       ...current,
+      conversationId,
       selection: context,
+      scope,
       turns: newContext ? [turn] : [...current.turns, turn],
       draft: ''
     }))
@@ -3071,12 +3131,13 @@ export default function App(): ReactNode {
     try {
       await window.readerApi.startLlm({
         requestId,
+        conversationId,
         action,
         question: cleanQuestion,
-        selection: context,
-        history: priorTurns.flatMap((item) => [
+        ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId } : { scope: 'selection' as const, selection: context! }),
+        history: priorTurns.slice(-15).flatMap((item) => [
           { role: 'user' as const, content: item.question },
-          { role: 'assistant' as const, content: item.answer }
+          { role: 'assistant' as const, content: item.answer.slice(-20_000) }
         ])
       })
     } catch (error) {
@@ -3154,7 +3215,9 @@ export default function App(): ReactNode {
       const isNew = !liveTab?.selection || liveTab.selection.anchor !== selection.anchor
       updateConversationTab(liveTabId, (tab) => ({
         ...tab,
+        conversationId: isNew ? crypto.randomUUID() : tab.conversationId,
         selection,
+        scope: 'selection',
         turns: isNew ? [] : tab.turns,
         draft: tab.draft
       }))
@@ -3196,7 +3259,7 @@ export default function App(): ReactNode {
 
   const submitTabQuestion = (tabId: string): void => {
     const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
-    if (!tab?.selection || !tab.draft.trim()) return
+    if (!tab || (tab.scope === 'selection' && !tab.selection) || !tab.draft.trim()) return
     void startRequest('ask', tab.draft, tabId)
   }
 
@@ -3221,7 +3284,7 @@ export default function App(): ReactNode {
     }
   }
 
-  const navigateToAnchor = useCallback(async (anchor: string, showSelection = false): Promise<void> => {
+  const navigateToAnchor = useCallback(async (anchor: string, showSelection = false, chapterTitle?: string): Promise<void> => {
     const adapter = adapterRef.current
     if (!adapter) return
     try {
@@ -3232,6 +3295,11 @@ export default function App(): ReactNode {
         if (showSelection) await adapter.selectAnchor(anchor)
       }
       await adapter.highlight(anchor)
+      if (chapterTitle) {
+        chapterTitleOverrideRef.current = chapterTitle
+        setCurrentChapterTitle(chapterTitle)
+        setCurrentLocator(anchor)
+      }
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       highlightTimerRef.current = setTimeout(() => {
         adapter.clearHighlight()
@@ -3487,7 +3555,9 @@ export default function App(): ReactNode {
     try {
       await window.readerApi.saveInsight({
         bookId: tab.bookId,
+        conversationId: tab.conversationId,
         selection: turn.selection,
+        context: turn.context,
         question: turn.question,
         answer: turn.answer,
         model: turn.model || provider.model
@@ -3534,8 +3604,21 @@ export default function App(): ReactNode {
     }
     return tabs
   }, [activeBook?.id, conversationTabs])
-  const canAskSidebar = Boolean(sidebarTab?.selection && !activeRequestId)
-  const canAskWorkbench = Boolean(activeConversationTab?.selection && !activeRequestId)
+  useEffect(() => {
+    if (activeBook?.id) void refreshAnalysis(activeBook.id)
+    if (activeConversationTab?.bookId && activeConversationTab.bookId !== activeBook?.id) void refreshAnalysis(activeConversationTab.bookId)
+  }, [activeBook?.id, activeConversationTab?.bookId, refreshAnalysis])
+  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && !activeRequestId && (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status === 'ready' : tab.selection))
+  const canAskSidebar = canAskTab(sidebarTab)
+  const canAskWorkbench = canAskTab(activeConversationTab)
+  const analysisControls = (tab: ConversationTab | undefined): ReactNode => {
+    const book = books.find((item) => item.id === tab?.bookId)
+    if (!tab || !book) return null
+    return <BookAnalysisControls key={book.id} book={book} state={analysis.states[book.id]} error={analysis.errors[book.id]} profiles={providerOverview} scope={tab.scope}
+      disabled={Boolean(activeRequestId)} onScope={(scope) => updateConversationTab(tab.id, (current) => ({ ...current, scope }))}
+      onStart={(profileId, rebuild) => analysis.start(book.id, profileId, rebuild)} onCancel={() => void analysis.cancel(book.id)}
+      onPrepare={(rebuild) => analysis.prepare(book.id, rebuild)} onCancelPreparation={() => void analysis.cancelPreparation(book.id)} />
+  }
   const visibleToc = useMemo(() => {
     const ancestorIds: string[] = []
     return toc.map((item, index) => {
@@ -3901,6 +3984,8 @@ export default function App(): ReactNode {
 
         {!assistantDialogOpen && (
           <ConversationPane
+            scope={sidebarTab?.scope}
+            controls={analysisControls(sidebarTab)}
             conversationSelection={sidebarTab?.selection ?? null}
             turns={sidebarTab?.turns ?? []}
             provider={provider}
@@ -3911,7 +3996,7 @@ export default function App(): ReactNode {
             onDraftChange={(value) => {
               if (sidebarTab) updateConversationTab(sidebarTab.id, (tab) => ({ ...tab, draft: value }))
             }}
-            onNavigate={(anchor) => void navigateToAnchor(anchor)}
+            onNavigate={(anchor, chapterTitle) => void navigateToAnchor(anchor, false, chapterTitle)}
             onSave={(turn) => {
               if (sidebarTab) void saveTurn(sidebarTab.id, turn)
             }}
@@ -3994,6 +4079,8 @@ export default function App(): ReactNode {
                 />
               ) : activeConversationTab ? (
                 <ConversationPane
+                  scope={activeConversationTab.scope}
+                  controls={analysisControls(activeConversationTab)}
                   conversationSelection={activeConversationTab.selection}
                   turns={activeConversationTab.turns}
                   provider={provider}
@@ -4002,7 +4089,7 @@ export default function App(): ReactNode {
                   canAsk={canAskWorkbench}
                   followupRef={followupRef}
                   onDraftChange={(value) => updateConversationTab(activeConversationTab.id, (tab) => ({ ...tab, draft: value }))}
-                  onNavigate={(anchor) => void navigateToAnchor(anchor)}
+                  onNavigate={(anchor, chapterTitle) => void navigateToAnchor(anchor, false, chapterTitle)}
                   onSave={activeConversationTab.kind === 'live' ? (turn) => void saveTurn(activeConversationTab.id, turn) : undefined}
                   showSave={activeConversationTab.kind === 'live'}
                   onCancel={() => void cancelRequest()}

@@ -4,6 +4,9 @@ import electronUpdater from 'electron-updater'
 import { IPC_CHANNELS } from '@shared/contracts'
 import { registerAppScheme, installAppProtocol } from './app-protocol'
 import { BookImportCoordinator } from './book-import-coordinator'
+import { BookAnalysisService } from './book-analysis'
+import { BookContextStore } from './book-context-store'
+import { BookExtractionRunner } from './book-extraction-runner'
 import { AppDatabase } from './database'
 import { ElectronKeyProtector } from './electron-key-protector'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc'
@@ -13,6 +16,11 @@ import { ProviderService } from './provider-service'
 import { ProfileSecretStore } from './secret-store'
 import { UpdaterService } from './updater-service'
 import { createMainWindow, loadMainWindow } from './window'
+import { KnowledgeSettingsService } from './knowledge-settings'
+import { KnowledgeHttp } from './knowledge-http'
+import { RerankService } from './rerank-service'
+import { SemanticIndexService } from './semantic-index'
+import { DocumentProcessingService } from './document-processing'
 
 registerAppScheme()
 
@@ -30,6 +38,12 @@ let library: LibraryService | undefined
 let provider: ProviderService | undefined
 let updater: UpdaterService | undefined
 let bookImporter: BookImportCoordinator | undefined
+let analysis: BookAnalysisService | undefined
+let extractor: BookExtractionRunner | undefined
+let knowledge: KnowledgeSettingsService | undefined
+let knowledgeHttp: KnowledgeHttp | undefined
+let semantic: SemanticIndexService | undefined
+let documents: DocumentProcessingService | undefined
 
 const { autoUpdater } = electronUpdater
 
@@ -51,6 +65,16 @@ async function openWindow(): Promise<void> {
   bookImporter?.dispose()
   bookImporter = undefined
   const created = createMainWindow()
+  created.window.once('closed', () => {
+    llm?.cancelAll()
+    analysis?.dispose()
+    extractor?.cancel()
+    semantic?.dispose()
+  })
+  if (analysis) analysis.onState = (state) => {
+    extractor?.observe(state)
+    if (!created.window.isDestroyed()) created.window.webContents.send(IPC_CHANNELS.analysisEvent, state)
+  }
   bookImporter = new BookImportCoordinator(library, (event) => {
     if (!created.window.isDestroyed() && !created.window.webContents.isDestroyed()) {
       created.window.webContents.send(IPC_CHANNELS.booksImportEvent, event)
@@ -71,6 +95,9 @@ async function openWindow(): Promise<void> {
     bookImporter,
     provider,
     llm,
+    analysis,
+    extractor,
+    knowledge, knowledgeHttp, semantic, documents,
     updater,
     allowedRendererOrigins: created.allowedOrigins,
     completeClose: created.completeClose
@@ -87,9 +114,23 @@ async function initialize(): Promise<void> {
   provider = new ProviderService(
     database,
     new ElectronKeyProtector(),
-    new ProfileSecretStore(join(userData, 'provider-keys'), join(userData, 'api-key.bin'))
+    new ProfileSecretStore(join(userData, 'provider-keys'), join(userData, 'api-key.bin')),
+    fetch,
+    app.getVersion()
   )
-  llm = new LlmService(provider)
+  llm = new LlmService(provider, fetch, app.getVersion())
+  analysis = new BookAnalysisService(new BookContextStore(database), provider, llm)
+  knowledge = new KnowledgeSettingsService(database, new ElectronKeyProtector())
+  knowledgeHttp = new KnowledgeHttp(fetch, app.getVersion())
+  analysis.rerank = new RerankService(knowledge, knowledgeHttp)
+  semantic = new SemanticIndexService(analysis.store, knowledge, knowledgeHttp, () => llm?.isBusy ?? false)
+  documents = new DocumentProcessingService(database, knowledge, knowledgeHttp, 2_000, () => llm?.isBusy ?? false)
+  analysis.semantic = semantic
+  analysis.documents = documents
+  analysis.knowledge = knowledge
+  semantic.onChange = (bookId) => analysis?.emit(bookId)
+  extractor = new BookExtractionRunner(library, analysis)
+  llm.contextProvider = (request, credentials, signal) => analysis!.context(request, credentials, signal)
 
   await installAppProtocol(join(__dirname, '../renderer'))
   const e2eImportPath = process.env.LLM_READER_E2E_IMPORT
@@ -120,6 +161,9 @@ app.on('will-quit', () => {
   bookImporter?.dispose()
   bookImporter = undefined
   llm?.cancelAll()
+  analysis?.dispose()
+  extractor?.dispose()
+  semantic?.dispose()
   database?.close()
   database = undefined
 })

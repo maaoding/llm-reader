@@ -361,6 +361,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   async selectAnchor(anchor: string): Promise<boolean> {
+    // External extraction provides a page position, without a selectable text range.
+    if (parsePdfPositionAnchor(anchor, this.pages.length)) return false
     const region = parsePdfRegionAnchor(anchor, this.pages.length)
     if (region) {
       await this.renderPage(region.pageNumber)
@@ -379,6 +381,12 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   async highlight(anchor: string): Promise<void> {
+    const position = parsePdfPositionAnchor(anchor, this.pages.length)
+    if (position) {
+      await this.renderPage(position.pageNumber)
+      this.clearTemporaryHighlight()
+      return
+    }
     const region = parsePdfRegionAnchor(anchor, this.pages.length)
     if (region) {
       await this.renderPage(region.pageNumber)

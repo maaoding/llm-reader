@@ -68,8 +68,8 @@ export default function InsightsView({
     return scopeRecords.filter((insight) => [
       insight.book.title,
       insight.book.author ?? '',
-      insight.selection.chapterTitle,
-      insight.selection.quote,
+      insight.selection?.chapterTitle ?? copy('analysis.bookSource'),
+      insight.selection?.quote ?? '',
       insight.question,
       insight.answer
     ].some((value) => value.toLocaleLowerCase('zh-CN').includes(needle)))
@@ -186,12 +186,12 @@ export default function InsightsView({
                     <MarkedText value={insight.book.title} needle={needle} />
                     {insight.book.author ? <> · <MarkedText value={insight.book.author} needle={needle} /></> : null}
                   </span>
-                  <span className="insight-quote">“<MarkedText value={insight.selection.quote} needle={needle} />”</span>
+                  <span className="insight-quote">{insight.selection ? <>“<MarkedText value={insight.selection.quote} needle={needle} />”</> : copy('analysis.bookSource')}</span>
                   <strong className="insight-question"><MarkedText value={insight.question} needle={needle} /></strong>
-                  <AnswerText text={insight.answer} selection={insight.selection} readOnly highlight={needle} />
+                  <AnswerText text={insight.answer} selection={insight.selection} context={insight.context} readOnly highlight={needle} />
                 </div>
               <footer>
-                <span>{insight.selection.chapterTitle || copy('common.currentChapter')} · {formatDate(insight.createdAt)}</span>
+                <span>{insight.selection?.chapterTitle || (insight.selection ? copy('common.currentChapter') : copy('analysis.bookSource'))} · {formatDate(insight.createdAt)}</span>
                 {pendingDeleteInsightId === insight.id ? (
                   <span className="insight-delete-confirmation">
                     <span>{copy('insights.removeQuestion')}</span>

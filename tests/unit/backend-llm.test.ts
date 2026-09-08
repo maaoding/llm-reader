@@ -4,12 +4,14 @@ import type { LlmEvent, LlmRequest } from '../../src/shared/contracts'
 import { buildChatCompletionsUrl, buildModelsUrl, LlmService, selectContextPassages } from '../../src/main/llm-service'
 
 const credentials = {
-  getCredentials: () => ({ baseUrl: 'https://models.example.test', model: 'reader-model', apiKey: 'secret' })
+  getCredentials: () => ({ baseUrl: 'https://models.example.test', model: 'reader-model', apiKey: 'secret', compatibility: 'auto' as const })
 }
 
-function request(overrides: Partial<LlmRequest> = {}): LlmRequest {
+type SelectionRequest = Extract<LlmRequest, { selection: unknown }>
+function request(overrides: Partial<SelectionRequest> = {}): SelectionRequest {
   return {
     requestId: randomUUID(),
+    conversationId: randomUUID(),
     action: 'explain',
     question: '',
     selection: {
@@ -130,8 +132,8 @@ describe('LlmService', () => {
     ) as unknown as typeof fetch
     const events = await run(new LlmService(credentials, fetchMock), request())
 
-    expect(events).toHaveLength(1)
-    expect(events[0]).toEqual(expect.objectContaining({ type: 'error', code: 'RESPONSE_TOO_LARGE' }))
+    expect(events.filter((event) => event.type === 'delta')).toHaveLength(0)
+    expect(events.at(-1)).toEqual(expect.objectContaining({ type: 'error', code: 'RESPONSE_TOO_LARGE' }))
   })
 })
 

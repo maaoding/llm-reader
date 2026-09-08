@@ -25,6 +25,7 @@ const secondBook: InsightBookRef = {
 function makeInsight(book: InsightBookRef, id: string, question: string, answer: string): InsightArchiveRecord {
   return {
     id,
+    conversationId: '00000000-0000-4000-8000-000000000003',
     bookId: book.id,
     book,
     selection: {
@@ -53,6 +54,17 @@ const records = [
 ]
 
 describe('insight markdown export', () => {
+  it('exports whole-book answers and each turn with its own original evidence after analysis is rebuilt', () => {
+    const insight = makeInsight(firstBook, 'whole-book', '全书比较', '首轮答案 [P1]')
+    insight.selection = null
+    insight.context = { scope: 'book', bookId: firstBook.id, selection: null, passages: [{ id: 'P1', text: '第一章旧原文', anchor: 'epubcfi(/6/2!/4/2)', chapterTitle: '第一章' }], background: '旧笔记', coverage: { covered: 2, total: 2 } }
+    insight.history[3] = { role: 'assistant', content: '第二轮答案 [P1]', context: { ...insight.context, passages: [{ id: 'P1', text: '第二章原文', anchor: 'epubcfi(/6/4!/4/2)', chapterTitle: '第二章' }] } }
+    const markdown = buildInsightExportMarkdown([insight])
+    expect(markdown).toContain('全书问答')
+    expect(markdown).toContain('[P1] 第一章：第一章旧原文')
+    expect(markdown).toContain('[P1] 第二章：第二章原文')
+    expect(markdown).not.toContain('旧笔记')
+  })
   it('groups records by book and preserves answers, questions and follow-ups', () => {
     const markdown = buildInsightExportMarkdown(records)
     expect(markdown).toContain('# LLM Reader 归档')

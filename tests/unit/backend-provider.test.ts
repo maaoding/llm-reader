@@ -9,6 +9,7 @@ import { ProviderService, type KeyProtector } from '../../src/main/provider-serv
 import { FileSecretStore, ProfileSecretStore } from '../../src/main/secret-store'
 
 const temporaryDirectories: string[] = []
+const databases: AppDatabase[] = []
 
 class XorKeyProtector implements KeyProtector {
   isAvailable(): boolean {
@@ -35,6 +36,7 @@ function makeProvider(root: string, fetchImplementation: typeof fetch = fetch): 
   provider: ProviderService
 } {
   const database = new AppDatabase(join(root, 'reader.sqlite3'))
+  databases.push(database)
   const provider = new ProviderService(
     database,
     new XorKeyProtector(),
@@ -46,6 +48,7 @@ function makeProvider(root: string, fetchImplementation: typeof fetch = fetch): 
 
 afterEach(async () => {
   vi.restoreAllMocks()
+  for (const database of databases.splice(0)) if (database.connection.isOpen) database.close()
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
@@ -75,6 +78,7 @@ describe('ProviderService profiles and secret storage', () => {
     const second = overview.profiles[1]
     provider.activateProfile(first.id)
     expect(provider.getCredentials()).toEqual({
+      compatibility: 'auto',
       baseUrl: 'https://first.example.test/v1',
       model: 'first-model',
       apiKey: firstKey
@@ -84,7 +88,7 @@ describe('ProviderService profiles and secret storage', () => {
 
     const columns = database.connection.prepare('PRAGMA table_info(provider_profiles)').all()
     expect(columns.map((column) => column.name)).toEqual([
-      'id', 'name', 'base_url', 'model', 'is_active', 'created_at', 'updated_at'
+      'id', 'name', 'base_url', 'model', 'is_active', 'created_at', 'updated_at', 'compatibility'
     ])
     database.close()
 
