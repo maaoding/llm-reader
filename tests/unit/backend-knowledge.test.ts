@@ -113,6 +113,17 @@ describe('knowledge settings and local vectors', () => {
     expect(db.connection.prepare('SELECT count(*) AS total FROM book_vectors').get()!.total).toBe(0)
     expect(db.connection.prepare('SELECT status FROM semantic_indexes WHERE book_id = ?').get(bookId)?.status).toBe('stale')
   })
+  it('keeps leading evidence unique to either channel when overlapping hits dominate fusion', async () => {
+    const { store, settings, resource, bookId } = setup(32)
+    const service = new SemanticIndexService(store, settings, new KnowledgeHttp(embeddingFetch())); resource.semantic = service
+    service.start({ bookId })
+    await vi.waitFor(() => expect(service.state(bookId).status).toBe('ready'))
+    // p31 is the top lexical result but absent from semantic top-k; p0 is semantic-only.
+    const lexical = store.passages(bookId, ['p31', ...Array.from({ length: 23 }, (_, index) => 'p' + (index + 1))])
+    const hits = await service.search(bookId, '随大流', lexical, new AbortController().signal)
+    expect(hits.slice(0, 12).map((item) => item.blockId)).toEqual(expect.arrayContaining(['p31', 'p0']))
+    expect(new Set(hits.map((item) => item.blockId)).size).toBe(hits.length)
+  })
   it('rejects malformed, zero and inconsistent embeddings and never follows redirects', async () => {
     const { settings } = setup()
     const config = settings.embedding(), signal = new AbortController().signal

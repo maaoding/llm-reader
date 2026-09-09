@@ -143,6 +143,30 @@ describe('PDF tables, body tree and honest diagnostics', () => {
         .toBe(Array.from(block.text).slice(range.textStart, range.textEnd).join(''))
     }
   })
+  it('bounds merged-cell expansion before materializing an oversized table', () => {
+    const document = normalizeMineruDocument([{ type: 'table', page_idx: 0, table_body: '<table><tr><td>' + '字符'.repeat(500) + '</td></tr></table>' }], 1)
+    const table = document.units[0].table!
+    table.rows = 1000; table.columns = 100
+    table.cells[0].rowSpan = 1000; table.cells[0].columnSpan = 100
+    expect(() => documentSections(document)).toThrow('表格展开超过处理上限')
+  })
+  it('retains actual column positions and separate header rows for merged provider tables', () => {
+    // MinerU cloud returns td even for visual headers; preserve geometry without inventing header labels.
+    const rows = '<tr><td>组别</td><td colspan="2">普通样本</td><td colspan="2">异常样本</td></tr>' +
+      '<tr><td></td><td>保留天数</td><td>阈值</td><td>保留天数</td><td>阈值</td></tr>' +
+      '<tr><td>蓝组</td><td>31</td><td>0.72</td><td>93</td><td>0.88</td></tr>'
+    for (const markup of [rows, rows.replaceAll('<td', '<th').replaceAll('</td>', '</th>')]) {
+      const document = normalizeMineruDocument([{ type: 'table', page_idx: 0, table_body: '<table>' + markup + '</table>' }], 1)
+      const table = document.units[0].table!
+      const block = documentSections(document).flatMap((section) => section.blocks)[0]
+      expect(block.text.split('\n')).toEqual(['组别\t普通样本\t普通样本\t异常样本\t异常样本', '\t保留天数\t阈值\t保留天数\t阈值', '蓝组\t31\t0.72\t93\t0.88'])
+      expect(table.cells[0].header).toBe(markup !== rows)
+      for (const passage of [block, cropPassage(block, Array.from(block.text).slice(0, 18).join(''))]) {
+        for (const range of passage.tableSlice!.cells) expect(Array.from(table.cells.find((cell) => cell.id === range.id)!.text).slice(range.start, range.end).join(''))
+          .toBe(Array.from(passage.text).slice(range.textStart, range.textEnd).join(''))
+      }
+    }
+  })
   it('degrades malformed table structure while keeping text and position, and rejects fabricated locations', () => {
     const document = normalizeMineruDocument([{ type: 'table', table_body: '<table><tr><td rowspan="bad">有效 &lt;文字&gt;</td></tr></table>', page_idx: 0, bbox: [0, 200, 900, 300] }], 2)
     expect(document.units[0]).toMatchObject({ kind: 'paragraph', text: '有效 <文字>' })

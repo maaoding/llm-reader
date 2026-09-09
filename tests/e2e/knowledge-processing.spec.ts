@@ -251,10 +251,12 @@ for (const processor of ['docling', 'mineru-local', 'mineru-cloud'] as const) {
       documentPending = true
       await page.getByTestId('document-prepare').click()
       await expect.poll(() => uploads).toBe(1)
-      if (processor === 'mineru-cloud') {
-        await expect.poll(() => received.filter((item) => item.path === '/api/v4/extract-results/batch/test-job').length).toBeGreaterThan(0)
-        await expect(page.getByTestId('document-cancel')).toBeEnabled()
-      }
+      // Receiving the upload on the fixture server does not mean the app has persisted its returned
+      // task ID yet. Cancel only after the first poll, so this test exercises resumable accepted jobs.
+      const pollPath = processor === 'mineru-cloud' ? '/api/v4/extract-results/batch/test-job'
+        : processor === 'docling' ? '/v1/status/poll/test-job' : '/tasks/test-job'
+      await expect.poll(() => received.filter((item) => item.path === pollPath).length).toBeGreaterThan(0)
+      await expect(page.getByTestId('document-cancel')).toBeEnabled()
       await page.getByTestId('document-cancel').click()
       const restarted = await restartReader(application, { userData: workspace.userData }); application = restarted.application; page = restarted.page
       await expect(page.getByTestId('book-item')).toBeVisible()

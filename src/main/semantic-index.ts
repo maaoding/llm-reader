@@ -143,9 +143,9 @@ export class SemanticIndexService {
         combined.set(id, entry)
       }
       const fused = [...combined.values()].sort((a, b) => b.score - a.score).map((item) => item.passage)
-      // Reserve evidence slots for semantic matches unique to that retrieval path. Otherwise common-word
-      // lexical matches can crowd all synonym evidence out of the twelve passages sent to the model.
-      return [...new Map([...fused.slice(0, 6), ...semantic.slice(0, 3), ...fused]
+      // Preserve leading matches from both paths. Shared, weaker matches receive two RRF votes and can
+      // otherwise displace an exact lexical condition just as easily as semantic-only synonym evidence.
+      return [...new Map([...fused.slice(0, 6), ...lexical.slice(0, 3), ...semantic.slice(0, 3), ...fused]
         .map((passage) => [passage.blockId ?? passage.id, passage])).values()].slice(0, limit === 24 ? 24 : limit * 2)
     } catch { signal.throwIfAborted(); return lexical }
   }

@@ -24,6 +24,7 @@
     "src/shared/**/*.ts",
     "scripts/rerank-*.ts",
     "scripts/document-structure-*.ts",
+    "scripts/knowledge-hard-*.ts",
     "tests/e2e/**/*.ts",
     "tests/unit/backend*.test.ts"
   ]

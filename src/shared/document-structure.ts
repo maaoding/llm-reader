@@ -76,8 +76,10 @@ function sliceSources(unit: DocumentUnit, start: number, end: number): SourceRan
 }
 
 /** Complete rows share true column headers; an oversized row records exactly which cell characters it contains. */
-function tableBlocks(unit: DocumentUnit): DocumentBlock[] {
+function tableBlocks(unit: DocumentUnit, maximumCharacters: number): DocumentBlock[] {
   const table = unit.table!
+  const expandedSize = table.cells.reduce((size, cell) => size + characters(cell.text) * cell.rowSpan * cell.columnSpan, 0)
+  if (expandedSize > maximumCharacters) throw new Error('表格展开超过处理上限。')
   const cellsById = new Map(table.cells.map((cell) => [cell.id, cell]))
   const headers = table.cells.filter((cell) => cell.header)
   const rowCells = new Map<number, typeof table.cells>()
@@ -87,19 +89,37 @@ function tableBlocks(unit: DocumentUnit): DocumentBlock[] {
   }
   const rows = [...rowCells.keys()].sort((a, b) => a - b)
   const result: DocumentBlock[] = []
+  let emittedCharacters = 0
   type Part = { text: string; cells: TableSlice['cells'] }
   const serialize = (cells: typeof table.cells, row?: number): Part => {
-    let text = '', length = 0
+    let text = '', length = 0, column = 0
     const ranges: TableSlice['cells'] = []
-    for (const cell of cells) {
-      if (ranges.length) { text += '\t'; length++ }
-      const textStart = length, cellLength = characters(cell.text)
-      text += cell.text; length += cellLength
-      ranges.push({ id: cell.id, start: 0, end: cellLength, textStart, textEnd: length, header: cell.header, rows: row === undefined ? [] : [row] })
+    for (const cell of [...cells].sort((a, b) => a.column - b.column)) {
+      const cellLength = characters(cell.text)
+      // Expand merged cells into their actual columns, preserving every occurrence's original range.
+      // A provider's td is still a td: visual header roles are never inferred from its position.
+      if (length + Math.max(0, cell.column - column) + cell.columnSpan * (cellLength + 1) > maximumCharacters) throw new Error('表格展开超过处理上限。')
+      while (column < cell.column) {
+        if (column) { text += '\t'; length++ }
+        column++
+      }
+      for (let span = 0; span < cell.columnSpan; span++) {
+        if (column) { text += '\t'; length++ }
+        const textStart = length
+        text += cell.text; length += cellLength; column++
+        ranges.push({ id: cell.id, start: 0, end: cellLength, textStart, textEnd: length, header: cell.header, rows: row === undefined ? [] : [row] })
+      }
     }
     return { text, cells: ranges }
   }
-  const header = serialize(headers)
+  const header: Part = { text: '', cells: [] }
+  for (const row of [...new Set(headers.map((cell) => cell.row))].sort((a, b) => a - b)) {
+    const part = serialize(headers.filter((cell) => cell.row <= row && cell.row + cell.rowSpan > row))
+    const offset = characters(header.text) + (header.text ? 1 : 0)
+    if (offset + characters(part.text) > maximumCharacters) throw new Error('表格展开超过处理上限。')
+    header.text += (header.text ? '\n' : '') + part.text
+    header.cells.push(...part.cells.map((cell) => ({ ...cell, textStart: cell.textStart + offset, textEnd: cell.textEnd + offset })))
+  }
   const emit = (selectedRows: number[], body: Part): void => {
     const prefix = header.text && body.text ? header.text + '\n' : header.text
     // A header itself exceeding the block limit is retained as cell ranges in separate blocks.
@@ -122,7 +142,10 @@ function tableBlocks(unit: DocumentUnit): DocumentBlock[] {
           return { ...clipped, textStart: range.textStart + (clipped.textStart ?? 0), textEnd: range.textStart + (clipped.textEnd ?? range.end - range.start) }
         }))
       const sources = exact.length && contributing.every((cell) => cell.sources?.length) ? exact : unit.sources.map((source) => ({ ...source, precision: 'table' as const }))
-      result.push({ id: unit.id + '-b' + result.length, text: (body.text ? repeated : '') + part.text,
+      const text = (body.text ? repeated : '') + part.text
+      emittedCharacters += characters(text)
+      if (emittedCharacters > maximumCharacters) throw new Error('表格展开超过处理上限。')
+      result.push({ id: unit.id + '-b' + result.length, text,
         anchor: sources[0].anchor, sources, kind: 'table', nodeId: unit.nodeId, unitId: unit.id,
         tableSlice: { rows: selectedRows.filter((row) => cells.some((cell) => cell.rows?.includes(row))), cells }, searchable: unit.searchable })
     }
@@ -151,6 +174,7 @@ export function documentSections(document: NormalizedDocument): DocumentSection[
   const result: DocumentSection[] = []
   const nodes = new Map(document.nodes.map((node) => [node.id, node]))
   const paths = new Map<string, string[]>()
+  let remainingCharacters = MAX_BOOK_CHARACTERS
   let currentNode = '', blocks: DocumentBlock[] = [], run = 0
   const flush = (): void => {
     if (!blocks.length) return
@@ -163,11 +187,13 @@ export function documentSections(document: NormalizedDocument): DocumentSection[
     if (currentNode !== unit.nodeId) { flush(); currentNode = unit.nodeId }
     let path = paths.get(unit.nodeId)
     if (!path) { path = headingPath(nodes, unit.nodeId); paths.set(unit.nodeId, path) }
-    const parts = unit.table ? tableBlocks(unit) : paragraphSlices(unit.text).map((part, index): DocumentBlock => {
+    const parts = unit.table ? tableBlocks(unit, remainingCharacters) : paragraphSlices(unit.text).map((part, index): DocumentBlock => {
       const sources = sliceSources(unit, part.start, part.end)
       return { id: `${unit.id}-b${index}`, kind: unit.kind, text: part.text, anchor: sources[0]?.anchor ?? unit.sources[0].anchor,
         sources, unitId: unit.id, nodeId: unit.nodeId, unitRange: { start: part.start, end: part.end }, searchable: unit.searchable }
     })
+    remainingCharacters -= parts.reduce((size, part) => size + characters(part.text), 0)
+    if (remainingCharacters < 0) throw new Error('文档展开超过处理上限。')
     blocks.push(...parts.map((block) => ({ ...block, headingPath: path, chapterTitle: nodes.get(unit.nodeId)!.title, chapterId: unit.nodeId })))
   }
   flush()
