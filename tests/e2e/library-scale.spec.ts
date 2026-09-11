@@ -7,6 +7,7 @@ import {
   createE2eWorkspace,
   launchReader
 } from './support/electron-app'
+import { resizeWorkspace } from './support/workspace'
 
 async function stubImportDialog(application: ElectronApplication, paths: string[]): Promise<void> {
   await application.evaluate(({ dialog }, selectedPaths) => {
@@ -95,7 +96,7 @@ test('keeps single-file import opening behavior and summarizes a mixed multi-fil
     await expect(page.getByTestId('reader-host')).toContainText('单本导入后应自动打开这段正文。')
     await expect(page.getByTestId('book-import-dialog')).toHaveCount(0)
 
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     await stubImportDialog(application, [firstPath, duplicatePath, ...brokenPaths])
     await page.getByTestId('import-book').click()
 
@@ -105,7 +106,7 @@ test('keeps single-file import opening behavior and summarizes a mixed multi-fil
     await expect(page.getByTestId('book-import-failure')).toHaveCount(18)
     await expect(page.getByTestId('book-import-failure').first()).toContainText('broken-batch-1.epub')
     await expect(dialog).not.toContainText(workspace.root)
-    await expect(page.getByTestId('library-tab')).toHaveClass(/is-active/u)
+    await expect(page.getByTestId('nav-library')).toHaveAttribute('aria-current', 'page')
     await expect(page.getByTestId('reader-host')).toContainText('单本导入后应自动打开这段正文。')
     await expect(page.getByTestId('book-item')).toHaveCount(2)
 
@@ -165,7 +166,7 @@ test('shows the whole-window drop target, hides it on leave, and imports a real 
     await dispatchFileDrag(page, 'dragenter')
     await dispatchFileDrag(page, 'drop')
     await expect(page.getByTestId('reader-host')).toContainText('真实文件拖入后可直接阅读。')
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     await expect(page.getByTestId('book-item')).toHaveCount(1)
     expect(page.url()).toBe(initialUrl)
   } finally {
@@ -254,8 +255,45 @@ test('renders and scrolls a 300-book library and opens its last visible entry', 
     await last.scrollIntoViewIfNeeded()
     await expect(last).toBeVisible()
     await last.click()
-    await expect(page.locator('.reader-heading h1')).toContainText('规模化书库正文')
+    await expect(page.locator('.workspace-book-title h1')).toContainText('规模化书库正文')
     await expect(page.getByTestId('reader-host')).toContainText('规模化书库正文')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('uses three compact library columns at 1180px and two at 940px', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-library-grid-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const fixtureDirectory = join(workspace.root, 'grid-books')
+    await mkdir(fixtureDirectory, { recursive: true })
+    const paths = Array.from({ length: 6 }, (_, index) => join(fixtureDirectory, `${index === 0 ? '一本书名很长很长用于验证最多显示两行而不会撑宽卡片-' : 'grid-book-'}${index + 1}.txt`))
+    await Promise.all(paths.map((path, index) => writeFile(path, `紧凑书库卡片 ${index + 1}`, 'utf8')))
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    await stubImportDialog(application, paths)
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 6 本')
+    await page.getByTestId('book-import-close').click()
+
+    const rowPattern = async () => page.locator('.book-item').evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().top)))
+    await resizeWorkspace(application, page, 1180, 760)
+    const wideRows = await rowPattern()
+    expect(new Set(wideRows.slice(0, 3)).size).toBe(1)
+    expect(wideRows[3]).toBeGreaterThan(wideRows[0])
+    await page.screenshot({ path: test.info().outputPath('library-1180-light.png'), animations: 'disabled' })
+
+    await resizeWorkspace(application, page, 940, 600)
+    const compactRows = await rowPattern()
+    expect(new Set(compactRows.slice(0, 2)).size).toBe(1)
+    expect(compactRows[2]).toBeGreaterThan(compactRows[0])
+    await expect(page.locator('.book-meta strong').first()).toHaveCSS('-webkit-line-clamp', '2')
+    await expect(page.getByTestId('book-info').first()).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: test.info().outputPath('library-940-light.png'), animations: 'disabled' })
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

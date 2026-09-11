@@ -1,4 +1,5 @@
 import type { Passage } from '@shared/contracts'
+import { copy } from '@shared/copy'
 
 export function EvidenceSources({ passages, onNavigate }: { passages: Passage[]; onNavigate: (anchor: string, title?: string) => void }) {
   return passages.map((passage) => {
@@ -7,8 +8,8 @@ export function EvidenceSources({ passages, onNavigate }: { passages: Passage[];
     return <div key={passage.id} className="answer-source-item">
       <button type="button" onClick={() => onNavigate(passage.anchor, passage.chapterTitle)}>{passage.headingPath?.length ? `${passage.headingPath.join(' / ')}：` : passage.chapterTitle ? `${passage.chapterTitle}：` : ''}{Array.from(passage.text).slice(0, 60).join('')}</button>
       {pages.length > 0 && <div className="answer-source-pages">
-        {wholeTable && <small>整表页范围，未确定行级页码。</small>}
-        {pages.map((source) => <button key={source.page} type="button" onClick={() => onNavigate(source.anchor, passage.chapterTitle)}>第 {source.page} 页</button>)}
+        {wholeTable && <small>{copy('sources.wholeTable')}</small>}
+        {pages.map((source) => <button key={source.page} type="button" onClick={() => onNavigate(source.anchor, passage.chapterTitle)}>{copy('knowledge.pdfPage', { page: source.page! })}</button>)}
       </div>}
     </div>
   })

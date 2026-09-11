@@ -216,7 +216,7 @@ export function normalizeDoclingDocument(value: unknown, pageCount: number): Nor
       if (key === 'groups') {
         const source = firstSource(node)
         if (source) {
-          const group = builder.node(text(node.name) || '正文组', source.anchor, depth + 1, parent, 'group')
+          const group = builder.node(text(node.name) || copy('document.bodyGroup'), source.anchor, depth + 1, parent, 'group')
           nodeId = group.id
         }
       }

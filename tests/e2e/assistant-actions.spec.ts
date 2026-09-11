@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -99,8 +100,8 @@ test('customizes selection action names and prompts and restores them after rest
     })
     application = launched.application
     const { page } = launched
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
 
     await page.getByTestId('settings-button').click()
@@ -151,8 +152,8 @@ test('customizes selection action names and prompts and restores them after rest
     })
     application = restarted.application
     const restoredPage = restarted.page
-    await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
-    await restoredPage.getByTestId('book-item').first().click()
+    await showLibrary(restoredPage); await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(restoredPage); await restoredPage.getByTestId('book-item').first().click(); await enterReading(restoredPage)
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
 
     await selectNodeContents(restoredPage.getByTestId('reader-host').locator('p').first())

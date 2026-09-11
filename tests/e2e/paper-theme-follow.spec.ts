@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -26,7 +27,7 @@ const DARK_EYE_CARE_BACKGROUND = 'rgb(42, 38, 32)'
 const DARK_EYE_CARE_INK = 'rgb(232, 223, 207)'
 
 async function openFirstBook(page: Page): Promise<void> {
-  await page.getByTestId('book-item').first().click()
+  await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
   await expect(page.getByTestId('reader-host')).toBeVisible()
 }
 

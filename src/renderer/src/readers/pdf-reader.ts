@@ -143,7 +143,6 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private outlineLocations: PdfOutlineLocation[] = []
   private programmaticReason: ReaderRelocationReason | null = null
   private programmaticScrollTop: number | null = null
-  private programmaticScrollRevision = 0
   private selection: SelectionContext | null = null
   private persistentHighlightAnchors: ReaderHighlightAnchor[] = []
   private temporaryHighlightRegistry: HighlightRegistry | null = null
@@ -462,7 +461,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     regionButton.setAttribute('aria-pressed', 'false')
     regionButton.classList.add('pdf-region-select')
     this.regionButton = regionButton
-    toolbar.append(zoomOut, fitWidth, zoomValue, zoomIn, regionButton)
+    const paperButton = this.toolbarButton(copy('settings.paperTheme'), copy('settings.paperTheme'), () => this.callbacks.onDisplaySettings?.(paperButton))
+    toolbar.append(zoomOut, fitWidth, zoomValue, zoomIn, paperButton, regionButton)
     return toolbar
   }
 
@@ -1025,6 +1025,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       button.dataset.targetPage = String(target.pageNumber)
       button.setAttribute('aria-label', copy('reader.pdfInternalLink'))
       button.addEventListener('click', () => {
+        this.callbacks.onInternalNavigation?.()
         void this.goTo(makePdfPositionAnchor(target.pageNumber, target.fraction))
       })
       state.linkLayerElement.append(button)
@@ -1122,7 +1123,6 @@ export class PdfReaderAdapter implements ReaderAdapter {
     fraction: number,
     reason: ReaderRelocationReason
   ): void {
-    const revision = ++this.programmaticScrollRevision
     if (this.relocationFrame !== null && this.document.defaultView) {
       this.document.defaultView.cancelAnimationFrame(this.relocationFrame)
       this.relocationFrame = null
@@ -1131,11 +1131,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.scrollToPageFraction(pageNumber, fraction)
     this.programmaticScrollTop = this.host.scrollTop
     this.emitRelocationForPage(pageNumber, fraction, reason)
-    this.document.defaultView?.setTimeout(() => {
-      if (revision !== this.programmaticScrollRevision) return
-      this.programmaticReason = null
-      this.programmaticScrollTop = null
-    }, 80)
+    // Delayed scroll events at this position still belong to navigation. The
+    // next actual position change in handleScroll resumes natural reading.
   }
 
   private scrollToPageFraction(pageNumber: number, fraction: number): void {
@@ -1183,7 +1180,6 @@ export class PdfReaderAdapter implements ReaderAdapter {
       Math.abs(this.host.scrollTop - this.programmaticScrollTop) < 1
     ) return
     if (this.programmaticReason) {
-      this.programmaticScrollRevision += 1
       this.programmaticReason = null
       this.programmaticScrollTop = null
     }
@@ -1509,7 +1505,6 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.selection = null
     this.programmaticReason = null
     this.programmaticScrollTop = null
-    this.programmaticScrollRevision += 1
     this.host.replaceChildren()
   }
 }

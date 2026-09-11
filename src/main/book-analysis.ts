@@ -119,7 +119,7 @@ export class BookAnalysisService {
   private currentPreparation(input: BookExtractionInput): void {
     const record = this.store.document(input.bookId)
     if (!record || record.status !== 'preparing' || record.job_id !== input.jobId || this.preparing?.jobId !== input.jobId || this.preparing.controller.signal.aborted) {
-      throw new AppError('DOCUMENT_CANCELLED', '原文准备已停止。')
+      throw new AppError('DOCUMENT_CANCELLED', copy('error.documentCancelled'))
     }
     if (record.fingerprint !== this.documentFingerprint(input.bookId)) {
       this.cancelPreparation(input.bookId, copy('knowledge.documentChanged'))
@@ -155,7 +155,7 @@ export class BookAnalysisService {
     const credentials = this.provider.getCredentials(input.profileId)
     const fingerprint = this.fingerprint(book.id, input.profileId)
     const previous = this.store.record(book.id)
-    if (previous?.status === 'stale' && !input.rebuild) throw new AppError('ANALYSIS_CONFIG_CHANGED', '原文已更新，请重新生成章节笔记。')
+    if (previous?.status === 'stale' && !input.rebuild) throw new AppError('ANALYSIS_CONFIG_CHANGED', copy('error.notesUpdated'))
     if (previous && !input.rebuild && previous.fingerprint !== fingerprint) throw new AppError('ANALYSIS_CONFIG_CHANGED', copy('analysis.changed'))
     if (previous?.status === 'ready' && !input.rebuild) return this.state(book.id)
     const jobId = randomUUID()

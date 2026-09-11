@@ -1,3 +1,4 @@
+import { showLibrary, enterReading, togglePreparation, showReferences, showAssistant, resizeWorkspace } from './support/workspace'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -129,20 +130,20 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
       const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
       application = launched.application
       let page = launched.page
-      await expect(page.getByTestId('book-item').first()).toBeVisible()
+      await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
       const ids = await profiles(page)
       await page.evaluate((url) => window.readerApi.saveKnowledgeSettings({ embedding: { enabled: false, baseUrl: '', model: '' },
         rerank: { enabled: true, baseUrl: `${url}/v1`, model: 'reranker-test', apiKey: 'rerank-only' },
         document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch' } }), endpoint)
       await page.reload()
-      await page.getByTestId('book-item').first().click()
+      await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
       await expect(page.getByTestId('reader-host')).toBeVisible()
       await expect(page.locator('.reader-column')).not.toHaveAttribute('data-current-chapter-title', '')
       const naturalChapter = await page.locator('.reader-column').getAttribute('data-current-chapter-title')
       const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
       await page.getByTestId('scope-book').click()
-      await expect(page.getByTestId('followup-input')).toBeDisabled()
-      await page.getByTestId('analysis-details').locator('summary').first().click()
+      await expect(page.getByTestId('followup-input')).toBeEnabled()
+      await togglePreparation(page)
       await expect(page.getByTestId('analysis-profile')).toHaveValue(ids.questionId)
       await page.getByTestId('analysis-profile').selectOption(ids.analysisId)
       await application.evaluate(({ app, BrowserWindow }) => {
@@ -158,7 +159,7 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
       })
       if (format === 'txt') holdNotes = true
       await page.getByTestId('document-prepare').click()
-      await expect(page.getByTestId('document-status')).toHaveText('原文可检索')
+      await expect(page.getByTestId('document-status')).toHaveText('原文已就绪')
       await page.getByTestId('analysis-start').click()
       if (format === 'txt') {
         await expect.poll(() => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((state) => state.completedSections), bookId)).toBeGreaterThan(0)
@@ -168,10 +169,10 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
         const restarted = await restartReader(application, { userData: workspace.userData })
         application = restarted.application
         page = restarted.page
-        await page.getByTestId('book-item').first().click()
+        await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
         expect(notes).toHaveLength(callsBeforeRestart)
         await page.getByTestId('scope-book').click()
-        await page.getByTestId('analysis-details').locator('summary').first().click()
+        await togglePreparation(page)
         holdNotes = false
         await page.getByTestId('analysis-start').click()
       }
@@ -186,7 +187,7 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
       expect(notes.every((item) => item.model === 'analysis-model')).toBe(true)
       expect((await page.evaluate(() => window.readerApi.getProviderOverview())).activeProfileId).toBe(ids.questionId)
       if (format !== 'txt') expect(notes.some((item) => item.section.blocks.some((block) => block.kind === 'note' && block.text.includes('😀')))).toBe(true)
-      await page.getByTestId('analysis-details').locator('summary').first().click()
+      await togglePreparation(page)
       await ask(page, '结合全书解释随大流与自主判断的关系')
       expect(planningSessions.at(-1)).toBe(answers.at(-1)?.sessionId)
       expect(answers.at(-1)?.sessionId).not.toBe(analysisSessions[0])
@@ -214,13 +215,13 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
       expect(saved.context?.rerank?.status).toBe('applied')
       expect(rerankCalls).toBe(1)
       expect(saved.context?.passages.some((passage) => passage.text.includes(definition))).toBe(true)
-      await page.getByTestId('book-analysis-controls').getByRole('button', { name: '本段', exact: true }).click()
+      await page.locator('.right-sidebar').getByRole('button', { name: '选中内容', exact: true }).click()
       await page.getByTestId('scope-book').click()
       rerankStatus = 429
       await ask(page, '再比较一下两种判断')
       expect(rerankCalls).toBe(2)
       await page.locator('.answer-sources').last().locator('summary').click()
-      await expect(page.getByTestId('rerank-result').last()).toHaveText('重排未完成，已使用原检索结果')
+      await expect(page.getByTestId('rerank-result').last()).toHaveText('排序服务未完成，已使用原有顺序')
       expect((await page.evaluate((id) => window.readerApi.getBookAnalysis(id), bookId)).status).toBe('ready')
       rerankStatus = 200
       expect(answers.at(-1)?.sessionId).toBe(saved.conversationId)
@@ -234,20 +235,24 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
           await expect.poll(() => page.locator('.reader-document--txt').evaluate((element) => getComputedStyle(element).backgroundColor))
             .toBe(theme === 'dark' ? 'rgb(34, 41, 45)' : 'rgb(253, 252, 249)')
           for (const [width, height] of [[1440, 900], [940, 600]]) {
-            await application.evaluate(({ BrowserWindow }, size) => { const window = BrowserWindow.getAllWindows()[0]; window.unmaximize(); window.setSize(size[0], size[1]) }, [width, height])
+            await resizeWorkspace(application, page, width, height)
+            await showAssistant(page)
             await expect(page.getByTestId('followup-input')).toBeVisible()
             await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
             await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}.png`) })
+            await showReferences(page)
             await page.getByTestId('rerank-result').last().scrollIntoViewIfNeeded()
             await expect(page.getByTestId('rerank-result').last()).toBeInViewport()
             await page.screenshot({ path: testInfo.outputPath(`rerank-fallback-${theme}-${width}.png`) })
-            await page.getByTestId('analysis-details').locator('summary').first().click()
+            await togglePreparation(page)
             await page.getByTestId('analysis-rebuild').scrollIntoViewIfNeeded()
             await expect(page.getByTestId('analysis-rebuild')).toBeVisible()
             await page.screenshot({ path: testInfo.outputPath(`${theme}-${width}-analysis.png`) })
-            await page.getByTestId('analysis-details').locator('summary').first().click()
+            await togglePreparation(page)
           }
         }
+        await page.getByTestId('workspace-tab-reading').click()
+        await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
         await page.getByTestId('reader-host').locator('p').first().evaluate((element) => {
           const range = document.createRange()
           range.selectNodeContents(element)
@@ -274,7 +279,7 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
         const restarted = await restartReader(application, { userData: workspace.userData })
         application = restarted.application
         page = restarted.page
-        await page.getByTestId('book-item').first().click()
+        await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
         await page.getByTestId('assistant-expand-button').click()
         await page.getByTestId('assistant-dialog-tab-insights').click()
         const exportPath = join(workspace.root, '全书归档.md')
@@ -286,10 +291,11 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
         await ask(page, '重启后继续追问：从众的定义是什么？')
         expect(answers.at(-1)?.sessionId).toBe(saved.conversationId)
         expect(planningSessions.at(-1)).toBe(saved.conversationId)
-        await page.getByTestId('assistant-dialog-close').click()
+        await page.getByTestId('workspace-tab-reading').click()
       }
-      await page.getByTestId('analysis-details').locator('summary').first().click()
+      await togglePreparation(page)
       holdNotes = true
+      page.once('dialog', (dialog) => void dialog.accept())
       await page.getByTestId('analysis-rebuild').click()
       await expect.poll(() => analysisSessions.some((sessionId) => sessionId !== analysisSessions[0]), { timeout: 15_000 }).toBe(true)
       await page.getByTestId('analysis-cancel').click()

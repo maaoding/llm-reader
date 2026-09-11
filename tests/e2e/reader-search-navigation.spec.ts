@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -49,8 +50,8 @@ test('Ctrl+F searches EPUB, highlights navigation, preserves natural position an
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     let { page } = launched
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect.poll(() => currentChapter(page)).toBe('第一章')
 
     await page.keyboard.press('Control+f')
@@ -110,8 +111,8 @@ test('Ctrl+F searches EPUB, highlights navigation, preserves natural position an
     const restarted = await restartReader(application, { userData: workspace.userData })
     application = restarted.application
     page = restarted.page
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect.poll(() => currentChapter(page)).toBe('第一章')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)

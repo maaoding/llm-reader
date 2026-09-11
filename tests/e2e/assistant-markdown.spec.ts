@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -42,7 +43,7 @@ async function selectNodeContents(locator: Locator): Promise<void> {
 
 async function configureAndAsk(page: Page): Promise<void> {
   await page.getByTestId('book-item').first().waitFor()
-  await page.getByTestId('book-item').first().click()
+  await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
   await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
 
   await page.getByTestId('settings-button').click()
@@ -163,10 +164,10 @@ test('renders assistant markdown without breaking citation navigation', async ()
     await expect(answer).not.toContainText('```')
 
     await expect(answer.locator('.answer-footer')).toBeVisible()
-    await expect(page.getByTestId('answer-save')).toContainText('归档')
+    await expect(page.getByTestId('answer-save')).toContainText('保存回答')
     await page.getByTestId('answer-save').click()
     await openInsightsWorkspace(page)
-    await expect(page.getByTestId('assistant-dialog-tab-insights')).toContainText('归档')
+    await expect(page.getByTestId('assistant-dialog-tab-insights')).toContainText('回答归档')
 
     const insight = page.getByTestId('insight-item')
     await expect(insight.locator('.answer-text h3')).toHaveText('解释')
@@ -192,7 +193,7 @@ test('renders assistant markdown without breaking citation navigation', async ()
     await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('mock-assistant-markdown')
     await expect(page.locator('.question-bubble')).toContainText('请用清晰、准确的语言解释这段内容。')
     await expect(page.getByTestId('answer-current').locator('.answer-save')).toHaveCount(0)
-    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('归档的回答')
+    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已保存的回答')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }
@@ -264,28 +265,33 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
     await expect(page.locator('.assistant-dialog .question-bubble')).toHaveCount(2)
 
-    await page.getByTestId('assistant-dialog-close').click()
+    await page.getByTestId('workspace-tab-reading').click()
     await expect(page.getByTestId('assistant-dialog')).toHaveCount(0)
 
-    // The temporary sidebar conversation stays intact while the workspace is closed.
-    await expect(page.getByTestId('answer-current')).toContainText('这段')
-    await expect(page.locator('.question-bubble')).toHaveCount(1)
+    // Reading and full conversation continue the same archive session.
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+    await expect(page.locator('.question-bubble')).toHaveCount(2)
+    await followup.fill('在阅读页继续追问')
+    await followup.press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+    await expect(page.getByTestId('cancel-request')).toHaveCount(0)
+    await expect(page.locator('.question-bubble')).toHaveCount(3)
     await openInsightsWorkspace(page)
     await page.getByTestId('insight-item').locator('.insight-content').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
-    await expect(page.locator('.assistant-dialog .question-bubble')).toHaveCount(2)
+    await expect(page.locator('.assistant-dialog .question-bubble')).toHaveCount(3)
     await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
 
     const restarted = await restartReader(application, { userData: workspace.userData })
     application = restarted.application
     const restoredPage = restarted.page
-    await restoredPage.getByTestId('book-item').first().click()
+    await showLibrary(restoredPage); await restoredPage.getByTestId('book-item').first().click(); await enterReading(restoredPage)
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
     await expect(restoredPage.locator('.conversation-turn')).toHaveCount(0)
     await openInsightsWorkspace(restoredPage)
     await restoredPage.getByTestId('insight-item').locator('.insight-content').click()
     await expect(restoredPage.getByTestId('assistant-dialog')).toBeVisible()
-    await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(2)
+    await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(3)
     await expect(restoredPage.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)

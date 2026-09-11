@@ -51,6 +51,8 @@ export interface ReaderCallbacks {
   onSelectionChanged?: (selection: SelectionContext | null) => void
   onSelectionDraftChanged?: (draft: ReaderSelectionDraft | null) => void
   onNotice?: (notice: ReaderNotice) => void
+  onDisplaySettings?: (trigger: HTMLButtonElement) => void
+  onInternalNavigation?: () => void
 }
 
 export type ReadingLineHeight = 'original' | '1.5' | '1.7' | '1.9'

@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -124,7 +125,7 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     application = launched.application
     const { page } = launched
 
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
     await configureProvider(page)
     await archiveSelection(page, '这是第一本书的归档回答。')
@@ -136,12 +137,12 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
         bookmarks: []
       })) as unknown as typeof dialog.showOpenDialog
     }, secondFixture)
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     await page.getByTestId('import-book').click()
     await expect(page.getByTestId('reader-host')).toContainText('第二本书开篇')
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     await expect(page.getByTestId('book-item')).toHaveCount(2)
-    await page.getByTestId('book-item').nth(0).click()
+    await showLibrary(page); await page.getByTestId('book-item').nth(0).click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('第二本书开篇')
     await archiveSelection(page, '这是第二本书的归档回答。')
 
@@ -209,7 +210,7 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     await firstInsight.locator('.insight-content').click()
     await expect(page.locator('.assistant-session-tab.is-active [role="tab"]')).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByTestId('answer-current')).toContainText('这是第一本书的归档回答。')
-    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('归档的回答')
+    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已保存的回答')
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
 
     const secondLiveTab = page.getByTestId('assistant-session-tab').filter({ hasText: '第二本书' })
@@ -218,7 +219,7 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     await expect(page.getByTestId('reader-host')).toContainText('第二本书开篇')
     await expect(page.getByTestId('answer-current')).toContainText('这是第二本书的归档回答。')
 
-    await page.getByTestId('assistant-dialog-close').click()
+    await page.getByTestId('workspace-tab-reading').click()
     await expect(page.getByTestId('assistant-dialog')).toHaveCount(0)
     await expect(page.getByTestId('reader-host')).toContainText('第二本书开篇')
   } finally {
@@ -239,7 +240,7 @@ test('keeps two archive tabs independent and closes the active one back to curre
     application = launched.application
     const { page } = launched
 
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
     await configureProvider(page)
     await archiveSelection(page, '这是第一本书的归档回答。')
@@ -262,6 +263,16 @@ test('keeps two archive tabs independent and closes the active one back to curre
     const followup = page.getByTestId('followup-input')
     await followup.fill('第一份未发送草稿')
     await expect(followup).toHaveValue('第一份未发送草稿')
+
+    await enterReading(page)
+    await expect(page.getByTestId('answer-current')).toContainText('这是第一本书的归档回答。')
+    await expect(followup).toHaveValue('第一份未发送草稿')
+    await expect(page.getByTestId('answer-save')).toHaveCount(0)
+    await followup.fill('阅读页继续输入')
+    await page.getByTestId('assistant-expand-button').click()
+    await expect(page.locator('.assistant-session-tab.is-active .assistant-session-tab-select')).toHaveAttribute('data-tab-kind', 'archive')
+    await expect(followup).toHaveValue('阅读页继续输入')
+    await followup.fill('第一份未发送草稿')
 
     await page.getByTestId('assistant-dialog-tab-insights').click()
     await secondInsight.locator('.insight-content').click()

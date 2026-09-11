@@ -7,7 +7,7 @@ function singleLine(value: string): string {
 
 function evidenceLine(passage: Passage): string {
   const pages = [...new Set(passage.sources?.flatMap((source) => source.page ? [source.page] : []) ?? [])]
-  const source = pages.length ? `（${passage.sources?.some((item) => item.precision === 'table') ? '整表页范围，未确定行级页码；' : ''}第 ${pages.join('、')} 页）` : ''
+  const source = pages.length ? `（${passage.sources?.some((item) => item.precision === 'table') ? copy('sources.wholeTable') + '；' : ''}${copy('knowledge.pdfPage', { page: pages.join('、') })}）` : ''
   return `[${passage.id}] ${singleLine(passage.headingPath?.join(' / ') ?? passage.chapterTitle ?? '')}${source}：${singleLine(passage.text)}`
 }
 

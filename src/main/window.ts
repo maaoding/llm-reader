@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, session } from 'electron'
 import { IPC_CHANNELS } from '@shared/contracts'
 
 export interface CreatedWindow {
@@ -31,6 +31,9 @@ export function createMainWindow(): CreatedWindow {
     minHeight: 600,
     frame: false,
     show: false,
+    icon: app.isPackaged
+      ? join(process.resourcesPath, 'icon.ico')
+      : join(__dirname, '../../resources/icon.ico'),
     backgroundColor: '#f5f3ee',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

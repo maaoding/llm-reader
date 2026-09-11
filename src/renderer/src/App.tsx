@@ -36,6 +36,7 @@ import {
   Sparkles,
   Square,
   Trash2,
+  Undo2,
   Unplug,
   X,
   type LucideIcon
@@ -55,6 +56,7 @@ import {
   useState
 } from 'react'
 import type {
+  BookAnalysisState,
   AppUpdatePhase,
   ArchivedChatMessage,
   ContextSnapshot,
@@ -82,6 +84,9 @@ import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
 import { AnswerText } from './AnswerText'
 import { BookAnalysisControls } from './BookAnalysisControls'
+import { BookOverview } from './BookOverview'
+import { BookNotesView } from './BookNotesView'
+import { readWorkspaceState, saveWorkspaceState, type WorkspacePage } from './workspace-state'
 import { KnowledgeSettings } from './KnowledgeSettings'
 import { useBookAnalysis } from './use-book-analysis'
 import { EvidenceSources } from './EvidenceSources'
@@ -229,7 +234,7 @@ function createLiveTab(book: BookRecord): ConversationTab {
     bookId: book.id,
     title: book.title,
     selection: null,
-    scope: 'selection',
+    scope: 'book',
     turns: [],
     draft: ''
   }
@@ -1145,6 +1150,28 @@ function EmptyState({ icon, title, detail, action }: { icon: ReactNode; title: s
   )
 }
 
+function AssistantContextControls({ tab, state, busy, onScope, onPrepare }: { tab?: ConversationTab; state?: BookAnalysisState; busy: boolean; onScope: (scope: 'selection' | 'book') => void; onPrepare: (bookId: string, trigger: HTMLButtonElement) => void }) {
+  if (!tab) return null
+  return <div className="assistant-context-bar">
+    <div className="analysis-scope" role="group" aria-label={copy('analysis.scopeLabel')}>
+      <button type="button" aria-pressed={tab.scope === 'selection'} disabled={busy} onClick={() => onScope('selection')}>{copy('analysis.selection')}</button>
+      <button type="button" data-testid="scope-book" aria-pressed={tab.scope === 'book'} disabled={busy} onClick={() => onScope('book')}>{copy('analysis.book')}</button>
+    </div>
+    <button type="button" className="text-button" data-testid="book-preparation-open" onClick={(event) => onPrepare(tab.bookId, event.currentTarget)}>{copy('workspace.prepare')}</button>
+    <small>{tab.scope === 'selection' ? copy(tab.selection ? 'assistant.selectionReady' : 'assistant.selectionPending') : copy(`preparation.document.${state?.document?.status ?? 'empty'}`)}</small>
+  </div>
+}
+
+function AssistantScopeControls({ tab, busy, onScope }: { tab: ConversationTab; busy: boolean; onScope: (scope: 'selection' | 'book') => void }) {
+  return <div className="composer-scope-controls">
+    <span>{copy('analysis.scopeLabel')}</span>
+    <div className="analysis-scope" role="group" aria-label={copy('analysis.scopeLabel')}>
+      <button type="button" aria-pressed={tab.scope === 'selection'} disabled={busy} onClick={() => onScope('selection')}>{copy('analysis.selection')}</button>
+      <button type="button" data-testid="scope-book" aria-pressed={tab.scope === 'book'} disabled={busy} onClick={() => onScope('book')}>{copy('analysis.book')}</button>
+    </div>
+  </div>
+}
+
 function ConversationPane({
   conversationSelection,
   turns,
@@ -1161,11 +1188,16 @@ function ConversationPane({
   onComposerKey,
   scope = 'selection',
   controls,
-  showSave = true
+  composerControls,
+  showSave = true,
+  blockedReason = '',
+  onResolve,
+  resolveLabel
 }: {
   conversationSelection: SelectionContext | null
   scope?: 'selection' | 'book'
   controls?: ReactNode
+  composerControls?: ReactNode
   turns: ConversationTurn[]
   provider: ProviderSettings
   activeRequestId: string | null
@@ -1176,6 +1208,9 @@ function ConversationPane({
   onNavigate: (anchor: string, chapterTitle?: string) => void
   onSave?: (turn: ConversationTurn) => void
   showSave?: boolean
+  blockedReason?: string
+  onResolve?: (trigger: HTMLButtonElement) => void
+  resolveLabel?: string
   onCancel: () => void
   onSubmit: (event: FormEvent) => void
   onComposerKey: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
@@ -1204,6 +1239,7 @@ function ConversationPane({
         {!conversationSelection && turns.length === 0 && scope !== 'book' && (
           <EmptyState icon={<Sparkles size={21} />} title={copy('assistant.emptyTitle')} detail={copy('assistant.emptyDetail')} />
         )}
+        {!conversationSelection && turns.length === 0 && scope === 'book' && <EmptyState icon={<BookOpen size={21} />} title={copy('assistant.bookEmptyTitle')} detail={copy('assistant.bookEmptyHint')} />}
         {conversationSelection && scope !== 'book' && (
           <div className="source-card">
             <div className="source-card-header"><span>{copy('assistant.sourceTitle')}</span><small>{copy('assistant.sourceSummary', { chapter: conversationSelection.chapterTitle || copy('common.currentChapter'), count: selectedPassageCount })}</small></div>
@@ -1220,7 +1256,8 @@ function ConversationPane({
                 <div className="question-bubble"><span>{turn.actionLabel}</span><p>{turn.question}</p></div>
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                  {turn.context && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}{turn.context.coverage.total ? ` · ${copy('analysis.coverage', turn.context.coverage)}` : ''}</summary>
+                  {turn.context && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
+                    {turn.context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', turn.context.coverage)}</p>}
                     {turn.context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(turn.context.rerank.status === 'applied' ? 'rerank.applied' : turn.context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
                     <EvidenceSources passages={turn.context.passages} onNavigate={onNavigate} /></details>}
                   {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : null}
@@ -1243,9 +1280,11 @@ function ConversationPane({
         </div>
       </div>
       <div className="assistant-composer">
+        {composerControls}
+        {blockedReason && <div className="composer-hint" role="status"><span>{blockedReason}</span>{onResolve && resolveLabel && <button type="button" className="text-button" onClick={(event) => onResolve(event.currentTarget)}>{resolveLabel}</button>}</div>}
         {activeRequestId && <button className="cancel-generation" data-testid="cancel-request" type="button" onClick={onCancel}><CircleStop size={14} />{copy('assistant.stop')}</button>}
         <form onSubmit={onSubmit}>
-          <textarea data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} disabled={!canAsk} rows={2} maxLength={2000} />
+          <textarea data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} aria-label={copy('assistant.questionAria')} rows={2} maxLength={2000} />
           <button type="submit" aria-label={copy('assistant.sendAria')} disabled={!canAsk || !draft.trim()}><Send size={16} /></button>
         </form>
       </div>
@@ -1534,6 +1573,7 @@ function AboutPanel(): ReactNode {
 function SettingsModal({
   initialOverview,
   initialSection,
+  initialService,
   themePreference,
   interfaceScale,
   readingPreferences,
@@ -1551,6 +1591,7 @@ function SettingsModal({
 }: {
   initialOverview: ProviderOverview
   initialSection: SettingsSectionId
+  initialService?: 'document' | 'embedding'
   themePreference: ThemePreference
   interfaceScale: InterfaceScale
   readingPreferences: ReadingPreferences
@@ -2031,7 +2072,7 @@ function SettingsModal({
 
             {/* 关于保持在常驻的模型区块之前，避免吃到 .settings-section 的分组上边框 */}
             {activeSection === 'about' && <AboutPanel />}
-            <KnowledgeSettings hidden={activeSection !== 'knowledge'} onDirty={setKnowledgeDirty} />
+            <KnowledgeSettings hidden={activeSection !== 'knowledge'} onDirty={setKnowledgeDirty} initialService={initialService} />
 
             <section
               className="settings-section"
@@ -2256,6 +2297,18 @@ export default function App(): ReactNode {
   const [toc, setToc] = useState<TocItem[]>([])
   const [collapsedTocItems, setCollapsedTocItems] = useState<Set<string>>(() => new Set())
   const [leftView, setLeftView] = useState<LeftView>('library')
+  const [page, setPage] = useState<WorkspacePage>('library')
+  const [leftPanelOpen, setLeftPanelOpen] = useState(false)
+  const [compactWindow, setCompactWindow] = useState(() => window.innerWidth < 1180)
+  const [assistantVisible, setAssistantVisible] = useState(() => window.innerWidth >= 1180)
+  const [libraryQuery, setLibraryQuery] = useState('')
+  const [preparationBookId, setPreparationBookId] = useState<string | null>(null)
+  const [pdfDisplayOpen, setPdfDisplayOpen] = useState(false)
+  const preparationDialogRef = useRef<HTMLElement>(null)
+  const preparationReturnRef = useRef<HTMLButtonElement>(null)
+  const initialWorkspace = useRef(readWorkspaceState())
+  const workspaceRestored = useRef(false)
+  const [workspaceReady, setWorkspaceReady] = useState(false)
   const [selection, setSelection] = useState<SelectionContext | null>(null)
   const [selectionDraft, setSelectionDraft] = useState<ReaderSelectionDraft | null>(null)
   const [conversationTabs, setConversationTabs] = useState<ConversationTab[]>([])
@@ -2270,6 +2323,7 @@ export default function App(): ReactNode {
   const [deletingBookId, setDeletingBookId] = useState<string | null>(null)
   const [currentLocator, setCurrentLocator] = useState<string | null>(null)
   const [naturalLocator, setNaturalLocator] = useState<string | null>(null)
+  const [naturalProgress, setNaturalProgress] = useState(0)
   const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
   const [currentChapterTitle, setCurrentChapterTitle] = useState('')
   const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
@@ -2279,9 +2333,12 @@ export default function App(): ReactNode {
   const [searchState, setSearchState] = useState<SearchState>('idle')
   const [searchError, setSearchError] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsInitialService, setSettingsInitialService] = useState<'document' | 'embedding'>()
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
-  const [assistantDialogOpen, setAssistantDialogOpen] = useState(false)
-  const [assistantDialogView, setAssistantDialogView] = useState<AssistantDialogView>('conversation')
+  const assistantDialogOpen = page === 'conversation' || page === 'archives'
+  const assistantDialogView: AssistantDialogView = page === 'archives' ? 'insights' : 'conversation'
+  const setAssistantDialogOpen = useCallback((open: boolean) => setPage(open ? 'conversation' : 'reading'), [])
+  const setAssistantDialogView = useCallback((view: AssistantDialogView) => setPage(view === 'insights' ? 'archives' : 'conversation'), [])
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [providerOverview, setProviderOverview] = useState<ProviderOverview>(EMPTY_PROVIDER_OVERVIEW)
@@ -2323,6 +2380,7 @@ export default function App(): ReactNode {
   )
   const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const naturalPositionRef = useRef<{ locator: string | null; progress: number }>({ locator: null, progress: 0 })
+  const naturalChapterRef = useRef<{ title: string; href: string | null; progress: number } | null>(null)
   const chapterTitleOverrideRef = useRef<string | null>(null)
   const providerRevisionRef = useRef(0)
   const providerCheckSequenceRef = useRef(0)
@@ -2338,22 +2396,43 @@ export default function App(): ReactNode {
   const selectLeftView = useCallback((view: LeftView): void => {
     leftViewRevisionRef.current += 1
     setLeftView(view)
+    if (view === 'library') setPage('library')
+    else {
+      setPage('reading'); setLeftPanelOpen(true)
+      if (window.innerWidth < 1180) setAssistantVisible(false)
+    }
   }, [])
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
-  const openSettings = useCallback((section: SettingsSectionId, trigger: HTMLButtonElement): void => {
+  const openSettings = useCallback((section: SettingsSectionId, trigger: HTMLButtonElement, service?: 'document' | 'embedding'): void => {
     settingsReturnFocusRef.current = trigger
+    setSettingsInitialService(service)
     setSettingsInitialSection(section)
     setSettingsOpen(true)
   }, [])
-  const closeAssistantDialog = useCallback(() => setAssistantDialogOpen(false), [])
+  const closeAssistantDialog = useCallback(() => setPage(activeBook ? 'reading' : 'library'), [activeBook])
+  const closePreparation = useCallback(() => setPreparationBookId(null), [])
   const closeBookDetails = useCallback(() => setDetailsBook(null), [])
   const openBookDetails = useCallback((book: BookRecord, trigger: HTMLButtonElement): void => {
     detailsReturnFocusRef.current = trigger
     setDetailsBook(book)
   }, [])
-  useDialogFocus(assistantDialogOpen, closeAssistantDialog, assistantDialogRef, assistantExpandButtonRef)
-
+  useDialogFocus(Boolean(preparationBookId) && !settingsOpen, closePreparation, preparationDialogRef, preparationReturnRef)
+  const openPreparation = useCallback((bookId: string, trigger?: HTMLButtonElement): void => {
+    preparationReturnRef.current = trigger ?? document.activeElement as HTMLButtonElement
+    setPreparationBookId(bookId)
+  }, [])
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1179px)')
+    const update = () => {
+      setCompactWindow(media.matches); setLeftPanelOpen(false); setAssistantVisible(!media.matches)
+    }
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+  useEffect(() => {
+    if (workspaceReady) saveWorkspaceState({ bookId: activeBook?.id ?? null, page })
+  }, [activeBook?.id, page, workspaceReady])
   useEffect(() => {
     activeBookRef.current = activeBook
   }, [activeBook])
@@ -2628,6 +2707,8 @@ export default function App(): ReactNode {
   }, [commitConversationTabs])
 
   const openBook = useCallback(async (book: BookRecord): Promise<void> => {
+    setPage('overview'); setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false)
+    if (activeBookRef.current?.id === book.id && adapterRef.current) return
     const sequence = ++openSequenceRef.current
     const leftViewRevision = leftViewRevisionRef.current
     const previousRequest = activeRequestRef.current
@@ -2651,6 +2732,8 @@ export default function App(): ReactNode {
     setPendingDeleteHighlightId(null)
     setCurrentLocator(book.lastLocator)
     setNaturalLocator(book.lastLocator)
+    setNaturalProgress(book.progress)
+    naturalChapterRef.current = null
     setCurrentChapterProgress(0)
     setCurrentChapterTitle('')
     setCurrentChapterHref(null)
@@ -2663,10 +2746,14 @@ export default function App(): ReactNode {
     try {
       const payload = await window.readerApi.readBook(book.id)
       if (sequence !== openSequenceRef.current || !hostRef.current) return
+      setActiveBook(payload.book)
+      activeBookRef.current = payload.book
+      setBooks((current) => current.map((item) => item.id === book.id ? payload.book : item))
       const adapter = createReaderAdapter(book.format, hostRef.current, {
         bookId: book.id,
         onRelocated: ({ locator, progress, chapterProgress, chapterTitle, chapterHref, reason }) => {
           setCurrentLocator(locator)
+          if (reason === 'natural' || (reason === 'restore' && !naturalChapterRef.current)) naturalChapterRef.current = { title: chapterTitle, href: chapterHref ?? null, progress: chapterProgress }
           setCurrentChapterProgress(chapterProgress)
           if (reason === 'natural') {
             chapterTitleOverrideRef.current = null
@@ -2679,10 +2766,12 @@ export default function App(): ReactNode {
           if (reason === 'natural') {
             naturalPositionRef.current = { locator, progress }
             setNaturalLocator(locator)
+            setNaturalProgress(progress)
             scheduleProgress(book.id, locator, progress)
           } else if (reason === 'restore' && naturalPositionRef.current.locator === null) {
             naturalPositionRef.current = { locator, progress }
             setNaturalLocator(locator)
+            setNaturalProgress(progress)
           }
         },
         onSelectionChanged: setSelection,
@@ -2690,6 +2779,8 @@ export default function App(): ReactNode {
           if (draft) dismissToast()
           setSelectionDraft(draft)
         },
+        onDisplaySettings: (trigger) => openSettings('reading', trigger),
+        onInternalNavigation: () => { chapterTitleOverrideRef.current = null },
         onNotice: ({ message, tone }) => pushToast(message, tone === 'info' ? 'neutral' : 'error')
       })
       adapterRef.current = adapter
@@ -2730,7 +2821,7 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress])
+  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress, openSettings])
 
   useEffect(() => {
     let alive = true
@@ -2761,6 +2852,15 @@ export default function App(): ReactNode {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
   }, [commitProviderSettings, destroyReader, refreshBooks, refreshInsights, runProviderCheck])
+
+  useEffect(() => {
+    if (libraryState !== 'ready' || workspaceRestored.current) return
+    workspaceRestored.current = true
+    const saved = initialWorkspace.current
+    const target = books.find((book) => book.id === saved.bookId)
+    if (target) void openBook(target).then(() => { setPage(saved.page); setWorkspaceReady(true) })
+    else { if (saved.page === 'archives') setPage('archives'); setWorkspaceReady(true) }
+  }, [books, libraryState, openBook])
 
   const persistArchiveHistory = useCallback(async (bookId: string, insightId: string, sessionTurns: ConversationTurn[]): Promise<void> => {
     const history = historyFromTurns(sessionTurns)
@@ -3022,6 +3122,15 @@ export default function App(): ReactNode {
     selectLeftView('search')
   }, [selectLeftView])
 
+  const toggleLeftPanelView = useCallback((view: Exclude<LeftView, 'library'>): void => {
+    if (leftPanelOpen && leftView === view) {
+      setLeftPanelOpen(false)
+      return
+    }
+    if (view === 'search') openSearchView()
+    else selectLeftView(view)
+  }, [leftPanelOpen, leftView, openSearchView, selectLeftView])
+
   const runSearch = useCallback(async (value: string): Promise<void> => {
     const query = value.trim()
     const queryLength = Array.from(query).length
@@ -3208,6 +3317,8 @@ export default function App(): ReactNode {
   }, [selection, bookState, interfaceScale])
 
   const handleSelectionAction = (action: LlmAction): void => {
+    setAssistantVisible(true)
+    if (compactWindow) setLeftPanelOpen(false)
     if (!selection || !activeBook) return
     const liveTabId = ensureLiveTab(activeBook)
     if (action === 'ask') {
@@ -3259,7 +3370,7 @@ export default function App(): ReactNode {
 
   const submitTabQuestion = (tabId: string): void => {
     const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
-    if (!tab || (tab.scope === 'selection' && !tab.selection) || !tab.draft.trim()) return
+    if (!tab || activeRequestRef.current || !providerIsConfigured(provider) || (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status !== 'ready' : !tab.selection) || !tab.draft.trim()) return
     void startRequest('ask', tab.draft, tabId)
   }
 
@@ -3273,18 +3384,21 @@ export default function App(): ReactNode {
   const submitSidebarQuestion = (event: FormEvent): void => {
     event.preventDefault()
     const bookId = activeBookRef.current?.id
-    const tab = bookId ? conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId) : undefined
+    const tab = bookId ? conversationTabsRef.current.find((candidate) => candidate.id === activeTabIdRef.current && candidate.bookId === bookId)
+      ?? conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId) : undefined
     if (!tab) return
     submitTabQuestion(tab.id)
   }
   const handleComposerKey = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       event.currentTarget.form?.requestSubmit()
     }
   }
 
   const navigateToAnchor = useCallback(async (anchor: string, showSelection = false, chapterTitle?: string): Promise<void> => {
+    setPage('reading')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const adapter = adapterRef.current
     if (!adapter) return
     try {
@@ -3341,8 +3455,7 @@ export default function App(): ReactNode {
     adapterRef.current?.clearSelection()
     setSelection(null)
     focusConversationTab(tabId)
-    setAssistantDialogView('conversation')
-    setAssistantDialogOpen(true)
+    setPage('conversation')
   }, [books, commitConversationTabs, focusConversationTab, openBook, pushToast])
 
   const activateSessionTab = useCallback(async (tabId: string): Promise<void> => {
@@ -3361,7 +3474,7 @@ export default function App(): ReactNode {
       }
     }
     focusConversationTab(tabId)
-    setAssistantDialogView('conversation')
+    setPage('conversation')
   }, [books, focusConversationTab, openBook, pushToast])
   const navigateToToc = useCallback(async (href: string, chapterTitle?: string): Promise<void> => {
     const adapter = adapterRef.current
@@ -3394,9 +3507,11 @@ export default function App(): ReactNode {
         highlightTimerRef.current = null
       }
       adapter.clearHighlight()
-      chapterTitleOverrideRef.current = null
+      const chapter = naturalChapterRef.current
+      chapterTitleOverrideRef.current = chapter?.title ?? null
       await adapter.goTo(target)
       setCurrentLocator(target)
+      if (chapter) { setCurrentChapterTitle(chapter.title); setCurrentChapterHref(chapter.href); setCurrentChapterProgress(chapter.progress) }
     } catch (error) {
       pushToast(readableError(error, copy('reader.navigateChapterFailed')), 'error')
     }
@@ -3439,7 +3554,8 @@ export default function App(): ReactNode {
     setBookState('idle')
     setBookError('')
     setSelection(null)
-    setAssistantDialogOpen(false)
+    setPage('library')
+    setPreparationBookId(null)
     setToc([])
     setCollapsedTocItems(new Set())
     setInsights([])
@@ -3587,7 +3703,7 @@ export default function App(): ReactNode {
 
   const activeConversationTab = conversationTabs.find((tab) => tab.id === activeTabId)
   const sidebarTab = activeBook
-    ? conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id)
+    ? activeConversationTab?.bookId === activeBook.id ? activeConversationTab : conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id)
     : undefined
   const visibleSessionTabs = useMemo(() => {
     const tabs = conversationTabs.filter((tab) => (
@@ -3607,18 +3723,41 @@ export default function App(): ReactNode {
   useEffect(() => {
     if (activeBook?.id) void refreshAnalysis(activeBook.id)
     if (activeConversationTab?.bookId && activeConversationTab.bookId !== activeBook?.id) void refreshAnalysis(activeConversationTab.bookId)
-  }, [activeBook?.id, activeConversationTab?.bookId, refreshAnalysis])
-  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && !activeRequestId && (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status === 'ready' : tab.selection))
+  }, [activeBook?.id, activeConversationTab?.bookId, refreshAnalysis, settingsOpen])
+  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && providerIsConfigured(provider) && !activeRequestId && (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status === 'ready' : tab.selection))
   const canAskSidebar = canAskTab(sidebarTab)
   const canAskWorkbench = canAskTab(activeConversationTab)
-  const analysisControls = (tab: ConversationTab | undefined): ReactNode => {
-    const book = books.find((item) => item.id === tab?.bookId)
-    if (!tab || !book) return null
-    return <BookAnalysisControls key={book.id} book={book} state={analysis.states[book.id]} error={analysis.errors[book.id]} profiles={providerOverview} scope={tab.scope}
-      disabled={Boolean(activeRequestId)} onScope={(scope) => updateConversationTab(tab.id, (current) => ({ ...current, scope }))}
-      onStart={(profileId, rebuild) => analysis.start(book.id, profileId, rebuild)} onCancel={() => void analysis.cancel(book.id)}
-      onPrepare={(rebuild) => analysis.prepare(book.id, rebuild)} onCancelPreparation={() => void analysis.cancelPreparation(book.id)} />
+  const blockedReason = (tab: ConversationTab | undefined): string => {
+    if (activeRequestId) return copy('assistant.busyHint')
+    if (!providerIsConfigured(provider)) return copy('assistant.needModel')
+    if (tab?.scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready') return copy('assistant.needDocument')
+    return ''
   }
+  const conversationStatus = (tab: ConversationTab | undefined): string => {
+    if (!tab) return ''
+    return tab.scope === 'selection'
+      ? copy(tab.selection ? 'assistant.selectionReady' : 'assistant.selectionPending')
+      : copy(`preparation.document.${analysis.states[tab.bookId]?.document?.status ?? 'empty'}`)
+  }
+  const resolveProps = (tab: ConversationTab | undefined, includeReadyStatus = false) => ({
+    blockedReason: blockedReason(tab) || (includeReadyStatus ? conversationStatus(tab) : ''),
+    ...(!activeRequestId && !providerIsConfigured(provider) ? {
+      resolveLabel: copy('preparation.configureModel')
+    } : !activeRequestId && tab?.scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready' ? {
+      resolveLabel: copy('workspace.prepare')
+    } : {})
+  })
+  const resolveBlocker = (tab: ConversationTab | undefined, trigger: HTMLButtonElement): void => {
+    if (activeRequestId) return
+    if (!providerIsConfigured(provider)) openSettings('model', trigger)
+    else if (tab?.scope === 'book') openPreparation(tab.bookId, trigger)
+  }
+  const preparationBook = books.find((book) => book.id === preparationBookId)
+  const filteredBooks = useMemo(() => {
+    const query = libraryQuery.trim().toLocaleLowerCase()
+    return books.filter((book) => !query || [book.title, book.author ?? ''].some((text) => text.toLocaleLowerCase().includes(query)))
+      .sort((a, b) => (b.lastOpenedAt ?? b.importedAt).localeCompare(a.lastOpenedAt ?? a.importedAt))
+  }, [books, libraryQuery])
   const visibleToc = useMemo(() => {
     const ancestorIds: string[] = []
     return toc.map((item, index) => {
@@ -3635,33 +3774,44 @@ export default function App(): ReactNode {
 
   return (
     <div
-      className="app-shell"
+      className="app-shell workspace-shell"
+      data-page={page}
+      data-left-open={leftPanelOpen}
+      data-assistant-visible={assistantVisible}
+      data-pdf-display={pdfDisplayOpen}
+      data-workspace-ready={workspaceReady}
       data-testid="app-shell"
       data-theme={resolvedTheme}
       data-theme-preference={themePreference}
       data-interface-scale={interfaceScale}
     >
-      <aside className="left-sidebar">
+      <header className="workspace-topbar">
+        <strong className="workspace-brand">{copy('app.name')}</strong>
+        <nav aria-label={copy('workspace.navigation')}>
+          <button type="button" data-testid="nav-library" aria-current={page === 'library' ? 'page' : undefined} onClick={() => setPage('library')}><Library size={17} />{copy('workspace.library')}</button>
+          <button type="button" data-testid="nav-archives" aria-current={page === 'archives' ? 'page' : undefined} onClick={() => setPage('archives')}><Bookmark size={17} />{copy('workspace.archives')}</button>
+          {activeBook && page === 'library' && <button type="button" onClick={() => setPage('overview')}><BookOpen size={17} />{copy('workspace.currentBook')}</button>}
+        </nav>
+        <button ref={settingsButtonRef} className="workspace-settings" data-testid="settings-button" type="button" onClick={(event) => openSettings('appearance', event.currentTarget)}><Settings size={17} />{copy('settings.title')}
+          <i className={'connection-status-dot is-' + providerConnection.status} data-testid="provider-connection-status" role="status" aria-label={providerStatusLabel(providerConnection.status)} title={providerConnection.message || providerStatusLabel(providerConnection.status)} />
+        </button><WindowControls />
+      </header>
+      {activeBook && !['library', 'archives'].includes(page) && <header className="workspace-bookbar">
+        <div className="workspace-book-title"><button className="icon-button" type="button" aria-label={copy('workspace.backLibrary')} title={copy('workspace.backLibrary')} onClick={() => setPage('library')}><ArrowLeft size={17} /></button><span className="format-chip">{activeBook.sourceFormat.toUpperCase()}</span><div className="workspace-book-identity"><h1 title={activeBook.title}>{activeBook.title}</h1>{page === 'reading' && <div className="workspace-reading-position reader-heading" data-testid="workspace-reading-position" aria-label={copy('reader.progressAria', { percent: Math.round(currentChapterProgress * 100) })}><span title={currentChapterTitle}>{currentChapterTitle || copy('common.currentChapter')}</span><strong>{Math.round(currentChapterProgress * 100)}%</strong><div className="workspace-reading-progress" data-testid="workspace-reading-progress" aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, currentChapterProgress * 100))}%` }} /></div></div>}</div></div>
+        <nav aria-label={copy('workspace.tabs')}>{(['overview', 'reading', 'notes', 'conversation'] as const).map((item) => <button type="button" key={item} data-testid={'workspace-tab-' + item} aria-current={page === item ? 'page' : undefined} onClick={() => setPage(item)}>{copy(('workspace.' + item) as 'workspace.overview' | 'workspace.reading' | 'workspace.notes' | 'workspace.conversation')}</button>)}</nav>
+        <div className="workspace-book-actions"><button className="secondary-button" type="button" data-testid="workspace-prepare" onClick={(event) => openPreparation(activeBook.id, event.currentTarget)}>{copy('workspace.prepare')}</button></div>
+      </header>}
+      <aside className="left-sidebar" inert={page !== 'library' && (page !== 'reading' || !leftPanelOpen)}>
         <header className="brand-row">
           <div className="brand-copy">
             <strong>{copy('app.name')}</strong>
           </div>
         </header>
 
-        <nav className="sidebar-tabs" aria-label={copy('library.navAria')}>
-          <button className={leftView === 'library' ? 'is-active' : ''} data-testid="library-tab" type="button" onClick={() => selectLeftView('library')}>
-            <Library size={15} />{copy('library.tabLibrary')}<span>{books.length}</span>
-          </button>
-          <button className={leftView === 'toc' ? 'is-active' : ''} type="button" onClick={() => selectLeftView('toc')} disabled={!activeBook}>
-            <PanelLeftClose size={15} />{copy('library.tabToc')}
-          </button>
-          <button className={leftView === 'highlights' ? 'is-active' : ''} data-testid="highlights-tab" type="button" onClick={() => selectLeftView('highlights')} disabled={!activeBook}>
-            <Bookmark size={15} />{copy('library.tabHighlights')}
-          </button>
-        </nav>
-
+        {page === 'library' && <header className="library-page-toolbar"><div><h1>{copy('workspace.library')}</h1><p>{copy('workspace.libraryCount', { count: books.length })}</p></div><label className="library-page-search"><Search size={17} /><input data-testid="library-search" type="search" aria-label={copy('workspace.librarySearch')} placeholder={copy('workspace.librarySearch')} value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} /></label>
+          <button className="primary-button" data-testid="import-book" type="button" disabled={importing} onClick={(event) => void importBooks(event.currentTarget)}><Import size={17} />{copy(importing ? 'library.importing' : 'library.import')}</button></header>}
         <div className="sidebar-content">
-          {leftView === 'library' && (
+          {page === 'library' && (
             <div className="library-list" data-testid="library-list">
               {libraryState === 'loading' && (
                 <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('library.loading')}</div>
@@ -3677,7 +3827,8 @@ export default function App(): ReactNode {
               {libraryState === 'ready' && books.length === 0 && (
                 <EmptyState icon={<BookOpen size={20} />} title={copy('library.emptyTitle')} detail={copy('library.emptyDetail')} />
               )}
-              {books.map((book) => (
+              {books.length > 0 && !filteredBooks.length && <EmptyState icon={<SearchX size={20} />} title={copy('workspace.libraryNoResults')} detail={copy('workspace.libraryNoResultsHint')} />}
+              {filteredBooks.map((book) => (
                 <div className={'book-item ' + (activeBook?.id === book.id ? 'is-active' : '')} key={book.id}>
                   <button
                     className="book-item-open"
@@ -3690,7 +3841,8 @@ export default function App(): ReactNode {
                     <BookCover book={book} cache={coverCache} />
                     <span className="book-meta">
                       <strong title={book.title}>{book.title}</strong>
-                      <small>{book.author || bookFallbackDescription(book)}</small>
+                      <small title={book.author || bookFallbackDescription(book)}>{book.author || bookFallbackDescription(book)}</small>
+                      <span className="book-progress-text">{copy('workspace.readingProgress', { percent: Math.round(book.progress * 100) })}</span>
                     </span>
                   </button>
                   <button
@@ -3709,7 +3861,7 @@ export default function App(): ReactNode {
             </div>
           )}
 
-          {leftView === 'toc' && (
+          {page === 'reading' && leftView === 'toc' && (
             <div className="toc-list" aria-label={copy('library.tocAria')}>
               {bookState === 'loading' && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('library.tocLoading')}</div>}
               {bookState === 'ready' && toc.length === 0 && (
@@ -3742,7 +3894,7 @@ export default function App(): ReactNode {
             </div>
           )}
 
-          {leftView === 'highlights' && (
+          {page === 'reading' && leftView === 'highlights' && (
             <div className="highlight-list" data-testid="highlight-list" aria-label={copy('library.highlightsAria')}>
               <div className="highlight-list-heading">
                 <h2>{copy('highlights.title')}</h2>
@@ -3774,21 +3926,9 @@ export default function App(): ReactNode {
             </div>
           )}
 
-          {leftView === 'search' && (
+          {page === 'reading' && leftView === 'search' && (
             <div className="reader-search" data-testid="reader-search" aria-label={copy('reader.searchTitle')}>
-              <div className="reader-search-heading">
-                <h2>{copy('reader.searchTitle')}</h2>
-                <button
-                  className="icon-button"
-                  data-testid="reader-search-close"
-                  type="button"
-                  aria-label={copy('reader.searchClose')}
-                  title={copy('reader.searchClose')}
-                  onClick={() => selectLeftView('toc')}
-                >
-                  <X size={15} />
-                </button>
-              </div>
+              <div className="reader-search-heading"><h2>{copy('reader.searchTitle')}</h2></div>
               <form className="reader-search-form" onSubmit={submitSearch}>
                 <input
                   ref={searchInputRef}
@@ -3855,58 +3995,21 @@ export default function App(): ReactNode {
           )}
         </div>
 
-        <footer className="sidebar-footer">
-          {leftView === 'library' && (
-            <button className="import-button" data-testid="import-book" type="button" onClick={(event) => void importBooks(event.currentTarget)} disabled={importing}>
-              {importing ? <LoaderCircle className="spin" size={17} /> : <Import size={17} />}
-              <span>{importing ? copy('library.importing') : copy('library.import')}</span>
-            </button>
-          )}
-          <button ref={settingsButtonRef} className="settings-entry" data-testid="settings-button" type="button" onClick={(event) => openSettings('appearance', event.currentTarget)}>
-            <Settings size={16} />
-            <span>{copy('settings.title')}</span>
-            <i
-              className={`connection-status-dot is-${providerConnection.status}`}
-              data-testid="provider-connection-status"
-              role="status"
-              aria-label={providerStatusLabel(providerConnection.status)}
-              title={providerConnection.message || providerStatusLabel(providerConnection.status)}
-            />
-          </button>
-        </footer>
+
       </aside>
 
-      <main className="reader-column" data-current-chapter-title={currentChapterTitle}>
-        <header className="reader-header">
-          {activeBook ? (
-            <>
-              <div className="reader-heading">
-                <span className="format-chip">{activeBook.sourceFormat.toUpperCase()}</span>
-                <div>
-                  <h1>{activeBook.title}</h1>
-                  <p>{activeBook.author || copy('common.unknownAuthor')}</p>
-                </div>
-              </div>
-              <div className="reader-header-actions">
-                <button className="icon-button" data-testid="reader-search-button" type="button" aria-label={copy('reader.searchOpen')} title={copy('reader.searchOpen')} onClick={openSearchView}><Search size={17} /></button>
-                <button className="icon-button" data-testid="book-details-button" type="button" aria-label={copy('bookDetails.openAria', { title: activeBook.title })} title={copy('bookDetails.openAria', { title: activeBook.title })} onClick={(event) => openBookDetails(activeBook, event.currentTarget)}><Info size={17} /></button>
-                <button className="icon-button reader-settings-button" data-testid="reader-return-button" type="button" aria-label={copy('reader.returnToReading')} title={copy('reader.returnToReading')} disabled={bookState !== 'ready' || !naturalLocator || currentLocator === naturalLocator} onClick={() => void returnToReading()}><ArrowLeft size={17} /></button>
-                <button className="icon-button reader-settings-button" data-testid="reader-settings-button" type="button" aria-label={copy('reader.readingSettings')} title={copy('reader.readingSettings')} onClick={(event) => openSettings('reading', event.currentTarget)}><SlidersHorizontal size={17} /></button>
-                <div className="reading-progress">
-                  <span
-                    aria-label={currentChapterTitle || copy('common.currentChapter')}
-                    title={currentChapterTitle || copy('common.currentChapter')}
-                  >{currentChapterTitle || copy('common.currentChapter')}</span>
-                  <strong>{Math.round(currentChapterProgress * 100)}%</strong>
-                  <div><i style={{ width: `${Math.max(0, Math.min(100, currentChapterProgress * 100))}%` }} /></div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="reader-heading is-empty"><span className="visually-hidden">{copy('reader.areaAria')}</span></div>
-          )}
-        </header>
+      {activeBook && page === 'reading' && <nav className="reader-rail" aria-label={copy('reader.toolsAria')}>
+        <div className="reader-rail-tools">
+          <button className="reader-rail-button" type="button" data-testid="reader-contents-button" aria-label={copy('reader.contentsButton')} title={copy('reader.contentsButton')} aria-pressed={leftPanelOpen && leftView === 'toc'} onClick={() => toggleLeftPanelView('toc')}><PanelLeftClose size={19} /></button>
+          <button className="reader-rail-button" data-testid="highlights-tab" type="button" aria-label={copy('library.tabHighlights')} title={copy('library.tabHighlights')} aria-pressed={leftPanelOpen && leftView === 'highlights'} onClick={() => toggleLeftPanelView('highlights')}><Bookmark size={19} /></button>
+          <button className="reader-rail-button" data-testid="reader-search-button" type="button" aria-label={copy('reader.searchOpen')} title={copy('reader.searchOpen')} aria-pressed={leftPanelOpen && leftView === 'search'} onClick={() => toggleLeftPanelView('search')}><Search size={19} /></button>
+          <button className="reader-rail-button" data-testid="reader-settings-button" type="button" aria-label={copy(activeBook.format === 'pdf' ? 'reader.displayButton' : 'reader.layoutButton')} title={copy(activeBook.format === 'pdf' ? 'reader.displayButton' : 'reader.layoutButton')} aria-expanded={activeBook.format === 'pdf' ? pdfDisplayOpen : undefined} onClick={(event) => { if (activeBook.format === 'pdf') setPdfDisplayOpen((open) => !open); else openSettings('reading', event.currentTarget) }}><SlidersHorizontal size={19} /></button>
+          <button className="reader-rail-button" data-testid="book-details-button" type="button" aria-label={copy('bookDetails.openAria', { title: activeBook.title })} title={copy('bookDetails.openAria', { title: activeBook.title })} onClick={(event) => openBookDetails(activeBook, event.currentTarget)}><Info size={19} /></button>
+        </div>
+        <button className="reader-rail-button reader-return" data-testid="reader-return-button" type="button" aria-label={copy('reader.returnToReading')} title={copy('reader.returnToReading')} hidden={bookState !== 'ready' || !naturalLocator || currentLocator === naturalLocator} onClick={() => void returnToReading()}><Undo2 size={19} /></button>
+      </nav>}
 
+      <main className="reader-column" inert={page !== 'reading'} data-current-chapter-title={currentChapterTitle}>
         <section ref={readerSurfaceRef} className={`reader-surface is-${bookState}`} data-paper-theme={effectivePaperTheme}>
           <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label={copy('reader.areaAria')} />
 
@@ -3969,29 +4072,31 @@ export default function App(): ReactNode {
         </section>
       </main>
 
-      <aside className="right-sidebar" data-testid="ai-panel">
+      <aside className="right-sidebar" data-testid="ai-panel" inert={page !== 'reading' || !assistantVisible}>
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
           <div className="assistant-header-actions">
             <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => {
-              if (activeBook) focusConversationTab(ensureLiveTab(activeBook))
+              if (sidebarTab) focusConversationTab(sidebarTab.id)
+              else if (activeBook) focusConversationTab(ensureLiveTab(activeBook))
               setAssistantDialogView('conversation')
               setAssistantDialogOpen(true)
             }}><Maximize2 size={17} /></button>
-            <WindowControls />
           </div>
         </header>
 
         {!assistantDialogOpen && (
           <ConversationPane
             scope={sidebarTab?.scope}
-            controls={analysisControls(sidebarTab)}
+            controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(activeRequestId)} onScope={(scope) => { if (sidebarTab) updateConversationTab(sidebarTab.id, (current) => ({ ...current, scope })) }} onPrepare={openPreparation} />}
             conversationSelection={sidebarTab?.selection ?? null}
             turns={sidebarTab?.turns ?? []}
             provider={provider}
             activeRequestId={activeRequestId}
             draft={sidebarTab?.draft ?? ''}
             canAsk={canAskSidebar}
+            {...resolveProps(sidebarTab)}
+            onResolve={(trigger) => resolveBlocker(sidebarTab, trigger)}
             followupRef={followupRef}
             onDraftChange={(value) => {
               if (sidebarTab) updateConversationTab(sidebarTab.id, (tab) => ({ ...tab, draft: value }))
@@ -4000,6 +4105,7 @@ export default function App(): ReactNode {
             onSave={(turn) => {
               if (sidebarTab) void saveTurn(sidebarTab.id, turn)
             }}
+            showSave={sidebarTab?.kind === 'live'}
             onCancel={() => void cancelRequest()}
             onSubmit={submitSidebarQuestion}
             onComposerKey={handleComposerKey}
@@ -4007,14 +4113,26 @@ export default function App(): ReactNode {
         )}
       </aside>
 
+      {activeBook && page === 'overview' && <BookOverview key={activeBook.id} book={{ ...activeBook, progress: naturalProgress }} state={analysis.states[activeBook.id]} insights={insights}
+        onRead={() => setPage('reading')} onAsk={() => { if (sidebarTab) focusConversationTab(sidebarTab.id); setPage('conversation') }}
+        onPrepare={() => openPreparation(activeBook.id)} onNotes={() => setPage('notes')} onInsight={(insight) => void openInsight(insight)} onArchives={() => setPage('archives')} />}
+      {activeBook && page === 'notes' && <BookNotesView key={activeBook.id} book={activeBook} state={analysis.states[activeBook.id]} onNavigate={(anchor, title) => void navigateToAnchor(anchor, false, title)} onPrepare={() => openPreparation(activeBook.id)} />}
+      {preparationBook && <div className="modal-backdrop preparation-backdrop" hidden={settingsOpen} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreparation() }}>
+        <section ref={preparationDialogRef} className="preparation-dialog" data-testid="book-preparation-dialog" role="dialog" aria-modal="true" aria-labelledby="preparation-title">
+          <header className="modal-header"><div><h2 id="preparation-title">{copy('preparation.title')}</h2><p title={preparationBook.title}>{preparationBook.title}</p></div><button className="icon-button" type="button" data-testid="preparation-close" aria-label={copy('preparation.close')} onClick={closePreparation}><X size={18} /></button></header>
+          <BookAnalysisControls key={preparationBook.id} book={preparationBook} state={analysis.states[preparationBook.id]} error={analysis.errors[preparationBook.id]} profiles={providerOverview}
+            onStart={(profileId, rebuild) => analysis.start(preparationBook.id, profileId, rebuild)} onCancel={() => void analysis.cancel(preparationBook.id)}
+            onPrepare={(rebuild) => analysis.prepare(preparationBook.id, rebuild)} onCancelPreparation={() => void analysis.cancelPreparation(preparationBook.id)} onConfigure={openSettings} />
+        </section>
+      </div>}
       {selectionDraft && <PdfSelectionReviewDialog draft={selectionDraft} />}
 
       {assistantDialogOpen && (
         <div className="modal-backdrop assistant-dialog-backdrop" role="presentation">
-          <section ref={assistantDialogRef} className="assistant-dialog" data-testid="assistant-dialog" role="dialog" aria-modal="true" aria-labelledby="assistant-dialog-title">
+          <section ref={assistantDialogRef} className="assistant-dialog" data-testid="assistant-dialog" role="region" aria-labelledby="assistant-dialog-title">
             <header className="modal-header">
-              <div><h2 id="assistant-dialog-title">{copy('assistant.dialogTitle')}</h2></div>
-              <button className="icon-button" data-testid="assistant-dialog-close" type="button" onClick={closeAssistantDialog} aria-label={copy('assistant.closeDialog')}><X size={18} /></button>
+              <div><h2 id="assistant-dialog-title">{copy(page === 'archives' ? 'workspace.archives' : 'workspace.conversation')}</h2></div>
+              <button className="icon-button" data-testid="assistant-dialog-close" type="button" onClick={closeAssistantDialog} aria-label={copy(activeBook ? 'assistant.closeDialog' : 'workspace.backLibrary')}><X size={18} /></button>
             </header>
             <nav className="assistant-workspace-nav" aria-label={copy('assistant.viewsAria')}>
               <div className="assistant-session-tabs" role="tablist" aria-label={copy('assistant.viewsAria')}>
@@ -4080,13 +4198,15 @@ export default function App(): ReactNode {
               ) : activeConversationTab ? (
                 <ConversationPane
                   scope={activeConversationTab.scope}
-                  controls={analysisControls(activeConversationTab)}
+                  composerControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(activeRequestId)} onScope={(scope) => updateConversationTab(activeConversationTab.id, (current) => ({ ...current, scope }))} />}
                   conversationSelection={activeConversationTab.selection}
                   turns={activeConversationTab.turns}
                   provider={provider}
                   activeRequestId={activeRequestId}
                   draft={activeConversationTab.draft}
                   canAsk={canAskWorkbench}
+                  {...resolveProps(activeConversationTab, true)}
+                  onResolve={(trigger) => resolveBlocker(activeConversationTab, trigger)}
                   followupRef={followupRef}
                   onDraftChange={(value) => updateConversationTab(activeConversationTab.id, (tab) => ({ ...tab, draft: value }))}
                   onNavigate={(anchor, chapterTitle) => void navigateToAnchor(anchor, false, chapterTitle)}
@@ -4110,6 +4230,7 @@ export default function App(): ReactNode {
         <SettingsModal
           initialOverview={providerOverview}
           initialSection={settingsInitialSection}
+          initialService={settingsInitialService}
           themePreference={themePreference}
           interfaceScale={interfaceScale}
           readingPreferences={readingPreferences}

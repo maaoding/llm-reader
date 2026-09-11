@@ -67,7 +67,7 @@ describe('insight markdown export', () => {
   })
   it('groups records by book and preserves answers, questions and follow-ups', () => {
     const markdown = buildInsightExportMarkdown(records)
-    expect(markdown).toContain('# LLM Reader 归档')
+    expect(markdown).toContain('# LLM Reader 回答归档')
     expect(markdown).toContain('## 复杂系统')
     expect(markdown).toContain('## 设计模式')
     expect(markdown).toContain('复杂系统如何理解？')

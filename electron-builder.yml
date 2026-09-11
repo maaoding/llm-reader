@@ -11,6 +11,8 @@ files:
   - out/**
   - package.json
 extraResources:
+  - from: resources/icon.ico
+    to: icon.ico
   - from: LICENSE
     to: LICENSE
   - from: THIRD_PARTY_NOTICES.md

@@ -1,3 +1,5 @@
+import { showPreparation, hidePreparation, showAssistant } from './support/workspace'
+import { showLibrary, enterReading, togglePreparation } from './support/workspace'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import { writeFile } from 'node:fs/promises'
@@ -95,6 +97,7 @@ async function prepareQa(page: Page): Promise<string> {
   }, endpoint)
 }
 async function ask(page: Page, question = '随大流是什么？'): Promise<void> {
+  await hidePreparation(page); await showAssistant(page)
   await page.getByTestId('scope-book').click()
   await page.getByTestId('followup-input').fill(question)
   await page.getByTestId('followup-input').press('Enter')
@@ -109,6 +112,7 @@ test('settings use unsaved form values, retain independent keys, and fit both th
   try {
     const launched = await launchReader({ userData: workspace.userData }); application = launched.application
     const page = launched.page
+    await hidePreparation(page)
     await page.getByTestId('settings-button').click()
     await page.getByTestId('settings-nav-knowledge').click()
     await page.getByTestId('embedding-enabled').check()
@@ -199,25 +203,25 @@ test('TXT indexes completed batches, pauses across restart and retrieves synonym
   try {
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture }); application = launched.application
     let page = launched.page
-    await expect(page.getByTestId('book-item')).toBeVisible()
+    await showLibrary(page); await expect(page.getByTestId('book-item')).toBeVisible()
     await prepareQa(page)
     await page.evaluate(async (url) => window.readerApi.saveKnowledgeSettings({ embedding: { enabled: true, baseUrl: `${url}/v1`, model: 'embedding-test' }, document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch' } }), endpoint)
     const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
-    await page.reload(); await page.getByTestId('book-item').click()
+    await page.reload(); await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
     await page.evaluate((bookId) => window.readerApi.prepareBookDocument({ bookId }), bookId)
     await expect.poll(() => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.document?.status), bookId)).toBe('ready')
-    await page.getByTestId('semantic-details').locator('summary').click()
+    await showPreparation(page)
     holdEmbeddings = true
     await page.getByTestId('semantic-start').click()
     await expect.poll(() => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.semantic?.completed), bookId)).toBe(16)
     await page.getByTestId('semantic-cancel').click()
     const calls = embeddingCalls
     const restarted = await restartReader(application, { userData: workspace.userData }); application = restarted.application; page = restarted.page
-    await expect(page.getByTestId('book-item')).toBeVisible()
+    await showLibrary(page); await expect(page.getByTestId('book-item')).toBeVisible()
     expect(embeddingCalls).toBe(calls)
     holdEmbeddings = false
-    await page.getByTestId('book-item').click()
-    await page.getByTestId('semantic-details').locator('summary').click()
+    await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
+    await showPreparation(page)
     await page.getByTestId('semantic-start').click()
     await expect.poll(() => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.semantic?.status), bookId)).toBe('ready')
     await ask(page)
@@ -237,16 +241,16 @@ for (const processor of ['docling', 'mineru-local', 'mineru-cloud'] as const) {
     try {
       const launched = await launchReader({ userData: workspace.userData, importPath: fixture }); application = launched.application
       let page = launched.page
-      await expect(page.getByTestId('book-item')).toBeVisible()
+      await showLibrary(page); await expect(page.getByTestId('book-item')).toBeVisible()
       const profileId = await prepareQa(page)
       await page.evaluate(({ url, processor }) => window.readerApi.saveKnowledgeSettings({ embedding: { enabled: false, baseUrl: '', model: '' },
         rerank: { enabled: true, baseUrl: `${url}/v1`, model: 'reranker-test', apiKey: 'rerank-only' },
         document: { processor, baseUrl: url, ocr: true, language: 'ch', apiKey: 'document-only' } }), { url: endpoint, processor })
-      await page.reload(); await page.getByTestId('book-item').click()
+      await page.reload(); await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
       await expect(page.locator('.pdf-page').first()).toBeVisible()
       pageCount = await page.locator('.pdf-page').count()
       const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
-      await page.getByTestId('analysis-details').locator('summary').first().click()
+      await togglePreparation(page)
       await expect(page.getByTestId('analysis-details')).toContainText('整份文件')
       documentPending = true
       await page.getByTestId('document-prepare').click()
@@ -259,10 +263,10 @@ for (const processor of ['docling', 'mineru-local', 'mineru-cloud'] as const) {
       await expect(page.getByTestId('document-cancel')).toBeEnabled()
       await page.getByTestId('document-cancel').click()
       const restarted = await restartReader(application, { userData: workspace.userData }); application = restarted.application; page = restarted.page
-      await expect(page.getByTestId('book-item')).toBeVisible()
+      await showLibrary(page); await expect(page.getByTestId('book-item')).toBeVisible()
       documentPending = false
-      await page.getByTestId('book-item').click()
-      await page.getByTestId('analysis-details').locator('summary').first().click()
+      await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
+      await togglePreparation(page)
       await page.getByTestId('document-prepare').click()
       await expect.poll(() => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.document?.status), bookId), { timeout: 20_000 }).toBe('ready')
       expect(uploads).toBe(1)

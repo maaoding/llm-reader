@@ -23,6 +23,7 @@ import {
   testKnowledgeSettingsSchema,
   startSemanticIndexSchema,
   bookIdSchema,
+  bookChapterNotesSchema,
   bookImportPathsSchema,
   createProviderProfileSchema,
   highlightIdSchema,
@@ -261,6 +262,8 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   if (dependencies.analysis) {
     const analysis = dependencies.analysis
     handle(IPC_CHANNELS.analysisGet, dependencies, (_event, value) => analysis.state(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.notesIndex, dependencies, (_event, value) => analysis.store.notesIndex(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.notesChapter, dependencies, (_event, value) => analysis.store.chapterNotes(parse(bookChapterNotesSchema, value)))
     handle(IPC_CHANNELS.documentPrepare, dependencies, (_event, value) => {
       const state = analysis.prepare(parse(prepareBookDocumentSchema, value))
       dependencies.extractor?.start(state)

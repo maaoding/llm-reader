@@ -47,6 +47,8 @@ export const IPC_CHANNELS = {
   semanticStart: 'semantic:start',
   semanticCancel: 'semantic:cancel',
   analysisGet: 'analysis:get',
+  notesIndex: 'notes:index',
+  notesChapter: 'notes:chapter',
   documentPrepare: 'document:prepare',
   documentCancel: 'document:cancel',
   analysisRead: 'analysis:read',
@@ -258,6 +260,29 @@ export interface BookDocumentState {
   diagnostics: DocumentDiagnostic[]
 }
 export interface PrepareBookDocumentInput { bookId: string; rebuild?: boolean }
+
+export interface BookNotesIndex {
+  bookId: string
+  revision: string
+  overview: string | null
+  chapters: { id: string; title: string; headingPath: string[]; completed: number; total: number }[]
+}
+export interface BookChapterNotesInput { bookId: string; chapterId: string; cursor?: string }
+export interface BookNotePoint {
+  text: string
+  sources: Passage[]
+  missingSources: boolean
+  term?: string
+  aliases?: string[]
+}
+export interface BookChapterNotesPage {
+  bookId: string
+  chapterId: string
+  revision: string
+  summary: string | null
+  notes: { id: string; summary: string; claims: BookNotePoint[]; conditions: BookNotePoint[]; exceptions: BookNotePoint[]; concepts: BookNotePoint[] }[]
+  nextCursor?: string
+}
 
 export interface DocumentBlock extends Passage {
   kind: DocumentUnitKind
@@ -592,6 +617,8 @@ export interface ReaderApi {
   startSemanticIndex(input: StartSemanticIndexInput): Promise<BookAnalysisState>
   cancelSemanticIndex(bookId: string): Promise<void>
   getBookAnalysis(bookId: string): Promise<BookAnalysisState>
+  getBookNotesIndex(bookId: string): Promise<BookNotesIndex>
+  getBookChapterNotes(input: BookChapterNotesInput): Promise<BookChapterNotesPage>
   prepareBookDocument(input: PrepareBookDocumentInput): Promise<BookAnalysisState>
   cancelBookDocument(bookId: string): Promise<void>
   startBookAnalysis(input: StartBookAnalysisInput): Promise<BookAnalysisState>

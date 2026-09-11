@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -43,22 +44,23 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('理解一个复杂概念')
 
     const firstParagraph = page.getByTestId('reader-host').locator('p').first()
     await selectNodeContents(firstParagraph)
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
     await page.getByTestId('action-save-highlight').click()
-    await expect(page.getByRole('status').last()).toContainText('已收藏句段')
+    await expect(page.getByRole('status').last()).toContainText('已摘录')
     await expect.poll(() => hasPersistentTxtHighlight(page)).toBe(true)
 
+    await page.getByTestId('reader-contents-button').click()
     const highlightsTab = page.getByTestId('highlights-tab')
     await highlightsTab.click()
     await expect(highlightsTab.locator('span')).toHaveCount(0)
     const tabFits = await highlightsTab.evaluate((element) => element.scrollWidth <= element.clientWidth)
     expect(tabFits).toBe(true)
-    await expect(page.getByTestId('highlight-list')).toContainText('收藏 · 1')
+    await expect(page.getByTestId('highlight-list')).toContainText('摘录 · 1')
     await expect(page.getByTestId('highlight-item')).toHaveCount(1)
     await page.locator('.highlight-jump').click()
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
@@ -75,13 +77,14 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
     const naturalScrollTop = await host.evaluate((element) => element.scrollTop)
     expect(naturalScrollTop).toBeGreaterThan(0)
     await expect
-      .poll(async () => Number.parseInt((await page.locator('.reading-progress').locator('strong').textContent()) ?? '0', 10))
+      .poll(async () => Number.parseInt((await page.locator('.reader-heading').locator('strong').textContent()) ?? '0', 10))
       .toBeGreaterThan(0)
     await expect
-      .poll(async () => Number.parseInt((await page.locator('.reading-progress').locator('strong').textContent()) ?? '0', 10))
+      .poll(async () => Number.parseInt((await page.locator('.reader-heading').locator('strong').textContent()) ?? '0', 10))
       .toBeLessThan(100)
+    expect(await page.getByTestId('workspace-reading-progress').locator('i').evaluate((element) => Number.parseFloat((element as HTMLElement).style.width))).toBeGreaterThan(0)
 
-    await page.getByRole('button', { name: '目录', exact: true }).click()
+    await page.getByTestId('reader-contents-button').click()
     await page.locator('[data-testid="toc-item"][data-current="true"]').click()
     const returnButton = page.getByTestId('reader-return-button')
     await expect(returnButton).toBeEnabled()
@@ -93,8 +96,8 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
       .toBeGreaterThan(naturalScrollTop - 96)
 
     // The header shows the current chapter name with a live chapter progress value.
-    await expect(page.locator('.reading-progress').locator('span')).toHaveText('全文')
-    await expect(page.locator('.reading-progress').locator('strong')).toContainText(/%$/)
+    await expect(page.locator('.reader-heading').locator('span')).toHaveText('全文')
+    await expect(page.locator('.reader-heading').locator('strong')).toContainText(/%$/)
     await expect(page.locator('[data-testid="toc-item"][data-current="true"]')).toHaveCount(1)
     await expect(page.locator('[data-testid="toc-item"][data-current="true"]')).toContainText('全文')
 
@@ -113,13 +116,14 @@ test('saves TXT sentence highlights, keeps the tab on one line, restores the nat
     const restarted = await restartReader(application, { userData: workspace.userData })
     application = restarted.application
     const restored = restarted.page
-    await restored.getByTestId('book-item').first().click()
+    await showLibrary(restored); await restored.getByTestId('book-item').first().click(); await enterReading(restored)
     await expect(restored.getByTestId('reader-host')).toContainText('理解一个复杂概念')
     await expect
       .poll(() =>
         restored.locator('.reader-document--txt').evaluate((element) => getComputedStyle(element).backgroundColor)
       )
       .toBe('rgb(246, 236, 216)')
+    await restored.getByTestId('reader-contents-button').click()
     await restored.getByTestId('highlights-tab').click()
     await expect(restored.getByTestId('highlight-item')).toHaveCount(1)
     await expect.poll(() => hasPersistentTxtHighlight(restored)).toBe(true)
@@ -144,7 +148,7 @@ test('saves EPUB sentence highlights, reapplies them after chapter reload and re
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.locator('[data-testid="toc-item"][data-current="true"]')).toHaveCount(1)
     await expect(page.locator('[data-testid="toc-item"][data-current="true"]')).toContainText('第一部')
     const iframe = page.getByTestId('reader-host').locator('iframe').first()
@@ -156,8 +160,9 @@ test('saves EPUB sentence highlights, reapplies them after chapter reload and re
     await selectNodeContents(chapterOneParagraph)
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
     await page.getByTestId('action-save-highlight').click()
-    await expect(page.getByRole('status').last()).toContainText('已收藏句段')
+    await expect(page.getByRole('status').last()).toContainText('已摘录')
 
+    if (!await page.getByTestId('highlights-tab').isVisible()) await page.getByTestId('reader-contents-button').click()
     await page.getByTestId('highlights-tab').click()
     await expect(page.getByTestId('highlight-item')).toHaveCount(1)
     await expect(page.getByTestId('reader-host').locator('.llm-reader-persistent-highlight')).not.toHaveCount(0)
@@ -167,7 +172,7 @@ test('saves EPUB sentence highlights, reapplies them after chapter reload and re
     await expect(page.getByTestId('selection-toolbar')).toHaveCount(0)
 
     // Jump to chapter 2 and back so chapter 1 is loaded again.
-    await page.getByRole('button', { name: '目录', exact: true }).click()
+    await page.getByTestId('reader-contents-button').click()
     await page.getByTestId('toc-item').filter({ hasText: '第二章' }).click()
     await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
     await expect(page.locator('[data-testid="toc-item"][data-current="true"]')).toContainText('第二章')

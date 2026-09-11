@@ -1,3 +1,4 @@
+import { showLibrary, enterReading, togglePreparation, showPreparation, hidePreparation, showAssistant, showReferences, resizeWorkspace } from './support/workspace'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { createServer } from 'node:http'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -7,6 +8,7 @@ import { structureDoclingFixture } from '../../scripts/document-structure-fixtur
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
 
 async function theme(page: Page, value: string): Promise<void> {
+  await hidePreparation(page)
   await page.getByTestId('settings-button').click()
   await page.getByTestId('settings-nav-appearance').click()
   await page.getByTestId(`theme-${value}`).click()
@@ -14,12 +16,6 @@ async function theme(page: Page, value: string): Promise<void> {
   if (await page.locator('.reader-document--txt').count()) await expect.poll(() =>
     page.locator('.reader-document--txt').evaluate((element) => getComputedStyle(element).backgroundColor))
     .toBe(value === 'dark' ? 'rgb(34, 41, 45)' : 'rgb(253, 252, 249)')
-}
-async function resize(application: ElectronApplication, width: number, height: number): Promise<void> {
-  await application.evaluate(({ BrowserWindow }, size) => {
-    const window = BrowserWindow.getAllWindows()[0]
-    window.unmaximize(); window.setSize(size[0], size[1])
-  }, [width, height])
 }
 
 test('TXT prepares locally without any model and retains readiness across restart', async () => {
@@ -32,18 +28,20 @@ test('TXT prepares locally without any model and retains readiness across restar
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     let page = launched.page
-    await page.getByTestId('book-item').click()
-    await page.getByTestId('analysis-details').locator('summary').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
+    await togglePreparation(page)
     expect((await page.evaluate(() => window.readerApi.getProviderOverview())).profiles).toHaveLength(0)
     await expect(page.getByTestId('document-prepare')).toBeEnabled()
     await expect(page.getByTestId('analysis-start')).toBeDisabled()
     await page.getByTestId('document-prepare').click()
-    await expect(page.getByTestId('document-status')).toHaveText('原文可检索')
+    await showPreparation(page)
+    await expect(page.getByTestId('document-status')).toHaveText('原文已就绪')
     await expect(page.getByTestId('notes-status')).toContainText('0/')
     for (const color of ['light', 'dark']) {
       await theme(page, color)
       for (const [width, height] of [[1440, 900], [940, 600]]) {
-        await resize(application, width, height)
+        await resizeWorkspace(application, page, width, height)
+        await showPreparation(page)
         await page.getByTestId('document-rebuild').scrollIntoViewIfNeeded()
         await expect(page.getByTestId('document-rebuild')).toBeInViewport()
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -52,8 +50,9 @@ test('TXT prepares locally without any model and retains readiness across restar
     }
     const restarted = await restartReader(application, { userData: workspace.userData })
     application = restarted.application; page = restarted.page
-    await page.getByTestId('book-item').click()
-    await expect(page.getByTestId('document-status')).toHaveText('原文可检索')
+    await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
+    await showPreparation(page)
+    await expect(page.getByTestId('document-status')).toHaveText('原文已就绪')
     const state = await page.evaluate(async () => window.readerApi.getBookAnalysis((await window.readerApi.listBooks())[0].id))
     expect(state).toMatchObject({ status: 'empty', completedSections: 0, document: { status: 'ready', version: 2 } })
   } finally { await cleanupE2eWorkspace(application, workspace.root) }
@@ -97,16 +96,17 @@ test('PDF source ranges navigate both pages, return and survive archived followu
     const launched = await launchReader({ userData: workspace.userData, importPath: resolve('tests/e2e/fixtures/document-structure.pdf') })
     application = launched.application
     let page = launched.page
-    await expect(page.getByTestId('book-item')).toBeVisible()
+    await showLibrary(page); await expect(page.getByTestId('book-item')).toBeVisible()
     await page.evaluate((url) => window.readerApi.saveKnowledgeSettings({ embedding: { enabled: false, baseUrl: '', model: '' },
       document: { processor: 'docling', baseUrl: url, ocr: true, language: 'ch' } }), endpoint)
-    await page.reload(); await page.getByTestId('book-item').click()
+    await page.reload(); await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
     await expect(page.locator('.pdf-page')).toHaveCount(6)
     const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
-    await page.getByTestId('analysis-details').locator('summary').first().click()
+    await togglePreparation(page)
     await expect(page.getByTestId('analysis-start')).toBeDisabled()
     await page.getByTestId('document-prepare').click()
-    await expect(page.getByTestId('document-status')).toHaveText('原文可检索')
+    await showPreparation(page)
+    await expect(page.getByTestId('document-status')).toHaveText('原文已就绪')
     expect(uploads).toBe(1); expect(noteCalls).toBe(0)
     await page.getByTestId('document-check').locator('summary').click()
     await expect(page.getByTestId('document-check')).toContainText('脚注缺少明确关联')
@@ -116,7 +116,7 @@ test('PDF source ranges navigate both pages, return and survive archived followu
       const overview = await window.readerApi.createProviderProfile({ name: '问答模拟', baseUrl, model: 'fixture', apiKey: 'fixture-only' })
       await window.readerApi.activateProviderProfile(overview.profiles[0].id)
     }, endpoint)
-    await page.reload(); await page.getByTestId('book-item').click()
+    await page.reload(); await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
     await page.getByTestId('scope-book').click()
     await page.evaluate(() => window.readerApi.onLlmEvent((event) => {
       if (event.type === 'context') (window as typeof window & { structureContext?: ContextSnapshot }).structureContext = event.context
@@ -133,8 +133,8 @@ test('PDF source ranges navigate both pages, return and survive archived followu
     const table = snapshot.passages.find((passage) => passage.tableSlice)!
     expect(table.sources?.map((source) => source.page)).toEqual([3, 4])
     await page.locator('.answer-sources').last().locator('summary').click()
-    const tableSource = page.locator('.answer-source-item').filter({ hasText: '整表页范围' }).first()
-    await expect(tableSource).toContainText('未确定行级页码')
+    const tableSource = page.locator('.answer-source-item').filter({ hasText: '整张表所在的页面' }).first()
+    await expect(tableSource).toContainText('只能定位到整张表')
     const natural = await page.getByTestId('reader-host').evaluate((host) => host.scrollTop)
     for (const targetPage of [3, 4]) {
       await tableSource.getByRole('button', { name: `第 ${targetPage} 页`, exact: true }).click()
@@ -150,7 +150,9 @@ test('PDF source ranges navigate both pages, return and survive archived followu
     for (const color of ['light', 'dark']) {
       await theme(page, color)
       for (const [width, height] of [[1440, 900], [940, 600]]) {
-        await resize(application, width, height)
+        await resizeWorkspace(application, page, width, height)
+        await showAssistant(page)
+        await showReferences(page)
         await tableSource.scrollIntoViewIfNeeded()
         await expect(tableSource.getByRole('button', { name: '第 4 页', exact: true })).toBeInViewport()
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -162,14 +164,16 @@ test('PDF source ranges navigate both pages, return and survive archived followu
     expect(saved.context?.passages.find((passage) => passage.tableSlice)?.sources).toEqual(table.sources)
     const restarted = await restartReader(application, { userData: workspace.userData })
     application = restarted.application; page = restarted.page
-    await page.getByTestId('book-item').click()
-    await expect(page.getByTestId('document-status')).toHaveText('原文可检索')
+    await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
+    await showPreparation(page)
+    await expect(page.getByTestId('document-status')).toHaveText('原文已就绪')
+    await hidePreparation(page); await showAssistant(page)
     await page.getByTestId('assistant-expand-button').click()
     await page.getByTestId('assistant-dialog-tab-insights').click()
     const exportPath = join(workspace.root, '跨页来源归档.md')
     await application.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, exportPath)
     await page.getByTestId('insight-export').click()
-    await expect.poll(() => readFile(exportPath, 'utf8').catch(() => '')).toContain('整表页范围')
+    await expect.poll(() => readFile(exportPath, 'utf8').catch(() => '')).toContain('整张表所在的页面')
     const exported = await readFile(exportPath, 'utf8')
     expect(exported).toContain('第 3、4 页'); expect(exported).toContain('资料冲突')
     await page.getByTestId('insight-item').locator('.insight-content').click()

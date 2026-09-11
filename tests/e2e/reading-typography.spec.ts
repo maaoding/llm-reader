@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -72,7 +73,7 @@ test('keeps fixed TXT padding while persisting alignment across restarts', async
     application = launched.application
     const { page } = launched
 
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
 
     await page.getByTestId('settings-button').click()
@@ -102,7 +103,7 @@ test('keeps fixed TXT padding while persisting alignment across restarts', async
     const restarted = await restartReader(application, { userData: workspace.userData })
     application = restarted.application
     const restoredPage = restarted.page
-    await restoredPage.getByTestId('book-item').first().click()
+    await showLibrary(restoredPage); await restoredPage.getByTestId('book-item').first().click(); await enterReading(restoredPage)
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
     await expect
       .poll(() => restoredPage.locator('.reader-document--txt').evaluate((element) => {
@@ -134,7 +135,7 @@ test('does not inject EPUB page padding and still applies alignment', async () =
     application = launched.application
     const { page } = launched
 
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     const chapterFrame = page.getByTestId('reader-host').frameLocator('iframe').first()
     await expect(chapterFrame.getByText('原书页边距应当由 EPUB 自己控制。')).toBeVisible()
 

@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -76,7 +77,7 @@ test('shows the extracted shelf cover and book details modal', async () => {
     await expect(modal).toHaveCount(0)
     await expect(infoButton).toBeFocused()
 
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     const headerInfoButton = page.getByTestId('book-details-button')
     await expect(headerInfoButton).toBeVisible()
     await headerInfoButton.click()

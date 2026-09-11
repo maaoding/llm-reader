@@ -357,6 +357,48 @@ describe('EPUB adapter safety utilities', () => {
     adapter.destroy()
   })
 
+  it('keeps a slow EPUB navigation separate from the previous restore timer', async () => {
+    vi.useFakeTimers()
+    const handlers = new Map<string, (...values: unknown[]) => void>()
+    const rendition = {
+      hooks: { content: { register: vi.fn() } },
+      on: vi.fn((event: string, handler: (...values: unknown[]) => void) => handlers.set(event, handler)),
+      off: vi.fn(), display: vi.fn().mockResolvedValue(undefined), annotations: { remove: vi.fn() }
+    }
+    const book = {
+      ready: Promise.resolve(),
+      loaded: { metadata: Promise.resolve({ title: '慢速跳转' }), navigation: Promise.resolve({ toc: [] }), spine: Promise.resolve([{ index: 0 }]) },
+      renderTo: () => rendition, locations: { generate: vi.fn().mockResolvedValue([]) },
+      spine: { get: () => ({ href: 'chapter.xhtml' }) }, destroy: vi.fn()
+    }
+    epubFactory.mockReturnValue(book)
+    const onRelocated = vi.fn()
+    const adapter = createReaderAdapter('epub', document.createElement('div'), { bookId: 'slow-navigation', onRelocated })
+    try {
+      await adapter.open(new Uint8Array([1]))
+      await vi.advanceTimersByTimeAsync(500)
+      let finishDisplay!: () => void
+      rendition.display.mockImplementationOnce(() => new Promise<void>((resolve) => { finishDisplay = resolve }))
+      const navigation = adapter.goTo('chapter.xhtml')
+      const nextNavigation = adapter.goTo('chapter.xhtml')
+      await vi.advanceTimersByTimeAsync(300)
+      expect(rendition.display).toHaveBeenCalledTimes(2)
+      const location = { start: { cfi: 'epubcfi(/6/2!/4/1:0)', percentage: 0, index: 0 } }
+      handlers.get('relocated')?.(location)
+      expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ reason: 'navigation' }))
+      finishDisplay()
+      await navigation
+      await nextNavigation
+      expect(rendition.display).toHaveBeenCalledTimes(3)
+      await vi.advanceTimersByTimeAsync(800)
+      handlers.get('relocated')?.(location)
+      expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ reason: 'natural' }))
+    } finally {
+      adapter.destroy()
+      vi.useRealTimers()
+    }
+  })
+
   it('opens epub.js in continuous sandboxed mode and exposes selection/location callbacks', async () => {
     const handlers = new Map<string, (...eventArguments: unknown[]) => void>()
     const contentHooks: Array<(contents: never) => void> = []

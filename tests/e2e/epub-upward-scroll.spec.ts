@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -305,9 +306,9 @@ test('continuously scrolls back through prepended EPUB chapters without restorin
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     let { page } = launched
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
     await installContainerObserver(page)
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host').locator('.epub-container')).toBeVisible()
     await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
 
@@ -341,9 +342,9 @@ test('continuously scrolls back through prepended EPUB chapters without restorin
       const restarted = await restartReader(application!, { userData: workspace.userData })
       application = restarted.application
       page = restarted.page
-      await expect(page.getByTestId('book-item').first()).toBeVisible()
+      await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
       await installContainerObserver(page)
-      await page.getByTestId('book-item').first().click()
+      await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
       await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
     })
 

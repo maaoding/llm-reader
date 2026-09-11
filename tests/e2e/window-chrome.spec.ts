@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { resolve } from 'node:path'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 
 test('uses a frameless window with working window controls', async () => {
@@ -14,6 +15,9 @@ test('uses a frameless window with working window controls', async () => {
     await expect(page.getByTestId('window-minimize')).toBeVisible()
     await expect(maximizeButton).toBeVisible()
     await expect(page.getByTestId('window-close')).toBeVisible()
+
+    const iconLoadsInElectron = await application.evaluate(({ nativeImage }, iconPath) => !nativeImage.createFromPath(iconPath).isEmpty(), resolve('resources/icon.ico'))
+    expect(iconLoadsInElectron).toBe(true)
 
     // A frameless window has no native caption area above the web contents.
     const chromeInset = await application.evaluate(({ BrowserWindow }) => {

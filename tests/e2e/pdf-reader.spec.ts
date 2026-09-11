@@ -1,3 +1,5 @@
+import { showContents } from './support/workspace'
+import { showLibrary, enterReading } from './support/workspace'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { mkdir, readFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
@@ -91,8 +93,8 @@ async function openFixture(fixture: string): Promise<{
     if (message.type() === 'error') console.error(`[renderer] ${message.text()}`)
   })
   page.on('pageerror', (error) => console.error(`[renderer-pageerror] ${error.message}`))
-  await expect(page.getByTestId('book-item').first()).toBeVisible()
-  await page.getByTestId('book-item').first().click()
+  await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+  await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page); await page.getByTestId('reader-settings-button').click()
   return { application, page, testRoot: workspace.root, userData: workspace.userData }
 }
 
@@ -104,6 +106,17 @@ async function dragPdfRegion(
   page: Page,
   region: { left: number; top: number; right: number; bottom: number }
 ): Promise<void> {
+  await page.getByTestId('reader-host').evaluate(async (host, target) => {
+    const sheet = host.querySelector('.pdf-page')
+    if (!sheet) throw new Error('Expected a PDF page')
+    const sheetRect = sheet.getBoundingClientRect()
+    const hostRect = host.getBoundingClientRect()
+    const bottom = sheetRect.top + sheetRect.height * target.bottom
+    const top = sheetRect.top + sheetRect.height * target.top
+    if (bottom > hostRect.bottom - 20) host.scrollTop += bottom - hostRect.bottom + 20
+    else if (top < hostRect.top + 20) host.scrollTop -= hostRect.top + 20 - top
+    await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()))
+  }, region)
   const box = await page.locator('.pdf-page').first().boundingBox()
   if (!box) throw new Error('Expected a visible PDF page')
   await page.mouse.move(box.x + box.width * region.left, box.y + box.height * region.top)
@@ -208,7 +221,8 @@ test('reads, searches, disables native selection, zooms and follows only interna
       (CSS as typeof CSS & { highlights?: Map<string, unknown> }).highlights?.has('llm-reader-pdf-temporary') ?? false
     ))).toBe(true)
 
-    await page.getByRole('button', { name: '目录', exact: true }).click()
+    await page.getByTestId('reader-contents-button').click()
+    await showContents(page)
     await page.getByTestId('toc-item').first().click()
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第一章')
     const internalLink = page.locator('.pdf-internal-link').first()
@@ -224,6 +238,12 @@ test('reads, searches, disables native selection, zooms and follows only interna
     await expect(page.getByTestId('reader-return-button')).toBeEnabled()
     expect(application.windows()).toHaveLength(1)
 
+    // A late scroll event after a jump must not replace the natural position.
+    await page.getByTestId('reader-host').evaluate(async (host) => {
+      await new Promise((resolveEvent) => setTimeout(resolveEvent, 200))
+      host.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.getByTestId('reader-return-button')).toBeVisible()
     await page.getByTestId('reader-return-button').click()
     await page.locator('.pdf-text-layer span').filter({ hasText: '中文关键词' }).first().evaluate((element) => {
       const node = element.firstChild
@@ -256,8 +276,8 @@ test('reads, searches, disables native selection, zooms and follows only interna
     const restarted = await restartReader(application, { userData })
     application = restarted.application
     page = restarted.page
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
   } finally {
@@ -272,10 +292,11 @@ test('tracks precise outline sections and keeps fit-width stable through rapid z
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect.poll(() => page.locator('.pdf-text-layer[data-page-number="1"] span').count()).toBeGreaterThan(0)
 
-    await page.getByRole('button', { name: '目录', exact: true }).click()
+    await page.getByTestId('reader-contents-button').click()
+    await showContents(page)
     await page.getByTestId('toc-item').filter({ hasText: '1.1 同页目录定位' }).click()
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '1.1 同页目录定位')
-    await expect(page.locator('.reading-progress strong')).toHaveText('0%')
+    await expect(page.locator('.reader-heading strong')).toHaveText('0%')
     const headingPosition = await page.locator('.pdf-text-layer span').filter({ hasText: '1.1 同页目录定位' }).first().evaluate((heading) => {
       const host = document.querySelector<HTMLElement>('[data-testid="reader-host"]')
       if (!host) throw new Error('Expected reader host')
@@ -292,11 +313,12 @@ test('tracks precise outline sections and keeps fit-width stable through rapid z
       host.dispatchEvent(new Event('scroll'))
     })
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '1.1 同页目录定位')
-    await expect.poll(async () => Number.parseInt((await page.locator('.reading-progress strong').textContent()) ?? '0', 10)).toBeGreaterThan(50)
+    await expect.poll(async () => Number.parseInt((await page.locator('.reader-heading strong').textContent()) ?? '0', 10)).toBeGreaterThan(50)
 
+    await showContents(page)
     await page.getByTestId('toc-item').filter({ hasText: '1.2 适宽稳定性' }).click()
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '1.2 适宽稳定性')
-    await expect(page.locator('.reading-progress strong')).toHaveText('0%')
+    await expect(page.locator('.reader-heading strong')).toHaveText('0%')
 
     await page.waitForTimeout(120)
     await page.getByTestId('reader-host').evaluate((host) => {
@@ -356,7 +378,7 @@ test('uses whole-document progress for a text PDF without an outline', async () 
   try {
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '全文')
-    await page.getByRole('button', { name: '目录', exact: true }).click()
+    await page.getByTestId('reader-contents-button').click()
     await expect(page.getByText('没有可用目录')).toBeVisible()
 
     await page.getByTestId('reader-host').evaluate((host) => {
@@ -366,7 +388,7 @@ test('uses whole-document progress for a text PDF without an outline', async () 
       host.dispatchEvent(new Event('scroll'))
     })
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '全文')
-    await expect.poll(async () => Number.parseInt((await page.locator('.reading-progress strong').textContent()) ?? '0', 10)).toBeGreaterThan(45)
+    await expect.poll(async () => Number.parseInt((await page.locator('.reader-heading strong').textContent()) ?? '0', 10)).toBeGreaterThan(45)
   } finally {
     await closeFixture(application, testRoot)
   }
@@ -484,12 +506,13 @@ test('disables native PDF selection and supports editable single-page region sel
     const restarted = await restartReader(application, { userData })
     application = restarted.application
     page = restarted.page
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     const restoredPersistentRegion = page.locator('.pdf-region-overlay.is-persistent')
     await expect(restoredPersistentRegion).toHaveCount(1)
     expect(await restoredPersistentRegion.getAttribute('style')).toBe(beforeZoom)
+    await showContents(page)
     await page.getByTestId('highlights-tab').click()
     const regionHighlight = page.getByTestId('highlight-item').filter({ hasText: '已校正' })
     await expect(regionHighlight).toHaveCount(1)
@@ -628,7 +651,7 @@ test('clears a PDF region draft when switching books or destroying the reader', 
   try {
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     const complexBookId = await page.getByTestId('book-item').first().getAttribute('data-book-id')
     if (!complexBookId) throw new Error('Expected a stable id for the complex PDF book')
     const bookItemById = (targetPage: Page, bookId: string): Locator =>
@@ -640,38 +663,39 @@ test('clears a PDF region draft when switching books or destroying the reader', 
       )) as unknown as typeof dialog.showOpenDialog
     }, textPdf)
     await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-overview')).toBeVisible()
+    await expect(page.locator('.workspace-book-title h1')).toHaveText('PDF 阅读测试')
+    await showLibrary(page)
     await expect(page.getByTestId('book-item')).toHaveCount(2)
     const textBookId = (await page.getByTestId('book-item').evaluateAll((buttons) => (
       buttons.map((button) => button.getAttribute('data-book-id'))
     ))).find((bookId) => bookId !== complexBookId)
     if (!textBookId) throw new Error('Expected a stable id for the text PDF book')
-    await expect(page.getByRole('heading', { name: 'PDF 阅读测试', exact: true })).toBeVisible()
-
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     await expect(page.locator('.reader-surface')).toHaveClass(/is-ready/, { timeout: 60_000 })
     await expect(page.getByTestId('library-list')).toBeVisible()
     const firstComplexBook = bookItemById(page, complexBookId)
     await expect(firstComplexBook).toBeVisible()
-    await firstComplexBook.evaluate((button) => (button as HTMLButtonElement).click())
+    await firstComplexBook.click(); await enterReading(page); await page.getByTestId('reader-settings-button').click()
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
     await page.getByTestId('pdf-region-select').click()
     await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
     await expect(page.getByTestId('pdf-selection-review')).toBeVisible()
 
-    await page.getByTestId('library-tab').evaluate((button) => (button as HTMLButtonElement).click())
+    await page.getByTestId('nav-library').evaluate((button) => (button as HTMLButtonElement).click())
     const otherBook = bookItemById(page, textBookId)
-    await otherBook.evaluate((button) => (button as HTMLButtonElement).click())
+    await otherBook.evaluate((button) => (button as HTMLButtonElement).click()); await enterReading(page)
     await expect(page.getByTestId('pdf-selection-review')).toHaveCount(0)
     await expect(page.locator('.pdf-region-overlay.is-draft')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'PDF 阅读测试', exact: true })).toBeVisible()
 
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     await expect(page.locator('.reader-surface')).toHaveClass(/is-ready/, { timeout: 60_000 })
     await expect(page.getByTestId('library-list')).toBeVisible()
     await expect(page.getByTestId('book-item')).toHaveCount(2, { timeout: 30_000 })
     const secondComplexBook = bookItemById(page, complexBookId)
     await expect(secondComplexBook).toBeVisible({ timeout: 30_000 })
-    await secondComplexBook.evaluate((button) => (button as HTMLButtonElement).click())
+    await secondComplexBook.click(); await enterReading(page); await page.getByTestId('reader-settings-button').click()
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
     await page.getByTestId('pdf-region-select').click()
     await dragPdfRegion(page, { left: 0.06, top: 0.19, right: 0.48, bottom: 0.41 })
@@ -680,6 +704,7 @@ test('clears a PDF region draft when switching books or destroying the reader', 
     const restarted = await restartReader(application, { userData })
     application = restarted.application
     page = restarted.page
+    await showLibrary(page)
     await expect(page.getByTestId('book-item')).toHaveCount(2)
     await expect(page.getByTestId('pdf-selection-review')).toHaveCount(0)
     await expect(page.locator('.pdf-region-overlay.is-draft')).toHaveCount(0)
@@ -795,7 +820,7 @@ test('browses a scanned PDF but reports that search and selection are unavailabl
   try {
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect(page.getByTestId('pdf-no-text-banner')).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByTestId('pdf-region-select')).toBeDisabled()
+    await expect(page.getByTestId('pdf-region-select')).toBeHidden()
     await expect.poll(() => page.locator('.pdf-page-canvas').first().evaluate((canvas) => (
       (canvas as HTMLCanvasElement).width
     ))).toBeGreaterThan(0)

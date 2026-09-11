@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -55,7 +56,7 @@ test('keeps a TXT filename when front matter is generic and omits duplicated boo
     application = launched.application
     let { page } = launched
 
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.evaluate(async () => {
       const readerApi = (window as unknown as {
         readerApi: {
@@ -70,8 +71,9 @@ test('keeps a TXT filename when front matter is generic and omits duplicated boo
     application = restarted.application
     page = restarted.page
     await expect(page.getByTestId('book-item').first()).toContainText('图书在版编目（CIP）数据')
-    await page.getByTestId('book-item').first().click()
-    await expect(page.locator('.reader-heading h1')).toHaveText('文学批评入门 - 汤拥华')
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+    await expect(page.locator('.workspace-book-title h1')).toHaveText('文学批评入门 - 汤拥华')
+    await page.getByTestId('reader-contents-button').click()
     await expect(page.getByTestId('toc-item')).toHaveCount(chapterLabels.length)
     await expect(page.getByTestId('toc-item')).toHaveText(chapterLabels)
   } finally {
@@ -91,11 +93,11 @@ test('nested TOC collapses via disclosure without jumping and navigates without 
     application = launched.application
     const { page } = launched
 
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
 
-    await page.getByRole('button', { name: '目录', exact: true }).click()
+    await page.getByTestId('reader-contents-button').click()
 
     const tocItems = page.getByTestId('toc-item')
     const disclosure = page.getByTestId('toc-disclosure')
@@ -151,8 +153,8 @@ test('EPUB keeps authored black text on a light page in dark mode', async () => 
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host').locator('iframe')).not.toHaveCount(0)
 
     await page.getByTestId('settings-button').click()

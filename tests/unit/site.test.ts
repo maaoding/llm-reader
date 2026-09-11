@@ -103,6 +103,18 @@ describe('static product website', () => {
     expect(productImage?.height).toBe(864)
   })
 
+  it('references every fixed-size favicon asset', () => {
+    const icons = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="apple-touch-icon"]'))
+    expect(icons.map((icon) => icon.getAttribute('href'))).toEqual([
+      './icon-32.png',
+      './icon-64.png',
+      './icon-128.png',
+      './icon-256.png',
+      './icon-256.png'
+    ])
+    for (const icon of icons) expect(existsSync(resolve(siteRoot, icon.href.split('/').at(-1)!))).toBe(true)
+  })
+
   it('keeps focus feedback and reduced-motion fallbacks in the static stylesheet', () => {
     expect(styles).toContain(':focus-visible')
     expect(styles).toContain('@media (prefers-reduced-motion: reduce)')

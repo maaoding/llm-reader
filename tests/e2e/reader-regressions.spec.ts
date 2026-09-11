@@ -1,3 +1,4 @@
+import { showLibrary, enterReading, showContents } from './support/workspace'
 import {
   expect,
   test,
@@ -84,8 +85,8 @@ test('expands reflowable chapters whose CSS constrains html and body height', as
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     const frame = page.getByTestId('reader-host').locator('iframe').first()
     await expect(frame).toBeVisible()
 
@@ -133,8 +134,8 @@ test('highlights only the TOC entry whose href matches the current chapter', asy
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
 
     const tocItems = page.getByTestId('toc-item')
     const currentTocItems = page.locator('[data-testid="toc-item"][data-current="true"]')
@@ -142,6 +143,7 @@ test('highlights only the TOC entry whose href matches the current chapter', asy
     await expect(tocItems.first()).toHaveAttribute('data-current', 'true')
     await expect(currentTocItems).toHaveCount(1)
 
+    await showContents(page)
     await tocItems.nth(1).click()
     await expect(tocItems.nth(1)).toHaveAttribute('data-current', 'true')
     await expect(currentTocItems).toHaveCount(1)
@@ -226,8 +228,8 @@ test('scales fixed-layout pages instead of clipping them below the viewport', as
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     const frame = page.getByTestId('reader-host').locator('iframe').first()
     await expect(frame).toBeVisible()
 
@@ -252,6 +254,7 @@ test('scales fixed-layout pages instead of clipping them below the viewport', as
 
     const tocItems = page.getByTestId('toc-item')
     const currentTocItems = page.locator('[data-testid="toc-item"][data-current="true"]')
+    await showContents(page)
     await tocItems.nth(1).click()
     await expect(tocItems.nth(1)).toHaveAttribute('data-current', 'true')
     await expect(currentTocItems).toHaveCount(1)

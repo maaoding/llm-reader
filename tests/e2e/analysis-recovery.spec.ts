@@ -1,3 +1,4 @@
+import { showLibrary, enterReading, togglePreparation } from './support/workspace'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { createServer } from 'node:http'
 import { writeFile } from 'node:fs/promises'
@@ -57,36 +58,40 @@ test('retains final-summary errors and resumes cached work across restart, theme
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     let page = launched.page
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
     await page.evaluate(async (baseUrl) => {
       const overview = await window.readerApi.createProviderProfile({ name: '恢复测试', baseUrl, model: 'fixture', apiKey: 'fixture-only', compatibility: 'opencode-go' })
       await window.readerApi.activateProviderProfile(overview.profiles[0].id)
     }, `http://127.0.0.1:${address.port}`)
     await page.reload()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await page.getByTestId('scope-book').click()
-    await page.getByTestId('analysis-details').locator('summary').first().click()
+    await togglePreparation(page)
     await page.getByTestId('document-prepare').click()
-    await expect(page.getByTestId('document-status')).toHaveText('原文可检索')
+    await expect(page.getByTestId('document-status')).toHaveText('原文已就绪')
     await page.getByTestId('analysis-start').click()
     await expect(page.getByTestId('analysis-retrying')).toBeVisible()
-    await expect(page.locator('.analysis-error')).toContainText('全书合并：汇总返回了 1701 字符', { timeout: 15_000 })
-    await expect(page.getByTestId('analysis-stage-progress')).toContainText('全书合并：0/1')
+    await expect(page.locator('.analysis-error')).toContainText('汇总返回了 1701 字符', { timeout: 15_000 })
+    await expect(page.getByTestId('analysis-stage-progress')).toContainText('整理全书概述：0/1')
     expect(notes).toBe(1)
     expect(chapters).toBe(1)
     expect(overviews).toBe(3)
     await expect(page.getByTestId('followup-input')).toBeEnabled()
+    await page.getByTestId('preparation-close').click()
     await page.getByTestId('followup-input').fill('自主判断的适用条件是什么？')
     await page.getByTestId('followup-input').press('Enter')
     await expect(page.getByTestId('answer-current')).toContainText('原文要求核对证据与适用条件')
     await expect(page.getByTestId('citation-valid')).toHaveCount(1)
+    await page.getByTestId('workspace-prepare').click()
     await page.getByTestId('analysis-failures').locator('summary').click()
     await expect(page.getByTestId('analysis-failures').locator('li')).toHaveCount(3)
     for (const theme of ['light', 'dark'] as const) {
+      await page.getByTestId('preparation-close').click()
       await page.getByTestId('settings-button').click()
       await page.getByTestId('settings-nav-appearance').click()
       await page.getByTestId(`theme-${theme}`).click()
       await page.getByTestId('settings-close').click()
+      await page.getByTestId('workspace-prepare').click()
       await expect.poll(() => page.locator('.reader-document--txt').evaluate((element) => getComputedStyle(element).backgroundColor))
         .toBe(theme === 'dark' ? 'rgb(34, 41, 45)' : 'rgb(253, 252, 249)')
       for (const [width, height] of [[1440, 900], [940, 600]]) {
@@ -104,9 +109,9 @@ test('retains final-summary errors and resumes cached work across restart, theme
     const restarted = await restartReader(application, { userData: workspace.userData })
     application = restarted.application
     page = restarted.page
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await page.getByTestId('scope-book').click()
-    await page.getByTestId('analysis-details').locator('summary').first().click()
+    await togglePreparation(page)
     await expect(page.locator('.analysis-error')).toContainText('1701 字符')
     await page.getByTestId('analysis-failures').locator('summary').click()
     await expect(page.getByTestId('analysis-failures').locator('li')).toHaveCount(3)

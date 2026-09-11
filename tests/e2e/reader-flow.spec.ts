@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -195,16 +196,17 @@ test.afterAll(async () => {
   })
 })
 
-test('keeps escaped keyboard focus inside settings and assistant dialogs', async () => {
+test('keeps escaped keyboard focus inside settings and book preparation dialogs', async () => {
   const workspace = await createE2eWorkspace('llm-reader-focus-e2e-')
   let application: ElectronApplication | undefined
 
   try {
-    const launched = await launchReader({ userData: workspace.userData })
+    const launched = await launchReader({ userData: workspace.userData, importPath: resolve('tests/fixtures/complex-reading.txt') })
     application = launched.application
     const { page } = launched
+    await page.getByTestId('book-item').click()
     const settingsButton = page.getByTestId('settings-button')
-    const expandButton = page.getByTestId('assistant-expand-button')
+    const expandButton = page.getByTestId('workspace-prepare')
 
     await settingsButton.click()
     const settingsDialog = page.getByTestId('settings-modal')
@@ -237,8 +239,8 @@ test('keeps escaped keyboard focus inside settings and assistant dialogs', async
     await expect(settingsButton).toBeFocused()
 
     await expandButton.click()
-    const assistantDialog = page.getByTestId('assistant-dialog')
-    const assistantClose = page.getByTestId('assistant-dialog-close')
+    const assistantDialog = page.getByTestId('book-preparation-dialog')
+    const assistantClose = page.getByTestId('preparation-close')
     await expect(assistantDialog).toBeVisible()
     await expect(assistantClose).toBeFocused()
 
@@ -321,34 +323,10 @@ test('keeps the home quiet and applies unified appearance, reading and provider 
     await expect.poll(() => application?.evaluate(() => (globalThis as typeof globalThis & { __llmReaderDialogCalls?: number }).__llmReaderDialogCalls ?? 0)).toBe(0)
     await expect(page.locator('kbd')).toHaveCount(0)
     await expect(page.getByText('Enter 发送 · Shift + Enter 换行')).toHaveCount(0)
-    const importLayout = await page.getByTestId('import-book').evaluate((button) => {
-      const label = button.querySelector('span')
-      const styles = getComputedStyle(button)
-      return {
-        fits: button.scrollWidth <= button.clientWidth,
-        labelLines: label?.getClientRects().length ?? 0,
-        whiteSpace: label ? getComputedStyle(label).whiteSpace : '',
-        background: styles.backgroundColor,
-        boxShadow: styles.boxShadow,
-        transform: styles.transform
-      }
-    })
-    expect(importLayout).toEqual({
-      fits: true,
-      labelLines: 1,
-      whiteSpace: 'nowrap',
-      background: 'rgba(0, 0, 0, 0)',
-      boxShadow: 'none',
-      transform: 'none'
-    })
-    if (visualDirectory) {
-      await page.screenshot({ path: join(visualDirectory, 'library-light-1536x864.png') })
-    }
-    await expect.poll(() => page.locator('.assistant-title').evaluate((element) => getComputedStyle(element).fontSize)).toBe('13px')
-    await expect.poll(() => page.locator('.right-sidebar .empty-state strong').evaluate((element) => getComputedStyle(element).fontSize)).toBe('13px')
-    await expect.poll(() => page.locator('.right-sidebar .empty-state p').evaluate((element) => getComputedStyle(element).fontSize)).toBe('12px')
-    await expect(page.locator('.welcome-state')).toHaveText('从书库打开或导入一本书')
-    await expect(page.locator('.welcome-state')).not.toBeVisible()
+    await expect(page.getByTestId('import-book')).toBeInViewport()
+    await expect(page.getByTestId('nav-archives')).toBeVisible()
+    await expect(page.locator('.left-sidebar')).toBeVisible()
+    await expect(page.locator('.right-sidebar')).toBeHidden()
 
     await page.emulateMedia({ colorScheme: 'light' })
     await expect(appShell).toHaveAttribute('data-theme-preference', 'system')
@@ -357,13 +335,13 @@ test('keeps the home quiet and applies unified appearance, reading and provider 
 
     const firstBook = page.getByTestId('book-item').first()
     await expect(firstBook).toBeVisible()
-    await firstBook.click()
+    await firstBook.click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
     await expect(page.getByTestId('import-book')).toHaveCount(0)
 
     const settingsButton = page.getByTestId('settings-button')
     const readerSettingsButton = page.getByTestId('reader-settings-button')
-    await expect(readerSettingsButton).toHaveAttribute('aria-label', '阅读设置')
+    await expect(readerSettingsButton).toHaveAccessibleName('排版')
     await readerSettingsButton.click()
     await expect(page.getByTestId('settings-nav-reading')).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByTestId('reading-content-width')).toHaveValue('original')
@@ -438,7 +416,7 @@ test('keeps the home quiet and applies unified appearance, reading and provider 
     await page.getByTestId('settings-close').click()
     await expect(settings).toHaveCount(0)
     await expect(settingsButton).toBeFocused()
-    await expect(providerStatus).toHaveAttribute('aria-label', '正在检测 API 连接')
+    await expect(providerStatus).toHaveAttribute('aria-label', /^(正在检测 API 连接|API 连接正常)$/u)
     await expect(providerStatus).toHaveAttribute('aria-label', 'API 连接正常')
     await expect(providerStatus).toHaveClass(/is-connected/u)
     await expect.poll(() => providerStatus.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe('rgb(157, 204, 173)')
@@ -480,11 +458,11 @@ test('shows an import welcome for an empty library and keeps quiet once books ex
     const { page } = launched
     await expect(page.getByTestId('library-list')).toBeVisible()
 
-    const welcome = page.getByTestId('welcome-state')
+    const welcome = page.getByTestId('library-list').locator('.empty-state')
     await expect(welcome).toBeVisible()
-    await expect(welcome.locator('h2')).toHaveText('从一本书开始')
-    await expect(welcome).toContainText('导入 EPUB、TXT 或 PDF')
-    await expect(page.getByTestId('welcome-import')).toBeVisible()
+    await expect(welcome.locator('strong')).toHaveText('书库为空')
+    await expect(welcome).toContainText('导入')
+    await expect(page.getByTestId('import-book')).toBeVisible()
 
     await application.evaluate(({ dialog }) => {
       const runtime = globalThis as typeof globalThis & { __llmReaderWelcomeDialogCalls?: number }
@@ -494,7 +472,7 @@ test('shows an import welcome for an empty library and keeps quiet once books ex
         return { canceled: true, filePaths: [], bookmarks: [] }
       }) as typeof dialog.showOpenDialog
     })
-    await page.getByTestId('welcome-import').click()
+    await page.getByTestId('import-book').click()
     await expect
       .poll(() => application?.evaluate(
         () => (globalThis as typeof globalThis & { __llmReaderWelcomeDialogCalls?: number })
@@ -509,9 +487,9 @@ test('shows an import welcome for an empty library and keeps quiet once books ex
     })
     application = restarted.application
     const { page: restoredPage } = restarted
-    await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(restoredPage); await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
     await expect(restoredPage.getByTestId('welcome-state')).toHaveCount(0)
-    await expect(restoredPage.getByTestId('welcome-import')).toHaveCount(0)
+    await expect(restoredPage.getByTestId('import-book')).toBeVisible()
     await expect(restoredPage.locator('.welcome-state')).toHaveText('从书库打开或导入一本书')
     await expect(restoredPage.locator('.welcome-state')).not.toBeVisible()
   } finally {
@@ -532,8 +510,8 @@ test('persists reading, conversation and insight deletion after restart', async 
     await application.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0].setContentSize(1536, 864)
     })
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
 
     const settingsButton = page.getByTestId('settings-button')
@@ -609,12 +587,12 @@ test('persists reading, conversation and insight deletion after restart', async 
     }))
     expect(assistantFontSizes).toEqual({
       title: '16.25px',
-      question: '15px',
-      answer: '15px',
-      input: '15px',
-      model: '12.5px',
-      tokens: '12.5px',
-      source: '12.5px'
+      question: '17.5px',
+      answer: '17.5px',
+      input: '17.5px',
+      model: '15px',
+      tokens: '15px',
+      source: '15px'
     })
     if (visualDirectory) {
       await page.screenshot({ path: join(visualDirectory, 'assistant-dark-1536x864.png') })
@@ -641,9 +619,9 @@ test('persists reading, conversation and insight deletion after restart', async 
     await dialogInput.press('Enter')
     await expect(dialogInput).toHaveValue('')
     await expect(assistantDialog.getByTestId('answer-current')).toContainText('这段文字提醒我们')
-    await page.getByTestId('assistant-dialog-close').click()
+    await page.getByTestId('workspace-tab-reading').click()
     await expect(assistantDialog).toHaveCount(0)
-    await expect(expandButton).toBeFocused()
+    await expect(page.getByTestId('workspace-tab-reading')).toBeFocused()
     await expect(page.getByTestId('answer-current')).toContainText('适用边界')
     if (visualDirectory) {
       await settingsButton.click()
@@ -659,8 +637,8 @@ test('persists reading, conversation and insight deletion after restart', async 
     await page.getByTestId('answer-save').click()
     await page.getByTestId('assistant-expand-button').click()
     const insightsTab = page.getByTestId('assistant-dialog-tab-insights')
-    await expect(insightsTab).toContainText('归档')
-    await expect.poll(() => insightsTab.locator('span').evaluate((element) => getComputedStyle(element).fontSize)).toBe('11.25px')
+    await expect(insightsTab).toContainText('回答归档')
+    await expect.poll(() => insightsTab.locator('span').evaluate((element) => getComputedStyle(element).fontSize)).toBe('15px')
     await insightsTab.click()
     const insight = page.getByTestId('insight-item')
     await expect(insight).toContainText('适用边界')
@@ -668,7 +646,8 @@ test('persists reading, conversation and insight deletion after restart', async 
     await expect(insight).toContainText('未验证引用')
     await expect(insight).not.toContainText('P1')
     await expect(insight).not.toContainText('P999')
-    await expect.poll(() => insight.locator('strong').evaluate((element) => getComputedStyle(element).fontSize)).toBe('15px')
+    await expect.poll(() => insight.locator('strong').evaluate((element) => getComputedStyle(element).fontSize)).toBe('17.5px')
+    await page.screenshot({ path: test.info().outputPath('answer-archives.png'), animations: 'disabled' })
     await expect(page.locator('.insights-heading')).toHaveCount(0)
     await page.getByTestId('insight-delete').click()
     await expect(page.getByTestId('insight-delete-confirm')).toBeVisible()
@@ -678,6 +657,9 @@ test('persists reading, conversation and insight deletion after restart', async 
     await page.getByTestId('insight-delete-confirm').click()
     await expect(insight).toHaveCount(0)
 
+    await showLibrary(page)
+    await page.getByTestId('book-item').first().click()
+    await enterReading(page)
     const readerHost = page.getByTestId('reader-host')
     await readerHost.evaluate((element) => {
       element.scrollTop = element.scrollHeight
@@ -700,15 +682,17 @@ test('persists reading, conversation and insight deletion after restart', async 
     await expect(restoredHtml).toHaveAttribute('data-theme-preference', 'dark')
     await expect(restoredHtml).toHaveAttribute('data-theme', 'dark')
 
-    await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
-    await restoredPage.getByTestId('book-item').first().click()
+    await showLibrary(restoredPage); await expect(restoredPage.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(restoredPage); await restoredPage.getByTestId('book-item').first().click(); await enterReading(restoredPage)
     await expect
       .poll(() => restoredPage.getByTestId('reader-host').evaluate((element) => element.scrollTop))
       .toBeGreaterThan(50)
     await restoredPage.getByTestId('assistant-expand-button').click()
     await restoredPage.getByTestId('assistant-dialog-tab-insights').click()
     await expect(restoredPage.getByTestId('insight-item')).toHaveCount(0)
-    await restoredPage.getByTestId('assistant-dialog-close').click()
+    await showLibrary(restoredPage)
+    await restoredPage.getByTestId('book-item').first().click()
+    await enterReading(restoredPage)
     await expect(restoredPage.getByTestId('assistant-dialog')).toHaveCount(0)
 
     const restoredDocument = restoredPage.locator('.reader-document--txt')
@@ -906,8 +890,8 @@ test('renders EPUB continuously while keeping embedded scripts disabled', async 
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await expect(page.getByTestId('book-item').first()).toBeVisible()
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('toc-item').first()).toContainText('第一章')
 
     const chapterFrame = page.getByTestId('reader-host').frameLocator('iframe').first()
@@ -967,7 +951,7 @@ test('anchors the selection toolbar next to a TXT selection and follows scroll',
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
 
     const toolbar = page.getByTestId('selection-toolbar')
@@ -1014,7 +998,7 @@ test('anchors the selection toolbar next to an EPUB selection inside the chapter
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
     application = launched.application
     const { page } = launched
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     const chapterFrame = page.getByTestId('reader-host').frameLocator('iframe').first()
     await expect(chapterFrame.getByText('复杂系统的行为来自关系')).toBeVisible()
 

@@ -4,6 +4,12 @@ import type { SectionNote } from '@shared/book-context'
 import { characters } from '@shared/book-context'
 import { AppDatabase } from './database'
 import { DOCUMENT_STRUCTURE_VERSION, MAX_DOCUMENT_CACHE_BYTES, validateDocument } from '@shared/document-structure'
+import type { BookNotesIndex, BookChapterNotesInput, BookChapterNotesPage, BookNotePoint } from '@shared/contracts'
+import { copy } from '@shared/copy'
+import { AppError } from './errors'
+import { z } from 'zod'
+
+const notesCursorSchema = z.object({ bookId: z.string(), chapterId: z.string(), revision: z.string(), ordinal: z.number().int().nonnegative() }).strict()
 
 export interface AnalysisRecord {
   session_id: string
@@ -79,7 +85,7 @@ export class BookContextStore implements BookRetriever {
   cacheDocument(bookId: string, document: NormalizedDocument, total: number): void {
     validateDocument(document)
     const serialized = JSON.stringify(document)
-    if (Buffer.byteLength(serialized, 'utf8') > MAX_DOCUMENT_CACHE_BYTES) throw new Error('文档结构缓存超过上限。')
+    if (Buffer.byteLength(serialized, 'utf8') > MAX_DOCUMENT_CACHE_BYTES) throw new Error(copy('error.documentCacheLimit'))
     this.db.prepare('UPDATE book_documents SET document_json = ?, diagnostics_json = ?, total = ? WHERE book_id = ?')
       .run(serialized, JSON.stringify(document.diagnostics), total, bookId)
   }
@@ -171,6 +177,67 @@ export class BookContextStore implements BookRetriever {
   sections(bookId: string): StoredSection[] {
     const rows = this.db.prepare('SELECT content_json, note_json FROM book_sections WHERE book_id = ? ORDER BY ordinal').all(bookId)
     return rows.map((row) => ({ section: JSON.parse(String(row.content_json)) as DocumentSection, note: row.note_json ? JSON.parse(String(row.note_json)) as SectionNote : null }))
+  }
+
+  private notesRevision(bookId: string): string {
+    if (!this.database.getStoredBook(bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    return `${this.document(bookId)?.job_id ?? ''}/${this.record(bookId)?.job_id ?? ''}`
+  }
+
+  notesIndex(bookId: string): BookNotesIndex {
+    const revision = this.notesRevision(bookId)
+    const rows = this.db.prepare(`SELECT chapter_id, chapter_title, min(ordinal) AS first_ordinal,
+      count(*) AS total, count(note_json) AS completed,
+      json_extract(content_json, '$.blocks[0].headingPath') AS heading_path
+      FROM book_sections WHERE book_id = ? GROUP BY chapter_id ORDER BY first_ordinal`).all(bookId)
+    return { bookId, revision, overview: this.record(bookId)?.overview || null,
+      chapters: rows.map((row) => ({ id: String(row.chapter_id), title: String(row.chapter_title),
+        headingPath: row.heading_path ? JSON.parse(String(row.heading_path)) as string[] : [],
+        completed: Number(row.completed), total: Number(row.total) })) }
+  }
+
+  chapterNotes(input: BookChapterNotesInput): BookChapterNotesPage {
+    const { bookId, chapterId } = input
+    const revision = this.notesRevision(bookId)
+    let after = -1
+    if (input.cursor) {
+      let cursor: z.infer<typeof notesCursorSchema>
+      try { cursor = notesCursorSchema.parse(JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'))) }
+      catch { throw new AppError('INVALID_INPUT', copy('error.invalidInput')) }
+      if (cursor.bookId !== bookId || cursor.chapterId !== chapterId || cursor.revision !== revision) {
+        throw new AppError('NOTES_CHANGED', copy('notes.changed'))
+      }
+      after = cursor.ordinal
+    }
+    if (!this.db.prepare('SELECT 1 FROM book_sections WHERE book_id = ? AND chapter_id = ? LIMIT 1').get(bookId, chapterId)) {
+      throw new AppError('NOTES_CHANGED', copy('notes.changed'))
+    }
+    const rows = this.db.prepare(`SELECT section_id, ordinal, content_json, note_json FROM book_sections
+      WHERE book_id = ? AND chapter_id = ? AND note_json IS NOT NULL AND ordinal > ? ORDER BY ordinal LIMIT 11`).all(bookId, chapterId, after)
+    const sourceQuery = this.db.prepare('SELECT * FROM book_blocks WHERE book_id = ? AND chapter_id = ? AND block_id = ?')
+    const notes = rows.slice(0, 10).map((row) => {
+      const section = JSON.parse(String(row.content_json)) as DocumentSection
+      const note = JSON.parse(String(row.note_json)) as SectionNote
+      const allowed = new Set(section.blocks.map((block) => block.id))
+      const cache = new Map<string, Passage | undefined>()
+      const point = (value: { text: string; sourceIds: string[]; term?: string; aliases?: string[] }): BookNotePoint => {
+        const ids = [...new Set(value.sourceIds)]
+        const sources = ids.flatMap((id) => {
+          if (!allowed.has(id)) return []
+          if (!cache.has(id)) {
+            const source = sourceQuery.get(bookId, chapterId, id)
+            cache.set(id, source ? mapPassage(source) : undefined)
+          }
+          return cache.get(id) ? [cache.get(id)!] : []
+        })
+        return { text: value.text, sources, missingSources: !ids.length || sources.length !== ids.length,
+          ...(value.term ? { term: value.term, aliases: value.aliases } : {}) }
+      }
+      return { id: String(row.section_id), summary: note.summary, claims: note.claims.map(point), conditions: note.conditions.map(point),
+        exceptions: note.exceptions.map(point), concepts: note.concepts.map(point) }
+    })
+    return { bookId, chapterId, revision, summary: this.summary(bookId, `chapter-${chapterId}-final`), notes,
+      ...(rows.length > 10 ? { nextCursor: Buffer.from(JSON.stringify({ bookId, chapterId, revision, ordinal: Number(rows[9].ordinal) })).toString('base64url') } : {}) }
   }
 
   saveNote(bookId: string, sectionId: string, note: SectionNote): void {

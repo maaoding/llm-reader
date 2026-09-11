@@ -1,3 +1,4 @@
+import { copy } from '@shared/copy'
 import { z } from 'zod'
 import { validateDocument } from '@shared/document-structure'
 
@@ -5,6 +6,11 @@ const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
 
 export const bookIdSchema = idSchema
+export const bookChapterNotesSchema = z.object({
+  bookId: idSchema,
+  chapterId: z.string().min(1).max(128),
+  cursor: z.string().min(1).max(4096).regex(/^[\w-]+$/u).optional()
+}).strict()
 export const bookImportPathsSchema = z.array(z.string().min(1).max(32_768)).min(1).max(300)
 export const insightIdSchema = idSchema
 export const highlightIdSchema = idSchema
@@ -35,7 +41,7 @@ export const sourceRangeSchema = z.object({
   textStart: z.number().int().nonnegative().optional(), textEnd: z.number().int().nonnegative().optional(),
   precision: z.enum(['text', 'block', 'table'])
 }).refine((source) => (source.start === undefined || source.end === undefined || source.start <= source.end) &&
-  (source.textStart === undefined || source.textEnd === undefined || source.textStart <= source.textEnd), '来源范围无效')
+  (source.textStart === undefined || source.textEnd === undefined || source.textStart <= source.textEnd), copy('validation.sourceRange'))
 const tableSliceSchema = z.object({ rows: z.array(z.number().int().nonnegative()).max(100_000),
   cells: z.array(z.object({ id: structureId, start: z.number().int().nonnegative(), end: z.number().int().nonnegative(),
     textStart: z.number().int().nonnegative(), textEnd: z.number().int().nonnegative(), header: z.boolean(), rows: z.array(z.number().int().nonnegative()).max(100_000).optional() })).max(100_000) })
@@ -55,7 +61,7 @@ export const normalizedDocumentSchema = z.object({
   diagnostics: z.array(z.object({ code: z.enum(['missing-body', 'unknown-structure', 'unlinked-note', 'table-degraded', 'suspected-duplicate']),
     page: z.number().int().min(1).max(600).optional(), unitId: structureId.optional() })).max(100_000)
 }).superRefine((value, context) => {
-  try { validateDocument(value) } catch { context.addIssue({ code: 'custom', message: '文档结构或来源无效' }) }
+  try { validateDocument(value) } catch { context.addIssue({ code: 'custom', message: copy('validation.documentSource') }) }
 })
 
 const passageSchema = z.object({
@@ -83,11 +89,11 @@ export const selectionSchema = z
   .superRefine((selection, context) => {
     const ids = new Set(selection.passages.map((passage) => passage.id))
     if (ids.size !== selection.passages.length) {
-      context.addIssue({ code: 'custom', message: 'passage id 必须唯一', path: ['passages'] })
+      context.addIssue({ code: 'custom', message: copy('validation.passageId'), path: ['passages'] })
     }
     const totalCharacters = selection.passages.reduce((sum, passage) => sum + passage.text.length, 0)
     if (totalCharacters > 1_000_000) {
-      context.addIssue({ code: 'custom', message: '上下文过大', path: ['passages'] })
+      context.addIssue({ code: 'custom', message: copy('validation.contextLimit'), path: ['passages'] })
     }
   })
 
@@ -111,11 +117,11 @@ export const contextSnapshotSchema = z.object({
   }).optional()
 }).superRefine((snapshot, context) => {
   if ((snapshot.scope === 'selection') !== Boolean(snapshot.selection) || (snapshot.selection && snapshot.selection.bookId !== snapshot.bookId)) {
-    context.addIssue({ code: 'custom', message: '上下文来源不匹配' })
+    context.addIssue({ code: 'custom', message: copy('validation.contextMismatch') })
   }
   if (new Set(snapshot.passages.map((item) => item.id)).size !== snapshot.passages.length ||
       snapshot.passages.reduce((sum, item) => sum + item.text.length, 0) > 100_000 || snapshot.coverage.covered > snapshot.coverage.total) {
-    context.addIssue({ code: 'custom', message: '上下文来源无效' })
+    context.addIssue({ code: 'custom', message: copy('validation.contextSource') })
   }
 })
 
@@ -131,7 +137,7 @@ export const insightSchema = z
   })
     .refine((insight) => (insight.selection ? insight.bookId === insight.selection.bookId : insight.context?.scope === 'book') &&
       (!insight.context || insight.context.bookId === insight.bookId), {
-    message: '归档与选区必须属于同一本书',
+    message: copy('validation.archiveSelection'),
     path: ['selection', 'bookId']
   })
 
@@ -147,7 +153,7 @@ export const insightHistorySchema = z.object({
   id: idSchema,
   history: z.array(archivedMessageSchema).min(2).max(200)
 }).refine((input) => input.history.every((message) => !message.context || message.context.bookId === input.bookId), {
-  message: '归档历史必须属于同一本书', path: ['history']
+  message: copy('validation.archiveHistory'), path: ['history']
 })
 
 export const insightExportScopeSchema = z.discriminatedUnion('kind', [
@@ -175,7 +181,7 @@ const providerBaseUrlSchema = z
       } catch {
         return false
       }
-    }, '接口地址必须是 HTTP(S) 地址')
+    }, copy('validation.httpUrl'))
 
 export const providerProfileIdSchema = z.string().trim().min(1).max(128).regex(/^[\w-]+$/u)
 
@@ -228,7 +234,7 @@ export const llmRequestSchema = z.union([
   z.object({ ...llmRequestBase, scope: z.literal('book'), bookId: idSchema })
 ])
   .refine((request) => request.action !== 'ask' || request.question.trim().length > 0, {
-    message: '自由提问不能为空',
+    message: copy('validation.question'),
     path: ['question']
   })
 
@@ -238,19 +244,19 @@ const knowledgeUrl = z.union([z.literal(''), providerBaseUrlSchema]).refine((val
   if (!value) return true
   const url = new URL(value)
   return !url.search && !url.hash
-}, '接口地址不能包含查询参数或片段')
+}, copy('validation.endpoint'))
 const knowledgeKey = z.string().trim().min(1).max(10_000).regex(/^[^\r\n]+$/u).nullable().optional()
 export const knowledgeSettingsSchema = z.object({
   rerank: z.object({ enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
-    .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), '请填写重排地址和模型').optional(),
+    .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.rerank')).optional(),
   embedding: z.object({ enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
-    .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), '请填写 Embedding 地址和模型'),
+    .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.embedding')),
   document: z.object({ processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling']), baseUrl: knowledgeUrl,
     ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
-    .refine((value) => value.processor === 'none' || Boolean(value.baseUrl), '请填写文档处理服务地址')
+    .refine((value) => value.processor === 'none' || Boolean(value.baseUrl), copy('validation.documentUrl'))
 }).strict()
 export const testKnowledgeSettingsSchema = knowledgeSettingsSchema.extend({ target: z.enum(['embedding', 'rerank', 'document']) })
-  .refine((value) => value.target !== 'rerank' || Boolean(value.rerank?.baseUrl && value.rerank.model), '请填写重排地址和模型')
+  .refine((value) => value.target !== 'rerank' || Boolean(value.rerank?.baseUrl && value.rerank.model), copy('validation.rerank'))
 export const startSemanticIndexSchema = z.object({ bookId: idSchema, rebuild: z.boolean().optional() }).strict()
 export const prepareBookDocumentSchema = startSemanticIndexSchema
 
@@ -266,7 +272,7 @@ export const documentSectionSchema = z.object({
 }).superRefine((section, context) => {
   if (section.blocks.some((block) => Array.from(block.text).length > 1_800) ||
       section.blocks.reduce((sum, block) => sum + Array.from(block.text).length, 0) > 6_000) {
-    context.addIssue({ code: 'custom', message: '分节过大' })
+    context.addIssue({ code: 'custom', message: copy('validation.sectionLimit') })
   }
 })
 export const bookExtractionBatchSchema = bookExtractionSchema.extend({ sections: z.array(documentSectionSchema).min(1).max(8), document: normalizedDocumentSchema.optional() })

@@ -449,7 +449,7 @@ describe('LibraryService', () => {
     const target = join(root, 'exported.md')
     expect(await library.exportInsights({ kind: 'book', bookId: firstBook.id }, target)).toBe('exported.md')
     const markdown = await readFile(target, 'utf8')
-    expect(markdown).toContain('# LLM Reader 归档')
+    expect(markdown).toContain('# LLM Reader 回答归档')
     expect(markdown).toContain(firstBook.title)
     expect(markdown).not.toContain(secondBook.title)
     expect(markdown).toContain('第一条回答。')

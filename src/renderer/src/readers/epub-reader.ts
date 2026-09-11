@@ -491,6 +491,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private sectionPercentageBounds = new Map<number, { start: number; end: number }>()
   private searchRevision = 0
   private searchQueue: Promise<void> = Promise.resolve()
+  private navigationQueue: Promise<void> = Promise.resolve()
 
   constructor(host: HTMLElement, callbacks: ReaderCallbacks) {
     this.host = host
@@ -636,6 +637,20 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   async goTo(anchor: string): Promise<void> {
+    return this.enqueueNavigation(() => this.displayAnchor(anchor))
+  }
+
+  private enqueueNavigation(navigate: () => Promise<void>): Promise<void> {
+    const rendition = this.rendition
+    const run = async (): Promise<void> => {
+      if (this.rendition === rendition) await navigate()
+    }
+    const pending = this.navigationQueue.then(run, run)
+    this.navigationQueue = pending.then(() => undefined, () => undefined)
+    return pending
+  }
+
+  private async displayAnchor(anchor: string): Promise<void> {
     const rendition = this.requireRendition()
     if (
       !isEpubCfi(anchor) &&
@@ -644,6 +659,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     ) {
       throw new Error(copy('reader.epubInvalidAnchor'))
     }
+    this.cancelProgrammaticScrollRelease()
     this.programmaticScroll = true
     this.relocationReason = 'navigation'
     try {
@@ -662,8 +678,9 @@ export class EpubReaderAdapter implements ReaderAdapter {
       }
     } catch {
       throw new Error(copy('reader.epubAnchorFailed'))
+    } finally {
+      if (this.rendition === rendition) this.scheduleProgrammaticScrollRelease()
     }
-    this.scheduleProgrammaticScrollRelease()
   }
 
   getSelection(): SelectionContext | null {
@@ -761,6 +778,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     if (this.rendition !== rendition || revision !== this.preferencesRevision) {
       return
     }
+    this.cancelProgrammaticScrollRelease()
     this.programmaticScroll = true
     this.relocationReason = 'navigation'
     await rendition.display(locator)
@@ -771,6 +789,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     sanitizeContents(contents, {
       resolveInternalHref: (href) => this.resolveInternalHref(contents.sectionIndex, href),
       onInternalLink: (href) => {
+        this.callbacks.onInternalNavigation?.()
         void this.navigateInternalHref(href)
       }
     })
@@ -973,6 +992,10 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private async navigateInternalHref(href: string): Promise<void> {
+    return this.enqueueNavigation(() => this.displayInternalHref(href))
+  }
+
+  private async displayInternalHref(href: string): Promise<void> {
     const sectionIndex = this.sectionIndexFromHref(href)
     if (sectionIndex === null) return
     try {
@@ -995,7 +1018,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       }
       let contents = findContents()
       if (!contents) {
-        await this.goTo(href)
+        await this.displayAnchor(href)
         await this.waitForLayout()
         contents = findContents()
       }
@@ -1005,7 +1028,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       if (!target) return
       const locator = contents.cfiFromNode(target)
       if (!isEpubCfi(locator)) return
-      await this.goTo(locator)
+      await this.displayAnchor(locator)
       target.scrollIntoView({ block: 'start', inline: 'nearest' })
       await this.waitForLayout()
       this.latestLocator = locator

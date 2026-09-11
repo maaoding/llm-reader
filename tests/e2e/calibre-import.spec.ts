@@ -1,3 +1,4 @@
+import { showContents } from './support/workspace'
 import { execFile } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
@@ -66,19 +67,21 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
     }, [mobiPath, azw3Path, mobiPath])
 
     await page.getByTestId('import-book').click()
-    await expect(page.getByTestId('book-item')).toHaveCount(1, { timeout: 120_000 })
-    await expect(page.getByTestId('book-item')).toHaveAttribute('data-source-format', 'mobi')
+    await expect(page.getByTestId('book-overview')).toBeVisible({ timeout: 120_000 })
+    expect((await page.evaluate(() => window.readerApi.listBooks()))[0].sourceFormat).toBe('mobi')
     await expect(page.locator('.format-chip')).toHaveText('MOBI')
+    await showContents(page)
     await expect(page.getByTestId('toc-item').first()).toBeVisible({ timeout: 120_000 })
 
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     await page.getByTestId('import-book').click()
-    await expect(page.getByTestId('book-item')).toHaveCount(2, { timeout: 120_000 })
-    await expect(page.locator('[data-testid="book-item"][data-source-format="azw3"]')).toHaveCount(1)
+    await expect(page.getByTestId('book-overview')).toBeVisible({ timeout: 120_000 })
+    expect(await page.evaluate(() => window.readerApi.listBooks().then((books) => books.length))).toBe(2)
     await expect(page.locator('.format-chip')).toHaveText('AZW3')
+    await showContents(page)
     await expect(page.getByTestId('toc-item').first()).toBeVisible({ timeout: 120_000 })
 
-    await page.getByTestId('library-tab').click()
+    await page.getByTestId('nav-library').click()
     const azw3Book = page.locator('.book-item').filter({
       has: page.locator('[data-testid="book-item"][data-source-format="azw3"]')
     })
@@ -89,7 +92,8 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
     }
     await page.getByTestId('book-details-close').click()
     await page.getByTestId('import-book').click()
-    await expect(page.getByTestId('book-item')).toHaveCount(2)
+    await expect(page.getByTestId('book-overview')).toBeVisible()
+    expect(await page.evaluate(() => window.readerApi.listBooks().then((books) => books.length))).toBe(2)
     await expect(page.getByText('这本书已在书库中，已为你打开。')).toBeVisible()
     const filterExtensions = await application.evaluate(() => (
       globalThis as typeof globalThis & { __llmReaderCalibreFilter?: string[] }
@@ -97,8 +101,9 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
     expect(filterExtensions).toEqual(['epub', 'txt', 'pdf', 'mobi', 'azw3'])
 
     if (visualDirectory) {
-      await expect(page.getByTestId('toc-item').first()).toBeVisible({ timeout: 120_000 })
-      await page.getByTestId('library-tab').click()
+      await showContents(page)
+    await expect(page.getByTestId('toc-item').first()).toBeVisible({ timeout: 120_000 })
+      await page.getByTestId('nav-library').click()
       await page.getByTestId('settings-button').click()
       await page.getByTestId('theme-dark').click()
       await page.getByTestId('scale-125').click()

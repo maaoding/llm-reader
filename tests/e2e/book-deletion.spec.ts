@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import { expect, test, type ElectronApplication } from '@playwright/test'
 import { readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -42,7 +43,7 @@ test('deletes an unopened book from its details modal and keeps it gone after re
     await deleteButton.click()
     await expect(confirmation).toBeVisible()
     await expect(confirmation).toContainText('删除')
-    await expect(confirmation).toContainText('句段收藏与归档')
+    await expect(confirmation).toContainText('摘录与归档')
     await page.getByTestId('book-details-delete-cancel').click()
     await expect(confirmation).toHaveCount(0)
     await expect(modal).toBeVisible()
@@ -78,7 +79,7 @@ test('deleting the currently open book from details closes its reader session an
     application = launched.application
     const { page } = launched
 
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
     await page.getByTestId('book-details-button').click()
     await expect(page.getByTestId('book-details-modal')).toBeVisible()

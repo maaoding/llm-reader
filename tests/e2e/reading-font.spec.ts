@@ -1,3 +1,4 @@
+import { showLibrary, enterReading } from './support/workspace'
 import {
   expect,
   test,
@@ -21,7 +22,7 @@ test('picks a reading font from installed system fonts and persists it across re
     application = launched.application
     const { page } = launched
 
-    await page.getByTestId('book-item').first().click()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
 
     await page.getByTestId('settings-button').click()
@@ -59,7 +60,7 @@ test('picks a reading font from installed system fonts and persists it across re
     const restarted = await restartReader(application, { userData: workspace.userData })
     application = restarted.application
     const restoredPage = restarted.page
-    await restoredPage.getByTestId('book-item').first().click()
+    await showLibrary(restoredPage); await restoredPage.getByTestId('book-item').first().click(); await enterReading(restoredPage)
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
     await expect
       .poll(() =>
