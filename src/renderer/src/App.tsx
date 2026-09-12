@@ -1150,14 +1150,13 @@ function EmptyState({ icon, title, detail, action }: { icon: ReactNode; title: s
   )
 }
 
-function AssistantContextControls({ tab, state, busy, onScope, onPrepare }: { tab?: ConversationTab; state?: BookAnalysisState; busy: boolean; onScope: (scope: 'selection' | 'book') => void; onPrepare: (bookId: string, trigger: HTMLButtonElement) => void }) {
+function AssistantContextControls({ tab, state, busy, onScope }: { tab?: ConversationTab; state?: BookAnalysisState; busy: boolean; onScope: (scope: 'selection' | 'book') => void }) {
   if (!tab) return null
   return <div className="assistant-context-bar">
     <div className="analysis-scope" role="group" aria-label={copy('analysis.scopeLabel')}>
       <button type="button" aria-pressed={tab.scope === 'selection'} disabled={busy} onClick={() => onScope('selection')}>{copy('analysis.selection')}</button>
       <button type="button" data-testid="scope-book" aria-pressed={tab.scope === 'book'} disabled={busy} onClick={() => onScope('book')}>{copy('analysis.book')}</button>
     </div>
-    <button type="button" className="text-button" data-testid="book-preparation-open" onClick={(event) => onPrepare(tab.bookId, event.currentTarget)}>{copy('workspace.prepare')}</button>
     <small>{tab.scope === 'selection' ? copy(tab.selection ? 'assistant.selectionReady' : 'assistant.selectionPending') : copy(`preparation.document.${state?.document?.status ?? 'empty'}`)}</small>
   </div>
 }
