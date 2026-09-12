@@ -21,27 +21,18 @@
 | workspace.recentEmpty | 还没有保存回答 |
 | workspace.recentHint | 在助手回答下方点击“保存回答”，以后可以继续追问。 |
 | workspace.readingProgress | 已读 {percent}% |
-| workspace.readyTitle | 开始探索这本书 |
-| workspace.readyHint | 直接阅读原文，或准备原文后向助手提问。 |
 | workspace.noteCount | 已完成 {completed}/{total} 条笔记 |
 | workspace.openNotes | 阅读笔记 |
-| workspace.more | 更多书籍操作 |
-| workspace.bookDetails | 书籍详情 |
 | workspace.tabs | 本书页面 |
 | workspace.bookTabs | 打开的书籍 |
 | workspace.closeBookTab | 关闭《{title}》 |
-| workspace.closePanel | 收起面板 |
 | workspace.librarySearch | 搜索书名或作者 |
 | workspace.libraryCount | {count} 本书 |
 | workspace.libraryNoResults | 没有找到这本书 |
 | workspace.libraryNoResultsHint | 换一个书名或作者试试。 |
-| workspace.preparing | 正在准备 |
-| workspace.notPrepared | 尚未准备 |
-| workspace.ready | 原文已就绪 |
 | workspace.optional | 可选 |
 | workspace.manage | 管理 |
 | workspace.noteEmpty | 尚未生成笔记 |
-| workspace.semanticReady | 已启用含义查找 |
 | workspace.semanticEmpty | 尚未启用含义查找 |
 | preparation.title | 本书准备 |
 | preparation.close | 关闭本书准备 |
@@ -112,23 +103,11 @@
 | assistant.clearSessionQuestion | 清空当前会话？ |
 | assistant.bookEmptyTitle | 从书中寻找答案 |
 | assistant.bookEmptyHint | 询问书中的观点、概念或章节联系，回答会附上本次参考的原文。 |
-| assistant.newDraftHint | 可以先写下问题，准备好后再发送。 |
 | reader.contentsButton | 目录 |
-| reader.searchButton | 搜索 |
 | reader.layoutButton | 排版 |
 | reader.displayButton | 显示 |
-| reader.assistantButton | 助手 |
 | reader.toolsAria | 阅读工具 |
-| reader.pdfToolbar | PDF 显示 |
-| reader.closeDisplay | 关闭显示设置 |
 | sources.wholeTable | 此处只能定位到整张表所在的页面。 |
-| knowledge.cardDescription | 按需配置独立服务，保存后用于后续操作。 |
-| knowledge.documentPurpose | 提取 PDF 的文字与结构，供全书提问使用。 |
-| knowledge.semanticPurpose | 按含义查找（Embedding） |
-| knowledge.rerankPurpose | 原文排序（Rerank） |
-| knowledge.configure | 配置服务 |
-| common.cancel | 取消 |
-| common.close | 关闭 |
 
 本文件是应用自有用户可见文案的唯一来源。`key` 不可重复，动态内容使用 `{name}` 占位符。
 
@@ -209,14 +188,12 @@
 | knowledge.documentFailed | PDF 原文准备未完成。可以重试读取已有任务；任务失败或过期时，请重新准备原文。 |
 | knowledge.cloudKey | MinerU 云服务需要 API Token。 |
 | knowledge.documentChanged | PDF 服务设置已变化，请重新准备原文。回答归档会保留。 |
-| knowledge.extractionPhase | 正在等待 PDF 文档处理 |
 | settings.compatibilityLabel | 请求适配 |
 | settings.compatibilityAuto | 自动（默认） |
 | settings.compatibilityGo | OpenCode Go |
 | settings.compatibilityHint | 官方 Go 地址会自动适配。通过中转调用 Go 时请选择 OpenCode Go，并确保中转支持透传会话标识。 |
 | error.providerRedirect | Go 接口返回了跳转。请在模型配置中填写最终接口地址后重试。 |
 | error.providerSessionRejected | 接口拒绝了 Go 会话标识。请检查请求适配设置，并确认中转支持透传会话标识。 |
-| analysis.title | 本书准备 |
 | analysis.scopeLabel | 提问范围 |
 | analysis.selection | 选中内容 |
 | analysis.book | 整本书 |
@@ -241,18 +218,14 @@
 | analysis.stage.chapters | 汇总各章笔记 |
 | analysis.stage.overview | 整理全书概述 |
 | analysis.stageProgress | {stage}：{completed}/{total} |
-| analysis.summaryRound | 第 {round} 轮 |
 | analysis.retrying | 正在重试当前步骤（{attempt}/3），已完成结果会继续复用。 |
 | analysis.recentFailures | 最近失败记录 |
 | analysis.disclosureRetry | 临时错误时每步最多尝试 3 次，重试可能消耗额度。重新生成只替换笔记，原文、含义查找索引与回答归档保留。 |
 | analysis.busy | 另一本书正在准备原文或生成笔记，请先暂停该任务。 |
 | analysis.changed | 笔记所用配置已变化，请重新生成章节笔记。 |
 | analysis.tooLarge | 本书内容超出分析限制，请使用较小的分册。 |
-| analysis.sources | 原文依据 |
 | analysis.sourceCount | 本次参考原文 · {count} 处 |
 | analysis.coverage | 已使用笔记 {covered}/{total} 节 |
-| analysis.progress | 已生成笔记 |
-| analysis.usageUnknown | 接口未返回用量 |
 | analysis.bookQuestion | 询问本书的观点、概念或章节联系… |
 | analysis.bookSource | 全书问答 |
 | analysis.status.empty | 尚未生成笔记 |
@@ -321,7 +294,6 @@
 | --- | --- |
 | assistant.title | 阅读助手 |
 | assistant.viewsAria | 阅读助手视图 |
-| assistant.tabConversation | 对话 |
 | assistant.tabInsights | 回答归档 |
 | assistant.tabCurrent | 当前对话 |
 | assistant.closeTab | 关闭会话标签 |
@@ -356,7 +328,6 @@
 | assistant.cancelledPartial | 已停止生成 |
 | assistant.cancelledEmpty | 请求已取消 |
 | assistant.expandDialog | 展开对话 |
-| assistant.dialogTitle | 对话 |
 | assistant.citationUnknownTitle | 该引用不在本次上下文中 |
 | assistant.citationUnverified | 未验证引用 |
 | assistant.citationSourceFallback | 原文片段 |
@@ -408,7 +379,6 @@
 | highlights.emptyDetail | 选中原文后，点“摘录这段”。 |
 | highlights.title | 摘录 |
 | highlights.count | 摘录 · {count} |
-| highlights.backToSource | 回到原文 |
 | highlights.removeQuestion | 删除摘录？ |
 | highlights.removeAria | 删除摘录 |
 | highlights.removed | 已删除摘录。 |
@@ -528,9 +498,6 @@
 
 | key | text |
 | --- | --- |
-| library.navAria | 书籍导航 |
-| library.tabLibrary | 书库 |
-| library.tabToc | 目录 |
 | library.tabHighlights | 摘录 |
 | library.highlightsAria | 本书摘录 |
 | library.loading | 正在读取书库 |
@@ -600,12 +567,9 @@
 | bookDetails.identifierLabel | 标识符 |
 | bookDetails.descriptionLabel | 简介 |
 | bookDetails.notProvided | 未提供 |
-| reader.progress | 阅读进度 |
 | reader.progressAria | 阅读进度 {percent}% |
-| reader.readingSettings | 阅读设置 |
 | reader.returnToReading | 返回阅读处 |
 | reader.searchOpen | 搜索本书 |
-| reader.searchClose | 关闭搜索 |
 | reader.searchTitle | 搜索本书 |
 | reader.searchInputAria | 输入书内搜索词 |
 | reader.searchPlaceholder | 搜索本书内容… |
@@ -639,8 +603,6 @@
 | reader.pdfSearchUnavailable | 这份 PDF 没有可搜索的文字层。 |
 | reader.pdfInvalidAnchor | 无效的 PDF 定位锚点。 |
 | reader.pdfOpenFailed | 无法打开 PDF，文件可能已损坏或受密码保护。 |
-| reader.chapterProgress | 本章进度 |
-| reader.highlightsFailed | 无法应用原文高亮。 |
 | reader.areaAria | 正文阅读区 |
 | reader.emptyAria | 尚未打开书籍 |
 | reader.emptyText | 从书库打开或导入一本书 |
@@ -703,13 +665,11 @@
 | reader.epubInvalidHighlight | 无效的 EPUB 高亮锚点 |
 | reader.epubSection | 第 {number} 节 |
 | reader.epubNotOpen | EPUB 阅读器尚未打开文档 |
-| reader.txtDefaultTitle | TXT 文档 |
 | reader.txtEmpty | TXT 文件不包含可阅读的文本 |
 | reader.txtOpening | 开篇 |
 | reader.txtInvalidAnchor | 无效的 TXT 定位锚点 |
 | reader.txtAnchorOutside | TXT 定位锚点不在当前文档中 |
 | reader.txtInvalidHighlight | 无效的 TXT 高亮锚点 |
-| reader.txtHighlightOutside | TXT 高亮锚点不在当前文档中 |
 | reader.txtFullText | 全文 |
 
 ## 归档导出
