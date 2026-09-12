@@ -165,8 +165,8 @@
 .reader-rail .reader-return { margin-top: 10px; color: var(--ui-accent); }
 .reader-rail-button[hidden] { display: none; }
 .workspace-shell > .right-sidebar { grid-area: workspace; justify-self: end; width: 360px; height: 100%; min-height: 0; display: none; z-index: 20; border-left: 1px solid var(--ui-line); }
-.workspace-shell[data-page="reading"][data-assistant-visible="true"] > .right-sidebar { display: flex; }
-.workspace-shell[data-assistant-visible="true"] > .reader-column { margin-right: 360px; }
+.workspace-shell[data-page="reading"] > .right-sidebar { display: flex; }
+.workspace-shell[data-page="reading"] > .reader-column { margin-right: 360px; }
 .workspace-shell .assistant-header { height: 52px; padding: 10px 16px; }
 .workspace-shell .assistant-header h2, .workspace-shell .assistant-header strong { font-size: calc(var(--ui-text-size) * var(--interface-scale)); }
 .assistant-context-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; background: var(--ui-surface); border-bottom: 1px solid var(--ui-line); flex: 0 0 auto; }
@@ -181,6 +181,8 @@
 .workspace-shell .answer-sources { font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .workspace-shell .assistant-dialog-backdrop { grid-area: workspace; position: relative; inset: auto; display: flex; padding: 0; background: var(--ui-bg); backdrop-filter: none; z-index: 10; min-height: 0; }
 .workspace-shell .assistant-dialog { width: 100%; max-width: none; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+/* 对话与归档页是常驻页面而非弹窗，直接呈现，不做入场动画。 */
+.workspace-shell :is(.assistant-dialog-backdrop, .assistant-dialog) { animation: none; }
 .workspace-shell[data-page="conversation"] .assistant-dialog > .modal-header { display: none; }
 .workspace-shell .assistant-dialog-body { min-height: 0; }
 .workspace-shell .assistant-dialog .assistant-scroll { padding-left: max(24px, calc((100% - 980px) / 2)); padding-right: max(24px, calc((100% - 980px) / 2)); }
@@ -276,8 +278,6 @@
   .workspace-bookbar { gap: 12px; padding: 8px 16px; }
   .workspace-bookbar nav button { padding: 6px 8px; }
   .workspace-shell[data-page="library"] .library-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .workspace-shell[data-assistant-visible="true"] > .reader-column { margin-right: 0; }
-  .workspace-shell > .right-sidebar { width: 360px; box-shadow: var(--ui-shadow-md); }
   .workspace-status-grid { gap: 12px; }
   .workspace-status-card { padding: 16px; }
   .notes-layout { grid-template-columns: 190px minmax(0, 1fr); gap: 16px; }

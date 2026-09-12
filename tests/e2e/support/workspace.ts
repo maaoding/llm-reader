@@ -1,7 +1,6 @@
 import { expect, type ElectronApplication, type Page } from '@playwright/test'
 
 export async function resizeWorkspace(application: ElectronApplication, page: Page, width: number, height: number): Promise<void> {
-  const wasCompact = await page.evaluate(() => innerWidth < 1180)
   await application.evaluate(({ BrowserWindow }, size) => {
     const window = BrowserWindow.getAllWindows()[0]
     window.unmaximize()
@@ -9,8 +8,9 @@ export async function resizeWorkspace(application: ElectronApplication, page: Pa
   }, [width, height])
   // setSize resolves before Windows delivers the renderer resize and media-query events.
   await expect.poll(() => page.evaluate(([w, h]) => Math.abs(innerWidth - w) <= 2 && Math.abs(innerHeight - h) <= 2, [width, height])).toBe(true)
-  if (wasCompact !== (width < 1180)) {
-    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-assistant-visible', String(width >= 1180))
+  // 助手区在阅读页常驻，不再随窗口宽度收起。
+  if (await page.locator('.workspace-shell').getAttribute('data-page') === 'reading') {
+    await expect(page.locator('.right-sidebar')).toBeVisible()
   }
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }

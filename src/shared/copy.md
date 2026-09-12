@@ -31,7 +31,6 @@
 | workspace.bookTabs | 打开的书籍 |
 | workspace.closeBookTab | 关闭《{title}》 |
 | workspace.closePanel | 收起面板 |
-| workspace.closeAssistant | 收起助手 |
 | workspace.librarySearch | 搜索书名或作者 |
 | workspace.libraryCount | {count} 本书 |
 | workspace.libraryNoResults | 没有找到这本书 |
@@ -351,7 +350,6 @@
 | assistant.cancelledEmpty | 请求已取消 |
 | assistant.expandDialog | 展开对话 |
 | assistant.dialogTitle | 对话 |
-| assistant.closeDialog | 返回阅读 |
 | assistant.citationUnknownTitle | 该引用不在本次上下文中 |
 | assistant.citationUnverified | 未验证引用 |
 | assistant.citationSourceFallback | 原文片段 |

@@ -23,7 +23,12 @@ test('opens the book overview, keeps live drafts and reader instance across page
     await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
     await page.getByTestId('nav-archives').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
-    await page.getByTestId('assistant-dialog-close').click()
+    // 对话与归档页是常驻页面，不做入场动画。
+    await expect(page.getByTestId('assistant-dialog')).toHaveCSS('animation-name', 'none')
+    await expect(page.locator('.assistant-dialog-backdrop')).toHaveCSS('animation-name', 'none')
+    // 归档页与书库同级：没有关闭按钮，离开走顶栏。
+    await expect(page.getByTestId('assistant-dialog-close')).toHaveCount(0)
+    await page.getByTestId('nav-library').click()
     await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'library')
     await page.getByTestId('book-item').click()
     await expect(page.getByTestId('book-overview')).toBeVisible()
@@ -205,7 +210,14 @@ test('adapts the workspace, drawers and preparation to every supported scale in 
           await expect(page.locator('.sidebar-tabs')).toHaveCount(0)
           await page.getByTestId('reader-contents-button').click()
           await expect(page.locator('.left-sidebar')).toBeHidden()
-          await expect(page.locator('.right-sidebar')).toBeHidden()
+          // 窄窗口下左侧抽屉覆盖正文，右侧助手区仍停靠并保留宽度。
+          await expect(page.locator('.right-sidebar')).toBeVisible()
+          await expect(page.locator('.right-sidebar').getByTestId('followup-input')).toBeInViewport()
+          await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
+            const panel = document.querySelector<HTMLElement>('.right-sidebar')
+            if (!panel) return false
+            return host.getBoundingClientRect().right <= panel.getBoundingClientRect().left + 1
+          })).toBe(true)
         } else {
           await page.locator('.right-sidebar').getByTestId('followup-input').fill('草稿 ' + label)
           await expect(page.locator('.right-sidebar').getByTestId('followup-input')).toBeInViewport()

@@ -2298,8 +2298,6 @@ export default function App(): ReactNode {
   const [leftView, setLeftView] = useState<LeftView>('library')
   const [page, setPage] = useState<WorkspacePage>('library')
   const [leftPanelOpen, setLeftPanelOpen] = useState(false)
-  const [compactWindow, setCompactWindow] = useState(() => window.innerWidth < 1180)
-  const [assistantVisible, setAssistantVisible] = useState(() => window.innerWidth >= 1180)
   const [libraryQuery, setLibraryQuery] = useState('')
   const [preparationBookId, setPreparationBookId] = useState<string | null>(null)
   const [pdfDisplayOpen, setPdfDisplayOpen] = useState(false)
@@ -2398,7 +2396,6 @@ export default function App(): ReactNode {
     if (view === 'library') setPage('library')
     else {
       setPage('reading'); setLeftPanelOpen(true)
-      if (window.innerWidth < 1180) setAssistantVisible(false)
     }
   }, [])
 
@@ -2409,7 +2406,6 @@ export default function App(): ReactNode {
     setSettingsInitialSection(section)
     setSettingsOpen(true)
   }, [])
-  const closeAssistantDialog = useCallback(() => setPage(activeBook ? 'reading' : 'library'), [activeBook])
   const closePreparation = useCallback(() => setPreparationBookId(null), [])
   const closeBookDetails = useCallback(() => setDetailsBook(null), [])
   const openBookDetails = useCallback((book: BookRecord, trigger: HTMLButtonElement): void => {
@@ -2424,7 +2420,7 @@ export default function App(): ReactNode {
   useEffect(() => {
     const media = window.matchMedia('(max-width: 1179px)')
     const update = () => {
-      setCompactWindow(media.matches); setLeftPanelOpen(false); setAssistantVisible(!media.matches)
+      setCompactWindow(media.matches); setLeftPanelOpen(false)
     }
     media.addEventListener('change', update)
     return () => media.removeEventListener('change', update)
@@ -2717,7 +2713,8 @@ export default function App(): ReactNode {
     }
     destroyReader()
     const liveTabId = ensureLiveTab(book)
-    focusConversationTab(liveTabId)
+    // 从归档等入口后台打开书籍时，保持调用方选中的会话标签。
+    if (options.focusLiveTab !== false) focusConversationTab(liveTabId)
     setActiveBook(book)
     activeBookRef.current = book
     setBookState('loading')
@@ -3318,7 +3315,6 @@ export default function App(): ReactNode {
   }, [selection, bookState, interfaceScale])
 
   const handleSelectionAction = (action: LlmAction): void => {
-    setAssistantVisible(true)
     if (compactWindow) setLeftPanelOpen(false)
     if (!selection || !activeBook) return
     const liveTabId = ensureLiveTab(activeBook)
@@ -3434,17 +3430,10 @@ export default function App(): ReactNode {
   }, [navigateToAnchor])
 
   const openInsight = useCallback(async (insight: InsightArchiveRecord): Promise<void> => {
-    if (activeBookRef.current?.id !== insight.bookId) {
-      const book = books.find((candidate) => candidate.id === insight.bookId)
-      if (!book) {
-        pushToast(copy('insights.bookMissing'), 'error')
-        return
-      }
-      await openBook(book)
-      if (activeBookRef.current?.id !== insight.bookId || !adapterRef.current) {
-        pushToast(copy('reader.openFailed'), 'error')
-        return
-      }
+    const book = activeBookRef.current?.id === insight.bookId ? null : books.find((candidate) => candidate.id === insight.bookId)
+    if (activeBookRef.current?.id !== insight.bookId && !book) {
+      pushToast(copy('insights.bookMissing'), 'error')
+      return
     }
 
     let tabId = conversationTabsRef.current.find((tab) => tab.kind === 'archive' && tab.insightId === insight.id)?.id
@@ -3453,10 +3442,16 @@ export default function App(): ReactNode {
       commitConversationTabs((current) => [...current, tab])
       tabId = tab.id
     }
-    adapterRef.current?.clearSelection()
-    setSelection(null)
+    // 先进入对话页，目标书籍在后台打开，避免先跳到书籍页面。
     focusConversationTab(tabId)
     setPage('conversation')
+    if (!book) return
+    adapterRef.current?.clearSelection()
+    setSelection(null)
+    await openBook(book, null, { focusLiveTab: false })
+    if (activeBookRef.current?.id !== insight.bookId || !adapterRef.current) {
+      pushToast(copy('reader.openFailed'), 'error')
+    }
   }, [books, commitConversationTabs, focusConversationTab, openBook, pushToast])
 
   const activateSessionTab = useCallback(async (tabId: string): Promise<void> => {
@@ -3468,11 +3463,14 @@ export default function App(): ReactNode {
         pushToast(copy('insights.bookMissing'), 'error')
         return
       }
-      await openBook(book)
+      // 先切到对话页并在后台打开书籍：切换到其他书的会话时不闪回书籍页面。
+      focusConversationTab(tabId)
+      setPage('conversation')
+      await openBook(book, null, { focusLiveTab: false })
       if (activeBookRef.current?.id !== tab.bookId || !adapterRef.current) {
         pushToast(copy('reader.openFailed'), 'error')
-        return
       }
+      return
     }
     focusConversationTab(tabId)
     setPage('conversation')
@@ -3791,7 +3789,6 @@ export default function App(): ReactNode {
       className="app-shell workspace-shell"
       data-page={page}
       data-left-open={leftPanelOpen}
-      data-assistant-visible={assistantVisible}
       data-pdf-display={pdfDisplayOpen}
       data-workspace-ready={workspaceReady}
       data-testid="app-shell"
@@ -4148,7 +4145,7 @@ export default function App(): ReactNode {
         </section>
       </main>
 
-      <aside className="right-sidebar" data-testid="ai-panel" inert={page !== 'reading' || !assistantVisible}>
+      <aside className="right-sidebar" data-testid="ai-panel" inert={page !== 'reading'}>
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
           <div className="assistant-header-actions">
@@ -4208,7 +4205,6 @@ export default function App(): ReactNode {
           <section ref={assistantDialogRef} className="assistant-dialog" data-testid="assistant-dialog" role="region" aria-labelledby="assistant-dialog-title">
             <header className="modal-header">
               <div><h2 id="assistant-dialog-title">{copy(page === 'archives' ? 'workspace.archives' : 'workspace.conversation')}</h2></div>
-              <button className="icon-button" data-testid="assistant-dialog-close" type="button" onClick={closeAssistantDialog} aria-label={copy(activeBook ? 'assistant.closeDialog' : 'workspace.backLibrary')}><X size={18} /></button>
             </header>
             <nav className="assistant-workspace-nav" aria-label={copy('assistant.viewsAria')}>
               <div className="assistant-session-tabs" role="tablist" aria-label={copy('assistant.viewsAria')}>
