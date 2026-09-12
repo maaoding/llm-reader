@@ -89,7 +89,18 @@
 .workspace-shell[data-page="library"], .workspace-shell[data-page="archives"] { grid-template-rows: 56px 0 minmax(0, 1fr); }
 .workspace-topbar { grid-area: topbar; display: flex; align-items: center; gap: 24px; padding-left: 24px; background: var(--ui-surface); border-bottom: 1px solid var(--ui-line); -webkit-app-region: drag; z-index: 70; }
 .workspace-brand { font-size: 16px; white-space: nowrap; }
-.workspace-topbar nav { display: flex; gap: 6px; align-items: center; flex: 1; min-width: 0; }
+.workspace-topbar nav { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; min-width: 0; }
+.workspace-book-tabs { display: flex; min-width: 0; flex: 1; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.workspace-book-tabs::-webkit-scrollbar { display: none; }
+.workspace-book-tab { display: inline-flex; min-width: 0; flex: 0 0 auto; align-items: center; border: 1px solid transparent; border-radius: var(--radius-sm); }
+.workspace-book-tab:hover { background: var(--ui-accent-soft); }
+.workspace-book-tab.is-active { background: var(--ui-accent-soft); border-color: var(--ui-line); }
+.workspace-book-tab.is-dragging { opacity: 0.5; }
+.workspace-book-tab-select { display: flex; max-width: calc(170px * var(--interface-scale)); min-width: 0; min-height: 32px; align-items: center; padding: 4px 4px 4px 10px; color: var(--ui-muted); background: transparent; font-size: calc(var(--ui-label-size) * var(--interface-scale)); white-space: nowrap; }
+.workspace-book-tab.is-active .workspace-book-tab-select { color: var(--ui-accent); }
+.workspace-book-tab-select span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-book-tab-close { display: grid; width: 20px; height: 20px; margin-right: 4px; flex: 0 0 auto; place-items: center; color: var(--ui-muted); background: transparent; border-radius: var(--radius-sm); }
+.workspace-book-tab-close:hover { color: var(--ui-ink); background: var(--ui-line); }
 .workspace-topbar button, .workspace-bookbar button, .workspace-shell .reader-header button { -webkit-app-region: no-drag; }
 .workspace-topbar nav button, .workspace-settings { display: inline-flex; gap: 7px; align-items: center; min-height: 36px; padding: 6px 12px; border-radius: var(--radius-md); background: transparent; color: var(--ui-ink-soft); font-size: calc(var(--ui-label-size) * var(--interface-scale)); white-space: nowrap; }
 .workspace-topbar nav button[aria-current="page"], .workspace-topbar nav button:hover, .workspace-settings:hover { color: var(--ui-accent); background: var(--ui-accent-soft); }
@@ -120,6 +131,11 @@
 .library-page-toolbar p { margin: 0; color: var(--ui-muted); }
 .library-page-search { display: flex; align-items: center; gap: 8px; margin-left: auto; width: min(380px, 40%); padding: 9px 12px; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-surface); color: var(--ui-muted); }
 .library-page-search input { border: 0; min-width: 0; width: 100%; outline: 0; color: var(--ui-ink); background: transparent; }
+.library-resume { display: flex; align-items: center; gap: 12px; min-width: 0; margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--ui-line); border-radius: var(--radius-lg); background: var(--ui-surface); }
+.library-resume-icon { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; color: var(--ui-accent); background: var(--ui-accent-soft); border-radius: var(--radius-md); }
+.library-resume-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(15px * var(--interface-scale)); }
+.library-resume small { flex: 0 0 auto; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
+.library-resume .secondary-button { flex: 0 0 auto; }
 .workspace-shell[data-page="library"] .sidebar-content { padding: 0; overflow-y: auto; }
 .workspace-shell[data-page="library"] .library-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 16px; padding: 2px 0 24px; }
 .workspace-shell[data-page="library"] .library-list > :is(.empty-state, .sidebar-loading) { grid-column: 1 / -1; }
@@ -130,7 +146,11 @@
 .workspace-shell[data-page="library"] .book-meta { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; text-align: left; }
 .workspace-shell[data-page="library"] .book-meta strong { font-size: calc(16px * var(--interface-scale)); }
 .workspace-shell[data-page="library"] .book-meta strong { display: -webkit-box; overflow: hidden; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+/* 标题预留两行高度：一行与两行标题的卡片高度一致，网格行高才能统一。 */
+.workspace-shell[data-page="library"] .book-meta strong { min-height: 2.7em; }
 .workspace-shell[data-page="library"] .book-meta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-shell[data-page="library"] .book-meta-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.workspace-shell[data-page="library"] .book-meta-foot .format-chip { flex: 0 0 auto; font-size: 11px; }
 .workspace-shell .book-meta small, .workspace-shell .book-progress-text { font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); color: var(--ui-muted); }
 .workspace-shell .book-item-info { position: static; opacity: 1; align-self: center; width: 36px; height: 36px; flex: 0 0 36px; }
 .workspace-shell[data-page="reading"][data-left-open="true"] > .left-sidebar { display: flex; position: absolute; inset: 0 auto 0 var(--reader-rail-width); width: 280px; border-right: 1px solid var(--ui-line); box-shadow: var(--ui-shadow-md); }

@@ -28,13 +28,14 @@
 | workspace.more | 更多书籍操作 |
 | workspace.bookDetails | 书籍详情 |
 | workspace.tabs | 本书页面 |
+| workspace.bookTabs | 打开的书籍 |
+| workspace.closeBookTab | 关闭《{title}》 |
 | workspace.closePanel | 收起面板 |
 | workspace.closeAssistant | 收起助手 |
 | workspace.librarySearch | 搜索书名或作者 |
 | workspace.libraryCount | {count} 本书 |
 | workspace.libraryNoResults | 没有找到这本书 |
 | workspace.libraryNoResultsHint | 换一个书名或作者试试。 |
-| workspace.currentBook | 返回当前书籍 |
 | workspace.preparing | 正在准备 |
 | workspace.notPrepared | 尚未准备 |
 | workspace.ready | 原文已就绪 |
@@ -528,13 +529,10 @@
 | library.tabHighlights | 摘录 |
 | library.highlightsAria | 本书摘录 |
 | library.loading | 正在读取书库 |
+| library.resumeTitle | 继续阅读《{title}》 |
 | library.unavailableTitle | 书库暂不可用 |
 | library.emptyTitle | 书库为空 |
 | library.emptyDetail | 可导入 EPUB、TXT、PDF、MOBI 或 AZW3。 |
-| library.epubDescription | EPUB 电子书 |
-| library.txtDescription | TXT 文档 |
-| library.pdfDescription | PDF 文档 |
-| library.convertedDescription | {format}（已转换为 EPUB） |
 | library.tocAria | 本书目录 |
 | library.tocLoading | 正在解析目录 |
 | library.tocEmptyTitle | 没有可用目录 |

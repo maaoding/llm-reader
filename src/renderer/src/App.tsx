@@ -86,7 +86,7 @@ import { AnswerText } from './AnswerText'
 import { BookAnalysisControls } from './BookAnalysisControls'
 import { BookOverview } from './BookOverview'
 import { BookNotesView } from './BookNotesView'
-import { readWorkspaceState, saveWorkspaceState, type WorkspacePage } from './workspace-state'
+import { bookTabPage, readWorkspaceState, saveWorkspaceState, type BookTabState, type WorkspacePage } from './workspace-state'
 import { KnowledgeSettings } from './KnowledgeSettings'
 import { useBookAnalysis } from './use-book-analysis'
 import { EvidenceSources } from './EvidenceSources'
@@ -2430,8 +2430,8 @@ export default function App(): ReactNode {
     return () => media.removeEventListener('change', update)
   }, [])
   useEffect(() => {
-    if (workspaceReady) saveWorkspaceState({ bookId: activeBook?.id ?? null, page })
-  }, [activeBook?.id, page, workspaceReady])
+    if (workspaceReady) saveWorkspaceState({ bookId: activeBook?.id ?? null, page, tabs: bookTabs })
+  }, [activeBook?.id, bookTabs, page, workspaceReady])
   useEffect(() => {
     activeBookRef.current = activeBook
   }, [activeBook])
@@ -2856,6 +2856,8 @@ export default function App(): ReactNode {
     if (libraryState !== 'ready' || workspaceRestored.current) return
     workspaceRestored.current = true
     const saved = initialWorkspace.current
+    // 书已被删除的标签不再恢复；标签列表随工作区状态持久化。
+    setBookTabs(saved.tabs.filter((tab) => books.some((book) => book.id === tab.bookId)))
     const target = books.find((book) => book.id === saved.bookId)
     if (target) void openBook(target).then(() => { setPage(saved.page); setWorkspaceReady(true) })
     else { if (saved.page === 'archives') setPage('archives'); setWorkspaceReady(true) }
@@ -3589,9 +3591,11 @@ export default function App(): ReactNode {
       if (deleted) {
         setBooks((current) => current.filter((item) => item.id !== book.id))
         removeConversationTabsForBook(book.id)
+        removeBookTab(book.id)
         await refreshInsights()
         pushToast(copy('library.deletedToast', { title: book.title }), 'success')
       } else {
+        removeBookTab(book.id)
         await refreshBooks()
         pushToast(copy('library.alreadyRemoved'), 'neutral')
       }
@@ -3757,6 +3761,17 @@ export default function App(): ReactNode {
     return books.filter((book) => !query || [book.title, book.author ?? ''].some((text) => text.toLocaleLowerCase().includes(query)))
       .sort((a, b) => (b.lastOpenedAt ?? b.importedAt).localeCompare(a.lastOpenedAt ?? a.importedAt))
   }, [books, libraryQuery])
+  const resumeBook = useMemo(() => {
+    let latest: BookRecord | null = null
+    let latestOpenedAt = ''
+    for (const book of books) {
+      const openedAt = book.lastOpenedAt
+      if (!openedAt || openedAt <= latestOpenedAt) continue
+      latest = book
+      latestOpenedAt = openedAt
+    }
+    return latest
+  }, [books])
   const visibleToc = useMemo(() => {
     const ancestorIds: string[] = []
     return toc.map((item, index) => {
@@ -3789,8 +3804,59 @@ export default function App(): ReactNode {
         <nav aria-label={copy('workspace.navigation')}>
           <button type="button" data-testid="nav-library" aria-current={page === 'library' ? 'page' : undefined} onClick={() => setPage('library')}><Library size={17} />{copy('workspace.library')}</button>
           <button type="button" data-testid="nav-archives" aria-current={page === 'archives' ? 'page' : undefined} onClick={() => setPage('archives')}><Bookmark size={17} />{copy('workspace.archives')}</button>
-          {activeBook && page === 'library' && <button type="button" onClick={() => setPage('overview')}><BookOpen size={17} />{copy('workspace.currentBook')}</button>}
         </nav>
+        <div className="workspace-book-tabs" role="tablist" aria-label={copy('workspace.bookTabs')} data-testid="book-tabs" ref={bookTabStripRef}>
+          {bookTabs.map((tab) => {
+            const book = books.find((candidate) => candidate.id === tab.bookId)
+            if (!book) return null
+            const isActive = activeBook?.id === tab.bookId && !['library', 'archives'].includes(page)
+            return (
+              <div
+                className={'workspace-book-tab ' + (isActive ? 'is-active ' : '') + (draggingTabId === tab.bookId ? 'is-dragging' : '')}
+                data-book-id={tab.bookId}
+                key={tab.bookId}
+                ref={isActive ? activeBookTabRef : undefined}
+                draggable
+                onDragStart={(event) => {
+                  setDraggingTabId(tab.bookId)
+                  event.dataTransfer.effectAllowed = 'move'
+                  event.dataTransfer.setData('text/plain', tab.bookId)
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const sourceId = event.dataTransfer.getData('text/plain') || draggingTabId
+                  setDraggingTabId(null)
+                  if (sourceId) moveBookTab(sourceId, tab.bookId)
+                }}
+                onDragEnd={() => setDraggingTabId(null)}
+              >
+                <button
+                  className="workspace-book-tab-select"
+                  data-testid="book-tab"
+                  data-book-id={tab.bookId}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  title={book.title}
+                  onClick={() => activateBookTab(tab)}
+                ><span>{book.title}</span></button>
+                <button
+                  className="workspace-book-tab-close"
+                  data-testid="book-tab-close"
+                  data-book-id={tab.bookId}
+                  type="button"
+                  aria-label={copy('workspace.closeBookTab', { title: book.title })}
+                  title={copy('workspace.closeBookTab', { title: book.title })}
+                  onClick={() => closeBookTab(tab.bookId)}
+                ><X size={12} /></button>
+              </div>
+            )
+          })}
+        </div>
         <button ref={settingsButtonRef} className="workspace-settings" data-testid="settings-button" type="button" onClick={(event) => openSettings('appearance', event.currentTarget)}><Settings size={17} />{copy('settings.title')}
           <i className={'connection-status-dot is-' + providerConnection.status} data-testid="provider-connection-status" role="status" aria-label={providerStatusLabel(providerConnection.status)} title={providerConnection.message || providerStatusLabel(providerConnection.status)} />
         </button><WindowControls />
@@ -3809,6 +3875,14 @@ export default function App(): ReactNode {
 
         {page === 'library' && <header className="library-page-toolbar"><div><h1>{copy('workspace.library')}</h1><p>{copy('workspace.libraryCount', { count: books.length })}</p></div><label className="library-page-search"><Search size={17} /><input data-testid="library-search" type="search" aria-label={copy('workspace.librarySearch')} placeholder={copy('workspace.librarySearch')} value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} /></label>
           <button className="primary-button" data-testid="import-book" type="button" disabled={importing} onClick={(event) => void importBooks(event.currentTarget)}><Import size={17} />{copy(importing ? 'library.importing' : 'library.import')}</button></header>}
+        {page === 'library' && resumeBook && (
+          <div className="library-resume" data-testid="library-resume">
+            <span className="library-resume-icon" aria-hidden="true"><BookOpen size={16} /></span>
+            <span className="library-resume-title" title={resumeBook.title}>{copy('library.resumeTitle', { title: resumeBook.title })}</span>
+            <small>{copy('workspace.readingProgress', { percent: Math.round(resumeBook.progress * 100) })}</small>
+            <button className="secondary-button" data-testid="library-resume-open" type="button" onClick={() => void openBook(resumeBook, 'reading')}>{copy('workspace.continue')}</button>
+          </div>
+        )}
         <div className="sidebar-content">
           {page === 'library' && (
             <div className="library-list" data-testid="library-list">
@@ -3840,8 +3914,11 @@ export default function App(): ReactNode {
                     <BookCover book={book} cache={coverCache} />
                     <span className="book-meta">
                       <strong title={book.title}>{book.title}</strong>
-                      <small title={book.author || bookFallbackDescription(book)}>{book.author || bookFallbackDescription(book)}</small>
-                      <span className="book-progress-text">{copy('workspace.readingProgress', { percent: Math.round(book.progress * 100) })}</span>
+                      <small title={book.author || copy('common.unknownAuthor')}>{book.author || copy('common.unknownAuthor')}</small>
+                      <span className="book-meta-foot">
+                        <span className="format-chip" data-testid="book-format" data-format={book.sourceFormat}>{book.sourceFormat.toUpperCase()}</span>
+                        <span className="book-progress-text">{copy('workspace.readingProgress', { percent: Math.round(book.progress * 100) })}</span>
+                      </span>
                     </span>
                   </button>
                   <button

@@ -262,6 +262,56 @@ test('renders and scrolls a 300-book library and opens its last visible entry', 
   }
 })
 
+test('keeps two global destinations and resumes the most recently opened book from the library bar', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-resume-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const firstPath = join(workspace.root, '先读的书.txt')
+    const secondPath = join(workspace.root, '后读的书.txt')
+    await Promise.all([
+      writeFile(firstPath, '先读的书\n\n先读的书的正文。', 'utf8'),
+      writeFile(secondPath, '后读的书\n\n后读的书的正文。', 'utf8')
+    ])
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    await stubImportDialog(application, [firstPath, secondPath])
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 2 本')
+    await page.getByTestId('book-import-close').click()
+    await expect(page.getByTestId('book-item')).toHaveCount(2)
+
+    // 主导航只保留两个全局目的地，不再由顶栏承担“返回当前书籍”。
+    await expect(page.locator('.workspace-topbar nav button')).toHaveCount(2)
+
+    // 只有导入记录、从未打开过的书库不提供继续阅读。
+    await expect(page.getByTestId('library-resume')).toHaveCount(0)
+
+    await page.getByTestId('book-item').filter({ hasText: '先读的书' }).click()
+    await expect(page.locator('.workspace-book-title h1')).toHaveText('先读的书')
+    await page.getByTestId('nav-library').click()
+    // 书库卡片直接显示书籍格式
+    await expect(page.getByTestId('book-item').filter({ hasText: '先读的书' }).getByTestId('book-format')).toHaveText('TXT')
+    const resume = page.getByTestId('library-resume')
+    await expect(resume).toContainText('继续阅读《先读的书》')
+    await expect(resume).toContainText(/已读 \d+%/u)
+
+    await page.getByTestId('book-item').filter({ hasText: '后读的书' }).click()
+    await expect(page.locator('.workspace-book-title h1')).toHaveText('后读的书')
+    await page.getByTestId('nav-library').click()
+    await expect(resume).toContainText('继续阅读《后读的书》')
+
+    // 继续阅读直接回到阅读页并恢复本书内容，不再中转概览页。
+    await page.getByTestId('library-resume-open').click()
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
+    await expect(page.locator('.workspace-book-title h1')).toHaveText('后读的书')
+    await expect(page.getByTestId('reader-host')).toContainText('后读的书的正文。')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
 test('uses three compact library columns at 1180px and two at 940px', async () => {
   const workspace = await createE2eWorkspace('llm-reader-library-grid-')
   let application: ElectronApplication | undefined
@@ -291,6 +341,9 @@ test('uses three compact library columns at 1180px and two at 940px', async () =
     expect(new Set(compactRows.slice(0, 2)).size).toBe(1)
     expect(compactRows[2]).toBeGreaterThan(compactRows[0])
     await expect(page.locator('.book-meta strong').first()).toHaveCSS('-webkit-line-clamp', '2')
+    // 标题一行与两行的卡片高度必须一致，网格行高才能统一。
+    const cardHeights = async (): Promise<number[]> => page.locator('.book-item').evaluateAll((cards) => [...new Set(cards.map((card) => Math.round(card.getBoundingClientRect().height)))])
+    expect(await cardHeights()).toHaveLength(1)
     await expect(page.getByTestId('book-info').first()).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: test.info().outputPath('library-940-light.png'), animations: 'disabled' })
