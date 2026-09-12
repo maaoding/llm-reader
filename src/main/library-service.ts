@@ -15,9 +15,12 @@ import type {
   ImportedBookResult,
   InsightArchiveRecord,
   InsightExportScope,
+  BookSessionRecord,
   SavedInsight,
+  SaveBookSessionInput,
   SaveHighlightInput,
   SaveInsightInput,
+  SessionTabsState,
   UpdateInsightHistoryInput
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -663,6 +666,35 @@ export class LibraryService {
       throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     }
     return this.database.listInsights(bookId)
+  }
+
+  getBookSession(bookId: string): BookSessionRecord | null {
+    if (!this.database.getStoredBook(bookId)) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    return this.database.getBookSession(bookId)
+  }
+
+  saveBookSession(input: SaveBookSessionInput): BookSessionRecord {
+    if (!this.database.getStoredBook(input.bookId)) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    return this.database.upsertBookSession({ ...input, updatedAt: new Date().toISOString() })
+  }
+
+  deleteBookSession(bookId: string): boolean {
+    if (!this.database.getStoredBook(bookId)) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    return this.database.deleteBookSession(bookId)
+  }
+
+  listSessionTabs(): SessionTabsState {
+    return this.database.listSessionTabs()
+  }
+
+  saveSessionTabs(input: SessionTabsState): SessionTabsState {
+    return this.database.replaceSessionTabs(input)
   }
 
   listAllInsights(): InsightArchiveRecord[] {

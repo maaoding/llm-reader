@@ -72,6 +72,9 @@ import type {
   LlmEvent,
   LlmRequest,
   LlmUsage,
+  BookSessionTurn,
+  SaveBookSessionInput,
+  SessionTabsState,
   ProviderSettings,
   ProviderCompatibility,
   ProviderOverview,
@@ -287,6 +290,11 @@ const EMPTY_PROVIDER_OVERVIEW: ProviderOverview = {
   activeProfileId: null
 }
 
+const MAX_CONCURRENT_REQUESTS = 2
+// 临时会话落库上限，与主进程 zod 校验保持一致。
+const MAX_SESSION_TURNS = 20
+const MAX_SESSION_TABS = 20
+const MAX_SESSION_ANSWER_LENGTH = 20_000
 const THEME_STORAGE_KEY = 'llm-reader.theme'
 const INTERFACE_SCALE_STORAGE_KEY = 'llm-reader.interface-scale'
 const READING_PREFERENCES_STORAGE_KEY = 'llm-reader.reading-preferences'
@@ -790,12 +798,25 @@ function sourceFormatLabel(book: BookRecord): string {
   return book.sourceFormat === 'epub' ? copy('bookDetails.formatEpub') : copy('bookDetails.formatTxt')
 }
 
-function bookFallbackDescription(book: BookRecord): string {
-  if (book.sourceFormat === 'mobi' || book.sourceFormat === 'azw3') {
-    return copy('library.convertedDescription', { format: book.sourceFormat.toUpperCase() })
-  }
-  if (book.format === 'epub') return copy('library.epubDescription')
-  return book.format === 'pdf' ? copy('library.pdfDescription') : copy('library.txtDescription')
+// 只落库已结束的轮次，并裁到主进程允许的上限，避免保存被校验拒绝。
+function persistableTurns(turns: ConversationTurn[]): BookSessionTurn[] {
+  return turns
+    .filter((turn) => turn.status === 'completed' || turn.status === 'error')
+    .slice(-MAX_SESSION_TURNS)
+    .map((turn) => ({
+      id: turn.id,
+      action: turn.action,
+      actionLabel: turn.actionLabel,
+      question: turn.question.slice(0, 2_000),
+      answer: turn.answer.slice(0, MAX_SESSION_ANSWER_LENGTH),
+      model: turn.model,
+      status: turn.status as 'completed' | 'error',
+      ...(turn.saved ? { saved: true } : {}),
+      ...(turn.error ? { error: turn.error.slice(0, 2_000) } : {}),
+      ...(turn.usage ? { usage: turn.usage } : {}),
+      selection: turn.selection,
+      context: turn.context ?? null
+    }))
 }
 
 function formatFullDate(iso: string): string {
@@ -2336,6 +2357,13 @@ export default function App(): ReactNode {
   const preparationReturnRef = useRef<HTMLButtonElement>(null)
   const initialWorkspace = useRef(readWorkspaceState())
   const workspaceRestored = useRef(false)
+  // 首帧就要渲染标签条，与 initialWorkspace 读同一条记录。
+  const [bookTabs, setBookTabs] = useState<BookTabState[]>(() => readWorkspaceState().tabs)
+  const [compactWindow, setCompactWindow] = useState(() => window.innerWidth < 1180)
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
+  const [draggingSessionTabId, setDraggingSessionTabId] = useState<string | null>(null)
+  const [conversationQuery, setConversationQuery] = useState('')
+  const [pendingClearSession, setPendingClearSession] = useState(false)
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [selection, setSelection] = useState<SelectionContext | null>(null)
   const [selectionDraft, setSelectionDraft] = useState<ReaderSelectionDraft | null>(null)
@@ -2728,8 +2756,120 @@ export default function App(): ReactNode {
     }
   }, [commitConversationTabs])
 
-  const openBook = useCallback(async (book: BookRecord): Promise<void> => {
-    setPage('overview'); setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false)
+  const visibleSessionTabs = useMemo(() => conversationTabs.filter((tab) => (
+    tab.kind === 'archive' ||
+    tab.bookId === activeBook?.id ||
+    tab.turns.length > 0 ||
+    Boolean(tab.selection) ||
+    Boolean(tab.draft)
+  )), [activeBook?.id, conversationTabs])
+
+  // 打开的会话标签（含归档标签草稿）整体落库；live 草稿由 book_sessions 负责，避免两份来源。
+  const sessionTabsState = useCallback((): SessionTabsState => {
+    const source = visibleSessionTabs.filter((tab) => tab.kind === 'live' || Boolean(tab.insightId))
+    const window = source.slice(-MAX_SESSION_TABS)
+    const active = source.find((tab) => tab.id === activeTabId)
+    // 超过上限时也保留当前激活标签：必要时挤掉窗口里最旧的一个。
+    const kept = active && !window.includes(active) ? [...window.slice(1), active] : window
+    const activeIndex = kept.findIndex((tab) => tab.id === activeTabId)
+    return {
+      activeIndex: activeIndex >= 0 ? activeIndex : null,
+      tabs: kept.map((tab) => ({
+        kind: tab.kind,
+        bookId: tab.bookId,
+        insightId: tab.kind === 'archive' ? tab.insightId ?? null : null,
+        draft: tab.kind === 'archive' ? tab.draft.slice(0, 2_000) : ''
+      }))
+    }
+  }, [activeTabId, visibleSessionTabs])
+
+  // 同一本书只允许一个进行中的请求；切换书籍不会取消其他书中正在生成的回答。
+  const tabHasActiveRequest = (tabId: string): boolean => {
+    for (const value of requestSessionRef.current.values()) if (value === tabId) return true
+    return pendingRequestsRef.current.some((item) => item.tabId === tabId)
+  }
+  const cancelBookRequests = (bookId: string): void => {
+    for (const [requestId, tabId] of [...requestSessionRef.current]) {
+      const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
+      if (tab?.bookId !== bookId) continue
+      requestSessionRef.current.delete(requestId)
+      requestProviderRevisionRef.current.delete(requestId)
+      void window.readerApi.cancelLlm(requestId).catch(() => undefined)
+      updateConversationTab(tabId, (current) => ({
+        ...current,
+        turns: current.turns.map((turn) => turn.requestId === requestId
+          ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
+          : turn)
+      }))
+    }
+  }
+
+  // 打开书籍时恢复该书的最后一个临时会话（草稿 + 未归档轮次），并复用原会话标识。
+  const restoredSessionsRef = useRef(new Set<string>())
+  useEffect(() => {
+    const bookId = activeBook?.id
+    if (!bookId || restoredSessionsRef.current.has(bookId)) return
+    restoredSessionsRef.current.add(bookId)
+    void window.readerApi.getBookSession(bookId).then((record) => {
+      if (!record) return
+      const tab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
+      if (!tab || tab.turns.length > 0 || tab.draft) return
+      updateConversationTab(tab.id, (current) => ({
+        ...current,
+        conversationId: record.conversationId,
+        scope: record.scope,
+        selection: record.selection,
+        draft: record.draft,
+        turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined }))
+      }))
+    }).catch(() => undefined)
+  }, [activeBook?.id, updateConversationTab])
+
+  // 会话落库载荷：选中文范围但选区已失效时降级为整本书，否则主进程校验会拒收。
+  const sessionPayload = useCallback((tab: ConversationTab): SaveBookSessionInput => ({
+    bookId: tab.bookId,
+    conversationId: tab.conversationId,
+    scope: tab.scope === 'selection' && !tab.selection ? 'book' : tab.scope,
+    selection: tab.selection,
+    draft: tab.draft,
+    turns: persistableTurns(tab.turns)
+  }), [])
+
+  // 去抖保存临时会话：草稿与未归档轮次都落库，重启后可恢复。
+  const liveSessionTab = activeBook ? conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id) : undefined
+  useEffect(() => {
+    if (!liveSessionTab) return undefined
+    if (!liveSessionTab.draft && liveSessionTab.turns.length === 0) return undefined
+    const timer = window.setTimeout(() => {
+      void window.readerApi.saveBookSession(sessionPayload(liveSessionTab)).catch(() => undefined)
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [liveSessionTab, sessionPayload])
+
+  const clearLiveSession = (tab: ConversationTab): void => {
+    setPendingClearSession(false)
+    updateConversationTab(tab.id, (current) => ({
+      ...current,
+      conversationId: crypto.randomUUID(),
+      selection: null,
+      draft: '',
+      turns: []
+    }))
+    void window.readerApi.deleteBookSession(tab.bookId).catch(() => undefined)
+  }
+
+  const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'overview', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
+    // landingPage 为 null 表示不再切换页面（后台打开书籍）。
+    if (landingPage) setPage(landingPage)
+    setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false)
+    // 打开即成为顶栏标签；已存在的标签保留原书内页面，除非本次指定了其他书内页面。
+    const tabPage = landingPage ? bookTabPage(landingPage) : null
+    setBookTabs((current) => {
+      const index = current.findIndex((tab) => tab.bookId === book.id)
+      if (index < 0) return [...current, { bookId: book.id, page: tabPage ?? 'overview' }]
+      if (!tabPage || current[index].page === tabPage) return current
+      return current.map((tab, position) => position === index ? { ...tab, page: tabPage } : tab)
+    })
     if (activeBookRef.current?.id === book.id && adapterRef.current) return
     const sequence = ++openSequenceRef.current
     const leftViewRevision = leftViewRevisionRef.current
@@ -2977,8 +3117,17 @@ export default function App(): ReactNode {
         progressTimerRef.current = null
       }
       await flushProgress()
+      // 退出前补写去抖中的临时会话与标签列表，避免最后一次草稿丢失。
+      const bookId = activeBookRef.current?.id
+      const tab = bookId
+        ? conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
+        : undefined
+      if (tab && (tab.draft || tab.turns.length > 0)) {
+        await window.readerApi.saveBookSession(sessionPayload(tab)).catch(() => undefined)
+      }
+      if (workspaceReady) await window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
     })
-  }, [coverCache, flushProgress])
+  }, [coverCache, flushProgress, sessionPayload, sessionTabsState, workspaceReady])
 
   useEffect(() => {
     if (!window.readerApi) return undefined
@@ -3831,21 +3980,43 @@ export default function App(): ReactNode {
   const sidebarTab = activeBook
     ? activeConversationTab?.bookId === activeBook.id ? activeConversationTab : conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id)
     : undefined
-  const visibleSessionTabs = useMemo(() => {
-    const tabs = conversationTabs.filter((tab) => (
-      tab.kind === 'archive' ||
-      tab.bookId === activeBook?.id ||
-      tab.turns.length > 0 ||
-      Boolean(tab.selection) ||
-      Boolean(tab.draft)
-    ))
-    const currentLiveIndex = tabs.findIndex((tab) => tab.kind === 'live' && tab.bookId === activeBook?.id)
-    if (currentLiveIndex > 0) {
-      const [currentLive] = tabs.splice(currentLiveIndex, 1)
-      tabs.unshift(currentLive)
-    }
-    return tabs
-  }, [activeBook?.id, conversationTabs])
+  // 启动时恢复标签列表：顺序、激活项与归档草稿都还原，已删书籍/归档的条目跳过。
+  const restoredSessionTabsRef = useRef(false)
+  useEffect(() => {
+    if (restoredSessionTabsRef.current || libraryState !== 'ready' || !workspaceReady) return
+    restoredSessionTabsRef.current = true
+    void (async () => {
+      const [state, allInsights] = await Promise.all([
+        window.readerApi.listSessionTabs().catch(() => null),
+        window.readerApi.listAllInsights().catch(() => [])
+      ])
+      if (!state || state.tabs.length === 0) return
+      const restored = state.tabs.flatMap((record, index) => {
+        const book = books.find((candidate) => candidate.id === record.bookId)
+        if (!book) return []
+        if (record.kind === 'live') {
+          const existing = conversationTabsRef.current.find((tab) => tab.kind === 'live' && tab.bookId === book.id)
+          return [{ index, id: existing?.id ?? null, tab: existing ? null : createLiveTab(book) }]
+        }
+        const insight = allInsights.find((candidate) => candidate.id === record.insightId)
+        if (!insight) return []
+        return [{ index, id: null, tab: { ...createArchiveTab(insight), draft: record.draft } }]
+      })
+      const createdTabs = restored.flatMap((entry) => entry.tab ? [entry.tab] : [])
+      if (createdTabs.length > 0) commitConversationTabs((current) => [...current, ...createdTabs])
+      const activeEntry = restored.find((entry) => entry.index === state.activeIndex)
+      if (activeEntry) focusConversationTab(activeEntry.id ?? activeEntry.tab!.id)
+    })()
+  }, [books, commitConversationTabs, focusConversationTab, libraryState, workspaceReady])
+
+  // 去抖保存标签列表；未恢复完成前不写，避免把持久化内容冲掉。
+  useEffect(() => {
+    if (!workspaceReady || !restoredSessionTabsRef.current) return undefined
+    const timer = window.setTimeout(() => {
+      void window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [sessionTabsState, workspaceReady])
   useEffect(() => {
     if (activeBook?.id) void refreshAnalysis(activeBook.id)
     if (activeConversationTab?.bookId && activeConversationTab.bookId !== activeBook?.id) void refreshAnalysis(activeConversationTab.bookId)
@@ -3917,6 +4088,42 @@ export default function App(): ReactNode {
       return { item, index, hidden, hasChildren, isCurrent }
     }).filter((entry) => !entry.hidden)
   }, [collapsedTocItems, currentChapterHref, currentChapterTitle, toc])
+
+  // 标签需要记住每本书上次停在哪一页，而 page 的变更分散在多个回调里；
+  // 按 React 官方推荐的渲染期派生写法同步，避免 effect 里的额外渲染级联。
+  const activeTabPage = bookTabPage(page)
+  if (activeBook?.id && activeTabPage) {
+    const activeIndex = bookTabs.findIndex((tab) => tab.bookId === activeBook.id)
+    if (activeIndex >= 0 && bookTabs[activeIndex].page !== activeTabPage) {
+      setBookTabs(bookTabs.map((tab, position) => position === activeIndex ? { ...tab, page: activeTabPage } : tab))
+    }
+  }
+  const bookTabStripRef = useRef<HTMLDivElement | null>(null)
+  const activeBookTabRef = useRef<HTMLDivElement | null>(null)
+  // 标签条宽度不足时会横向滚动，切换书籍后需要把活动标签带回可见范围。
+  // 只调整标签条自身的滚动位置：scrollIntoView 会连带滚动上层容器，影响阅读区布局。
+  useEffect(() => {
+    const strip = bookTabStripRef.current
+    const tab = activeBookTabRef.current
+    if (!strip || !tab) return
+    const stripRect = strip.getBoundingClientRect()
+    const tabRect = tab.getBoundingClientRect()
+    if (tabRect.left < stripRect.left) strip.scrollLeft -= stripRect.left - tabRect.left
+    else if (tabRect.right > stripRect.right) strip.scrollLeft += tabRect.right - stripRect.right
+  }, [activeBook?.id, bookTabs.length])
+
+  const sessionTabStripRef = useRef<HTMLDivElement | null>(null)
+  const activeSessionTabRef = useRef<HTMLDivElement | null>(null)
+  // 会话标签不再把当前 live 置顶，活动标签可能滚出可视区，需要带回视野。
+  useEffect(() => {
+    const strip = sessionTabStripRef.current
+    const tab = activeSessionTabRef.current
+    if (!strip || !tab) return
+    const stripRect = strip.getBoundingClientRect()
+    const tabRect = tab.getBoundingClientRect()
+    if (tabRect.left < stripRect.left) strip.scrollLeft -= stripRect.left - tabRect.left
+    else if (tabRect.right > stripRect.right) strip.scrollLeft += tabRect.right - stripRect.right
+  }, [activeTabId, assistantDialogOpen])
 
   return (
     <div
@@ -4344,13 +4551,34 @@ export default function App(): ReactNode {
               <div><h2 id="assistant-dialog-title">{copy(page === 'archives' ? 'workspace.archives' : 'workspace.conversation')}</h2></div>
             </header>
             <nav className="assistant-workspace-nav" aria-label={copy('assistant.viewsAria')}>
-              <div className="assistant-session-tabs" role="tablist" aria-label={copy('assistant.viewsAria')}>
+              <div className="assistant-session-tabs" role="tablist" aria-label={copy('assistant.viewsAria')} ref={sessionTabStripRef}>
                 {visibleSessionTabs.map((tab) => {
                   const isActive = assistantDialogView === 'conversation' && activeTabId === tab.id
                   const isCurrentLive = tab.kind === 'live' && tab.bookId === activeBook?.id
                   const closable = !isCurrentLive
                   return (
-                    <div className={`assistant-session-tab ${isActive ? 'is-active' : ''}`} key={tab.id}>
+                    <div
+                      className={`assistant-session-tab ${isActive ? 'is-active' : ''}${draggingSessionTabId === tab.id ? ' is-dragging' : ''}`}
+                      key={tab.id}
+                      ref={isActive ? activeSessionTabRef : undefined}
+                      draggable
+                      onDragStart={(event) => {
+                        setDraggingSessionTabId(tab.id)
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', tab.id)
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'move'
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        const sourceId = event.dataTransfer.getData('text/plain') || draggingSessionTabId
+                        setDraggingSessionTabId(null)
+                        if (sourceId) moveConversationTab(sourceId, tab.id)
+                      }}
+                      onDragEnd={() => setDraggingSessionTabId(null)}
+                    >
                       <button
                         className="assistant-session-tab-select"
                         data-testid="assistant-session-tab"
@@ -4379,6 +4607,31 @@ export default function App(): ReactNode {
                   )
                 })}
               </div>
+              {assistantDialogView === 'conversation' && (
+                <label className="assistant-session-search" data-testid="conversation-search">
+                  <Search size={14} />
+                  <input
+                    data-testid="conversation-search-input"
+                    type="search"
+                    value={conversationQuery}
+                    onChange={(event) => setConversationQuery(event.target.value)}
+                    placeholder={copy('assistant.searchConversation')}
+                    aria-label={copy('assistant.searchConversation')}
+                  />
+                  {conversationNeedle && <small data-testid="conversation-search-count">{copy('assistant.searchTurns', { count: conversationMatches })}</small>}
+                </label>
+              )}
+              {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && (activeConversationTab.turns.length > 0 || activeConversationTab.draft) && (
+                pendingClearSession ? (
+                  <span className="assistant-session-clear is-confirming">
+                    <span>{copy('assistant.clearSessionQuestion')}</span>
+                    <button data-testid="conversation-clear-confirm" type="button" onClick={() => clearLiveSession(activeConversationTab)}>{copy('common.confirm')}</button>
+                    <button data-testid="conversation-clear-cancel" type="button" onClick={() => setPendingClearSession(false)}>{copy('common.back')}</button>
+                  </span>
+                ) : (
+                  <button className="assistant-session-clear" data-testid="conversation-clear" type="button" onClick={() => setPendingClearSession(true)}>{copy('assistant.clearSession')}</button>
+                )
+              )}
               <button
                 className="assistant-insights-toggle"
                 data-testid="assistant-dialog-tab-insights"

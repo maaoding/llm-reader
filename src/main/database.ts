@@ -6,6 +6,8 @@ import type {
   ArchivedChatMessage,
   BookFormat,
   BookRecord,
+  BookSessionRecord,
+  BookSessionTurn,
   BookSourceFormat,
   HighlightRecord,
   InsightArchiveRecord,
@@ -14,6 +16,9 @@ import type {
   SaveHighlightInput,
   ProviderCompatibility,
   SaveInsightInput,
+  SelectionContext,
+  SessionTabRecord,
+  SessionTabsState,
   UpdateInsightHistoryInput
 } from '@shared/contracts'
 
@@ -49,6 +54,25 @@ interface InsightArchiveRow extends InsightRow {
   book_title: string
   book_author: string | null
   book_format: BookFormat
+}
+
+interface BookSessionRow {
+  book_id: string
+  conversation_id: string
+  scope: 'selection' | 'book'
+  selection_json: string | null
+  draft: string
+  turns_json: string
+  updated_at: string
+}
+
+interface SessionTabRow {
+  position: number
+  kind: 'live' | 'archive'
+  book_id: string
+  insight_id: string | null
+  draft: string
+  is_active: number
 }
 
 interface HighlightRow {
@@ -376,6 +400,27 @@ const migrations = [
       END;
       ALTER TABLE document_jobs ADD COLUMN raw_json TEXT;
       ALTER TABLE document_jobs ADD COLUMN structure_json TEXT;
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS book_sessions (
+        book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+        conversation_id TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK(scope IN ('selection', 'book')),
+        selection_json TEXT,
+        draft TEXT NOT NULL DEFAULT '',
+        turns_json TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL
+      ) STRICT;
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS session_tabs (
+        position INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL CHECK(kind IN ('live', 'archive')),
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        insight_id TEXT REFERENCES insights(id) ON DELETE CASCADE,
+        draft TEXT NOT NULL DEFAULT '',
+        is_active INTEGER NOT NULL DEFAULT 0
+      ) STRICT;
     `
 ] as const
 
@@ -438,6 +483,59 @@ function insightHistory(question: string, answer: string, model: string): Archiv
     { role: 'user', content: question },
     { role: 'assistant', content: answer, model }
   ]
+}
+
+function parseSessionSelection(value: string | null): SelectionContext | null {
+  if (!value) return null
+  try {
+    return JSON.parse(value) as SelectionContext
+  } catch {
+    return null
+  }
+}
+
+function parseSessionTurns(value: string | null | undefined): BookSessionTurn[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((turn): turn is BookSessionTurn => {
+      if (!turn || typeof turn !== 'object') return false
+      const candidate = turn as Record<string, unknown>
+      return (
+        typeof candidate.id === 'string' &&
+        (candidate.action === 'explain' || candidate.action === 'context' || candidate.action === 'ask') &&
+        typeof candidate.actionLabel === 'string' &&
+        typeof candidate.question === 'string' &&
+        typeof candidate.answer === 'string' &&
+        typeof candidate.model === 'string' &&
+        (candidate.status === 'completed' || candidate.status === 'error')
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+function mapBookSession(row: BookSessionRow): BookSessionRecord {
+  return {
+    bookId: row.book_id,
+    conversationId: row.conversation_id,
+    scope: row.scope,
+    selection: parseSessionSelection(row.selection_json),
+    draft: row.draft,
+    turns: parseSessionTurns(row.turns_json),
+    updatedAt: row.updated_at
+  }
+}
+
+function mapSessionTab(row: SessionTabRow): SessionTabRecord {
+  return {
+    kind: row.kind,
+    bookId: row.book_id,
+    insightId: row.insight_id,
+    draft: row.draft
+  }
 }
 
 export interface StoredBook extends BookRecord {
@@ -676,6 +774,74 @@ export class AppDatabase {
   deleteInsight(id: string): boolean {
     const result = this.connection.prepare('DELETE FROM insights WHERE id = ?').run(id)
     return result.changes > 0
+  }
+
+  getBookSession(bookId: string): BookSessionRecord | null {
+    const row = this.connection
+      .prepare('SELECT * FROM book_sessions WHERE book_id = ?')
+      .get(bookId) as unknown as BookSessionRow | undefined
+    return row ? mapBookSession(row) : null
+  }
+
+  /** 每本书只保留最后一个临时会话：写入即覆盖旧记录，不累积历史。 */
+  upsertBookSession(record: BookSessionRecord): BookSessionRecord {
+    this.connection
+      .prepare(
+        `INSERT INTO book_sessions(book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(book_id) DO UPDATE SET
+           conversation_id = excluded.conversation_id,
+           scope = excluded.scope,
+           selection_json = excluded.selection_json,
+           draft = excluded.draft,
+           turns_json = excluded.turns_json,
+           updated_at = excluded.updated_at`
+      )
+      .run(
+        record.bookId,
+        record.conversationId,
+        record.scope,
+        record.selection ? JSON.stringify(record.selection) : null,
+        record.draft,
+        JSON.stringify(record.turns),
+        record.updatedAt
+      )
+    return record
+  }
+
+  deleteBookSession(bookId: string): boolean {
+    const result = this.connection.prepare('DELETE FROM book_sessions WHERE book_id = ?').run(bookId)
+    return result.changes > 0
+  }
+
+  listSessionTabs(): SessionTabsState {
+    const rows = this.connection
+      .prepare('SELECT * FROM session_tabs ORDER BY position')
+      .all() as unknown as SessionTabRow[]
+    const activeIndex = rows.findIndex((row) => row.is_active === 1)
+    return {
+      activeIndex: activeIndex >= 0 ? activeIndex : null,
+      tabs: rows.map(mapSessionTab)
+    }
+  }
+
+  /** 打开的标签整体替换：数组顺序即 position，最多一个激活项。 */
+  replaceSessionTabs(state: SessionTabsState): SessionTabsState {
+    const insert = this.connection.prepare(
+      'INSERT INTO session_tabs(position, kind, book_id, insight_id, draft, is_active) VALUES (?, ?, ?, ?, ?, ?)'
+    )
+    this.connection.exec('BEGIN IMMEDIATE')
+    try {
+      this.connection.prepare('DELETE FROM session_tabs').run()
+      state.tabs.forEach((tab, index) => {
+        insert.run(index, tab.kind, tab.bookId, tab.insightId, tab.draft, index === state.activeIndex ? 1 : 0)
+      })
+      this.connection.exec('COMMIT')
+    } catch (error) {
+      this.connection.exec('ROLLBACK')
+      throw error
+    }
+    return state
   }
 
   listHighlights(bookId: string): HighlightRecord[] {

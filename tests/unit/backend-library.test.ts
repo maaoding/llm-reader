@@ -116,7 +116,7 @@ describe('LibraryService', () => {
       expect.objectContaining({ id: 'legacy-txt', format: 'txt', sourceFormat: 'txt' })
     ])
     expect(database.connection.prepare('SELECT MAX(version) AS version FROM schema_migrations').get())
-      .toMatchObject({ version: 14 })
+      .toMatchObject({ version: 16 })
     expect(database.listProviderProfiles()).toEqual([
       expect.objectContaining({
         id: 'legacy',
@@ -225,6 +225,131 @@ describe('LibraryService', () => {
     database = new AppDatabase(databasePath)
     library = new LibraryService(database, join(root, 'library'))
     expect(library.listBooks()).toEqual([])
+    database.close()
+  })
+
+  it('keeps one temporary session per book and drops it with the book', async () => {
+    const root = makeTemporaryDirectory()
+    const databasePath = join(root, 'reader.sqlite3')
+    const source = join(root, '会话书.txt')
+    await writeFile(source, '会话书\n\n临时会话正文。', 'utf8')
+
+    let database = new AppDatabase(databasePath)
+    let library = new LibraryService(database, join(root, 'library'))
+    const book = (await library.importFromPath(source)).book
+    const conversationId = '05b45c27-b51d-4f49-8df7-480918cf2a0b'
+    const base = {
+      bookId: book.id,
+      conversationId,
+      scope: 'book' as const,
+      selection: null,
+      draft: '未发送草稿'
+    }
+
+    expect(library.getBookSession(book.id)).toBeNull()
+    const saved = library.saveBookSession({
+      ...base,
+      turns: [{
+        id: '9e9dc44f-5868-4d99-97c7-fcb79c179de6',
+        action: 'ask',
+        actionLabel: '自由提问',
+        question: '这本书讲了什么？',
+        answer: '临时回答。',
+        model: 'session-model',
+        status: 'completed'
+      }]
+    })
+    expect(saved.updatedAt).toEqual(expect.any(String))
+    expect(library.getBookSession(book.id)).toMatchObject({
+      bookId: book.id,
+      conversationId,
+      draft: '未发送草稿',
+      turns: [{ question: '这本书讲了什么？', answer: '临时回答。' }]
+    })
+
+    // 新的临时会话覆盖旧记录，每本书只保留最后一份。
+    library.saveBookSession({ ...base, draft: '第二次草稿', turns: [] })
+    const replaced = library.getBookSession(book.id)
+    expect(replaced).toMatchObject({ draft: '第二次草稿', turns: [] })
+    expect(replaced?.turns).toHaveLength(0)
+
+    // 重启后仍在，删书后随之消失。
+    database.close()
+    database = new AppDatabase(databasePath)
+    library = new LibraryService(database, join(root, 'library'))
+    expect(library.getBookSession(book.id)).toMatchObject({ draft: '第二次草稿' })
+    expect(await library.deleteBook(book.id)).toBe(true)
+    expect(() => library.getBookSession(book.id)).toThrow('找不到这本书')
+    database.close()
+
+    database = new AppDatabase(databasePath)
+    expect(database.getBookSession(book.id)).toBeNull()
+    database.close()
+  })
+
+  it('keeps the open session tabs list with drafts and clears it with the book or archive', async () => {
+    const root = makeTemporaryDirectory()
+    const databasePath = join(root, 'reader.sqlite3')
+    const source = join(root, '标签书.txt')
+    await writeFile(source, '标签书\n\n标签列表正文。', 'utf8')
+
+    let database = new AppDatabase(databasePath)
+    let library = new LibraryService(database, join(root, 'library'))
+    const book = (await library.importFromPath(source)).book
+    const insight = library.saveInsight({
+      bookId: book.id,
+      selection: {
+        bookId: book.id,
+        quote: '标签列表正文',
+        anchor: 'txt:6:14',
+        chapterTitle: '第一章',
+        passages: [{ id: 'tab-p-1', text: '标签列表正文', anchor: 'txt:6:14' }]
+      },
+      question: '标签列表怎么恢复？',
+      answer: '按顺序恢复标签与草稿。',
+      model: 'tab-model'
+    })
+
+    expect(library.listSessionTabs()).toEqual({ activeIndex: null, tabs: [] })
+    expect(library.saveSessionTabs({
+      activeIndex: 2,
+      tabs: [
+        { kind: 'live', bookId: book.id, insightId: null, draft: '' },
+        { kind: 'archive', bookId: book.id, insightId: insight.id, draft: '归档里的草稿' },
+        { kind: 'archive', bookId: book.id, insightId: insight.id, draft: '' }
+      ]
+    }).tabs).toHaveLength(3)
+    expect(library.listSessionTabs()).toMatchObject({
+      activeIndex: 2,
+      tabs: [
+        { kind: 'live', insightId: null, draft: '' },
+        { kind: 'archive', insightId: insight.id, draft: '归档里的草稿' },
+        { kind: 'archive', insightId: insight.id, draft: '' }
+      ]
+    })
+
+    // 整体替换：旧的 3 行不残留。
+    library.saveSessionTabs({ activeIndex: 0, tabs: [{ kind: 'live', bookId: book.id, insightId: null, draft: '' }] })
+    expect(library.listSessionTabs()).toMatchObject({ activeIndex: 0, tabs: [{ kind: 'live' }] })
+
+    // 关闭并重开仍然在。
+    database.close()
+    database = new AppDatabase(databasePath)
+    library = new LibraryService(database, join(root, 'library'))
+    expect(library.listSessionTabs().tabs).toHaveLength(1)
+
+    // 删除归档、再删除书籍：对应标签行随外键级联消失。
+    library.saveSessionTabs({
+      activeIndex: null,
+      tabs: [
+        { kind: 'live', bookId: book.id, insightId: null, draft: '' },
+        { kind: 'archive', bookId: book.id, insightId: insight.id, draft: '' }
+      ]
+    })
+    expect(library.deleteInsight(insight.id)).toBe(true)
+    expect(library.listSessionTabs().tabs).toMatchObject([{ kind: 'live' }])
+    expect(await library.deleteBook(book.id)).toBe(true)
+    expect(database.listSessionTabs().tabs).toEqual([])
     database.close()
   })
 

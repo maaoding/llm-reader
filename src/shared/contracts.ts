@@ -32,6 +32,11 @@ export const IPC_CHANNELS = {
   insightsDelete: 'insights:delete',
   insightsUpdateHistory: 'insights:update-history',
   insightsExport: 'insights:export',
+  sessionsGet: 'sessions:get',
+  sessionsSave: 'sessions:save',
+  sessionsDelete: 'sessions:delete',
+  sessionTabsList: 'session-tabs:list',
+  sessionTabsSave: 'session-tabs:save',
   providerOverview: 'provider:overview',
   providerCreate: 'provider:create',
   providerUpdate: 'provider:update',
@@ -559,6 +564,55 @@ export interface UpdateInsightHistoryInput {
   history: ArchivedChatMessage[]
 }
 
+/** 临时会话中可持久化的一轮：流式中的轮次不入库，状态只保留已结束的两种。 */
+export interface BookSessionTurn {
+  id: string
+  action: LlmAction
+  actionLabel: string
+  question: string
+  answer: string
+  model: string
+  status: 'completed' | 'error'
+  saved?: boolean
+  error?: string
+  usage?: LlmUsage
+  selection?: SelectionContext | null
+  context?: ContextSnapshot | null
+}
+
+/** 每本书只保留最后一个临时会话（草稿 + 轮次），新会话覆盖旧记录。 */
+export interface BookSessionRecord {
+  bookId: string
+  conversationId: string
+  scope: 'selection' | 'book'
+  selection: SelectionContext | null
+  draft: string
+  turns: BookSessionTurn[]
+  updatedAt: string
+}
+
+export interface SaveBookSessionInput {
+  bookId: string
+  conversationId: string
+  scope: 'selection' | 'book'
+  selection: SelectionContext | null
+  draft: string
+  turns: BookSessionTurn[]
+}
+
+/** 打开的会话标签：归档标签必须带 insightId，草稿只对归档标签生效。 */
+export interface SessionTabRecord {
+  kind: 'live' | 'archive'
+  bookId: string
+  insightId: string | null
+  draft: string
+}
+
+export interface SessionTabsState {
+  activeIndex: number | null
+  tabs: SessionTabRecord[]
+}
+
 export interface HighlightRecord {
   id: string
   bookId: string
@@ -602,6 +656,11 @@ export interface ReaderApi {
   saveInsight(input: SaveInsightInput): Promise<SavedInsight>
   deleteInsight(id: string): Promise<boolean>
   updateInsightHistory(input: UpdateInsightHistoryInput): Promise<SavedInsight>
+  getBookSession(bookId: string): Promise<BookSessionRecord | null>
+  saveBookSession(input: SaveBookSessionInput): Promise<BookSessionRecord>
+  deleteBookSession(bookId: string): Promise<boolean>
+  listSessionTabs(): Promise<SessionTabsState>
+  saveSessionTabs(input: SessionTabsState): Promise<SessionTabsState>
   getProviderOverview(): Promise<ProviderOverview>
   createProviderProfile(input: CreateProviderProfileInput): Promise<ProviderOverview>
   updateProviderProfile(input: UpdateProviderProfileInput): Promise<ProviderOverview>

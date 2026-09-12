@@ -320,8 +320,15 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     const restoredPage = restarted.page
     await showLibrary(restoredPage); await restoredPage.getByTestId('book-item').first().click(); await enterReading(restoredPage)
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
-    await expect(restoredPage.locator('.conversation-turn')).toHaveCount(0)
-    await openInsightsWorkspace(restoredPage)
+    // 重启恢复上次激活的归档标签（3 轮历史）；实时会话标签仍保留自己的 1 轮。
+    await restoredPage.getByTestId('assistant-expand-button').click()
+    await expect(restoredPage.getByTestId('assistant-dialog')).toBeVisible()
+    await expect(restoredPage.locator('.assistant-session-tab.is-active .assistant-session-tab-select')).toHaveAttribute('data-tab-kind', 'archive')
+    await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(3)
+    await restoredPage.getByTestId('assistant-session-tab').filter({ hasText: '当前对话' }).click()
+    await expect(restoredPage.locator('.conversation-turn')).toHaveCount(1)
+    await expect(restoredPage.locator('.conversation-turn').first()).toContainText('要点甲')
+    await restoredPage.getByTestId('assistant-dialog-tab-insights').click()
     await restoredPage.getByTestId('insight-item').locator('.insight-content').click()
     await expect(restoredPage.getByTestId('assistant-dialog')).toBeVisible()
     await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(3)

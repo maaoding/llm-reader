@@ -28,6 +28,8 @@ import {
   createProviderProfileSchema,
   highlightIdSchema,
   highlightSchema,
+  bookSessionSchema,
+  sessionTabsSchema,
   insightExportScopeSchema,
   insightHistorySchema,
   insightIdSchema,
@@ -202,6 +204,19 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   )
   handle(IPC_CHANNELS.insightsUpdateHistory, dependencies, (_event, value) =>
     dependencies.library.updateInsightHistory(parse(insightHistorySchema, value))
+  )
+  handle(IPC_CHANNELS.sessionsGet, dependencies, (_event, value) =>
+    dependencies.library.getBookSession(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.sessionsSave, dependencies, (_event, value) =>
+    dependencies.library.saveBookSession(parse(bookSessionSchema, value))
+  )
+  handle(IPC_CHANNELS.sessionsDelete, dependencies, (_event, value) =>
+    dependencies.library.deleteBookSession(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.sessionTabsList, dependencies, () => dependencies.library.listSessionTabs())
+  handle(IPC_CHANNELS.sessionTabsSave, dependencies, (_event, value) =>
+    dependencies.library.saveSessionTabs(parse(sessionTabsSchema, value))
   )
   handle(IPC_CHANNELS.providerOverview, dependencies, () => dependencies.provider.getOverview())
   handle(IPC_CHANNELS.providerCreate, dependencies, (_event, value) =>

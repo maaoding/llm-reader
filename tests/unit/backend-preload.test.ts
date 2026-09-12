@@ -187,4 +187,46 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.insightsDelete, id)
     expect(electronMocks.exposeInMainWorld).toHaveBeenCalledWith('readerApi', readerApi)
   })
+
+  it('exposes the per-book temporary session through its dedicated IPC channels', async () => {
+    const bookId = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
+    const input = {
+      bookId,
+      conversationId: '05b45c27-b51d-4f49-8df7-480918cf2a0b',
+      scope: 'book' as const,
+      selection: null,
+      draft: '未发送草稿',
+      turns: []
+    }
+    const record = { ...input, updatedAt: '2026-09-11T09:00:00.000Z' }
+    electronMocks.invoke
+      .mockResolvedValueOnce(record)
+      .mockResolvedValueOnce(record)
+      .mockResolvedValueOnce(true)
+
+    await expect(readerApi.getBookSession(bookId)).resolves.toEqual(record)
+    await expect(readerApi.saveBookSession(input)).resolves.toEqual(record)
+    await expect(readerApi.deleteBookSession(bookId)).resolves.toBe(true)
+
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.sessionsGet, bookId)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.sessionsSave, input)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.sessionsDelete, bookId)
+  })
+
+  it('exposes the open session tabs list through its dedicated IPC channels', async () => {
+    const state = {
+      activeIndex: 1,
+      tabs: [
+        { kind: 'live' as const, bookId: '45b45c27-b51d-4f49-8df7-480918cf2a0b', insightId: null, draft: '' },
+        { kind: 'archive' as const, bookId: '45b45c27-b51d-4f49-8df7-480918cf2a0b', insightId: '05b45c27-b51d-4f49-8df7-480918cf2a0b', draft: '归档草稿' }
+      ]
+    }
+    electronMocks.invoke.mockResolvedValueOnce(state).mockResolvedValueOnce(state)
+
+    await expect(readerApi.listSessionTabs()).resolves.toEqual(state)
+    await expect(readerApi.saveSessionTabs(state)).resolves.toEqual(state)
+
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.sessionTabsList)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.sessionTabsSave, state)
+  })
 })

@@ -162,6 +162,55 @@ export const insightExportScopeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('insight'), insightId: idSchema })
 ])
 
+// 临时会话按本存一份；轮次上限与渲染层一致，超出的轮次在写入前已被渲染层裁掉。
+const sessionTurnSchema = z.object({
+  id: idSchema,
+  action: z.enum(['explain', 'context', 'ask']),
+  actionLabel: shortText(200),
+  question: z.string().max(2_000),
+  answer: z.string().max(20_000),
+  model: z.string().max(200),
+  status: z.enum(['completed', 'error']),
+  saved: z.boolean().optional(),
+  error: z.string().max(2_000).optional(),
+  usage: z.object({
+    promptTokens: z.number().int().nonnegative().optional(),
+    completionTokens: z.number().int().nonnegative().optional(),
+    totalTokens: z.number().int().nonnegative().optional()
+  }).strict().optional(),
+  selection: selectionSchema.nullable().optional(),
+  context: contextSnapshotSchema.nullable().optional()
+}).strict()
+
+export const bookSessionSchema = z.object({
+  bookId: idSchema,
+  conversationId: z.uuid({ version: 'v4' }),
+  scope: z.enum(['selection', 'book']),
+  selection: selectionSchema.nullable(),
+  draft: z.string().max(2_000),
+  turns: z.array(sessionTurnSchema).max(20)
+}).strict().refine((session) => (
+  (session.scope === 'selection') === Boolean(session.selection)
+  && (!session.selection || session.selection.bookId === session.bookId)
+  && session.turns.every((turn) => !turn.context || turn.context.bookId === session.bookId)
+), { message: copy('validation.archiveSelection'), path: ['selection', 'bookId'] })
+
+// 打开的会话标签列表：归档标签必须带 insightId，激活下标必须落在列表范围内。
+const sessionTabSchema = z.object({
+  kind: z.enum(['live', 'archive']),
+  bookId: idSchema,
+  insightId: idSchema.nullable(),
+  draft: z.string().max(2_000)
+}).strict()
+
+export const sessionTabsSchema = z.object({
+  activeIndex: z.number().int().nullable(),
+  tabs: z.array(sessionTabSchema).max(20)
+}).strict().refine((state) => (
+  state.tabs.every((tab) => (tab.kind === 'archive') === Boolean(tab.insightId))
+  && (state.activeIndex === null || (state.activeIndex >= 0 && state.activeIndex < state.tabs.length))
+), { message: copy('validation.archiveSelection'), path: ['tabs'] })
+
 const providerBaseUrlSchema = z
     .string()
     .trim()
