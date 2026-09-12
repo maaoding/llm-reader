@@ -90,29 +90,26 @@ test('expands reflowable chapters whose CSS constrains html and body height', as
     const frame = page.getByTestId('reader-host').locator('iframe').first()
     await expect(frame).toBeVisible()
 
-    await expect
-      .poll(() =>
-        frame.evaluate((element) => {
-          const frameElement = element as HTMLIFrameElement
-          const document = frameElement.contentDocument
-          if (!document) return 0
-          return document.documentElement.scrollHeight
-        })
-      )
-      .toBeGreaterThan(2_000)
-
-    const dimensions = await page.getByTestId('reader-host').evaluate((host) => {
-      const container = host.querySelector<HTMLElement>(':scope > .epub-container')
-      const frameElement = host.querySelector<HTMLIFrameElement>('iframe')
+    // 连续滚动会同时保留可见与隐藏的章节 iframe；隐藏视图高度为折叠值，
+    // 因此轮询与断言都必须取当前可见的那一个。
+    const measureFrame = () => page.getByTestId('reader-host').evaluate((host) => {
+      const frames = Array.from(host.querySelectorAll<HTMLIFrameElement>('iframe'))
+      const frameElement = frames.find((candidate) => candidate.style.visibility !== 'hidden') ?? frames[0]
       const document = frameElement?.contentDocument
-      if (!container || !frameElement || !document) return null
+      if (!frameElement || !document) return null
       return {
+        documentHeight: document.documentElement.scrollHeight,
         frameHeight: frameElement.getBoundingClientRect().height,
         documentWidth: document.documentElement.scrollWidth,
         frameWidth: frameElement.getBoundingClientRect().width
       }
     })
-    expect(dimensions?.frameHeight).toBeGreaterThan(2_000)
+
+    // 章节内容先擑开，iframe 高度在下一个 epub.js 周期才同步；直接轮询断言的高度本身，避免竞态。
+    await expect.poll(async () => (await measureFrame())?.frameHeight ?? 0).toBeGreaterThan(2_000)
+
+    const dimensions = await measureFrame()
+    expect(dimensions?.documentHeight).toBeGreaterThan(2_000)
     expect(dimensions?.documentWidth).toBeLessThanOrEqual((dimensions?.frameWidth ?? 0) + 2)
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)

@@ -939,6 +939,8 @@ test('rejects a cross-page PDF selection without producing a reader selection', 
       host.dispatchEvent(new Event('scroll'))
     })
     await expect.poll(() => page.locator('.pdf-text-layer[data-page-number="2"] span').count()).toBeGreaterThan(0)
+    // 上一页的文本层可能比当前页后渲染，两页就绪后再构造跨页选区。
+    await expect.poll(() => page.locator('.pdf-text-layer[data-page-number="1"] span').count()).toBeGreaterThan(0)
 
     const rangeCountAfterSelection = await page.getByTestId('reader-host').evaluate(() => {
       const startSpan = document.querySelector<HTMLElement>('.pdf-text-layer[data-page-number="1"] span')
