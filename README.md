@@ -12,10 +12,6 @@
   <a href="https://llm-reader.maaoding.icu/">项目主页</a>
 </p>
 
-<p align="center">
-  <img src="site/reader-workspace.png" alt="LLM Reader 阅读工作区截图" width="960" />
-</p>
-
 ## 功能
 
 ### 书库与阅读
