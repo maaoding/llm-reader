@@ -37,30 +37,34 @@ describe('static product website', () => {
 
     expect(primaryLinks).toHaveLength(2)
     for (const link of primaryLinks) {
-      expect(link.href).toBe('https://github.com/maaoding/llm-reader')
+      // 0.5.0 站点的主动按钮指向 Releases，导航里才是仓库首页；两者都属于 GitHub 项目入口。
+      expect(link.href.startsWith('https://github.com/maaoding/llm-reader')).toBe(true)
     }
+    expect(primaryLinks.some((link) => link.href.endsWith('/releases/latest'))).toBe(true)
   })
 
-  it('ships a desktop-shaped Reader interaction with a real-image fallback', () => {
+  it('ships a desktop-shaped Reader demo built from markup instead of screenshots', () => {
     const demo = document.querySelector('[data-reader-demo]')
-    const windowControls = Array.from(document.querySelectorAll<HTMLButtonElement>('.demo-window-controls button'))
     const passiveControls = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-demo-passive]'))
-    const scriptElement = document.querySelector<HTMLScriptElement>('script[src="./script.js"]')
+    const scriptElement = document.querySelector<HTMLScriptElement>('script[src^="./script.js"]')
 
     expect(demo?.getAttribute('data-demo-state')).toBe('selected')
-    expect(demo?.querySelector('.demo-left-sidebar')).not.toBeNull()
+    expect(demo?.querySelector('.demo-workspace-header')).not.toBeNull()
+    expect(demo?.querySelector('.demo-book-tab')).not.toBeNull()
+    expect(demo?.querySelector('.demo-bookbar')).not.toBeNull()
+    expect(demo?.querySelector('.demo-reader-rail')).not.toBeNull()
     expect(demo?.querySelector('.demo-reader-column')).not.toBeNull()
     expect(demo?.querySelector('.demo-right-sidebar')).not.toBeNull()
-    expect(windowControls.map((control) => control.getAttribute('aria-label'))).toEqual(['最小化', '最大化', '关闭'])
+    expect(Array.from(demo?.querySelectorAll('.demo-bookbar button') ?? []).map((button) => button.textContent?.trim())).toEqual(['概览', '阅读', '章节笔记', '对话', '本书准备'])
     expect(passiveControls.length).toBeGreaterThan(10)
-    expect(passiveControls.filter((control) => !control.closest('.demo-window-controls')).every((control) => control.getAttribute('aria-disabled') === 'true')).toBe(true)
-    expect(windowControls.every((control) => control.title === '官网演示中不可用')).toBe(true)
+    expect(passiveControls.every((control) => control.getAttribute('aria-disabled') === 'true')).toBe(true)
     expect(document.querySelector('[data-demo-explain]')).not.toBeNull()
     expect(document.querySelector('.demo-selected-paragraph > .demo-selection-toolbar')).not.toBeNull()
     expect(document.querySelector('.demo-selection-spark svg')).not.toBeNull()
     expect(document.querySelector('[data-demo-explain] svg')).not.toBeNull()
     expect(document.querySelector('.demo-selection-toolbar')?.textContent).not.toContain('✦')
-    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.demo-selection-toolbar button')).map((button) => button.textContent?.trim())).toEqual(['解释这段', '联系上下文', '自由提问', '收藏', ''])
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.demo-selection-toolbar button')).map((button) => button.textContent?.trim())).toEqual(['解释这段', '联系上下文', '自由提问', '摘录这段', ''])
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.demo-selection-toolbar [data-demo-passive]')).every((button) => button.title === '官网演示中不可用')).toBe(true)
     expect(document.querySelector('.demo-selection-toolbar .toolbar-close')?.getAttribute('aria-label')).toBe('关闭选区工具')
     expect(document.querySelector('.demo-assistant-tabs')).toBeNull()
     expect(styles).not.toContain('.demo-assistant-tabs')
@@ -69,6 +73,8 @@ describe('static product website', () => {
     expect(document.querySelector('.demo-citation[data-demo-return]')).not.toBeNull()
     expect(document.querySelector('[data-demo-selection]')?.getAttribute('tabindex')).toBe('-1')
     expect(scriptElement).not.toBeNull()
+    // 0.5.0 站点用 ./script.js?v=... 做缓存失效，并保持 defer。
+    expect(scriptElement?.hasAttribute('defer')).toBe(true)
     expect(existsSync(resolve(siteRoot, 'script.js'))).toBe(true)
     expect(script).toContain("matchMedia('(prefers-reduced-motion: reduce)')")
     expect(script).toContain("demo.dataset.demoState = 'answered'")
@@ -97,10 +103,11 @@ describe('static product website', () => {
       expect(existsSync(resolve(siteRoot, source!.slice(2)))).toBe(true)
     }
 
-    const productImage = document.querySelector<HTMLImageElement>('.product-image')
-    expect(productImage?.alt.length).toBeGreaterThan(20)
-    expect(productImage?.width).toBe(1536)
-    expect(productImage?.height).toBe(864)
+    // 0.5.0 站点用 HTML 演示取代了真实截图，这里改为校验品牌图标本身带显式尺寸。
+    const brandMark = document.querySelector<HTMLImageElement>('img.brand-mark')
+    expect(brandMark?.getAttribute('src')).toBe('./icon.png')
+    expect(brandMark?.width).toBe(36)
+    expect(brandMark?.height).toBe(36)
   })
 
   it('references every fixed-size favicon asset', () => {
