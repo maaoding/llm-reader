@@ -59,6 +59,50 @@ describe('EPUB continuous manager compatibility', () => {
     expect(stabilizeContinuousManager(null)).toBe(false)
   })
 
+  it('keeps draining the continuous queue after a task fails', async () => {
+    // @ts-expect-error epubjs 未为这个内部路径提供类型声明
+    const { default: Queue } = await import('epubjs/lib/utils/queue')
+    const queue = new Queue()
+    const container = document.createElement('div')
+    const manager = {
+      name: 'continuous',
+      settings: { fullsize: false, offset: 500 },
+      container,
+      request: vi.fn(),
+      q: queue,
+      views: { all: () => [] },
+      scrollTop: 0,
+      scrollLeft: 0,
+      addScrollListeners: vi.fn(),
+      scrolled: vi.fn(),
+      check: vi.fn(async () => false),
+      destroy: vi.fn(),
+      emit: vi.fn(),
+      isVisible: vi.fn(() => false),
+      bounds: vi.fn(() => container.getBoundingClientRect()),
+      trim: vi.fn(),
+      update: vi.fn(async () => undefined)
+    }
+
+    expect(stabilizeContinuousManager({ manager })).toBe(true)
+    const ran: string[] = []
+    // 同步抛错与 promise 拒绝两种失败都不能停掉队列。
+    queue.enqueue(() => {
+      ran.push('sync-throw')
+      throw new Error('chapter load failed')
+    }).catch(() => undefined)
+    queue.enqueue(() => {
+      ran.push('rejected')
+      return Promise.reject(new Error('chapter load failed'))
+    }).catch(() => undefined)
+    queue.enqueue(() => {
+      ran.push('third')
+    }).catch(() => undefined)
+
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(ran).toEqual(['sync-throw', 'rejected', 'third'])
+  })
+
   it('keeps the configured preload offset while honoring an explicit zero offset', async () => {
     const container = document.createElement('div')
     const containerBounds = container.getBoundingClientRect()

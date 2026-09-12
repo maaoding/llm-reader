@@ -20,6 +20,7 @@ interface ContinuousManager {
   request: unknown
   q: {
     enqueue<T>(task: () => T | Promise<T>): Promise<T>
+    dequeue?(): Promise<unknown>
   }
   views: {
     all(): ContinuousView[]
@@ -99,6 +100,37 @@ export function stabilizeContinuousManager(rendition: unknown): boolean {
     return false
   }
   stabilizedManagers.add(manager)
+
+  // epub.js 的 Queue.run() 只用 .then 继续队列，没有拒绝分支：只要队列里任何一个任务
+  // reject（例如某章资源加载失败），run() 就不再被调用，而 running 永远留在 true，
+  // 后续 append/display 全部不再执行——表现为滚动卡在章节边界且不会自愈。
+  // 这里让 dequeue 永不拒绝，单个任务失败后队列继续运行。
+  const queue = manager.q
+  const originalDequeue = queue.dequeue
+  if (typeof originalDequeue === 'function') {
+    const originalEnqueue = queue.enqueue.bind(queue) as (task: unknown) => Promise<unknown>
+    const dequeue = originalDequeue.bind(queue)
+    // 同步抛错会绕过 epub.js 的 deferred（调用方永久等待，当前队列步也会中止），
+    // 先把函数任务的同步抛错转成拒绝；调用方仍能拿到失败，队列也能继续。
+    queue.enqueue = ((value: unknown) => originalEnqueue(
+      typeof value === 'function'
+        ? () => {
+          try {
+            return (value as () => unknown)()
+          } catch (error) {
+            return Promise.reject(error)
+          }
+        }
+        : value
+    )) as typeof queue.enqueue
+    queue.dequeue = (): Promise<unknown> => {
+      try {
+        return dequeue().catch(() => undefined)
+      } catch {
+        return Promise.resolve(undefined)
+      }
+    }
+  }
 
   const scheduleTrim = (delay = 250): void => {
     clearTimeout(manager.trimTimeout)
