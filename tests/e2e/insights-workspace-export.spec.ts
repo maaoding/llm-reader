@@ -39,8 +39,26 @@ async function configureProvider(page: Page): Promise<void> {
   await expect(page.getByTestId('settings-modal')).toHaveCount(0)
 }
 
-async function archiveSelection(page: Page, expectedAnswer: string): Promise<void> {
-  await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
+async function recordPageTimeline(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const target = window as unknown as { __pages: string[] }
+    target.__pages = []
+    const shell = document.querySelector('.workspace-shell')
+    if (!shell) throw new Error('Missing workspace shell')
+    const record = (): void => {
+      const value = shell.getAttribute('data-page') ?? ''
+      if (target.__pages[target.__pages.length - 1] !== value) target.__pages.push(value)
+    }
+    record()
+    new MutationObserver(record).observe(shell, { attributes: true, attributeFilter: ['data-page'] })
+  })
+}
+
+async function readPageTimeline(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { __pages: string[] }).__pages)
+}
+
+async function archiveSelection(page: Page, expectedAnswer: string): Promise<void> {  await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
   await expect(page.getByTestId('selection-toolbar')).toBeVisible()
   await page.getByTestId('action-explain').click()
   await expect(page.getByTestId('answer-current')).toContainText(expectedAnswer)
@@ -207,10 +225,13 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     const shortAnswerCard = page.locator('[data-testid="insight-item"]').filter({ hasText: '这是第一本书的归档回答。' })
     await expect(shortAnswerCard.locator('.answer-md')).not.toHaveClass(/is-clamped/)
 
+    await recordPageTimeline(page)
     await firstInsight.locator('.insight-content').click()
     await expect(page.locator('.assistant-session-tab.is-active [role="tab"]')).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByTestId('answer-current')).toContainText('这是第一本书的归档回答。')
     await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已保存的回答')
+    // 点击归档条目时先进入对话页，目标书籍在后台打开，不经过书籍页面。
+    expect(await readPageTimeline(page)).toEqual(['archives', 'conversation'])
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
 
     const secondLiveTab = page.getByTestId('assistant-session-tab').filter({ hasText: '第二本书' })
@@ -293,6 +314,22 @@ test('keeps two archive tabs independent and closes the active one back to curre
 
     await archiveTabs.nth(0).locator('.assistant-session-tab-select').click()
     await expect(followup).toHaveValue('第一份未发送草稿')
+
+    // 会话标签按创建顺序排列（当前 live 不再置顶），且可以拖拽重排。
+    const tabIds = (): Promise<string[]> => page.getByTestId('assistant-session-tab').evaluateAll((elements) => elements.map((element) => element.getAttribute('data-tab-id') ?? ''))
+    const idsBeforeDrag = await tabIds()
+    expect(idsBeforeDrag).toHaveLength(2)
+    await page.getByTestId('assistant-session-tab').last().dragTo(page.getByTestId('assistant-session-tab').first())
+    await expect.poll(tabIds).toEqual([idsBeforeDrag[1], idsBeforeDrag[0]])
+    // 拖拽只改顺序，不改变活动会话与草稿。
+    await expect(followup).toHaveValue('第一份未发送草稿')
+
+    // 会话内搜索：高亮命中并给出匹配轮数。
+    await page.getByTestId('conversation-search-input').fill('归档回答')
+    await expect(page.getByTestId('conversation-search-count')).toContainText('1 轮匹配')
+    await expect.poll(() => page.locator('.conversation-list mark').count()).toBeGreaterThan(0)
+    await page.getByTestId('conversation-search-input').fill('')
+    await expect(page.locator('.conversation-list mark')).toHaveCount(0)
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

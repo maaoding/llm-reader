@@ -241,6 +241,39 @@ test('keeps streaming answers pinned to the bottom until the reader scrolls away
   }
 })
 
+test('regenerates the last answer and rewrites its question in place', async () => {
+  const workspace = await createE2eWorkspace('assistant-regenerate-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
+    })
+    application = launched.application
+    const { page } = launched
+    await configureAndAsk(page)
+    await expect(page.getByTestId('answer-current').locator('.answer-text strong')).toHaveText('关键')
+    await expect(page.locator('.conversation-turn')).toHaveCount(1)
+
+    // 重新生成：替换最后一轮而不追加；第二次请求由 mock 返回另一段回答。
+    await page.getByTestId('answer-regenerate').click()
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+    await expect(page.locator('.conversation-turn')).toHaveCount(1)
+    await expect(page.getByTestId('answer-current')).not.toContainText('要点甲')
+
+    // 编辑问题：该轮被收起、问题回到输入框，重发后仍是一轮。
+    await page.getByTestId('answer-edit-question').click()
+    await expect(page.locator('.conversation-turn')).toHaveCount(0)
+    await expect(page.getByTestId('followup-input')).toHaveValue('请用清晰、准确的语言解释这段内容。')
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.locator('.conversation-turn')).toHaveCount(1)
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
 test('keeps archive follow-up history after reopening and restarting the app', async () => {
   const workspace = await createE2eWorkspace('assistant-archive-history-e2e-')
   let application: ElectronApplication | undefined

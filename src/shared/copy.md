@@ -107,6 +107,9 @@
 | assistant.selectionPending | 尚未选中原文 |
 | assistant.questionAria | 输入问题 |
 | assistant.busyHint | 正在回答，可先写下一个问题。 |
+| assistant.queued | 已排队，前面还有回答在生成。 |
+| assistant.clearSession | 清空会话 |
+| assistant.clearSessionQuestion | 清空当前会话？ |
 | assistant.bookEmptyTitle | 从书中寻找答案 |
 | assistant.bookEmptyHint | 询问书中的观点、概念或章节联系，回答会附上本次参考的原文。 |
 | assistant.newDraftHint | 可以先写下问题，准备好后再发送。 |
@@ -333,6 +336,10 @@
 | assistant.tokenUsage | 用量 {count} tokens |
 | assistant.save | 保存回答 |
 | assistant.saved | 已保存 |
+| assistant.regenerate | 重新生成 |
+| assistant.editQuestion | 编辑问题 |
+| assistant.searchConversation | 搜索当前会话 |
+| assistant.searchTurns | {count} 轮匹配 |
 | assistant.insightLabel | 已保存的回答 |
 | assistant.insightFollowupLabel | 追问 |
 | assistant.stop | 停止生成 |
