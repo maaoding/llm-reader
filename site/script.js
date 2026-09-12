@@ -22,8 +22,7 @@ if (demo) {
     emptyState.hidden = true
     answer.hidden = false
     explainButton.setAttribute('aria-pressed', 'true')
-    composer.disabled = false
-    composer.placeholder = '继续追问这段原文…'
+    composer.placeholder = '可在桌面应用中继续追问…'
   })
 
   for (const button of returnButtons) {
@@ -31,12 +30,12 @@ if (demo) {
       demo.dataset.demoState = 'answered'
       status.textContent = ''
       window.requestAnimationFrame(() => {
+        selection.focus({ preventScroll: true })
         if (reduceMotion.matches) {
           status.textContent = '已返回并强调对应原文。'
           return
         }
         demo.dataset.demoState = 'citation'
-        selection.focus({ preventScroll: true })
         status.textContent = '已返回并强调对应原文。'
       })
     })
