@@ -1,11 +1,23 @@
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
-import { resolve } from 'node:path'
+import { writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import type { BaseWindow, OpenDialogOptions } from 'electron'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
 import { enterReading, showLibrary } from './support/workspace'
 
+async function stubImportDialog(application: ElectronApplication, paths: string[]): Promise<void> {
+  await application.evaluate(({ dialog }, selectedPaths) => {
+    dialog.showOpenDialog = (async (_window: BaseWindow, options: OpenDialogOptions) => {
+      if (!options.properties?.includes('multiSelections')) throw new Error('Expected multiSelections')
+      return { canceled: false, filePaths: selectedPaths, bookmarks: [] }
+    }) as unknown as typeof dialog.showOpenDialog
+  }, paths)
+}
+
 let mockServer: Server
 let endpoint = ''
+let streamCount = 0
 
 async function selectNodeContents(locator: Locator): Promise<void> {
   await locator.evaluate((element) => {
@@ -58,12 +70,20 @@ test.beforeAll(async () => {
         'cache-control': 'no-cache',
         connection: 'keep-alive'
       })
-      response.write(`data: ${JSON.stringify({
-        id: 'mock-session-persistence-stream',
-        model: 'mock-session-persistence',
-        choices: [{ index: 0, delta: { content: '临时会话里的回答，重启后应当仍在。' } }]
-      })}\n\n`)
-      response.end('data: [DONE]\n\n')
+      streamCount += 1
+      // 分六段慢慢输出，便于在生成过程中切书、排队与清空。
+      const chunks = ['临时会话里的回答，', '重启后应当仍在。', '这是第三段，', '用于拉长生成过程。', '这是第五段。', '（流式结束）']
+      chunks.forEach((content, index) => {
+        setTimeout(() => {
+          if (response.writableEnded) return
+          response.write(`data: ${JSON.stringify({
+            id: 'mock-session-persistence-stream',
+            model: 'mock-session-persistence',
+            choices: [{ index: 0, delta: { content } }]
+          })}\n\n`)
+          if (index === chunks.length - 1) response.end('data: [DONE]\n\n')
+        }, index * 600)
+      })
     })
   })
   await new Promise<void>((resolveListen, reject) => {
@@ -79,6 +99,10 @@ test.afterAll(async () => {
   await new Promise<void>((resolveClose, reject) => {
     mockServer.close((error) => (error ? reject(error) : resolveClose()))
   })
+})
+
+test.beforeEach(() => {
+  streamCount = 0
 })
 
 test('restores open archive tabs with their drafts and the active tab', async () => {
@@ -153,7 +177,9 @@ test('keeps the last temporary session per book across restarts and clears it on
     await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
     await page.getByTestId('action-explain').click()
-    await expect(page.getByTestId('answer-current')).toContainText('临时会话里的回答，重启后应当仍在。')
+    await expect(page.getByTestId('answer-current')).toContainText('（流式结束）')
+    // 等请求真正结束（停止按钮消失）再写草稿，保证落库的是完成态。
+    await expect(page.getByTestId('cancel-request')).toHaveCount(0)
     const draft = '.right-sidebar [data-testid="followup-input"]'
     await page.locator(draft).fill('重启后应保留的草稿')
 
@@ -184,6 +210,142 @@ test('keeps the last temporary session per book across restarts and clears it on
     await page.getByTestId('book-item').first().click()
     await expect(page.locator('.right-sidebar .conversation-turn')).toHaveCount(0)
     await expect(page.locator(draft)).toHaveValue('')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('keeps an answer that finished while another book was active', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-background-session-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const titles = ['后台完成的书', '切走的书']
+    const paths = titles.map((title) => join(workspace.root, `${title}.txt`))
+    await Promise.all(paths.map((path, index) => writeFile(path, `${titles[index]}\n\n${titles[index]}的正文段落，用于划词提问。`, 'utf8')))
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    let page = launched.page
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    await stubImportDialog(application, paths)
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 2 本')
+    await page.getByTestId('book-import-close').click()
+    await page.getByTestId('book-item').filter({ hasText: titles[0] }).click()
+    await page.getByTestId('workspace-tab-reading').click()
+    await expect(page.locator('.reader-document--txt')).toBeVisible()
+    await configureProvider(page)
+
+    await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
+    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+    await page.getByTestId('action-explain').click()
+    await expect(page.getByTestId('answer-current')).toContainText('临时会话里的回答，', { timeout: 30_000 })
+
+    // 生成未结束时切到另一本书，让回答在后台完成。
+    await page.getByTestId('nav-library').click()
+    await page.getByTestId('book-item').filter({ hasText: titles[1] }).click()
+    await page.getByTestId('workspace-tab-reading').click()
+    await expect(page.locator('.workspace-book-title h1')).toHaveText(titles[1])
+    await page.waitForTimeout(3_000)
+
+    // 重启后回到第一本：后台完成的回答必须还在。
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    page = restarted.page
+    await showLibrary(page)
+    await page.getByTestId('book-item').filter({ hasText: titles[0] }).click()
+    await page.getByTestId('workspace-tab-reading').click()
+    await expect(page.locator('.right-sidebar .conversation-turn')).toHaveCount(1)
+    await expect(page.locator('.right-sidebar')).toContainText('（流式结束）')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('stops a queued request when its session is cleared', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-cleared-queue-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const titles = ['排在第一的书', '排在第二的书', '被清空的书']
+    const paths = titles.map((title) => join(workspace.root, `${title}.txt`))
+    await Promise.all(paths.map((path, index) => writeFile(path, `${titles[index]}\n\n${titles[index]}的正文段落，用于划词提问。`, 'utf8')))
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    await stubImportDialog(application, paths)
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 3 本')
+    await page.getByTestId('book-import-close').click()
+
+    const askIn = async (index: number): Promise<void> => {
+      await page.getByTestId('nav-library').click()
+      await page.getByTestId('book-item').filter({ hasText: titles[index] }).click()
+      await page.getByTestId('workspace-tab-reading').click()
+      await expect(page.locator('.reader-document--txt')).toBeVisible()
+      await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
+      await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+      await page.getByTestId('action-explain').click()
+    }
+
+    // 先配好供应商，再依次在三本书里连续提问：前两个占用并发位，第三个排队。
+    await configureProvider(page)
+    await askIn(0)
+    await expect(page.getByTestId('answer-current')).toContainText('临时会话里的回答，', { timeout: 30_000 })
+    await askIn(1)
+    await expect(page.getByTestId('answer-current')).toContainText('临时会话里的回答，', { timeout: 30_000 })
+    await askIn(2)
+    await expect(page.getByTestId('answer-current')).toContainText('已排队，前面还有回答在生成。')
+    expect(streamCount).toBe(2)
+
+    // 清空排队的会话：请求不该再发出，界面上也不该留下无处落地的回答。
+    await page.getByTestId('assistant-expand-button').click()
+    await expect(page.getByTestId('assistant-dialog')).toBeVisible()
+    await page.getByTestId('conversation-clear').click()
+    await page.getByTestId('conversation-clear-confirm').click()
+    await expect(page.locator('.assistant-dialog .conversation-turn')).toHaveCount(0)
+    await page.waitForTimeout(3_500)
+    expect(streamCount).toBe(2)
+    await expect(page.locator('.assistant-dialog .conversation-turn')).toHaveCount(0)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('keeps a draft written after switching the question scope', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-scope-draft-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: resolve('tests/fixtures/complex-reading.txt') })
+    application = launched.application
+    let page = launched.page
+    await showLibrary(page)
+    await page.getByTestId('book-item').first().click()
+    await enterReading(page)
+    await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
+
+    // 先划词（进入选中内容范围），再切到整本书，然后写草稿。
+    await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
+    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.getByTestId('scope-book').click()
+    await expect(page.getByTestId('scope-book')).toHaveAttribute('aria-pressed', 'true')
+    const draft = '.right-sidebar [data-testid="followup-input"]'
+    await page.locator(draft).fill('切到整本书之后写的草稿')
+
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    page = restarted.page
+    await showLibrary(page)
+    await page.getByTestId('book-item').first().click()
+    await enterReading(page)
+    await expect(page.locator(draft)).toHaveValue('切到整本书之后写的草稿')
+    await expect(page.getByTestId('scope-book')).toHaveAttribute('aria-pressed', 'true')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

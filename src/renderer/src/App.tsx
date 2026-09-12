@@ -2825,38 +2825,37 @@ export default function App(): ReactNode {
     }).catch(() => undefined)
   }, [activeBook?.id, updateConversationTab])
 
-  // 会话落库载荷：选中文范围但选区已失效时降级为整本书，否则主进程校验会拒收。
-  const sessionPayload = useCallback((tab: ConversationTab): SaveBookSessionInput => ({
-    bookId: tab.bookId,
-    conversationId: tab.conversationId,
-    scope: tab.scope === 'selection' && !tab.selection ? 'book' : tab.scope,
-    selection: tab.selection,
-    draft: tab.draft,
-    turns: persistableTurns(tab.turns)
-  }), [])
+  // 会话落库载荷：scope 与 selection 必须自洽（整本书不带选区、选中内容必须有选区），
+  // 否则主进程校验会整条拒收，草稿就再也存不进去。
+  const sessionPayload = useCallback((tab: ConversationTab): SaveBookSessionInput => {
+    const selection = tab.scope === 'selection' ? tab.selection : null
+    return {
+      bookId: tab.bookId,
+      conversationId: tab.conversationId,
+      scope: selection ? 'selection' : 'book',
+      selection,
+      draft: tab.draft,
+      turns: persistableTurns(tab.turns)
+    }
+  }, [])
 
-  // 去抖保存临时会话：草稿与未归档轮次都落库，重启后可恢复。
-  const liveSessionTab = activeBook ? conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id) : undefined
+  // 去抖保存所有有内容的 live 会话：后台完成的回答也必须落库，不能只保存当前书籍。
+  const savedSessionsRef = useRef(new Map<string, string>())
   useEffect(() => {
-    if (!liveSessionTab) return undefined
-    if (!liveSessionTab.draft && liveSessionTab.turns.length === 0) return undefined
     const timer = window.setTimeout(() => {
-      void window.readerApi.saveBookSession(sessionPayload(liveSessionTab)).catch(() => undefined)
+      for (const tab of conversationTabs) {
+        if (tab.kind !== 'live') continue
+        if (!tab.draft && tab.turns.length === 0) continue
+        const payload = sessionPayload(tab)
+        const snapshot = JSON.stringify(payload)
+        if (savedSessionsRef.current.get(tab.bookId) === snapshot) continue
+        savedSessionsRef.current.set(tab.bookId, snapshot)
+        // 写入失败时清掉快照，下一次变更会重试。
+        void window.readerApi.saveBookSession(payload).catch(() => { savedSessionsRef.current.delete(tab.bookId) })
+      }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [liveSessionTab, sessionPayload])
-
-  const clearLiveSession = (tab: ConversationTab): void => {
-    setPendingClearSession(false)
-    updateConversationTab(tab.id, (current) => ({
-      ...current,
-      conversationId: crypto.randomUUID(),
-      selection: null,
-      draft: '',
-      turns: []
-    }))
-    void window.readerApi.deleteBookSession(tab.bookId).catch(() => undefined)
-  }
+  }, [conversationTabs, sessionPayload])
 
   const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'overview', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
     // landingPage 为 null 表示不再切换页面（后台打开书籍）。
@@ -3063,6 +3062,33 @@ export default function App(): ReactNode {
     }
   }, [updateConversationTab])
 
+  // 清空会话：先取消该书排队中与进行中的请求，否则名额释放后模型仍会被调用，
+  // 而对应的轮次已经被清掉，回答无处落地。
+  const clearLiveSession = (tab: ConversationTab): void => {
+    setPendingClearSession(false)
+    const queued = pendingRequestsRef.current.filter((item) => item.tabId === tab.id)
+    if (queued.length > 0) {
+      pendingRequestsRef.current = pendingRequestsRef.current.filter((item) => item.tabId !== tab.id)
+      for (const item of queued) requestProviderRevisionRef.current.delete(item.requestId)
+    }
+    for (const [requestId, tabId] of [...requestSessionRef.current]) {
+      if (tabId !== tab.id) continue
+      requestSessionRef.current.delete(requestId)
+      requestProviderRevisionRef.current.delete(requestId)
+      void window.readerApi.cancelLlm(requestId).catch(() => undefined)
+    }
+    updateConversationTab(tab.id, (current) => ({
+      ...current,
+      conversationId: crypto.randomUUID(),
+      selection: null,
+      draft: '',
+      turns: []
+    }))
+    void window.readerApi.deleteBookSession(tab.bookId).catch(() => undefined)
+    // 释放出来的并发位让后面的排队请求补位。
+    pumpRequestQueue()
+  }
+
   useEffect(() => {
     if (!window.readerApi) return undefined
     return window.readerApi.onLlmEvent((event: LlmEvent) => {
@@ -3117,12 +3143,11 @@ export default function App(): ReactNode {
         progressTimerRef.current = null
       }
       await flushProgress()
-      // 退出前补写去抖中的临时会话与标签列表，避免最后一次草稿丢失。
-      const bookId = activeBookRef.current?.id
-      const tab = bookId
-        ? conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
-        : undefined
-      if (tab && (tab.draft || tab.turns.length > 0)) {
+      // 退出前补写去抖中的会话与标签列表：所有有内容的 live 会话都写，含后台完成的回答。
+      const flushTabs = conversationTabsRef.current.filter((candidate) => (
+        candidate.kind === 'live' && (candidate.draft || candidate.turns.length > 0)
+      ))
+      for (const tab of flushTabs) {
         await window.readerApi.saveBookSession(sessionPayload(tab)).catch(() => undefined)
       }
       if (workspaceReady) await window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
