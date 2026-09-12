@@ -1,5 +1,5 @@
-import { memo, type ReactNode } from 'react'
-import { parseMarkdown, type AnswerInline, type MarkdownBlock } from './answer-markdown'
+import { memo, useMemo, type ReactNode } from 'react'
+import { parseMarkdown, previewInlines, type AnswerInline, type MarkdownBlock } from './answer-markdown'
 
 function InlineContent({ nodes }: { nodes: AnswerInline[] }): ReactNode {
   return nodes.map((node, index) => {
@@ -36,4 +36,10 @@ function BlockContent({ block }: { block: MarkdownBlock }): ReactNode {
 export const MarkdownText = memo(function MarkdownText({ text, className = '' }: { text: string; className?: string }): ReactNode {
   const blocks = parseMarkdown(text)
   return <div className={`markdown-text ${className}`.trim()}>{blocks.map((block, index) => <BlockContent block={block} key={index} />)}</div>
+})
+
+/** 单行预览：保留行内 Markdown 强调与行内代码，丢弃块级结构，超长时截断。 */
+export const MarkdownPreview = memo(function MarkdownPreview({ text, limit }: { text: string; limit: number }): ReactNode {
+  const nodes = useMemo(() => previewInlines(text, limit), [limit, text])
+  return <InlineContent nodes={nodes} />
 })

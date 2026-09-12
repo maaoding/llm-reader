@@ -4,7 +4,7 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SelectionContext } from '../../src/shared/contracts'
-import { parseInline, parseMarkdown } from '../../src/renderer/src/answer-markdown'
+import { parseInline, parseMarkdown, previewInlines } from '../../src/renderer/src/answer-markdown'
 import { AnswerText } from '../../src/renderer/src/AnswerText'
 
 const selection: SelectionContext = {
@@ -22,6 +22,33 @@ const selection: SelectionContext = {
 }
 
 afterEach(() => cleanup())
+
+describe('markdown preview', () => {
+  it('keeps inline marks and drops block markers', () => {
+    const nodes = previewInlines('## 标题\n\n正文 **加粗** 与 `行内代码`。\n\n- 甲\n- 乙', 200)
+    expect(nodes).toEqual([
+      { type: 'text', text: '标题 正文 ' },
+      { type: 'strong', children: [{ type: 'text', text: '加粗' }] },
+      { type: 'text', text: ' 与 ' },
+      { type: 'code', text: '行内代码' },
+      { type: 'text', text: '。 甲 · 乙' }
+    ])
+  })
+
+  it('truncates after parsing so cut markers never leak', () => {
+    const nodes = previewInlines('**粗体内容**后面还有很多文字，足够超越限制。', 8)
+    expect(nodes).toEqual([
+      { type: 'strong', children: [{ type: 'text', text: '粗体内容' }] },
+      { type: 'text', text: '后面还有…' }
+    ])
+    expect(JSON.stringify(nodes)).not.toContain('**')
+  })
+
+  it('returns an empty preview for empty input', () => {
+    expect(previewInlines('', 20)).toEqual([])
+    expect(previewInlines('正文', 0)).toEqual([{ type: 'text', text: '…' }])
+  })
+})
 
 describe('answer markdown parser', () => {
   it('parses headings, lists, code fences, blockquotes, and inline marks', () => {

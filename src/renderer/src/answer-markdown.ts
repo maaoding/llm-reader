@@ -280,3 +280,68 @@ function parseBlocks(lines: string[]): MarkdownBlock[] {
 export function parseMarkdown(text: string): MarkdownBlock[] {
   return parseBlocks(text.replace(/\r\n?/gu, '\n').split('\n'))
 }
+
+interface PreviewBudget { remaining: number }
+
+function appendPreviewLiteral(result: AnswerInline[], value: string, budget: PreviewBudget): void {
+  if (budget.remaining <= 0 || !value) return
+  const text = value.slice(0, budget.remaining)
+  budget.remaining -= text.length
+  appendText(result, text)
+}
+
+function appendPreviewInline(result: AnswerInline[], node: AnswerInline, budget: PreviewBudget): void {
+  if (budget.remaining <= 0) return
+  if (node.type === 'text') {
+    appendPreviewLiteral(result, node.text, budget)
+    return
+  }
+  if (node.type === 'code') {
+    const text = node.text.slice(0, budget.remaining)
+    budget.remaining -= text.length
+    if (text) result.push({ type: 'code', text })
+    return
+  }
+  const children: AnswerInline[] = []
+  for (const child of node.children) appendPreviewInline(children, child, budget)
+  if (children.length) result.push({ type: node.type, children })
+}
+
+function appendPreviewBlock(result: AnswerInline[], block: MarkdownBlock, budget: PreviewBudget): void {
+  if (block.type === 'paragraph' || block.type === 'heading') {
+    for (const node of block.inlines) appendPreviewInline(result, node, budget)
+    return
+  }
+  if (block.type === 'code') {
+    appendPreviewLiteral(result, block.text, budget)
+    return
+  }
+  if (block.type === 'blockquote') {
+    for (const child of block.blocks) appendPreviewBlock(result, child, budget)
+    return
+  }
+  let first = true
+  for (const item of block.items) {
+    if (budget.remaining <= 0) return
+    if (!first) appendPreviewLiteral(result, ' · ', budget)
+    first = false
+    for (const node of item.inlines) appendPreviewInline(result, node, budget)
+    for (const child of item.children) appendPreviewBlock(result, child, budget)
+  }
+}
+
+/**
+ * Flattens Markdown into a single inline preview of at most `limit` characters.
+ * Truncation happens after parsing, so cut-off markers such as `**` never reach the preview.
+ */
+export function previewInlines(text: string, limit: number): AnswerInline[] {
+  const budget: PreviewBudget = { remaining: Math.max(0, Math.floor(limit)) }
+  const result: AnswerInline[] = []
+  for (const block of parseMarkdown(text)) {
+    if (budget.remaining <= 0) break
+    if (result.length) appendPreviewLiteral(result, ' ', budget)
+    appendPreviewBlock(result, block, budget)
+  }
+  if (budget.remaining <= 0) appendText(result, '…')
+  return result
+}

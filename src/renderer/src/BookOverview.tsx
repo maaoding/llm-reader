@@ -2,7 +2,7 @@ import { BookOpen, MessageSquareText, ArrowRight, FileText, Sparkles } from 'luc
 import type { BookAnalysisState, BookRecord, InsightArchiveRecord } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { useBookNotesIndex } from './use-book-notes'
-import { MarkdownText } from './MarkdownText'
+import { MarkdownPreview, MarkdownText } from './MarkdownText'
 
 export function BookOverview({ book, state, insights, onRead, onAsk, onPrepare, onNotes, onInsight, onArchives }: {
   book: BookRecord; state?: BookAnalysisState; insights: InsightArchiveRecord[]; onRead: () => void; onAsk: () => void;
@@ -24,7 +24,7 @@ export function BookOverview({ book, state, insights, onRead, onAsk, onPrepare, 
     {index?.overview && <section className="workspace-summary"><h2>{copy('notes.overview')}</h2><MarkdownText text={index.overview} /></section>}
     <section className="workspace-recent"><header><h2>{copy('workspace.recent')}</h2><button className="text-button" onClick={onArchives}>{copy('workspace.allArchives')}<ArrowRight size={14} /></button></header>
       {!recent.length && <div className="workspace-empty"><h3>{copy('workspace.recentEmpty')}</h3><p>{copy('workspace.recentHint')}</p></div>}
-      {recent.map((item) => <button className="workspace-recent-item" key={item.id} onClick={() => onInsight(item)}><strong>{item.question}</strong><span>{item.answer.slice(0, 160)}</span><ArrowRight size={16} /></button>)}
+      {recent.map((item) => <button className="workspace-recent-item" key={item.id} onClick={() => onInsight(item)}><strong>{item.question}</strong><span className="workspace-recent-answer"><MarkdownPreview text={item.answer} limit={160} /></span><ArrowRight size={16} /></button>)}
     </section>
   </section>
 }
