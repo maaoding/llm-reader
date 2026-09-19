@@ -1,6 +1,7 @@
 import { copy } from '@shared/copy'
 import { z } from 'zod'
 import { validateDocument } from '@shared/document-structure'
+import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGES } from '@shared/vision-ocr'
 
 const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
@@ -300,9 +301,11 @@ export const knowledgeSettingsSchema = z.object({
     .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.rerank')).optional(),
   embedding: z.object({ enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
     .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.embedding')),
-  document: z.object({ processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling']), baseUrl: knowledgeUrl,
+  document: z.object({ processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision']), baseUrl: knowledgeUrl,
+    model: z.string().trim().max(256).optional(), compatibility: z.enum(['auto', 'opencode-go']).optional(),
     ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
     .refine((value) => value.processor === 'none' || Boolean(value.baseUrl), copy('validation.documentUrl'))
+    .refine((value) => value.processor !== 'vision' || Boolean(value.model), copy('vision.configRequired'))
 }).strict()
 export const testKnowledgeSettingsSchema = knowledgeSettingsSchema.extend({ target: z.enum(['embedding', 'rerank', 'document']) })
   .refine((value) => value.target !== 'rerank' || Boolean(value.rerank?.baseUrl && value.rerank.model), copy('validation.rerank'))
@@ -312,6 +315,9 @@ export const prepareBookDocumentSchema = startSemanticIndexSchema
 export const startBookAnalysisSchema = z.object({ bookId: idSchema, profileId: providerProfileIdSchema, rebuild: z.boolean().optional() })
 export const bookExtractionSchema = z.object({ bookId: idSchema, jobId: idSchema })
 export const pdfExtractionSchema = bookExtractionSchema.extend({ pageCount: z.number().int().min(1).max(600) }).strict()
+export const pdfOcrPageSchema = bookExtractionSchema.extend({ pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES),
+  imageDataUrl: z.string().max(OCR_MAX_IMAGE_DATA_URL).regex(OCR_IMAGE_PATTERN).nullable()
+}).strict()
 export const documentSectionSchema = z.object({
   id: shortText(128).regex(/^[\w.-]+$/u),
   chapterId: shortText(128).regex(/^[\w.-]+$/u),

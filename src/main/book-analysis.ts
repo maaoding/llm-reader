@@ -64,6 +64,7 @@ export class BookAnalysisService {
     if (state.status === 'unsupported' && this.documents?.enabled()) state.status = 'empty'
     if (this.semantic) state.semantic = this.semantic.state(bookId)
     if (this.knowledge) state.documentProcessor = this.knowledge.get().document.processor
+    if (state.document && this.documents?.usesVision()) state.document.ocrProgress = this.documents.progress(bookId)
     return state
   }
   emit(bookId: string): void { this.onState(this.state(bookId)) }

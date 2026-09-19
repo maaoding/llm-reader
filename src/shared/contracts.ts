@@ -58,6 +58,8 @@ export const IPC_CHANNELS = {
   documentCancel: 'document:cancel',
   analysisRead: 'analysis:read',
   analysisPdf: 'analysis:pdf',
+  analysisPdfPageRequest: 'analysis:pdf-page-request',
+  analysisPdfPageResult: 'analysis:pdf-page-result',
   analysisStart: 'analysis:start',
   analysisAppend: 'analysis:append',
   analysisFinish: 'analysis:finish',
@@ -263,6 +265,7 @@ export interface BookDocumentState {
   total: number
   message?: string
   diagnostics: DocumentDiagnostic[]
+  ocrProgress?: { completed: number; total: number }
 }
 export interface PrepareBookDocumentInput { bookId: string; rebuild?: boolean }
 
@@ -339,10 +342,13 @@ export interface BookAnalysisState {
   document?: BookDocumentState
 }
 
-export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling'
+export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling' | 'vision'
 export interface EmbeddingSettings { enabled: boolean; baseUrl: string; model: string }
 export interface RerankSettings { enabled: boolean; baseUrl: string; model: string }
-export interface DocumentSettings { processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en' }
+export interface DocumentSettings {
+  processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en'
+  model?: string; compatibility?: ProviderCompatibility
+}
 export interface KnowledgeSettings {
   embedding: EmbeddingSettings & { hasApiKey: boolean }
   rerank: RerankSettings & { hasApiKey: boolean }
@@ -387,7 +393,10 @@ export interface BookExtractionApi {
   finish(input: BookExtractionInput): Promise<void>
   fail(input: BookExtractionInput): Promise<void>
   processPdf(input: BookExtractionInput & { pageCount: number }): Promise<void>
+  submitPdfPage(input: PdfOcrPageRequest & { imageDataUrl: string | null }): Promise<void>
+  onPdfPageRequest(listener: (input: PdfOcrPageRequest) => void): () => void
 }
+export interface PdfOcrPageRequest extends BookExtractionInput { pageNumber: number }
 
 export type RerankReason = 'ranked' | 'disabled' | 'not-ready' | 'insufficient-candidates' | 'configuration' |
   'timeout' | 'rate-limit' | 'authentication' | 'server' | 'http' | 'redirect' | 'too-large' | 'invalid-response' | 'network'

@@ -151,7 +151,21 @@
 | knowledge.en | 英文 |
 | knowledge.testEmbedding | 测试 Embedding |
 | knowledge.testDocument | 检查处理服务 |
-| knowledge.testHint | Embedding 测试会发送一条固定短文本并可能消耗额度；文档检查不上传书籍。 |
+| vision.title | 视觉模型 OCR |
+| vision.model | 视觉模型名称 |
+| vision.hint | 使用支持图片输入的 OpenAI 兼容接口识别 PDF，可与提问模型分开配置。先用固定样图测试图片识别；测试可能消耗额度，不会发送书籍。 |
+| vision.preparation | 把 PDF 页面转为图片交给视觉模型，识别的文字可用于全书提问和章节笔记。 |
+| vision.disclosure | 点击准备后，会逐页发送图片至所配置的模型服务，可能产生费用。已完成页保存在本机，暂停、失败或退出后可手动继续；未完成页可能重复计费。原 PDF 保留，引用可返回页面核对。识别结果可能有误，暂不生成可选择的文字层，也不保证复杂表格与章节结构。 |
+| vision.progress | 已识别 {completed}/{total} 页 |
+| vision.test | 测试图片识别 |
+| vision.testOk | 样图文字识别成功。实际 PDF 的识别质量仍需对照原文核验。 |
+| vision.testFailed | 未能正确识别样图。请确认接口和所选模型支持图片输入，再重试。 |
+| vision.configRequired | 请填写视觉模型接口地址及模型名称。 |
+| vision.renderFailed | 无法生成当前 PDF 页的识别图片。请检查文件后重试；已完成页会保留。 |
+| vision.invalidResponse | 模型未返回有效的识别文字。请确认所选模型支持图片输入后重试。 |
+| vision.incomplete | 当前页识别被截断或未能完成，未保存不完整结果。请检查模型的输出限制后重试。 |
+| vision.emptyDocument | 识别完成，但未提取到可用文字。请检查 PDF 内容或更换视觉模型后重新准备。 |
+| knowledge.testHint | Embedding 测试发送固定短文本，视觉模型测试发送固定样图，可能消耗额度；各项检查均不发送书籍。 |
 | knowledge.testOk | 接口检查通过。 |
 | knowledge.documentTestOk | 服务接口可用。实际文档处理需在书籍中验证。 |
 | knowledge.save | 保存设置 |

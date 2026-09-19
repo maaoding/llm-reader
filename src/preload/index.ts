@@ -110,6 +110,12 @@ export const readerApi: ReaderApi = {
 if (process.argv.includes('--llm-reader-extraction')) {
   const api: BookExtractionApi = {
     processPdf: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisPdf, input),
+    submitPdfPage: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisPdfPageResult, input),
+    onPdfPageRequest: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, input: Parameters<typeof listener>[0]): void => listener(input)
+      ipcRenderer.on(IPC_CHANNELS.analysisPdfPageRequest, handler)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.analysisPdfPageRequest, handler)
+    },
     read: () => ipcRenderer.invoke(IPC_CHANNELS.analysisRead),
     append: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisAppend, input),
     finish: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisFinish, input),

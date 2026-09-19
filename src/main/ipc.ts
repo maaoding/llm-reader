@@ -258,14 +258,15 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     })
     handle(IPC_CHANNELS.knowledgeTest, dependencies, async (_event, value) => {
       const input = parse(testKnowledgeSettingsSchema, value)
-      const signal = AbortSignal.timeout(20_000)
+      const vision = input.target === 'document' && input.document.processor === 'vision'
+      const signal = AbortSignal.timeout(vision ? 90_000 : 20_000)
       if (input.target === 'embedding') await embed(dependencies.knowledgeHttp!, knowledge.embedding(input.embedding), ['这是用于检查语义检索接口的固定测试文本。'], signal)
       else if (input.target === 'rerank') await rerank(dependencies.knowledgeHttp!, knowledge.rerank(input.rerank), '雨天出门应该带什么？', [
         { id: 'test-a', text: '下雨时出门可以带雨伞。', chapterTitle: '固定测试文本', anchor: 'test:0' },
         { id: 'test-b', text: '晴天可以观察蓝色的天空。', chapterTitle: '固定测试文本', anchor: 'test:1' }
       ], signal)
       else await dependencies.documents!.test(knowledge.document(input.document), signal)
-      return { ok: true, message: copy(input.target === 'embedding' ? 'knowledge.testOk' : input.target === 'rerank' ? 'rerank.testOk' : 'knowledge.documentTestOk') }
+      return { ok: true, message: copy(vision ? 'vision.testOk' : input.target === 'embedding' ? 'knowledge.testOk' : input.target === 'rerank' ? 'rerank.testOk' : 'knowledge.documentTestOk') }
     })
     handle(IPC_CHANNELS.semanticStart, dependencies, (_event, value) => {
       const input = parse(startSemanticIndexSchema, value)

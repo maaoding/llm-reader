@@ -11,6 +11,7 @@ import { KnowledgeSettingsService, type DocumentCredentials } from './knowledge-
 import { documentSectionSchema, normalizedDocumentSchema } from './schemas'
 import { normalizeDoclingDocument, normalizeMineruDocument } from './document-normalizer'
 import { documentSections, MAX_DOCUMENT_CACHE_BYTES } from '@shared/document-structure'
+import { VisionOcrService, type PdfPageRenderer } from './vision-ocr'
 
 const object = z.record(z.string(), z.unknown())
 const identifier = z.string().min(1).max(128).regex(/^[\w-]+$/u)
@@ -81,8 +82,13 @@ async function contentListFromZip(bytes: Uint8Array): Promise<unknown> {
 }
 
 export class DocumentProcessingService {
+  private readonly vision: VisionOcrService
   constructor(private readonly database: AppDatabase, private readonly settings: KnowledgeSettingsService,
-    private readonly http: KnowledgeHttp, private readonly pollMs = 2_000, private readonly foregroundBusy: () => boolean = () => false) {}
+    private readonly http: KnowledgeHttp, private readonly pollMs = 2_000, private readonly foregroundBusy: () => boolean = () => false) {
+    this.vision = new VisionOcrService(database, settings, http)
+  }
+  usesVision(): boolean { return this.settings.get().document.processor === 'vision' }
+  progress(bookId: string): { completed: number; total: number } | undefined { return this.vision.progress(bookId) }
   identity(): string {
     const config = this.settings.get().document
     const revision = this.database.connection.prepare("SELECT revision FROM knowledge_settings WHERE kind = 'document'").get()?.revision
@@ -105,6 +111,7 @@ export class DocumentProcessingService {
     return config.apiKey ? config.processor === 'docling' ? { 'X-Api-Key': config.apiKey } : { Authorization: `Bearer ${config.apiKey}` } : {}
   }
   async test(config: DocumentCredentials, signal: AbortSignal): Promise<void> {
+    if (config.processor === 'vision') return this.vision.test(config, signal)
     if (config.processor === 'none' || !config.baseUrl) throw new AppError('DOCUMENT_CONFIG', copy('knowledge.pdfRequired'))
     if (config.processor === 'mineru-cloud') {
       if (!config.apiKey) throw new AppError('DOCUMENT_KEY', copy('knowledge.cloudKey'))
@@ -118,11 +125,13 @@ export class DocumentProcessingService {
       if (!paths[config.processor === 'docling' ? '/v1/convert/file/async' : '/tasks']) invalid()
     }
   }
-  async extract(bookId: string, bytes: Uint8Array, pageCount: number, signal: AbortSignal): Promise<DocumentSection[]> {
+  async extract(bookId: string, bytes: Uint8Array, pageCount: number, signal: AbortSignal,
+    renderPage?: PdfPageRenderer, onProgress: () => void = () => undefined): Promise<DocumentSection[]> {
     if (!this.enabled()) throw new AppError('DOCUMENT_CONFIG', copy('knowledge.pdfRequired'))
     if (bytes.length > 200_000_000 || pageCount > 600) throw new AppError('DOCUMENT_TOO_LARGE', copy('knowledge.tooLarge'))
     const config = this.settings.document()
     const fingerprint = createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
+    if (config.processor === 'vision') return this.vision.extract(bookId, pageCount, config, fingerprint, signal, renderPage, () => this.yieldToQuestions(signal), onProgress)
     let row = this.database.connection.prepare('SELECT * FROM document_jobs WHERE book_id = ?').get(bookId) as unknown as JobRow | undefined
     if (row && row.fingerprint !== fingerprint) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))
     if (row?.structure_json) return documentSections(normalizedDocumentSchema.parse(JSON.parse(row.structure_json)))

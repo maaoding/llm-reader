@@ -50,6 +50,7 @@ export class KnowledgeSettingsService {
   document(draft?: SaveKnowledgeSettingsInput['document']): DocumentCredentials {
     const value = draft ?? this.get().document
     return { processor: value.processor, baseUrl: normalizeUrl(value.baseUrl), ocr: value.ocr, language: value.language,
+      ...(value.processor === 'vision' ? { model: value.model ?? '', compatibility: value.compatibility ?? 'auto' } : {}),
       apiKey: this.secret('document', value, value.processor), revision: this.row('document')?.revision ?? '' }
   }
   rerank(draft?: SaveKnowledgeSettingsInput['rerank']): RerankCredentials {

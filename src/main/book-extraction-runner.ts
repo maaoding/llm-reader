@@ -1,19 +1,20 @@
 import { join } from 'node:path'
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
-import { IPC_CHANNELS, type BookAnalysisState, type BookExtractionInput } from '@shared/contracts'
+import { IPC_CHANNELS, type BookAnalysisState, type BookExtractionInput, type PdfOcrPageRequest } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { BookAnalysisService } from './book-analysis'
 import { LibraryService } from './library-service'
-import { bookExtractionBatchSchema, bookExtractionSchema, pdfExtractionSchema } from './schemas'
+import { bookExtractionBatchSchema, bookExtractionSchema, pdfExtractionSchema, pdfOcrPageSchema } from './schemas'
 import { safeIpcError } from './ipc'
-import { toPublicError } from './errors'
+import { AppError, toPublicError } from './errors'
 
-const channels = [IPC_CHANNELS.analysisRead, IPC_CHANNELS.analysisPdf, IPC_CHANNELS.analysisAppend, IPC_CHANNELS.analysisFinish, IPC_CHANNELS.analysisFail]
+const channels = [IPC_CHANNELS.analysisRead, IPC_CHANNELS.analysisPdf, IPC_CHANNELS.analysisPdfPageResult, IPC_CHANNELS.analysisAppend, IPC_CHANNELS.analysisFinish, IPC_CHANNELS.analysisFail]
 
 /** Only this job's main frame may exchange extraction batches; it has no general reader API. */
 export class BookExtractionRunner {
   private active: { input: BookExtractionInput; window: BrowserWindow; url: string; timeout: ReturnType<typeof setTimeout> } | undefined
   private pdf?: { input: BookExtractionInput; controller: AbortController }
+  private page?: { input: PdfOcrPageRequest; resolve: (image: string) => void; reject: (error: Error) => void }
 
   constructor(private readonly library: LibraryService, private readonly analysis: BookAnalysisService) {
     for (const channel of channels) {
@@ -27,9 +28,21 @@ export class BookExtractionRunner {
           if (input.bookId !== active.input.bookId || input.jobId !== active.input.jobId) throw new Error('Invalid extraction job')
           if (channel === IPC_CHANNELS.analysisPdf) {
             const pdf = pdfExtractionSchema.parse(value)
-            this.startPdf(pdf, pdf.pageCount)
-            // Parsing and requests now belong to the main process; the sandbox only counted PDF pages.
-            setTimeout(() => { if (this.active === active) this.stop() }, 0)
+            if (this.pdf) throw new Error('PDF job already running')
+            if (this.analysis.documents?.usesVision()) {
+              // OCR keeps this sandbox alive for one bounded page render at a time.
+              clearTimeout(active.timeout)
+              await this.startPdf(input, pdf.pageCount)
+            } else {
+              void this.startPdf(input, pdf.pageCount)
+              setTimeout(() => { if (this.active === active) this.stop() }, 0)
+            }
+          }
+          else if (channel === IPC_CHANNELS.analysisPdfPageResult) {
+            const page = pdfOcrPageSchema.parse(value), pending = this.page
+            if (!pending || pending.input.bookId !== page.bookId || pending.input.jobId !== page.jobId || pending.input.pageNumber !== page.pageNumber) throw new Error('Invalid PDF page response')
+            if (page.imageDataUrl) pending.resolve(page.imageDataUrl)
+            else pending.reject(new AppError('OCR_IMAGE', copy('vision.renderFailed')))
           }
           else if (channel === IPC_CHANNELS.analysisAppend) this.analysis.append(bookExtractionBatchSchema.parse(value))
           else if (channel === IPC_CHANNELS.analysisFinish) this.analysis.finish(input)
@@ -100,15 +113,37 @@ export class BookExtractionRunner {
     if (!active.window.isDestroyed()) active.window.destroy()
   }
 
-  private startPdf(input: BookExtractionInput, pageCount: number): void {
+  private async renderPage(input: BookExtractionInput, pageNumber: number, signal: AbortSignal): Promise<string> {
+    const active = this.active
+    signal.throwIfAborted()
+    if (!active || active.input.jobId !== input.jobId || this.page) throw new AppError('OCR_IMAGE', copy('vision.renderFailed'))
+    const request = { ...input, pageNumber }
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const abort = (): void => pending.reject(new AppError('OCR_IMAGE', copy('vision.renderFailed')))
+    let pending: NonNullable<BookExtractionRunner['page']>
+    const result = new Promise<string>((resolve, reject) => { pending = { input: request, resolve, reject }; this.page = pending })
+    try {
+      timeout = setTimeout(abort, 45_000)
+      signal.addEventListener('abort', abort, { once: true })
+      active.window.webContents.send(IPC_CHANNELS.analysisPdfPageRequest, request)
+      return await result
+    } finally {
+      clearTimeout(timeout)
+      signal.removeEventListener('abort', abort)
+      if (this.page === pending!) this.page = undefined
+    }
+  }
+
+  private async startPdf(input: BookExtractionInput, pageCount: number): Promise<void> {
     if (this.pdf) throw new Error('PDF job already running')
     const active = { input, controller: new AbortController() }
     this.pdf = active
-    void (async () => {
+    await (async () => {
       const payload = await this.library.readBook(input.bookId)
       if (payload.book.format !== 'pdf' || !this.analysis.documents) throw new Error('Invalid PDF job')
       active.controller.signal.throwIfAborted()
-      const sections = await this.analysis.documents.extract(input.bookId, payload.bytes, pageCount, active.controller.signal)
+      const sections = await this.analysis.documents.extract(input.bookId, payload.bytes, pageCount, active.controller.signal,
+        (page, signal) => this.renderPage(input, page, signal), () => this.analysis.emit(input.bookId))
       const document = this.analysis.documents.structure(input.bookId)
       for (let offset = 0; offset < sections.length; offset += 8) {
         active.controller.signal.throwIfAborted()
@@ -121,5 +156,5 @@ export class BookExtractionRunner {
     }).finally(() => { if (this.pdf === active) this.pdf = undefined })
   }
   dispose(): void { this.cancel(); for (const channel of channels) ipcMain.removeHandler(channel) }
-  cancel(): void { this.stop(); this.pdf?.controller.abort(); this.pdf = undefined }
+  cancel(): void { this.pdf?.controller.abort(); this.pdf = undefined; this.stop() }
 }

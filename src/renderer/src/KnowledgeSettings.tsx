@@ -115,26 +115,36 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
             update({ ...draft, document: { ...draft.document, processor, apiKey: undefined,
               baseUrl: processor === 'mineru-cloud' ? 'https://mineru.net' : '' } })
           }}>
-          {(['none', 'mineru-local', 'mineru-cloud', 'docling'] as const).map((value) => <option key={value} value={value}>{copy(processorCopy[value])}</option>)}
+          {(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision'] as const).map((value) => <option key={value} value={value}>{copy(processorCopy[value])}</option>)}
         </select>
-        <p className="field-hint">{copy('knowledge.documentHint')}</p>
+        <p className="field-hint">{copy(draft.document.processor === 'vision' ? 'vision.hint' : 'knowledge.documentHint')}</p>
         {draft.document.processor !== 'none' && <>
           <label className="field-label" htmlFor="document-url">{copy('knowledge.baseUrl')}</label>
           <input id="document-url" type="url" pattern="https?://[^?#]+" data-testid="document-url" value={draft.document.baseUrl} spellCheck={false} required
             onChange={(event) => update({ ...draft, document: { ...draft.document, baseUrl: event.target.value, apiKey: undefined } })} />
+          {draft.document.processor === 'vision' && <>
+            <label className="field-label" htmlFor="document-model">{copy('vision.model')}</label>
+            <input id="document-model" data-testid="document-model" value={draft.document.model ?? ''} maxLength={256} spellCheck={false} required
+              onChange={(event) => update({ ...draft, document: { ...draft.document, model: event.target.value } })} />
+            <label className="field-label" htmlFor="document-compatibility">{copy('settings.compatibilityLabel')}</label>
+            <select id="document-compatibility" value={draft.document.compatibility ?? 'auto'} onChange={(event) => update({ ...draft, document: { ...draft.document, compatibility: event.target.value as 'auto' | 'opencode-go' } })}>
+              <option value="auto">{copy('settings.compatibilityAuto')}</option><option value="opencode-go">{copy('settings.compatibilityGo')}</option>
+            </select>
+            <p className="field-hint">{copy('settings.compatibilityHint')}</p>
+          </>}
           <label className="field-label" htmlFor="document-key">{copy('knowledge.apiKey')}</label>
           <input id="document-key" type="password" autoComplete="off" value={draft.document.apiKey ?? ''}
             placeholder={copy(saved?.document.hasApiKey && draft.document.processor === saved.document.processor && draft.document.baseUrl === saved.document.baseUrl ? 'knowledge.keySaved' : 'knowledge.keyEmpty')}
             onChange={(event) => update({ ...draft, document: { ...draft.document, apiKey: event.target.value || undefined } })} />
           <label className="knowledge-checkbox"><input type="checkbox" checked={draft.document.apiKey === null}
             onChange={(event) => update({ ...draft, document: { ...draft.document, apiKey: event.target.checked ? null : undefined } })} />{copy('knowledge.clearKey')}</label>
-          <label className="knowledge-checkbox"><input type="checkbox" data-testid="document-ocr" checked={draft.document.ocr}
-            onChange={(event) => update({ ...draft, document: { ...draft.document, ocr: event.target.checked } })} />{copy('knowledge.ocr')}</label>
+          {draft.document.processor !== 'vision' && <label className="knowledge-checkbox"><input type="checkbox" data-testid="document-ocr" checked={draft.document.ocr}
+            onChange={(event) => update({ ...draft, document: { ...draft.document, ocr: event.target.checked } })} />{copy('knowledge.ocr')}</label>}
           <label className="field-label" htmlFor="document-language">{copy('knowledge.language')}</label>
           <select id="document-language" value={draft.document.language} onChange={(event) => update({ ...draft, document: { ...draft.document, language: event.target.value as 'ch' | 'en' } })}>
             <option value="ch">{copy('knowledge.ch')}</option><option value="en">{copy('knowledge.en')}</option>
           </select>
-          <button className="secondary-button" type="button" data-testid="document-test" disabled={!draft.document.baseUrl} onClick={() => void run('document')}>{copy('knowledge.testDocument')}</button>
+          <button className="secondary-button" type="button" data-testid="document-test" disabled={!draft.document.baseUrl || (draft.document.processor === 'vision' && !draft.document.model?.trim())} onClick={() => void run('document')}>{copy(draft.document.processor === 'vision' ? 'vision.test' : 'knowledge.testDocument')}</button>
         </>}
         {feedback('document')}</details>
         <p className="field-hint">{copy('knowledge.endpointHint')} {copy('knowledge.testHint')}</p>
