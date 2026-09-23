@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { LlmEvent, LlmRequest } from '../../src/shared/contracts'
+import { copy } from '../../src/shared/copy'
 import { buildChatCompletionsUrl, buildModelsUrl, LlmService, selectContextPassages } from '../../src/main/llm-service'
 
 const credentials = {
@@ -37,6 +38,22 @@ function run(service: LlmService, value: LlmRequest): Promise<LlmEvent[]> {
 }
 
 describe('LlmService', () => {
+  it.each(['explain', 'context'] as const)('sends the shared default for %s while preserving custom requests', async (action) => {
+    const prompts: string[] = []
+    const service = new LlmService(credentials, async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> }
+      prompts.push(body.messages.at(-1)!.content)
+      return Response.json({ choices: [{ message: { content: '回答' } }] })
+    })
+    await run(service, request({ action }))
+    const custom = '只解释这个词在句中的含义。'
+    await run(service, request({ action, question: custom }))
+    expect(prompts[0]).toContain(`读者请求：${copy(action === 'explain' ? 'assistant.questionExplain' : 'assistant.questionContext')}`)
+    expect(prompts[1]).toContain(`读者请求：${custom}`)
+    expect(prompts[1]).not.toContain(copy('assistant.questionExplain'))
+    expect(prompts[1]).not.toContain(copy('assistant.questionContext'))
+  })
+
   it('normalizes SSE deltas, usage, and completion', async () => {
     const stream = [
       'data: {"model":"reader-model","choices":[{"delta":{"content":"Hello "}}]}',

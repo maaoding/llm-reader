@@ -106,10 +106,10 @@ export function selectContextPassages(selection: SelectionContext, budget: numbe
 
 export function actionPrompt(request: LlmRequest): string {
   if (request.action === 'explain') {
-    return request.question || '请用清晰、精确的语言解释选中的内容。'
+    return request.question || copy('assistant.questionExplain')
   }
   if (request.action === 'context') {
-    return request.question || '请结合给定的章节上下文说明选中内容的作用和关联。'
+    return request.question || copy('assistant.questionContext')
   }
   return request.question
 }

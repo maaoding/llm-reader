@@ -94,4 +94,37 @@ describe('assistant action settings', () => {
     expect(assistantActionLabel(settings, 'context')).toBe('看上下文')
     expect(assistantActionLabel(settings, 'ask')).toBe('直接问')
   })
+
+  it('upgrades persisted legacy defaults independently while retaining custom labels, icons and prompts', () => {
+    const defaults = createDefaultAssistantActionSettings()
+    window.localStorage.setItem(ASSISTANT_ACTIONS_STORAGE_KEY, JSON.stringify({
+      explain: { label: '读懂原文', prompt: '请用清晰、准确的语言解释这段内容。', icon: 'lightbulb' },
+      context: { label: '看论证', prompt: '请找出作者的隐含前提。', icon: 'quote' },
+      ask: { label: '我来问', icon: 'pen-line' }
+    }))
+    const upgraded = readAssistantActionSettings()
+    expect(upgraded).toEqual({
+      explain: { label: '读懂原文', prompt: defaults.explain.prompt, icon: 'lightbulb' },
+      context: { label: '看论证', prompt: '请找出作者的隐含前提。', icon: 'quote' },
+      ask: { label: '我来问', icon: 'pen-line' }
+    })
+    persistAssistantActionSettings(upgraded)
+    expect(readAssistantActionSettings()).toEqual(upgraded)
+
+    window.localStorage.setItem(ASSISTANT_ACTIONS_STORAGE_KEY, JSON.stringify({
+      explain: { ...upgraded.explain, prompt: '只解释术语，不作类比。' },
+      context: { ...upgraded.context, prompt: '请结合本章上下文说明这段内容的含义与作用。' }
+    }))
+    expect(readAssistantActionSettings()).toMatchObject({
+      explain: { prompt: '只解释术语，不作类比。' }, context: { prompt: defaults.context.prompt }
+    })
+  })
+
+  it('keeps a deliberately saved old prompt after migration', () => {
+    const settings = createDefaultAssistantActionSettings()
+    settings.explain.prompt = '请用清晰、准确的语言解释这段内容。'
+    settings.context.prompt = '请结合本章上下文说明这段内容的含义与作用。'
+    persistAssistantActionSettings(settings)
+    expect(readAssistantActionSettings()).toEqual(settings)
+  })
 })

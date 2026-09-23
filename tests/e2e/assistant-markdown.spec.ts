@@ -41,7 +41,7 @@ async function selectNodeContents(locator: Locator): Promise<void> {
   })
 }
 
-async function configureAndAsk(page: Page): Promise<void> {
+async function configureAndAsk(page: Page): Promise<string> {
   await page.getByTestId('book-item').first().waitFor()
   await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
   await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
@@ -60,6 +60,7 @@ async function configureAndAsk(page: Page): Promise<void> {
   await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
   await expect(page.getByTestId('selection-toolbar')).toBeVisible()
   await page.getByTestId('action-explain').click()
+  return page.evaluate(() => (JSON.parse(window.localStorage.getItem('llm-reader.assistant-actions')!) as { explain: { prompt: string } }).explain.prompt)
 }
 
 async function openInsightsWorkspace(page: Page): Promise<void> {
@@ -147,7 +148,7 @@ test('renders assistant markdown without breaking citation navigation', async ()
     await page.getByTestId('scale-125').click()
     await page.getByTestId('settings-close').click()
     await expect(page.getByTestId('settings-modal')).toHaveCount(0)
-    await configureAndAsk(page)
+    const defaultPrompt = await configureAndAsk(page)
 
     const answer = page.getByTestId('answer-current')
     await expect(answer.locator('.answer-model')).toHaveText('mock-assistant-markdown')
@@ -191,7 +192,7 @@ test('renders assistant markdown without breaking citation navigation', async ()
     await expect(page.getByTestId('assistant-dialog-tab-insights')).toBeVisible()
     await expect(page.getByTestId('answer-current')).toBeVisible()
     await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('mock-assistant-markdown')
-    await expect(page.locator('.question-bubble')).toContainText('请用清晰、准确的语言解释这段内容。')
+    await expect(page.locator('.question-bubble')).toContainText(defaultPrompt)
     await expect(page.getByTestId('answer-current').locator('.answer-save')).toHaveCount(0)
     await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已保存的回答')
   } finally {
@@ -252,7 +253,7 @@ test('regenerates the last answer and rewrites its question in place', async () 
     })
     application = launched.application
     const { page } = launched
-    await configureAndAsk(page)
+    const defaultPrompt = await configureAndAsk(page)
     await expect(page.getByTestId('answer-current').locator('.answer-text strong')).toHaveText('关键')
     await expect(page.locator('.conversation-turn')).toHaveCount(1)
 
@@ -265,7 +266,7 @@ test('regenerates the last answer and rewrites its question in place', async () 
     // 编辑问题：该轮被收起、问题回到输入框，重发后仍是一轮。
     await page.getByTestId('answer-edit-question').click()
     await expect(page.locator('.conversation-turn')).toHaveCount(0)
-    await expect(page.getByTestId('followup-input')).toHaveValue('请用清晰、准确的语言解释这段内容。')
+    await expect(page.getByTestId('followup-input')).toHaveValue(defaultPrompt)
     await page.getByTestId('followup-input').press('Enter')
     await expect(page.locator('.conversation-turn')).toHaveCount(1)
     await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')

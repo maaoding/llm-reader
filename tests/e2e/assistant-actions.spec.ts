@@ -119,6 +119,8 @@ test('customizes selection action names and prompts and restores them after rest
     await page.getByTestId('settings-nav-assistant').click()
     await expect(page.getByTestId('settings-modal')).toBeVisible()
     await expect(page.getByTestId('settings-nav-assistant')).toHaveAttribute('aria-selected', 'true')
+    const defaultExplainPrompt = await page.getByTestId('assistant-explain-prompt').inputValue()
+    const defaultContextPrompt = await page.getByTestId('assistant-context-prompt').inputValue()
 
     await page.getByTestId('assistant-explain-label').fill('通俗解释')
     await page.getByTestId('assistant-explain-prompt').fill('请用通俗语言解释这段内容。')
@@ -174,10 +176,10 @@ test('customizes selection action names and prompts and restores them after rest
 
     await restoredPage.getByTestId('assistant-actions-reset').click()
     await expect(restoredPage.getByTestId('assistant-explain-label')).toHaveValue('解释这段')
-    await expect(restoredPage.getByTestId('assistant-explain-prompt')).toHaveValue('请用清晰、准确的语言解释这段内容。')
+    await expect(restoredPage.getByTestId('assistant-explain-prompt')).toHaveValue(defaultExplainPrompt)
     await expect(restoredPage.getByTestId('assistant-explain-icon')).toHaveValue('highlighter')
     await expect(restoredPage.getByTestId('assistant-context-label')).toHaveValue('联系上下文')
-    await expect(restoredPage.getByTestId('assistant-context-prompt')).toHaveValue('请结合本章上下文说明这段内容的含义与作用。')
+    await expect(restoredPage.getByTestId('assistant-context-prompt')).toHaveValue(defaultContextPrompt)
     await expect(restoredPage.getByTestId('assistant-context-icon')).toHaveValue('book-open')
     await expect(restoredPage.getByTestId('assistant-ask-label')).toHaveValue('自由提问')
     await expect(restoredPage.getByTestId('assistant-ask-icon')).toHaveValue('message-square-text')

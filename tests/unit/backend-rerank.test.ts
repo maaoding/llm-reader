@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ContextSnapshot, DocumentSection, LlmEvent, LlmRequest, Passage, SaveKnowledgeSettingsInput } from '../../src/shared/contracts'
+import { copy } from '../../src/shared/copy'
 import { AppDatabase } from '../../src/main/database'
 import { KnowledgeSettingsService } from '../../src/main/knowledge-settings'
 import { KnowledgeHttp } from '../../src/main/knowledge-http'
@@ -210,7 +211,7 @@ describe('retrieval, protected evidence and retry integration', () => {
   it('caps Unicode query and selection, using action prompts and existing planning terms only', () => {
     const state = bookSetup()
     const local: LlmRequest = { ...state.request, scope: 'selection', action: 'explain', question: '', selection: { bookId: state.bookId, quote: '😀'.repeat(900), chapterTitle: '章', anchor: 'txt:0:900', passages: [] } }
-    expect(rerankQuery(local, ['既有规划词'])).toContain('请用清晰')
+    expect(rerankQuery(local, ['既有规划词'])).toContain(copy('assistant.questionExplain'))
     expect(rerankQuery(local, ['既有规划词'])).toContain('既有规划词')
     expect(Array.from(rerankQuery(local, [])).filter((text) => text === '😀')).toHaveLength(600)
     expect(Array.from(rerankQuery({ ...state.request, question: '😀'.repeat(2500) }, [])).length).toBe(2000)
