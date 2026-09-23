@@ -1,24 +1,28 @@
+import { isPageProcessor, providerIsConfigured } from '@shared/request-settings'
 import { useState } from 'react'
 import type { BookAnalysisState, BookRecord, ProviderOverview } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { SemanticIndexControls } from './SemanticIndexControls'
+import { BookOcrPreview } from './BookOcrPreview'
 import { processorCopy } from '@shared/knowledge'
 
-export function BookAnalysisControls({ book, state, error, profiles, onStart, onCancel, onPrepare, onCancelPreparation, onConfigure }: {
+export function BookAnalysisControls({ book, state, error, profiles, suspended = false, onStart, onCancel, onPrepare, onCancelPreparation, onConfigure }: {
   book: BookRecord; state?: BookAnalysisState; error?: { load?: string; document?: string; notes?: string }; profiles: ProviderOverview
+  suspended?: boolean
   onStart: (profileId: string, rebuild: boolean) => Promise<void>
   onCancel: () => void; onPrepare: (rebuild: boolean) => Promise<void>; onCancelPreparation: () => void
   onConfigure: (section: 'model' | 'knowledge', trigger: HTMLButtonElement, service?: 'document' | 'embedding') => void
 }) {
   const [chosenProfile, setChosenProfile] = useState('')
   const [starting, setStarting] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
   const profileId = chosenProfile || state?.profileId || profiles.activeProfileId || ''
   const preparing = state?.document?.status === 'preparing'
   const documentReady = state?.document?.status === 'ready'
-  const busy = preparing || state?.status === 'analyzing'
+  const busy = preparing || state?.status === 'analyzing' || previewing
   const supported = book.format !== 'pdf' || Boolean(state?.documentProcessor && state.documentProcessor !== 'none')
-  const vision = book.format === 'pdf' && state?.documentProcessor === 'vision'
-  const canStart = !starting && profiles.profiles.some((profile) => profile.id === profileId && profile.hasApiKey)
+  const vision = book.format === 'pdf' && isPageProcessor(state?.documentProcessor ?? 'none')
+  const canStart = !starting && profiles.profiles.some((profile) => profile.id === profileId && providerIsConfigured(profile))
   const start = async (rebuild: boolean) => {
     if (rebuild && !window.confirm(copy('preparation.notesRebuildConfirm'))) return
     setStarting(true)
@@ -49,6 +53,7 @@ export function BookAnalysisControls({ book, state, error, profiles, onStart, on
             {state?.document && state.document.status !== 'empty' && <button className="secondary-button" data-testid="document-rebuild" disabled={busy || starting} onClick={() => void prepare(true)}>{copy('preparation.rebuild')}</button>}</>}
       </div>
       {book.format === 'pdf' && <p className="field-hint">{copy(vision ? 'vision.disclosure' : 'knowledge.pdfDisclosure')}</p>}
+      {vision && <BookOcrPreview key={`${book.id}:${state?.documentProcessor}:${suspended}`} bookId={book.id} documentReady={documentReady} suspended={suspended} disabled={preparing || state?.status === 'analyzing' || starting} onBusyChange={setPreviewing} />}
       {!!state?.document?.diagnostics.length && <details data-testid="document-check" className="analysis-failures">
         <summary>{copy('preparation.check', { count: state.document.diagnostics.length })}</summary><p>{copy('preparation.checkHint')}</p>
         <ol>{state.document.diagnostics.slice(0, 100).map((item, index) => <li key={index}>{item.page ? copy('preparation.pageDiagnostic', { page: item.page, message: copy(diagnosticKeys[item.code]) }) : copy(diagnosticKeys[item.code])}</li>)}</ol>
@@ -64,7 +69,7 @@ export function BookAnalysisControls({ book, state, error, profiles, onStart, on
       {state?.progress && state.progress.total > 0 && <p data-testid="analysis-stage-progress" role="status">{copy('analysis.stageProgress', { stage: copy(`analysis.stage.${state.progress.stage}`), completed: state.progress.completed, total: state.progress.total })}</p>}
       {state?.progress?.retryAttempt && <p data-testid="analysis-retrying">{copy('analysis.retrying', { attempt: state.progress.retryAttempt })}</p>}
       <label>{copy('analysis.profile')}<select data-testid="analysis-profile" value={profileId} disabled={busy || starting} onChange={(event) => setChosenProfile(event.target.value)}>
-        <option value="" disabled>{copy('analysis.profile')}</option>{profiles.profiles.map((profile) => <option key={profile.id} value={profile.id} disabled={!profile.hasApiKey}>{profile.name} · {profile.model}</option>)}
+        <option value="" disabled>{copy('analysis.profile')}</option>{profiles.profiles.map((profile) => <option key={profile.id} value={profile.id} disabled={!providerIsConfigured(profile)}>{profile.name} · {profile.model}</option>)}
       </select></label>
       <p className="field-hint">{copy('analysis.disclosure')}</p>
       <div className="analysis-actions">

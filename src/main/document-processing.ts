@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import JSZip from 'jszip'
 import { z } from 'zod'
-import type { DocumentSection, NormalizedDocument } from '@shared/contracts'
+import type { BookPagePreview, BookPagePreviewInput, DocumentSection, NormalizedDocument, PreparedOcrPage } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppDatabase } from './database'
 import { AppError } from './errors'
@@ -12,6 +12,8 @@ import { documentSectionSchema, normalizedDocumentSchema } from './schemas'
 import { normalizeDoclingDocument, normalizeMineruDocument } from './document-normalizer'
 import { documentSections, MAX_DOCUMENT_CACHE_BYTES } from '@shared/document-structure'
 import { VisionOcrService, type PdfPageRenderer } from './vision-ocr'
+import { isPageProcessor, mergeRequestHeaders } from '@shared/request-settings'
+import { appendFormOptions } from './page-ocr-provider'
 
 const object = z.record(z.string(), z.unknown())
 const identifier = z.string().min(1).max(128).regex(/^[\w-]+$/u)
@@ -83,22 +85,59 @@ async function contentListFromZip(bytes: Uint8Array): Promise<unknown> {
 
 export class DocumentProcessingService {
   private readonly vision: VisionOcrService
+  private previewJob?: { bookId: string; requestId: string; controller: AbortController }
   constructor(private readonly database: AppDatabase, private readonly settings: KnowledgeSettingsService,
     private readonly http: KnowledgeHttp, private readonly pollMs = 2_000, private readonly foregroundBusy: () => boolean = () => false) {
     this.vision = new VisionOcrService(database, settings, http)
   }
-  usesVision(): boolean { return this.settings.get().document.processor === 'vision' }
+  usesVision(): boolean { return isPageProcessor(this.settings.get().document.processor) }
   progress(bookId: string): { completed: number; total: number } | undefined { return this.vision.progress(bookId) }
+  readOcrPage(bookId: string, pageNumber: number): PreparedOcrPage { return this.vision.preparedPage(bookId, pageNumber) }
   identity(): string {
     const config = this.settings.get().document
     const revision = this.database.connection.prepare("SELECT revision FROM knowledge_settings WHERE kind = 'document'").get()?.revision
     return JSON.stringify([config.processor, config.baseUrl, config.ocr, config.language, revision, 1])
   }
+  private fingerprint(bookId: string): string {
+    return createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
+  }
   enabled(): boolean { return this.settings.get().document.processor !== 'none' }
+  cancelPreview(requestId?: string): void {
+    if (!this.previewJob || (requestId && this.previewJob.requestId !== requestId)) return
+    this.previewJob.controller.abort()
+    this.previewJob = undefined
+  }
+  cancelBookPreview(bookId: string): void {
+    if (this.previewJob?.bookId === bookId) this.cancelPreview()
+  }
+
+  /** A single explicit preview never creates or modifies a preparation checkpoint. */
+  async previewPage(input: BookPagePreviewInput): Promise<BookPagePreview> {
+    const book = this.database.getStoredBook(input.bookId)
+    if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    const config = this.settings.document()
+    if (book.format !== 'pdf' || !isPageProcessor(config.processor)) throw new AppError('OCR_CONFIG', copy('vision.previewUnsupported'))
+    const preparing = this.database.connection.prepare("SELECT book_id FROM book_documents WHERE status = 'preparing' LIMIT 1").get()
+    if (this.previewJob || preparing) throw new AppError('ANALYSIS_BUSY', copy('vision.previewBusy'))
+    const fingerprint = this.fingerprint(input.bookId)
+    const cachedText = input.force ? undefined : this.vision.cachedPage(input.bookId, input.pageNumber, input.pageCount, fingerprint)
+    const metadata = { pageNumber: input.pageNumber, pageCount: input.pageCount, processor: config.processor, ...(config.model ? { model: config.model } : {}) }
+    if (cachedText !== undefined) return { ...metadata, text: cachedText, cached: true }
+    const job = { bookId: input.bookId, requestId: input.requestId, controller: new AbortController() }
+    this.previewJob = job
+    try {
+      const text = await this.vision.recognize(config, input.imageDataUrl, input.requestId, job.controller.signal)
+      job.controller.signal.throwIfAborted()
+      if (!this.database.getStoredBook(input.bookId) || this.fingerprint(input.bookId) !== fingerprint) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))
+      this.vision.savePreview(input.bookId, input.pageNumber, input.pageCount, fingerprint, text)
+      return { ...metadata, text, cached: false }
+    } finally { if (this.previewJob === job) this.previewJob = undefined }
+  }
   reset(bookId: string): void { this.database.connection.prepare('DELETE FROM document_jobs WHERE book_id = ?').run(bookId) }
   rebuild(bookId: string): void {
+    this.cancelBookPreview(bookId)
     const row = this.database.connection.prepare('SELECT raw_json, structure_json, fingerprint FROM document_jobs WHERE book_id = ?').get(bookId)
-    const fingerprint = createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
+    const fingerprint = this.fingerprint(bookId)
     if (row?.raw_json && row.structure_json && row.fingerprint === fingerprint) this.database.connection.prepare('UPDATE document_jobs SET result_json = NULL, structure_json = NULL WHERE book_id = ?').run(bookId)
     else this.reset(bookId)
   }
@@ -108,19 +147,19 @@ export class DocumentProcessingService {
   }
   private async yieldToQuestions(signal: AbortSignal): Promise<void> { while (this.foregroundBusy()) await delay(100, undefined, { signal }); signal.throwIfAborted() }
   private headers(config: DocumentCredentials): Record<string, string> {
-    return config.apiKey ? config.processor === 'docling' ? { 'X-Api-Key': config.apiKey } : { Authorization: `Bearer ${config.apiKey}` } : {}
+    return mergeRequestHeaders(config.apiKey ? config.processor === 'docling' ? { 'X-Api-Key': config.apiKey } : { Authorization: `Bearer ${config.apiKey}` } : {}, config.customHeaders)
   }
   async test(config: DocumentCredentials, signal: AbortSignal): Promise<void> {
-    if (config.processor === 'vision') return this.vision.test(config, signal)
+    if (isPageProcessor(config.processor)) return this.vision.test(config, signal)
     if (config.processor === 'none' || !config.baseUrl) throw new AppError('DOCUMENT_CONFIG', copy('knowledge.pdfRequired'))
     if (config.processor === 'mineru-cloud') {
       if (!config.apiKey) throw new AppError('DOCUMENT_KEY', copy('knowledge.cloudKey'))
       // Read-only query for a nonexistent random batch: checks auth without creating a paid job.
-      const result = parse(await this.http.json(`${config.baseUrl}/api/v4/extract-results/batch/${randomUUID()}`, { headers: this.headers(config) }, signal))
+      const result = parse(await this.http.json(`${config.baseUrl}/api/v4/extract-results/batch/${randomUUID()}`, { headers: this.headers(config) }, signal, undefined, config.timeoutMs))
       // -60012 is task not found. Other application errors must not masquerade as success.
       if (result.code !== 0 && result.code !== -60012 && result.code !== '-60012') failed()
     } else {
-      const spec = parse(await this.http.json(`${config.baseUrl}/openapi.json`, { headers: this.headers(config) }, signal))
+      const spec = parse(await this.http.json(`${config.baseUrl}/openapi.json`, { headers: this.headers(config) }, signal, undefined, config.timeoutMs))
       const paths = parse(spec.paths)
       if (!paths[config.processor === 'docling' ? '/v1/convert/file/async' : '/tasks']) invalid()
     }
@@ -130,8 +169,8 @@ export class DocumentProcessingService {
     if (!this.enabled()) throw new AppError('DOCUMENT_CONFIG', copy('knowledge.pdfRequired'))
     if (bytes.length > 200_000_000 || pageCount > 600) throw new AppError('DOCUMENT_TOO_LARGE', copy('knowledge.tooLarge'))
     const config = this.settings.document()
-    const fingerprint = createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
-    if (config.processor === 'vision') return this.vision.extract(bookId, pageCount, config, fingerprint, signal, renderPage, () => this.yieldToQuestions(signal), onProgress)
+    const fingerprint = this.fingerprint(bookId)
+    if (isPageProcessor(config.processor)) return this.vision.extract(bookId, pageCount, config, fingerprint, signal, renderPage, () => this.yieldToQuestions(signal), onProgress)
     let row = this.database.connection.prepare('SELECT * FROM document_jobs WHERE book_id = ?').get(bookId) as unknown as JobRow | undefined
     if (row && row.fingerprint !== fingerprint) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))
     if (row?.structure_json) return documentSections(normalizedDocumentSchema.parse(JSON.parse(row.structure_json)))
@@ -153,7 +192,7 @@ export class DocumentProcessingService {
         if (!config.apiKey) throw new AppError('DOCUMENT_KEY', copy('knowledge.cloudKey'))
         const data = cloudData(await this.http.json(`${config.baseUrl}/api/v4/file-urls/batch`, { method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'document.pdf', is_ocr: config.ocr }],
-            model_version: 'pipeline', language: config.language, enable_formula: true, enable_table: true }) }, signal))
+            model_version: 'pipeline', language: config.language, enable_formula: true, enable_table: true, ...config.extraBody }) }, signal, undefined, config.timeoutMs))
         taskId = saveTask(data.batch_id)
         const urls = z.array(z.string()).length(1).parse(data.file_urls)
         await this.http.request(cloudAssetUrl(urls[0], config.baseUrl), { method: 'PUT', body: Buffer.from(bytes) }, signal, 1_000_000, 180_000)
@@ -166,8 +205,9 @@ export class DocumentProcessingService {
             return_content_list: 'true', return_md: 'false', return_images: 'false', response_format_zip: 'false' }
         for (const [key, value] of Object.entries(fields)) form.append(key, value)
         if (config.processor === 'docling') for (const language of config.language === 'ch' ? ['ch_sim', 'en'] : ['en']) form.append('ocr_lang', language)
+        appendFormOptions(form, config.extraBody)
         const submitted = parse(await this.http.json(`${config.baseUrl}${config.processor === 'docling' ? '/v1/convert/file/async' : '/tasks'}`,
-          { method: 'POST', headers, body: form }, signal))
+          { method: 'POST', headers, body: form }, signal, undefined, config.timeoutMs))
         taskId = saveTask(submitted.task_id)
       }
       row = { fingerprint, task_id: taskId, result_json: null }
@@ -186,7 +226,7 @@ export class DocumentProcessingService {
       await this.yieldToQuestions(signal)
       if (Date.now() > deadline) throw new AppError('DOCUMENT_TIMEOUT', copy('knowledge.timeout'))
       if (config.processor === 'mineru-cloud') {
-        const data = cloudData(await this.http.json(`${config.baseUrl}/api/v4/extract-results/batch/${row.task_id}`, { headers }, signal))
+        const data = cloudData(await this.http.json(`${config.baseUrl}/api/v4/extract-results/batch/${row.task_id}`, { headers }, signal, undefined, config.timeoutMs))
         const results = z.array(object).length(1).parse(data.extract_result)
         const item = results[0]
         if (item.state === 'failed') failed()
@@ -197,11 +237,11 @@ export class DocumentProcessingService {
         } else if (!['waiting-file', 'pending', 'running', 'converting'].includes(String(item.state))) invalid()
       } else {
         const isDocling = config.processor === 'docling'
-        const status = parse(await this.http.json(`${config.baseUrl}${isDocling ? '/v1/status/poll/' : '/tasks/'}${row.task_id}`, { headers }, signal))
+        const status = parse(await this.http.json(`${config.baseUrl}${isDocling ? '/v1/status/poll/' : '/tasks/'}${row.task_id}`, { headers }, signal, undefined, config.timeoutMs))
         const phase = isDocling ? status.task_status : status.status
         if (phase === 'failure' || phase === 'failed') failed()
         if (phase === 'success' || phase === 'completed') {
-          const result = parse(await this.http.json(`${config.baseUrl}${isDocling ? '/v1/result/' : '/tasks/'}${row.task_id}${isDocling ? '' : '/result'}`, { headers }, signal, MAX_RESULT))
+          const result = parse(await this.http.json(`${config.baseUrl}${isDocling ? '/v1/result/' : '/tasks/'}${row.task_id}${isDocling ? '' : '/result'}`, { headers }, signal, MAX_RESULT, config.timeoutMs))
           if (isDocling) {
             if (result.status !== 'success') failed()
             normalized = normalize(parse(result.document).json_content)

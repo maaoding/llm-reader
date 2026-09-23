@@ -1,4 +1,5 @@
-import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { isPageProcessor } from '@shared/request-settings'
+import { app, clipboard, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -23,12 +24,18 @@ import {
   testKnowledgeSettingsSchema,
   startSemanticIndexSchema,
   bookIdSchema,
+  bookDocumentSearchSchema,
+  bookPagePreviewSchema,
+  bookOcrPageSchema,
+  clipboardTextSchema,
   bookChapterNotesSchema,
   bookImportPathsSchema,
   createProviderProfileSchema,
   highlightIdSchema,
   highlightSchema,
   bookSessionSchema,
+  recentBookSessionSchema,
+  deleteBookSessionSchema,
   sessionTabsSchema,
   insightExportScopeSchema,
   insightHistorySchema,
@@ -115,6 +122,7 @@ function handle(
 }
 
 export function registerIpcHandlers(dependencies: IpcDependencies): void {
+  handle(IPC_CHANNELS.clipboardWriteText, dependencies, (_event, value) => clipboard.writeText(parse(clipboardTextSchema, value)))
   handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
   handle(IPC_CHANNELS.appUpdatePhase, dependencies, () => dependencies.updater.getPhase())
   handle(IPC_CHANNELS.appUpdateCheck, dependencies, () => dependencies.updater.check('manual'))
@@ -154,6 +162,7 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     dependencies.analysis?.cancelPreparation(bookId)
     dependencies.semantic?.cancel(bookId)
     dependencies.llm.cancelBook(bookId)
+    dependencies.documents?.cancelBookPreview(bookId)
     return dependencies.library.deleteBook(bookId)
   })
   handle(IPC_CHANNELS.booksCover, dependencies, (_event, value) =>
@@ -208,12 +217,15 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.sessionsGet, dependencies, (_event, value) =>
     dependencies.library.getBookSession(parse(bookIdSchema, value))
   )
+  handle(IPC_CHANNELS.sessionsRecent, dependencies, (_event, value) => dependencies.library.listRecentBookSessions(parse(bookIdSchema, value)))
+  handle(IPC_CHANNELS.sessionsReadRecent, dependencies, (_event, value) => dependencies.library.getRecentBookSession(parse(recentBookSessionSchema, value)))
   handle(IPC_CHANNELS.sessionsSave, dependencies, (_event, value) =>
     dependencies.library.saveBookSession(parse(bookSessionSchema, value))
   )
-  handle(IPC_CHANNELS.sessionsDelete, dependencies, (_event, value) =>
-    dependencies.library.deleteBookSession(parse(bookIdSchema, value))
-  )
+  handle(IPC_CHANNELS.sessionsDelete, dependencies, (_event, value) => {
+    const input = parse(deleteBookSessionSchema, value)
+    return dependencies.library.deleteBookSession(input.bookId, input.conversationId)
+  })
   handle(IPC_CHANNELS.sessionTabsList, dependencies, () => dependencies.library.listSessionTabs())
   handle(IPC_CHANNELS.sessionTabsSave, dependencies, (_event, value) =>
     dependencies.library.saveSessionTabs(parse(sessionTabsSchema, value))
@@ -253,13 +265,14 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
       const saved = knowledge.save(parse(knowledgeSettingsSchema, value))
       const embeddingChanged = previousRevision !== knowledge.embeddingRevision() || previousEnabled !== saved.embedding.enabled
       if (embeddingChanged) dependencies.semantic?.dispose()
+      if (previousDocumentRevision !== knowledge.documentRevision()) dependencies.documents?.cancelPreview()
       if (embeddingChanged || previousDocumentRevision !== knowledge.documentRevision()) dependencies.analysis?.knowledgeChanged()
       return saved
     })
     handle(IPC_CHANNELS.knowledgeTest, dependencies, async (_event, value) => {
       const input = parse(testKnowledgeSettingsSchema, value)
-      const vision = input.target === 'document' && input.document.processor === 'vision'
-      const signal = AbortSignal.timeout(vision ? 90_000 : 20_000)
+      const vision = input.target === 'document' && isPageProcessor(input.document.processor)
+      const signal = AbortSignal.timeout(input[input.target]?.timeoutMs ?? (vision ? 90_000 : 20_000))
       if (input.target === 'embedding') await embed(dependencies.knowledgeHttp!, knowledge.embedding(input.embedding), ['这是用于检查语义检索接口的固定测试文本。'], signal)
       else if (input.target === 'rerank') await rerank(dependencies.knowledgeHttp!, knowledge.rerank(input.rerank), '雨天出门应该带什么？', [
         { id: 'test-a', text: '下雨时出门可以带雨伞。', chapterTitle: '固定测试文本', anchor: 'test:0' },
@@ -278,16 +291,30 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   if (dependencies.analysis) {
     const analysis = dependencies.analysis
     handle(IPC_CHANNELS.analysisGet, dependencies, (_event, value) => analysis.state(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.documentSearch, dependencies, (_event, value) => {
+      const input = parse(bookDocumentSearchSchema, value)
+      return analysis.store.searchDocument(input.bookId, input.query)
+    })
     handle(IPC_CHANNELS.notesIndex, dependencies, (_event, value) => analysis.store.notesIndex(parse(bookIdSchema, value)))
     handle(IPC_CHANNELS.notesChapter, dependencies, (_event, value) => analysis.store.chapterNotes(parse(bookChapterNotesSchema, value)))
     handle(IPC_CHANNELS.documentPrepare, dependencies, (_event, value) => {
-      const state = analysis.prepare(parse(prepareBookDocumentSchema, value))
+      const input = parse(prepareBookDocumentSchema, value)
+      dependencies.documents?.cancelPreview()
+      const state = analysis.prepare(input)
       dependencies.extractor?.start(state)
       return state
     })
     handle(IPC_CHANNELS.documentCancel, dependencies, (_event, value) => analysis.cancelPreparation(parse(bookIdSchema, value)))
     handle(IPC_CHANNELS.analysisStart, dependencies, (_event, value) => analysis.start(parse(startBookAnalysisSchema, value)))
     handle(IPC_CHANNELS.analysisCancel, dependencies, (_event, value) => analysis.cancel(parse(bookIdSchema, value)))
+  }
+  if (dependencies.documents) {
+    handle(IPC_CHANNELS.documentOcrPage, dependencies, (_event, value) => {
+      const input = parse(bookOcrPageSchema, value)
+      return dependencies.documents!.readOcrPage(input.bookId, input.pageNumber)
+    })
+    handle(IPC_CHANNELS.documentPreview, dependencies, (_event, value) => dependencies.documents!.previewPage(parse(bookPagePreviewSchema, value)))
+    handle(IPC_CHANNELS.documentPreviewCancel, dependencies, (_event, value) => dependencies.documents!.cancelPreview(parse(requestIdSchema, value)))
   }
   handle(IPC_CHANNELS.llmStart, dependencies, (event, value) => {
     const request = parse(llmRequestSchema, value)

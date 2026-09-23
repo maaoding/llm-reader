@@ -16,6 +16,7 @@ import type {
   InsightArchiveRecord,
   InsightExportScope,
   BookSessionRecord,
+  BookSessionSummary,
   SavedInsight,
   SaveBookSessionInput,
   SaveHighlightInput,
@@ -682,11 +683,21 @@ export class LibraryService {
     return this.database.upsertBookSession({ ...input, updatedAt: new Date().toISOString() })
   }
 
-  deleteBookSession(bookId: string): boolean {
+  listRecentBookSessions(bookId: string): BookSessionSummary[] {
+    if (!this.database.getStoredBook(bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    return this.database.listRecentBookSessions(bookId)
+  }
+
+  getRecentBookSession(input: { bookId: string; conversationId: string }): BookSessionRecord | null {
+    if (!this.database.getStoredBook(input.bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    return this.database.getRecentBookSession(input.bookId, input.conversationId)
+  }
+
+  deleteBookSession(bookId: string, conversationId?: string): boolean {
     if (!this.database.getStoredBook(bookId)) {
       throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     }
-    return this.database.deleteBookSession(bookId)
+    return this.database.deleteBookSession(bookId, conversationId)
   }
 
   listSessionTabs(): SessionTabsState {

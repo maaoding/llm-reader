@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
+import { mergeRequestHeaders } from '@shared/request-settings'
 import type { Passage, SemanticIndexState, StartSemanticIndexInput } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { BookContextStore } from './book-context-store'
@@ -16,8 +17,8 @@ interface IndexRow { fingerprint: string; model: string; status: SemanticIndexSt
 export async function embed(http: KnowledgeHttp, config: EmbeddingCredentials, texts: string[], signal: AbortSignal): Promise<Float32Array[]> {
   if (!config.baseUrl || !config.model) throw new AppError('EMBEDDING_CONFIG', copy('knowledge.embeddingRequired'))
   const raw = await http.json(`${config.baseUrl}/embeddings`, { method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}) },
-    body: JSON.stringify({ model: config.model, input: texts, encoding_format: 'float' }) }, signal, 4_000_000)
+    headers: mergeRequestHeaders({ 'Content-Type': 'application/json', ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}) }, config.customHeaders),
+    body: JSON.stringify({ ...config.extraBody, model: config.model, input: texts, encoding_format: 'float' }) }, signal, 4_000_000, config.timeoutMs)
   const parsed = embeddingResponse.safeParse(raw)
   if (!parsed.success || parsed.data.data.length !== texts.length) throw new AppError('EMBEDDING_INVALID', copy('knowledge.vectorInvalid'))
   const items = parsed.data.data.sort((a, b) => a.index - b.index)

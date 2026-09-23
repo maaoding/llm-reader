@@ -1,3 +1,8 @@
+import { RequestSettingsEditor } from './RequestSettingsEditor'
+import { RecentConversations } from './RecentConversations'
+import { QuestionBubble } from './QuestionBubble'
+import { providerIsConfigured, publicRequestSettings } from '@shared/request-settings'
+import type { RequestSettingsInput, ProviderProtocol } from '@shared/contracts'
 import {
   AlertCircle,
   ArrowLeft,
@@ -88,6 +93,8 @@ import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
 import { AnswerText } from './AnswerText'
 import { BookAnalysisControls } from './BookAnalysisControls'
+import { OcrPageReader } from './OcrPageReader'
+import { pdfPageFromLocator } from '@shared/ocr-reading'
 import { BookOverview } from './BookOverview'
 import { BookNotesView } from './BookNotesView'
 import { bookTabPage, readWorkspaceState, saveWorkspaceState, type BookTabState, type WorkspacePage } from './workspace-state'
@@ -450,14 +457,10 @@ function tocHrefMatchesCurrent(itemHref: string, currentHref: string | null): bo
   return Boolean(currentHref && itemHref.trim() === currentHref.trim())
 }
 
-function providerIsConfigured(provider: ProviderSettings): boolean {
-  return Boolean(provider.baseUrl.trim() && provider.model.trim() && provider.hasApiKey)
-}
-
 function activeProviderSettings(overview: ProviderOverview): ProviderSettings {
   const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
   return active
-    ? { baseUrl: active.baseUrl, model: active.model, compatibility: active.compatibility, hasApiKey: active.hasApiKey }
+    ? { ...publicRequestSettings(active), protocol: active.protocol, hasCustomHeaders: active.hasCustomHeaders, baseUrl: active.baseUrl, model: active.model, compatibility: active.compatibility, hasApiKey: active.hasApiKey }
     : EMPTY_PROVIDER
 }
 
@@ -1293,7 +1296,7 @@ function ConversationPane({
             const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? turn.selection?.chapterTitle)
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
-                <div className="question-bubble"><span>{turn.actionLabel}</span><p><MarkedText value={turn.question} needle={searchNeedle} /></p></div>
+                <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
                   {turn.context && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
@@ -1667,7 +1670,13 @@ function SettingsModal({
   const [baseUrl, setBaseUrl] = useState(initiallySelected?.baseUrl ?? 'https://api.openai.com')
   const [model, setModel] = useState(initiallySelected?.model ?? 'gpt-4.1-mini')
   const [compatibility, setCompatibility] = useState<ProviderCompatibility>(initiallySelected?.compatibility ?? 'auto')
+  const [protocol, setProtocol] = useState<ProviderProtocol>(initiallySelected?.protocol ?? 'openai')
+  const [requestSettings, setRequestSettings] = useState<RequestSettingsInput>(publicRequestSettings(initiallySelected ?? {}))
+  const [requestInvalid, setRequestInvalid] = useState(false)
+  const [requestEditorRevision, setRequestEditorRevision] = useState(0)
   const [baseline, setBaseline] = useState({
+    protocol: initiallySelected?.protocol ?? 'openai' as ProviderProtocol,
+    requestSettings: JSON.stringify(publicRequestSettings(initiallySelected ?? {})),
     name: initiallySelected?.name ?? '',
     baseUrl: initiallySelected?.baseUrl ?? 'https://api.openai.com',
     model: initiallySelected?.model ?? 'gpt-4.1-mini',
@@ -1686,10 +1695,11 @@ function SettingsModal({
   const panelRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(true)
   const testSequenceRef = useRef(0)
-  const modelCacheRef = useRef(new Map<string, { baseUrl: string; compatibility: ProviderCompatibility; models: string[]; truncated: boolean }>())
+  const modelCacheRef = useRef(new Map<string, { baseUrl: string; compatibility: ProviderCompatibility; protocol: ProviderProtocol; models: string[]; truncated: boolean }>())
 
   const selectedProfile = overview.profiles.find((profile) => profile.id === selectedProfileId) ?? null
-  const dirty = keyDirty || profileName !== baseline.name || baseUrl !== baseline.baseUrl || model !== baseline.model || compatibility !== baseline.compatibility
+  const savedKeyMatches = Boolean(selectedProfile?.hasApiKey && selectedProfile.baseUrl === baseUrl && (selectedProfile.protocol ?? 'openai') === protocol)
+  const dirty = requestInvalid || protocol !== baseline.protocol || JSON.stringify(requestSettings) !== baseline.requestSettings || keyDirty || profileName !== baseline.name || baseUrl !== baseline.baseUrl || model !== baseline.model || compatibility !== baseline.compatibility
 
   const confirmDiscard = (): boolean => !dirty || window.confirm(copy('settings.discardChanges'))
 
@@ -1732,11 +1742,15 @@ function SettingsModal({
     setBaseUrl(profile.baseUrl)
     setModel(profile.model)
     setCompatibility(profile.compatibility)
-    setBaseline({ name: profile.name, baseUrl: profile.baseUrl, model: profile.model, compatibility: profile.compatibility })
+    setProtocol(profile.protocol ?? 'openai')
+    setRequestSettings(publicRequestSettings(profile))
+    setRequestInvalid(false)
+    setRequestEditorRevision((value) => value + 1)
+    setBaseline({ protocol: profile.protocol ?? 'openai', requestSettings: JSON.stringify(publicRequestSettings(profile)), name: profile.name, baseUrl: profile.baseUrl, model: profile.model, compatibility: profile.compatibility })
     resetSecretInput()
     setStatus(null)
     const entry = modelCacheRef.current.get(cacheKey(profile.id))
-    const cached = entry?.baseUrl === profile.baseUrl && entry.compatibility === profile.compatibility ? entry : undefined
+    const cached = entry?.baseUrl === profile.baseUrl && entry.compatibility === profile.compatibility && entry.protocol === (profile.protocol ?? 'openai') ? entry : undefined
     setModelOptions(cached?.models ?? [])
     setModelStatus(cached
       ? { ok: true, message: cached.truncated
@@ -1749,6 +1763,8 @@ function SettingsModal({
     const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
     const next = {
       name: '',
+      protocol: active?.protocol ?? 'openai' as ProviderProtocol,
+      requestSettings: '{}',
       baseUrl: active?.baseUrl ?? 'https://api.openai.com',
       model: active?.model ?? 'gpt-4.1-mini',
       compatibility: 'auto' as ProviderCompatibility
@@ -1758,11 +1774,15 @@ function SettingsModal({
     setBaseUrl(next.baseUrl)
     setModel(next.model)
     setCompatibility(next.compatibility)
+    setProtocol(next.protocol)
+    setRequestSettings({})
+    setRequestInvalid(false)
+    setRequestEditorRevision((value) => value + 1)
     setBaseline(next)
     resetSecretInput()
     setStatus(null)
     const cached = modelCacheRef.current.get(cacheKey(null))
-    setModelOptions(cached?.baseUrl === next.baseUrl && cached.compatibility === next.compatibility ? cached.models : [])
+    setModelOptions(cached?.baseUrl === next.baseUrl && cached.compatibility === next.compatibility && cached.protocol === next.protocol ? cached.models : [])
     setModelStatus(null)
   }
 
@@ -1805,11 +1825,13 @@ function SettingsModal({
 
   const handleSave = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
+    if (requestInvalid) return
     setBusy('save')
     setStatus(null)
     try {
       const key = keyRef.current?.value.trim()
       const input = {
+        ...requestSettings, protocol,
         name: profileName.trim(),
         compatibility,
         baseUrl: baseUrl.trim(),
@@ -1844,7 +1866,7 @@ function SettingsModal({
     }
   }
 
-  const handleTest = async (): Promise<void> => {
+  const handleTest = async (testMode: 'text' | 'stream' = 'text'): Promise<void> => {
     const sequence = testSequenceRef.current + 1
     testSequenceRef.current = sequence
     setBusy('test')
@@ -1852,6 +1874,7 @@ function SettingsModal({
     try {
       const key = keyRef.current?.value.trim()
       const result = await window.readerApi.testProviderConfiguration({
+        ...requestSettings, protocol, testMode,
         compatibility,
         ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
         baseUrl: baseUrl.trim(),
@@ -1876,6 +1899,7 @@ function SettingsModal({
     try {
       const key = keyRef.current?.value.trim()
       const result = await window.readerApi.listProviderModels({
+        ...requestSettings, protocol,
         compatibility,
         ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
         baseUrl: baseUrl.trim(),
@@ -1883,7 +1907,7 @@ function SettingsModal({
       })
       if (!mountedRef.current) return
       modelCacheRef.current.set(cacheKey(selectedProfileId), {
-        compatibility,
+        protocol, compatibility,
         baseUrl: baseUrl.trim(),
         models: result.models,
         truncated: result.truncated
@@ -2193,6 +2217,19 @@ function SettingsModal({
                     required
                   />
 
+                  <label className="field-label" htmlFor="provider-protocol">{copy('request.protocol')}</label>
+                  <select id="provider-protocol" data-testid="provider-protocol" value={protocol} disabled={busy !== null}
+                    onChange={(event) => {
+                      const next = event.target.value as ProviderProtocol
+                      setProtocol(next)
+                      resetSecretInput()
+                      if (['https://api.openai.com', 'https://api.anthropic.com'].includes(baseUrl)) setBaseUrl(next === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com')
+                      setRequestSettings({ ...requestSettings, customHeaders: undefined })
+                      setRequestInvalid(false)
+                      modelCacheRef.current.delete(cacheKey(selectedProfileId)); setModelOptions([]); setModelStatus(null); setStatus(null)
+                    }}>
+                    <option value="openai">{copy('request.openai')}</option><option value="anthropic">{copy('request.anthropic')}</option>
+                  </select>
                   <label className="field-label" htmlFor="provider-base-url">{copy('settings.baseUrlLabel')}</label>
                   <input
                     id="provider-base-url"
@@ -2200,6 +2237,8 @@ function SettingsModal({
                     value={baseUrl}
                     onChange={(event) => {
                       setBaseUrl(event.target.value)
+                      resetSecretInput()
+                      setRequestSettings({ ...requestSettings, customHeaders: undefined }); setRequestInvalid(false)
                       modelCacheRef.current.delete(cacheKey(selectedProfileId))
                       setModelOptions([])
                       setModelStatus(null)
@@ -2209,7 +2248,7 @@ function SettingsModal({
                     spellCheck={false}
                     required
                   />
-                  <p className="field-hint">{copy('settings.baseUrlHint', { path: '/v1/chat/completions' })}</p>
+                  <p className="field-hint">{copy('settings.baseUrlHint', { path: protocol === 'anthropic' ? '/v1/messages' : '/v1/chat/completions' })}</p>
 
                   <label className="field-label" htmlFor="provider-compatibility">{copy('settings.compatibilityLabel')}</label>
                   <select id="provider-compatibility" data-testid="provider-compatibility" value={compatibility} disabled={busy !== null}
@@ -2231,7 +2270,7 @@ function SettingsModal({
                       className="text-button"
                       data-testid="provider-models-fetch"
                       type="button"
-                      disabled={busy !== null || !baseUrl.trim()}
+                      disabled={busy !== null || requestInvalid || !baseUrl.trim()}
                       onClick={handleFetchModels}
                     >
                       {busy === 'models' ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
@@ -2260,7 +2299,7 @@ function SettingsModal({
 
                   <div className="label-row">
                     <label className="field-label" htmlFor="provider-api-key">{copy('settings.apiKeyLabel')}</label>
-                    {selectedProfile?.hasApiKey && <span className="saved-key"><Check size={12} /> {copy('settings.apiKeySaved')}</span>}
+                    {savedKeyMatches && <span className="saved-key"><Check size={12} /> {copy('settings.apiKeySaved')}</span>}
                   </div>
                   <input
                     id="provider-api-key"
@@ -2275,7 +2314,7 @@ function SettingsModal({
                       setModelOptions([])
                       setModelStatus(null)
                     }}
-                    placeholder={selectedProfile?.hasApiKey ? copy('settings.apiKeyPlaceholderSaved') : copy('settings.apiKeyPlaceholderEmpty')}
+                    placeholder={savedKeyMatches ? copy('settings.apiKeyPlaceholderSaved') : copy('settings.apiKeyPlaceholderEmpty')}
                   />
                   <p className="field-hint">{copy('settings.apiKeyHint')}</p>
 
@@ -2286,22 +2325,33 @@ function SettingsModal({
                     </div>
                   )}
 
+                  <fieldset disabled={busy !== null} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+                    <RequestSettingsEditor key={selectedProfileId + ':' + requestEditorRevision + ':' + baseUrl + ':' + protocol} id="provider" value={requestSettings}
+                      savedHeaders={selectedProfile?.hasCustomHeaders && selectedProfile.baseUrl === baseUrl && (selectedProfile.protocol ?? 'openai') === protocol}
+                      onInvalidChange={setRequestInvalid} onChange={(settings) => {
+                        setRequestSettings(settings); setStatus(null); setModelOptions([]); setModelStatus(null)
+                        modelCacheRef.current.delete(cacheKey(selectedProfileId))
+                      }} />
+                  </fieldset>
                   <footer className="modal-actions provider-modal-actions">
                     <button
                       className="secondary-button"
                       data-testid="provider-test"
                       type="button"
-                      disabled={busy !== null || !baseUrl.trim() || !model.trim()}
-                      onClick={handleTest}
+                      disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
+                      onClick={() => void handleTest()}
                     >
                       {busy === 'test' ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}
                       {copy('settings.testConnection')}
                     </button>
+                    <button className="secondary-button" data-testid="provider-test-stream" type="button"
+                      disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
+                      onClick={() => void handleTest('stream')}>{copy('settings.testStream')}</button>
                     <button
                       className="secondary-button"
                       data-testid="provider-activate"
                       type="button"
-                      disabled={busy !== null || !selectedProfile || dirty || !selectedProfile.hasApiKey || selectedProfile.isActive}
+                      disabled={busy !== null || !selectedProfile || dirty || (!selectedProfile.hasApiKey && !selectedProfile.hasCustomHeaders) || selectedProfile.isActive}
                       onClick={handleActivate}
                     >
                       {busy === 'activate' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
@@ -2311,7 +2361,7 @@ function SettingsModal({
                       className="primary-button"
                       data-testid="provider-save"
                       type="submit"
-                      disabled={busy !== null || !profileName.trim() || !baseUrl.trim() || !model.trim()}
+                      disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim()}
                     >
                       {busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
                       {copy('settings.save')}
@@ -2353,6 +2403,8 @@ export default function App(): ReactNode {
   const [libraryQuery, setLibraryQuery] = useState('')
   const [preparationBookId, setPreparationBookId] = useState<string | null>(null)
   const [pdfDisplayOpen, setPdfDisplayOpen] = useState(false)
+  const [ocrReadingOpen, setOcrReadingOpen] = useState(false)
+  const ocrReadingToggleRef = useRef<HTMLButtonElement>(null)
   const preparationDialogRef = useRef<HTMLElement>(null)
   const preparationReturnRef = useRef<HTMLButtonElement>(null)
   const initialWorkspace = useRef(readWorkspaceState())
@@ -2595,7 +2647,7 @@ export default function App(): ReactNode {
   const handleProviderOverviewChange = useCallback((overview: ProviderOverview, checkActive: boolean): void => {
     setProviderOverview(overview)
     const settings = activeProviderSettings(overview)
-    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey || settings.compatibility !== provider.compatibility
+    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey || settings.compatibility !== provider.compatibility || settings.protocol !== provider.protocol || JSON.stringify(publicRequestSettings(settings)) !== JSON.stringify(publicRequestSettings(provider)) || settings.hasCustomHeaders !== provider.hasCustomHeaders
     if (!checkActive && !changed) return
     const revision = commitProviderSettings(settings)
     if (!checkActive || !providerIsConfigured(settings)) return
@@ -2785,6 +2837,7 @@ export default function App(): ReactNode {
 
   // 同一本书只允许一个进行中的请求；切换书籍不会取消其他书中正在生成的回答。
   const tabHasActiveRequest = (tabId: string): boolean => {
+    if (sessionTransitionsRef.current.has(tabId)) return true
     for (const value of requestSessionRef.current.values()) if (value === tabId) return true
     return pendingRequestsRef.current.some((item) => item.tabId === tabId)
   }
@@ -2813,7 +2866,7 @@ export default function App(): ReactNode {
     void window.readerApi.getBookSession(bookId).then((record) => {
       if (!record) return
       const tab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
-      if (!tab || tab.turns.length > 0 || tab.draft) return
+      if (!tab || tab.turns.length > 0 || tab.draft || tab.selection || sessionTransitionsRef.current.has(tab.id)) return
       updateConversationTab(tab.id, (current) => ({
         ...current,
         conversationId: record.conversationId,
@@ -2841,26 +2894,64 @@ export default function App(): ReactNode {
 
   // 去抖保存所有有内容的 live 会话：后台完成的回答也必须落库，不能只保存当前书籍。
   const savedSessionsRef = useRef(new Map<string, string>())
+  const sessionWritesRef = useRef(new Map<string, Promise<unknown>>())
+  const sessionTransitionsRef = useRef(new Set<string>())
+  const [changingSessions, setChangingSessions] = useState<string[]>([])
+  const persistLiveSession = useCallback(async (tab: ConversationTab): Promise<void> => {
+    if (tab.kind !== 'live' || (!tab.draft && !tab.selection && tab.turns.length === 0)) return
+    const payload = sessionPayload(tab)
+    const snapshot = JSON.stringify(payload)
+    if (savedSessionsRef.current.get(tab.bookId) === snapshot) {
+      await sessionWritesRef.current.get(tab.bookId)
+      return
+    }
+    savedSessionsRef.current.set(tab.bookId, snapshot)
+    const pending = window.readerApi.saveBookSession(payload)
+    sessionWritesRef.current.set(tab.bookId, pending)
+    try { await pending }
+    catch (error) {
+      if (savedSessionsRef.current.get(tab.bookId) === snapshot) savedSessionsRef.current.delete(tab.bookId)
+      throw error
+    } finally {
+      if (sessionWritesRef.current.get(tab.bookId) === pending) sessionWritesRef.current.delete(tab.bookId)
+    }
+  }, [sessionPayload])
+
+  // Save before replacing the selection; a failed write leaves the old conversation intact.
+  const replaceSession = async (tab: ConversationTab, next: () => Promise<Partial<ConversationTab>>): Promise<boolean> => {
+    if (tabHasActiveRequest(tab.id)) return false
+    sessionTransitionsRef.current.add(tab.id)
+    setChangingSessions([...sessionTransitionsRef.current])
+    try {
+      await persistLiveSession(tab)
+      const changes = await next()
+      if (conversationTabsRef.current.find((item) => item.id === tab.id) !== tab) return false
+      updateConversationTab(tab.id, (current) => ({ ...current, ...changes }))
+      savedSessionsRef.current.delete(tab.bookId)
+      return true
+    } catch {
+      pushToast(copy('assistant.sessionSaveFailed'), 'error')
+      return false
+    } finally {
+      sessionTransitionsRef.current.delete(tab.id)
+      setChangingSessions([...sessionTransitionsRef.current])
+    }
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       for (const tab of conversationTabs) {
-        if (tab.kind !== 'live') continue
-        if (!tab.draft && tab.turns.length === 0) continue
-        const payload = sessionPayload(tab)
-        const snapshot = JSON.stringify(payload)
-        if (savedSessionsRef.current.get(tab.bookId) === snapshot) continue
-        savedSessionsRef.current.set(tab.bookId, snapshot)
-        // 写入失败时清掉快照，下一次变更会重试。
-        void window.readerApi.saveBookSession(payload).catch(() => { savedSessionsRef.current.delete(tab.bookId) })
+        if (sessionTransitionsRef.current.has(tab.id)) continue
+        void persistLiveSession(tab).catch(() => pushToast(copy('assistant.sessionSaveFailed'), 'error'))
       }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [conversationTabs, sessionPayload])
+  }, [conversationTabs, persistLiveSession, pushToast])
 
   const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'overview', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
     // landingPage 为 null 表示不再切换页面（后台打开书籍）。
     if (landingPage) setPage(landingPage)
-    setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false)
+    setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false); setOcrReadingOpen(false)
     // 打开即成为顶栏标签；已存在的标签保留原书内页面，除非本次指定了其他书内页面。
     const tabPage = landingPage ? bookTabPage(landingPage) : null
     setBookTabs((current) => {
@@ -3080,11 +3171,13 @@ export default function App(): ReactNode {
     updateConversationTab(tab.id, (current) => ({
       ...current,
       conversationId: crypto.randomUUID(),
+      scope: 'book',
       selection: null,
       draft: '',
       turns: []
     }))
-    void window.readerApi.deleteBookSession(tab.bookId).catch(() => undefined)
+    savedSessionsRef.current.delete(tab.bookId)
+    void window.readerApi.deleteBookSession(tab.bookId, tab.conversationId).catch(() => pushToast(copy('assistant.sessionSaveFailed'), 'error'))
     // 释放出来的并发位让后面的排队请求补位。
     pumpRequestQueue()
   }
@@ -3145,7 +3238,7 @@ export default function App(): ReactNode {
       await flushProgress()
       // 退出前补写去抖中的会话与标签列表：所有有内容的 live 会话都写，含后台完成的回答。
       const flushTabs = conversationTabsRef.current.filter((candidate) => (
-        candidate.kind === 'live' && (candidate.draft || candidate.turns.length > 0)
+        candidate.kind === 'live' && (candidate.draft || candidate.selection || candidate.turns.length > 0)
       ))
       for (const tab of flushTabs) {
         await window.readerApi.saveBookSession(sessionPayload(tab)).catch(() => undefined)
@@ -3376,7 +3469,8 @@ export default function App(): ReactNode {
     setSearchState('searching')
     setSearchError('')
     try {
-      const results = await adapter.search(query)
+      const prepared = adapter.format === 'pdf' ? await window.readerApi.searchBookDocument({ bookId, query }) : null
+      const results = prepared?.available ? prepared.results : await adapter.search(query)
       if (
         sequence !== searchSequenceRef.current ||
         adapterRef.current !== adapter ||
@@ -3422,17 +3516,21 @@ export default function App(): ReactNode {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [assistantDialogOpen, bookState, detailsBook, openSearchView, settingsOpen])
 
-  const enqueueRequest = (action: LlmAction, question: string, tabId: string, sourceSelection?: SelectionContext): void => {
+  const enqueueRequest = async (action: LlmAction, question: string, tabId: string, sourceSelection?: SelectionContext): Promise<void> => {
     const cleanQuestion = question.trim()
     if (!cleanQuestion) return
-    const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
+    let tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
     if (!tab || tabHasActiveRequest(tab.id)) return
     const scope = sourceSelection ? 'selection' : tab.scope
     const context = scope === 'book' ? null : sourceSelection ?? tab.selection
     if (scope === 'selection' && !context) return
 
     const newContext = scope !== tab.scope || (scope === 'selection' && tab.selection?.anchor !== context?.anchor)
-    const conversationId = newContext ? crypto.randomUUID() : tab.conversationId
+    if (newContext) {
+      if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '' }))) return
+      tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)!
+    }
+    const conversationId = tab.conversationId
     const priorTurns = newContext ? [] : tab.turns.filter((turn) => turn.status === 'completed' && turn.answer)
     const requestId = createId()
     const turn: ConversationTurn = {
@@ -3526,28 +3624,22 @@ export default function App(): ReactNode {
     }
   }, [selection, bookState, interfaceScale])
 
-  const handleSelectionAction = (action: LlmAction): void => {
+  const handleSelectionAction = async (action: LlmAction): Promise<void> => {
     if (compactWindow) setLeftPanelOpen(false)
     if (!selection || !activeBook) return
     const liveTabId = ensureLiveTab(activeBook)
     if (action === 'ask') {
       const liveTab = conversationTabsRef.current.find((tab) => tab.id === liveTabId)
-      const isNew = !liveTab?.selection || liveTab.selection.anchor !== selection.anchor
-      updateConversationTab(liveTabId, (tab) => ({
-        ...tab,
-        conversationId: isNew ? crypto.randomUUID() : tab.conversationId,
-        selection,
-        scope: 'selection',
-        turns: isNew ? [] : tab.turns,
-        draft: tab.draft
-      }))
+      if (!liveTab || tabHasActiveRequest(liveTab.id)) return
+      const isNew = liveTab.scope !== 'selection' || liveTab.selection?.anchor !== selection.anchor
+      if (isNew && !await replaceSession(liveTab, async () => ({ conversationId: crypto.randomUUID(), selection, scope: 'selection', turns: [], draft: '' }))) return
       focusConversationTab(liveTabId)
       adapterRef.current?.clearSelection()
       setSelection(null)
       window.setTimeout(() => followupRef.current?.focus(), 0)
       return
     }
-    enqueueRequest(action, assistantActions[action].prompt, liveTabId, selection)
+    await enqueueRequest(action, assistantActions[action].prompt, liveTabId, selection)
   }
 
   const cancelRequest = async (requestId: string | null): Promise<void> => {
@@ -3645,6 +3737,7 @@ export default function App(): ReactNode {
   }
 
   const navigateToAnchor = useCallback(async (anchor: string, showSelection = false, chapterTitle?: string): Promise<void> => {
+    setOcrReadingOpen(false)
     setPage('reading')
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const adapter = adapterRef.current
@@ -3679,6 +3772,18 @@ export default function App(): ReactNode {
     setCurrentChapterTitle(result.chapterTitle)
     setCurrentChapterProgress(0)
   }, [navigateToAnchor])
+
+  const navigateOcrPage = useCallback(async (pageNumber: number): Promise<void> => {
+    const adapter = adapterRef.current
+    if (!adapter) return
+    adapter.clearSelection(); setSelection(null)
+    chapterTitleOverrideRef.current = null
+    await adapter.goTo(`pdfpos:${pageNumber}:0`)
+  }, [])
+  const closeOcrReader = useCallback((restoreFocus = true): void => {
+    adapterRef.current?.clearSelection(); setSelection(null); setOcrReadingOpen(false)
+    if (restoreFocus) requestAnimationFrame(() => ocrReadingToggleRef.current?.focus({ preventScroll: true }))
+  }, [])
 
   const openInsight = useCallback(async (insight: InsightArchiveRecord): Promise<void> => {
     const book = activeBookRef.current?.id === insight.bookId ? null : books.find((candidate) => candidate.id === insight.bookId)
@@ -4049,6 +4154,35 @@ export default function App(): ReactNode {
   // 进行中或排队中的请求：用于禁用发送、显示停止按钮与阻止重复入队。
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
+  const changeConversationScope = async (tab: ConversationTab, scope: 'selection' | 'book'): Promise<void> => {
+    if (scope === tab.scope || tabHasActiveRequest(tab.id)) return
+    // A new scope from an archived insight starts a live conversation, preserving the archive.
+    const book = books.find((item) => item.id === tab.bookId)
+    const target = tab.kind === 'archive' && book
+      ? conversationTabsRef.current.find((item) => item.id === ensureLiveTab(book))!
+      : tab
+    const context = scope === 'selection' ? (selection?.bookId === tab.bookId ? selection : tab.selection) : null
+    if (await replaceSession(target, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '' }))) focusConversationTab(target.id)
+  }
+  const recentConversations = (tab: ConversationTab | undefined): ReactNode => tab?.kind === 'live' && <RecentConversations
+    key={`${tab.id}:${tab.conversationId}`} currentId={tab.conversationId}
+    disabled={Boolean(streamingRequestId(tab)) || changingSessions.includes(tab.id)}
+    onList={async () => {
+      const current = conversationTabsRef.current.find((item) => item.id === tab.id)
+      if (current) await persistLiveSession(current)
+      return window.readerApi.listRecentBookSessions(tab.bookId)
+    }}
+    onRestore={async (conversationId) => {
+      const restored = await replaceSession(tab, async () => {
+        const record = await window.readerApi.getRecentBookSession({ bookId: tab.bookId, conversationId })
+        if (!record) throw new Error(copy('assistant.sessionRestoreFailed'))
+        return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft,
+          turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })) }
+      })
+      if (!restored) throw new Error(copy('assistant.sessionRestoreFailed'))
+      setConversationQuery(''); setPendingClearSession(false)
+      focusConversationTab(tab.id)
+    }} />
   const conversationNeedle = normalizeNeedle(conversationQuery)
   const conversationMatches = useMemo(() => {
     if (!conversationNeedle) return 0
@@ -4442,6 +4576,8 @@ export default function App(): ReactNode {
           <button className="reader-rail-button" type="button" data-testid="reader-contents-button" aria-label={copy('reader.contentsButton')} title={copy('reader.contentsButton')} aria-pressed={leftPanelOpen && leftView === 'toc'} onClick={() => toggleLeftPanelView('toc')}><PanelLeftClose size={19} /></button>
           <button className="reader-rail-button" data-testid="highlights-tab" type="button" aria-label={copy('library.tabHighlights')} title={copy('library.tabHighlights')} aria-pressed={leftPanelOpen && leftView === 'highlights'} onClick={() => toggleLeftPanelView('highlights')}><Bookmark size={19} /></button>
           <button className="reader-rail-button" data-testid="reader-search-button" type="button" aria-label={copy('reader.searchOpen')} title={copy('reader.searchOpen')} aria-pressed={leftPanelOpen && leftView === 'search'} onClick={() => toggleLeftPanelView('search')}><Search size={19} /></button>
+          {activeBook.format === 'pdf' && <button ref={ocrReadingToggleRef} className="reader-rail-button" data-testid="ocr-reading-toggle" type="button" aria-label={copy('ocrReading.title')} title={copy('ocrReading.title')} aria-pressed={ocrReadingOpen} disabled={bookState !== 'ready'}
+            onClick={() => { if (ocrReadingOpen) closeOcrReader(); else { adapterRef.current?.clearSelection(); setSelection(null); setOcrReadingOpen(true) } }}><FileText size={19} /></button>}
           <button className="reader-rail-button" data-testid="reader-settings-button" type="button" aria-label={copy(activeBook.format === 'pdf' ? 'reader.displayButton' : 'reader.layoutButton')} title={copy(activeBook.format === 'pdf' ? 'reader.displayButton' : 'reader.layoutButton')} aria-expanded={activeBook.format === 'pdf' ? pdfDisplayOpen : undefined} onClick={(event) => { if (activeBook.format === 'pdf') setPdfDisplayOpen((open) => !open); else openSettings('reading', event.currentTarget) }}><SlidersHorizontal size={19} /></button>
           <button className="reader-rail-button" data-testid="book-details-button" type="button" aria-label={copy('bookDetails.openAria', { title: activeBook.title })} title={copy('bookDetails.openAria', { title: activeBook.title })} onClick={(event) => openBookDetails(activeBook, event.currentTarget)}><Info size={19} /></button>
         </div>
@@ -4450,7 +4586,11 @@ export default function App(): ReactNode {
 
       <main className="reader-column" inert={page !== 'reading'} data-current-chapter-title={currentChapterTitle}>
         <section ref={readerSurfaceRef} className={`reader-surface is-${bookState}`} data-paper-theme={effectivePaperTheme}>
-          <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label={copy('reader.areaAria')} />
+          <div className="reader-host" data-testid="reader-host" ref={hostRef} inert={ocrReadingOpen && page === 'reading'} aria-hidden={ocrReadingOpen && page === 'reading'} aria-label={copy('reader.areaAria')} />
+          {ocrReadingOpen && page === 'reading' && activeBook?.format === 'pdf' && bookState === 'ready' && <OcrPageReader
+            key={`${activeBook.id}:${pdfPageFromLocator(currentLocator)}:${analysis.states[activeBook.id]?.document?.jobId}:${analysis.states[activeBook.id]?.document?.status}`}
+            bookId={activeBook.id} pageNumber={pdfPageFromLocator(currentLocator)} onSelection={setSelection} onNavigate={navigateOcrPage} onClose={() => closeOcrReader()}
+            onPrepare={() => { closeOcrReader(false); openPreparation(activeBook.id, ocrReadingToggleRef.current ?? undefined) }} />}
 
           {!activeBook && libraryState !== 'loading' && (
             libraryState === 'ready' && books.length === 0 ? (
@@ -4527,7 +4667,7 @@ export default function App(): ReactNode {
         {!assistantDialogOpen && (
           <ConversationPane
             scope={sidebarTab?.scope}
-            controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab))} onScope={(scope) => { if (sidebarTab) updateConversationTab(sidebarTab.id, (current) => ({ ...current, scope })) }} />}
+            controls={<><AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />{recentConversations(sidebarTab)}</>}
             conversationSelection={sidebarTab?.selection ?? null}
             turns={sidebarTab?.turns ?? []}
             provider={provider}
@@ -4562,7 +4702,7 @@ export default function App(): ReactNode {
       {preparationBook && <div className="modal-backdrop preparation-backdrop" hidden={settingsOpen} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreparation() }}>
         <section ref={preparationDialogRef} className="preparation-dialog" data-testid="book-preparation-dialog" role="dialog" aria-modal="true" aria-labelledby="preparation-title">
           <header className="modal-header"><div><h2 id="preparation-title">{copy('preparation.title')}</h2><p title={preparationBook.title}>{preparationBook.title}</p></div><button className="icon-button" type="button" data-testid="preparation-close" aria-label={copy('preparation.close')} onClick={closePreparation}><X size={18} /></button></header>
-          <BookAnalysisControls key={preparationBook.id} book={preparationBook} state={analysis.states[preparationBook.id]} error={analysis.errors[preparationBook.id]} profiles={providerOverview}
+          <BookAnalysisControls key={preparationBook.id} book={preparationBook} state={analysis.states[preparationBook.id]} error={analysis.errors[preparationBook.id]} profiles={providerOverview} suspended={settingsOpen}
             onStart={(profileId, rebuild) => analysis.start(preparationBook.id, profileId, rebuild)} onCancel={() => void analysis.cancel(preparationBook.id)}
             onPrepare={(rebuild) => analysis.prepare(preparationBook.id, rebuild)} onCancelPreparation={() => void analysis.cancelPreparation(preparationBook.id)} onConfigure={openSettings} />
         </section>
@@ -4650,7 +4790,7 @@ export default function App(): ReactNode {
                 pendingClearSession ? (
                   <span className="assistant-session-clear is-confirming">
                     <span>{copy('assistant.clearSessionQuestion')}</span>
-                    <button data-testid="conversation-clear-confirm" type="button" onClick={() => clearLiveSession(activeConversationTab)}>{copy('common.confirm')}</button>
+                    <button data-testid="conversation-clear-confirm" type="button" disabled={changingSessions.includes(activeConversationTab.id)} onClick={() => clearLiveSession(activeConversationTab)}>{copy('common.confirm')}</button>
                     <button data-testid="conversation-clear-cancel" type="button" onClick={() => setPendingClearSession(false)}>{copy('common.back')}</button>
                   </span>
                 ) : (
@@ -4685,7 +4825,8 @@ export default function App(): ReactNode {
               ) : activeConversationTab ? (
                 <ConversationPane
                   scope={activeConversationTab.scope}
-                  composerControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab))} onScope={(scope) => updateConversationTab(activeConversationTab.id, (current) => ({ ...current, scope }))} />}
+                  controls={recentConversations(activeConversationTab)}
+                  composerControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />}
                   conversationSelection={activeConversationTab.selection}
                   turns={activeConversationTab.turns}
                   provider={provider}

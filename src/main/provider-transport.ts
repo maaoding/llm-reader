@@ -1,4 +1,5 @@
-import type { ProviderCompatibility } from '@shared/contracts'
+import type { ProviderCompatibility, ProviderProtocol, RequestSettingsInput } from '@shared/contracts'
+import { mergeRequestHeaders } from '@shared/request-settings'
 import { copy } from '@shared/copy'
 import { AppError } from './errors'
 
@@ -18,7 +19,7 @@ export class ProviderTransport {
 
   async send(
     endpoint: string,
-    credentials: { apiKey: string; compatibility?: ProviderCompatibility },
+    credentials: RequestSettingsInput & { apiKey: string; compatibility?: ProviderCompatibility; protocol?: ProviderProtocol },
     context: ProviderRequestContext,
     request: { method: 'GET' | 'POST'; body?: string; accept: string; signal: AbortSignal }
   ): Promise<Response> {
@@ -26,20 +27,27 @@ export class ProviderTransport {
       throw new AppError('INVALID_SESSION_ID', copy('error.invalidInput'))
     }
     const go = usesGoCompatibility(endpoint, credentials.compatibility)
+    const manual = go || credentials.protocol === 'anthropic' || Boolean(Object.keys(credentials.customHeaders ?? {}).length)
+    const headers = mergeRequestHeaders({
+      ...(credentials.protocol === 'anthropic'
+        ? { ...(credentials.apiKey ? { 'x-api-key': credentials.apiKey } : {}), 'anthropic-version': '2023-06-01' }
+        : credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {}),
+      'User-Agent': `LLM-Reader/${this.applicationVersion}`,
+      Accept: request.accept,
+      ...(request.body !== undefined ? { 'Content-Type': 'application/json' } : {})
+    }, credentials.customHeaders)
+    if (go) {
+      for (const name of Object.keys(headers)) if (name.toLowerCase() === 'x-opencode-session') delete headers[name]
+      headers['x-opencode-session'] = context.sessionId
+    }
     const response = await this.fetchImplementation(endpoint, {
       method: request.method,
-      headers: {
-        Authorization: `Bearer ${credentials.apiKey}`,
-        'User-Agent': `LLM-Reader/${this.applicationVersion}`,
-        Accept: request.accept,
-        ...(request.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...(go ? { 'x-opencode-session': context.sessionId } : {})
-      },
+      headers,
       ...(request.body !== undefined ? { body: request.body } : {}),
       signal: request.signal,
-      redirect: go ? 'manual' : 'follow'
+      redirect: manual ? 'manual' : 'follow'
     })
-    if (go && response.status >= 300 && response.status < 400) {
+    if (manual && response.status >= 300 && response.status < 400) {
       await response.body?.cancel().catch(() => undefined)
       throw new AppError('PROVIDER_REDIRECT', copy('error.providerRedirect'))
     }

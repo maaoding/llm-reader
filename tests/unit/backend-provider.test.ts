@@ -48,8 +48,52 @@ function makeProvider(root: string, fetchImplementation: typeof fetch = fetch): 
 
 afterEach(async () => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
   for (const database of databases.splice(0)) if (database.connection.isOpen) database.close()
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+})
+
+describe('provider capability probes', () => {
+  const configuration = { baseUrl: 'https://fixture.example/v1', model: 'fixture', apiKey: 'fixture-only' }
+  it.each(['<html>Sign in</html>', '{}', '{"error":{"message":"private upstream error"}}', '{"choices":[{"message":{"content":"   "}}]}'])('rejects a successful HTTP response without usable text: %s', async (body) => {
+    const { provider } = makeProvider(makeTemporaryDirectory(), vi.fn<typeof fetch>(async () => new Response(body)))
+    const result = await provider.testConfiguration(configuration)
+    expect(result.ok).toBe(false)
+    expect(result.message).not.toContain('private upstream error')
+    expect(result.message).not.toContain('<html>')
+  })
+
+  it('checks actual text and requires a complete SSE response for the stream probe', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ choices: [{ message: { content: 'OK' } }] }))
+      .mockResolvedValueOnce(Response.json({ choices: [{ message: { content: 'OK' } }] }))
+      .mockResolvedValueOnce(new Response('data: {"choices":[{"delta":{"content":"OK"}}]}\n\n', { headers: { 'content-type': 'text/event-stream' } }))
+      .mockResolvedValueOnce(new Response('data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } }))
+    const { provider } = makeProvider(makeTemporaryDirectory(), fetcher)
+    expect(await provider.testConfiguration(configuration)).toMatchObject({ ok: true, message: expect.stringContaining('文本测试通过') })
+    expect(await provider.testConfiguration({ ...configuration, testMode: 'stream' })).toMatchObject({ ok: false, message: expect.stringContaining('未收到流式回复') })
+    expect(await provider.testConfiguration({ ...configuration, testMode: 'stream' })).toMatchObject({ ok: false })
+    expect(await provider.testConfiguration({ ...configuration, testMode: 'stream' })).toMatchObject({ ok: true, message: expect.stringContaining('流式测试通过') })
+    expect(fetcher.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).stream)).toEqual([false, true, true, true])
+  })
+
+  it('times out and cancels a stalled body even when the transport ignores abort', async () => {
+    vi.useFakeTimers()
+    const cancel = vi.fn()
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(new ReadableStream({ cancel }), { headers: { 'content-type': 'application/json' } }))
+    const { provider } = makeProvider(makeTemporaryDirectory(), fetcher)
+    const pending = provider.testConfiguration({ ...configuration, timeoutMs: 1_000 })
+    await vi.advanceTimersByTimeAsync(1_001)
+    expect(await pending).toMatchObject({ ok: false, message: expect.stringContaining('超时') })
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('does not accept a stream containing an error after text, even with a done marker', async () => {
+    const stream = 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\ndata: {"error":{"message":"private upstream detail"}}\n\ndata: [DONE]\n\n'
+    const { provider } = makeProvider(makeTemporaryDirectory(), vi.fn<typeof fetch>(async () => new Response(stream, { headers: { 'content-type': 'text/event-stream' } })))
+    const result = await provider.testConfiguration({ ...configuration, testMode: 'stream' })
+    expect(result.ok).toBe(false)
+    expect(result.message).not.toContain('private upstream detail')
+  })
 })
 
 describe('ProviderService profiles and secret storage', () => {
@@ -78,6 +122,7 @@ describe('ProviderService profiles and secret storage', () => {
     const second = overview.profiles[1]
     provider.activateProfile(first.id)
     expect(provider.getCredentials()).toEqual({
+      protocol: 'openai', customHeaders: {},
       compatibility: 'auto',
       baseUrl: 'https://first.example.test/v1',
       model: 'first-model',
@@ -88,7 +133,7 @@ describe('ProviderService profiles and secret storage', () => {
 
     const columns = database.connection.prepare('PRAGMA table_info(provider_profiles)').all()
     expect(columns.map((column) => column.name)).toEqual([
-      'id', 'name', 'base_url', 'model', 'is_active', 'created_at', 'updated_at', 'compatibility'
+      'id', 'name', 'base_url', 'model', 'is_active', 'created_at', 'updated_at', 'compatibility', 'protocol', 'request_json', 'headers_secret'
     ])
     database.close()
 

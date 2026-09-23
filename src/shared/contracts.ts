@@ -1,4 +1,8 @@
+import type { ReaderSearchResult } from './reader-search'
+
 export const IPC_CHANNELS = {
+  clipboardWriteText: 'clipboard:write-text',
+  documentOcrPage: 'document:ocr-page',
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
   appInfo: 'app:info',
@@ -33,6 +37,8 @@ export const IPC_CHANNELS = {
   insightsUpdateHistory: 'insights:update-history',
   insightsExport: 'insights:export',
   sessionsGet: 'sessions:get',
+  sessionsRecent: 'sessions:recent',
+  sessionsReadRecent: 'sessions:read-recent',
   sessionsSave: 'sessions:save',
   sessionsDelete: 'sessions:delete',
   sessionTabsList: 'session-tabs:list',
@@ -56,6 +62,9 @@ export const IPC_CHANNELS = {
   notesChapter: 'notes:chapter',
   documentPrepare: 'document:prepare',
   documentCancel: 'document:cancel',
+  documentSearch: 'document:search',
+  documentPreview: 'document:preview',
+  documentPreviewCancel: 'document:preview-cancel',
   analysisRead: 'analysis:read',
   analysisPdf: 'analysis:pdf',
   analysisPdfPageRequest: 'analysis:pdf-page-request',
@@ -72,6 +81,32 @@ export const IPC_CHANNELS = {
 } as const
 
 export type BookFormat = 'epub' | 'txt' | 'pdf'
+export interface PreparedDocumentSearch {
+  available: boolean
+  results: ReaderSearchResult[]
+}
+
+export interface BookPagePreviewInput {
+  bookId: string
+  requestId: string
+  pageNumber: number
+  pageCount: number
+  imageDataUrl: string
+  force?: boolean
+}
+
+export interface BookPagePreview {
+  pageNumber: number
+  pageCount: number
+  text: string
+  cached: boolean
+  processor: DocumentProcessor
+  model?: string
+}
+
+export type PreparedOcrPage =
+  | { status: 'unprepared' | 'unsupported' }
+  | { status: 'ready'; revision: string; pageNumber: number; pageCount: number; text: string }
 export type BookSourceFormat = BookFormat | 'mobi' | 'azw3'
 
 export interface AppInfo {
@@ -342,12 +377,24 @@ export interface BookAnalysisState {
   document?: BookDocumentState
 }
 
-export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling' | 'vision'
-export interface EmbeddingSettings { enabled: boolean; baseUrl: string; model: string }
-export interface RerankSettings { enabled: boolean; baseUrl: string; model: string }
-export interface DocumentSettings {
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+export interface RequestSettings {
+  timeoutMs?: number
+  extraBody?: Record<string, JsonValue>
+  /** Public settings only expose whether encrypted headers exist. */
+  hasCustomHeaders?: boolean
+}
+export interface RequestSettingsInput extends RequestSettings {
+  /** Omit to retain headers for the same endpoint; null clears them. */
+  customHeaders?: Record<string, string> | null
+}
+export type ProviderProtocol = 'openai' | 'anthropic'
+export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling' | 'vision' | 'mistral-ocr' | 'unstructured'
+export interface EmbeddingSettings extends RequestSettings { enabled: boolean; baseUrl: string; model: string }
+export interface RerankSettings extends RequestSettings { enabled: boolean; baseUrl: string; model: string }
+export interface DocumentSettings extends RequestSettings {
   processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en'
-  model?: string; compatibility?: ProviderCompatibility
+  model?: string; compatibility?: ProviderCompatibility; protocol?: ProviderProtocol
 }
 export interface KnowledgeSettings {
   embedding: EmbeddingSettings & { hasApiKey: boolean }
@@ -356,10 +403,10 @@ export interface KnowledgeSettings {
 }
 /** Omitted keys preserve the saved secret only when the endpoint is unchanged; null removes it. */
 export interface SaveKnowledgeSettingsInput {
-  embedding: EmbeddingSettings & { apiKey?: string | null }
+  embedding: EmbeddingSettings & RequestSettingsInput & { apiKey?: string | null }
   /** Older clients omit this field; preserve the existing configuration in that case. */
-  rerank?: RerankSettings & { apiKey?: string | null }
-  document: DocumentSettings & { apiKey?: string | null }
+  rerank?: RerankSettings & RequestSettingsInput & { apiKey?: string | null }
+  document: DocumentSettings & RequestSettingsInput & { apiKey?: string | null }
 }
 export interface TestKnowledgeSettingsInput extends SaveKnowledgeSettingsInput { target: 'embedding' | 'rerank' | 'document' }
 export interface SemanticIndexState {
@@ -462,11 +509,12 @@ export type LlmEvent =
 
 export type ProviderCompatibility = 'auto' | 'opencode-go'
 
-export interface ProviderSettings {
+export interface ProviderSettings extends RequestSettings {
   baseUrl: string
   model: string
   hasApiKey: boolean
   compatibility: ProviderCompatibility
+  protocol?: ProviderProtocol
 }
 
 export interface ProviderProfile extends ProviderSettings {
@@ -482,31 +530,35 @@ export interface ProviderOverview {
   activeProfileId: string | null
 }
 
-export interface CreateProviderProfileInput {
+export interface CreateProviderProfileInput extends RequestSettingsInput {
   name: string
   baseUrl: string
   model: string
   apiKey?: string
   compatibility?: ProviderCompatibility
+  protocol?: ProviderProtocol
 }
 
 export interface UpdateProviderProfileInput extends CreateProviderProfileInput {
   id: string
 }
 
-export interface ProviderConfigurationInput {
+export interface ProviderConfigurationInput extends RequestSettingsInput {
+  testMode?: 'text' | 'stream'
   profileId?: string
   baseUrl: string
   model: string
   apiKey?: string
   compatibility?: ProviderCompatibility
+  protocol?: ProviderProtocol
 }
 
-export interface ProviderModelListInput {
+export interface ProviderModelListInput extends RequestSettingsInput {
   profileId?: string
   baseUrl: string
   apiKey?: string
   compatibility?: ProviderCompatibility
+  protocol?: ProviderProtocol
 }
 
 export interface ProviderModelList {
@@ -589,7 +641,7 @@ export interface BookSessionTurn {
   context?: ContextSnapshot | null
 }
 
-/** 每本书只保留最后一个临时会话（草稿 + 轮次），新会话覆盖旧记录。 */
+/** 当前会话；最近的不同会话另行保留，切换选区不会覆盖它们。 */
 export interface BookSessionRecord {
   bookId: string
   conversationId: string
@@ -608,6 +660,16 @@ export interface SaveBookSessionInput {
   draft: string
   turns: BookSessionTurn[]
 }
+
+export interface BookSessionSummary {
+  conversationId: string
+  scope: 'selection' | 'book'
+  title: string
+  turnCount: number
+  updatedAt: string
+}
+
+export const RECENT_BOOK_SESSION_LIMIT = 20
 
 /** 打开的会话标签：归档标签必须带 insightId，草稿只对归档标签生效。 */
 export interface SessionTabRecord {
@@ -639,6 +701,8 @@ export interface SaveHighlightInput {
 }
 
 export interface ReaderApi {
+  copyText(text: string): Promise<void>
+  getBookOcrPage(input: { bookId: string; pageNumber: number }): Promise<PreparedOcrPage>
   getAppInfo(): Promise<AppInfo>
   getAppUpdatePhase(): Promise<AppUpdatePhase>
   checkForAppUpdate(): Promise<AppUpdatePhase>
@@ -666,8 +730,10 @@ export interface ReaderApi {
   deleteInsight(id: string): Promise<boolean>
   updateInsightHistory(input: UpdateInsightHistoryInput): Promise<SavedInsight>
   getBookSession(bookId: string): Promise<BookSessionRecord | null>
+  listRecentBookSessions(bookId: string): Promise<BookSessionSummary[]>
+  getRecentBookSession(input: { bookId: string; conversationId: string }): Promise<BookSessionRecord | null>
   saveBookSession(input: SaveBookSessionInput): Promise<BookSessionRecord>
-  deleteBookSession(bookId: string): Promise<boolean>
+  deleteBookSession(bookId: string, conversationId?: string): Promise<boolean>
   listSessionTabs(): Promise<SessionTabsState>
   saveSessionTabs(input: SessionTabsState): Promise<SessionTabsState>
   getProviderOverview(): Promise<ProviderOverview>
@@ -689,6 +755,9 @@ export interface ReaderApi {
   getBookChapterNotes(input: BookChapterNotesInput): Promise<BookChapterNotesPage>
   prepareBookDocument(input: PrepareBookDocumentInput): Promise<BookAnalysisState>
   cancelBookDocument(bookId: string): Promise<void>
+  searchBookDocument(input: { bookId: string; query: string }): Promise<PreparedDocumentSearch>
+  previewBookPage(input: BookPagePreviewInput): Promise<BookPagePreview>
+  cancelBookPagePreview(requestId: string): Promise<void>
   startBookAnalysis(input: StartBookAnalysisInput): Promise<BookAnalysisState>
   cancelBookAnalysis(bookId: string): Promise<void>
   onBookAnalysisEvent(listener: (state: BookAnalysisState) => void): () => void

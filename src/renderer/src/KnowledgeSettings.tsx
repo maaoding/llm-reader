@@ -3,6 +3,8 @@ import type { DocumentProcessor, KnowledgeSettings as Settings, SaveKnowledgeSet
 import { copy } from '@shared/copy'
 import { readableError } from './readable-error'
 import { processorCopy } from '@shared/knowledge'
+import { isPageProcessor } from '@shared/request-settings'
+import { RequestSettingsEditor } from './RequestSettingsEditor'
 
 type KnowledgeDraft = SaveKnowledgeSettingsInput & { rerank: NonNullable<SaveKnowledgeSettingsInput['rerank']> }
 function draftOf(settings: Settings): KnowledgeDraft {
@@ -20,6 +22,8 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
   const [busy, setBusy] = useState<'save' | 'embedding' | 'rerank' | 'document' | null>(null)
   const [testStatus, setTestStatus] = useState<Partial<Record<'embedding' | 'rerank' | 'document', string>>>({})
   const [status, setStatus] = useState('')
+  const [invalidSettings, setInvalidSettings] = useState<Record<string, boolean>>({})
+  const [editorRevision, setEditorRevision] = useState(0)
   const loaded = Boolean(draft)
   useEffect(() => {
     if (!hidden && loaded && initialService) {
@@ -34,11 +38,18 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
     }).catch((error: unknown) => { if (alive) setStatus(readableError(error, copy('knowledge.network'))) })
     return () => { alive = false }
   }, [])
-  const dirty = Boolean(saved && draft && JSON.stringify(draft) !== JSON.stringify(draftOf(saved)))
+  const dirty = Object.values(invalidSettings).some(Boolean) || Boolean(saved && draft && JSON.stringify(draft) !== JSON.stringify(draftOf(saved)))
   useEffect(() => { onDirty(dirty) }, [dirty, onDirty])
-  const update = (value: KnowledgeDraft): void => { setDraft(value); setStatus('') }
+  const update = (value: KnowledgeDraft): void => {
+    setInvalidSettings((current) => Object.fromEntries(Object.entries(current).map(([kind, invalid]) => {
+      const key = kind as 'embedding' | 'rerank' | 'document'
+      const changed = draft?.[key].baseUrl !== value[key].baseUrl || (key === 'document' && (draft?.document.processor !== value.document.processor || draft?.document.protocol !== value.document.protocol))
+      return [kind, changed ? false : invalid]
+    })))
+    setDraft(value); setStatus('')
+  }
   const run = async (target: 'save' | 'embedding' | 'rerank' | 'document'): Promise<void> => {
-    if (!draft || busy) return
+    if (!draft || busy || (target === 'save' ? Object.values(invalidSettings).some(Boolean) : invalidSettings[target])) return
     const container = target === 'save' ? sectionRef.current : sectionRef.current?.querySelector(`[data-service="${target}"]`)
     const invalid = Array.from(container?.querySelectorAll<HTMLInputElement>('input') ?? []).find((field) => field.willValidate && !field.validity.valid)
     if (invalid) {
@@ -52,7 +63,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
     try {
       if (target === 'save') {
         const value = await window.readerApi.saveKnowledgeSettings(draft)
-        setSaved(value); setDraft(draftOf(value)); setStatus(copy('knowledge.saved'))
+        setSaved(value); setDraft(draftOf(value)); setEditorRevision((revision) => revision + 1); setInvalidSettings({}); setStatus(copy('knowledge.saved'))
       } else {
         const result = await window.readerApi.testKnowledgeSettings({ ...draft, target })
         setTestStatus({ [target]: result.message })
@@ -75,7 +86,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
         <p className="field-hint">{copy('knowledge.embeddingHint')}</p>
         <label className="field-label" htmlFor="embedding-url">{copy('knowledge.baseUrl')}</label>
         <input id="embedding-url" type="url" pattern="https?://[^?#]+" data-testid="embedding-url" value={draft.embedding.baseUrl} spellCheck={false} required={draft.embedding.enabled}
-          onChange={(event) => update({ ...draft, embedding: { ...draft.embedding, baseUrl: event.target.value, apiKey: undefined } })} />
+          onChange={(event) => update({ ...draft, embedding: { ...draft.embedding, baseUrl: event.target.value, apiKey: undefined, customHeaders: undefined } })} />
         <label className="field-label" htmlFor="embedding-model">{copy('knowledge.model')}</label>
         <input id="embedding-model" data-testid="embedding-model" value={draft.embedding.model} spellCheck={false} required={draft.embedding.enabled}
           onChange={(event) => update({ ...draft, embedding: { ...draft.embedding, model: event.target.value } })} />
@@ -85,8 +96,12 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
           onChange={(event) => update({ ...draft, embedding: { ...draft.embedding, apiKey: event.target.value || undefined } })} />
         <label className="knowledge-checkbox"><input type="checkbox" checked={draft.embedding.apiKey === null}
           onChange={(event) => update({ ...draft, embedding: { ...draft.embedding, apiKey: event.target.checked ? null : undefined } })} />{copy('knowledge.clearKey')}</label>
-        <button className="secondary-button" type="button" data-testid="embedding-test" disabled={!draft.embedding.baseUrl || !draft.embedding.model} onClick={() => void run('embedding')}>{copy('knowledge.testEmbedding')}</button>
+        <button className="secondary-button" type="button" data-testid="embedding-test" disabled={invalidSettings.embedding || !draft.embedding.baseUrl || !draft.embedding.model} onClick={() => void run('embedding')}>{copy('knowledge.testEmbedding')}</button>
 
+        <RequestSettingsEditor key={editorRevision + '-embedding-' + draft.embedding.baseUrl} id="embedding" value={draft.embedding}
+          savedHeaders={saved?.embedding.hasCustomHeaders && draft.embedding.baseUrl === saved.embedding.baseUrl}
+          onInvalidChange={(invalid) => setInvalidSettings((current) => ({ ...current, embedding: invalid }))}
+          onChange={(settings) => update({ ...draft, embedding: { ...draft.embedding, ...settings } })} />
         {feedback('embedding')}</details>
         <details open className="knowledge-service-card" data-service="rerank"><summary>{copy('rerank.title')}</summary>
         <label className="knowledge-checkbox"><input data-testid="rerank-enabled" type="checkbox" checked={draft.rerank.enabled}
@@ -94,7 +109,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
         <p className="field-hint">{copy('rerank.hint')}</p>
         <label className="field-label" htmlFor="rerank-url">{copy('knowledge.baseUrl')}</label>
         <input id="rerank-url" type="url" pattern="https?://[^?#]+" data-testid="rerank-url" value={draft.rerank.baseUrl} spellCheck={false} required={draft.rerank.enabled}
-          onChange={(event) => update({ ...draft, rerank: { ...draft.rerank, baseUrl: event.target.value, apiKey: undefined } })} />
+          onChange={(event) => update({ ...draft, rerank: { ...draft.rerank, baseUrl: event.target.value, apiKey: undefined, customHeaders: undefined } })} />
         <label className="field-label" htmlFor="rerank-model">{copy('rerank.model')}</label>
         <input id="rerank-model" data-testid="rerank-model" value={draft.rerank.model} spellCheck={false} required={draft.rerank.enabled}
           onChange={(event) => update({ ...draft, rerank: { ...draft.rerank, model: event.target.value } })} />
@@ -104,28 +119,40 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
           onChange={(event) => update({ ...draft, rerank: { ...draft.rerank, apiKey: event.target.value || undefined } })} />
         <label className="knowledge-checkbox"><input data-testid="rerank-clear-key" type="checkbox" checked={draft.rerank.apiKey === null}
           onChange={(event) => update({ ...draft, rerank: { ...draft.rerank, apiKey: event.target.checked ? null : undefined } })} />{copy('knowledge.clearKey')}</label>
-        <button className="secondary-button" type="button" data-testid="rerank-test" disabled={!draft.rerank.baseUrl || !draft.rerank.model} onClick={() => void run('rerank')}>{copy('rerank.test')}</button>
+        <button className="secondary-button" type="button" data-testid="rerank-test" disabled={invalidSettings.rerank || !draft.rerank.baseUrl || !draft.rerank.model} onClick={() => void run('rerank')}>{copy('rerank.test')}</button>
 
+        <RequestSettingsEditor key={editorRevision + '-rerank-' + draft.rerank.baseUrl} id="rerank" value={draft.rerank}
+          savedHeaders={saved?.rerank.hasCustomHeaders && draft.rerank.baseUrl === saved.rerank.baseUrl}
+          onInvalidChange={(invalid) => setInvalidSettings((current) => ({ ...current, rerank: invalid }))}
+          onChange={(settings) => update({ ...draft, rerank: { ...draft.rerank, ...settings } })} />
         {feedback('rerank')}</details>
         <details open className="knowledge-service-card" data-service="document"><summary>{copy('knowledge.documentTitle')}</summary>
         <label className="field-label" htmlFor="document-processor">{copy('knowledge.processor')}</label>
         <select id="document-processor" data-testid="document-processor" value={draft.document.processor}
           onChange={(event) => {
             const processor = event.target.value as DocumentProcessor
-            update({ ...draft, document: { ...draft.document, processor, apiKey: undefined,
-              baseUrl: processor === 'mineru-cloud' ? 'https://mineru.net' : '' } })
+            update({ ...draft, document: { ...draft.document, processor, apiKey: undefined, customHeaders: undefined, extraBody: undefined, protocol: undefined,
+              model: processor === 'mistral-ocr' ? 'mistral-ocr-latest' : '',
+              baseUrl: processor === 'mineru-cloud' ? 'https://mineru.net' : processor === 'mistral-ocr' ? 'https://api.mistral.ai/v1' : processor === 'docling' ? 'http://127.0.0.1:5001' : processor === 'mineru-local' ? 'http://127.0.0.1:8000' : '' } })
           }}>
-          {(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision'] as const).map((value) => <option key={value} value={value}>{copy(processorCopy[value])}</option>)}
+          {(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured'] as const).map((value) => <option key={value} value={value}>{copy(processorCopy[value])}</option>)}
         </select>
-        <p className="field-hint">{copy(draft.document.processor === 'vision' ? 'vision.hint' : 'knowledge.documentHint')}</p>
+        <p className="field-hint">{copy(draft.document.processor === 'vision' ? 'vision.hint' : isPageProcessor(draft.document.processor) ? 'request.pageHint' : 'knowledge.documentHint')}</p>
+        {draft.document.processor === 'unstructured' && <p className="field-hint">{copy('request.partitionHint')}</p>}
         {draft.document.processor !== 'none' && <>
           <label className="field-label" htmlFor="document-url">{copy('knowledge.baseUrl')}</label>
           <input id="document-url" type="url" pattern="https?://[^?#]+" data-testid="document-url" value={draft.document.baseUrl} spellCheck={false} required
-            onChange={(event) => update({ ...draft, document: { ...draft.document, baseUrl: event.target.value, apiKey: undefined } })} />
-          {draft.document.processor === 'vision' && <>
+            onChange={(event) => update({ ...draft, document: { ...draft.document, baseUrl: event.target.value, apiKey: undefined, customHeaders: undefined } })} />
+          {['vision', 'mistral-ocr'].includes(draft.document.processor) && <>
             <label className="field-label" htmlFor="document-model">{copy('vision.model')}</label>
             <input id="document-model" data-testid="document-model" value={draft.document.model ?? ''} maxLength={256} spellCheck={false} required
               onChange={(event) => update({ ...draft, document: { ...draft.document, model: event.target.value } })} />
+          </>}
+          {draft.document.processor === 'vision' && <>
+            <label className="field-label" htmlFor="document-protocol">{copy('request.protocol')}</label>
+            <select id="document-protocol" data-testid="document-protocol" value={draft.document.protocol ?? 'openai'} onChange={(event) => update({ ...draft, document: { ...draft.document, protocol: event.target.value as 'openai' | 'anthropic', apiKey: undefined, customHeaders: undefined } })}>
+              <option value="openai">{copy('request.openai')}</option><option value="anthropic">{copy('request.anthropic')}</option>
+            </select>
             <label className="field-label" htmlFor="document-compatibility">{copy('settings.compatibilityLabel')}</label>
             <select id="document-compatibility" value={draft.document.compatibility ?? 'auto'} onChange={(event) => update({ ...draft, document: { ...draft.document, compatibility: event.target.value as 'auto' | 'opencode-go' } })}>
               <option value="auto">{copy('settings.compatibilityAuto')}</option><option value="opencode-go">{copy('settings.compatibilityGo')}</option>
@@ -138,17 +165,21 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
             onChange={(event) => update({ ...draft, document: { ...draft.document, apiKey: event.target.value || undefined } })} />
           <label className="knowledge-checkbox"><input type="checkbox" checked={draft.document.apiKey === null}
             onChange={(event) => update({ ...draft, document: { ...draft.document, apiKey: event.target.checked ? null : undefined } })} />{copy('knowledge.clearKey')}</label>
-          {draft.document.processor !== 'vision' && <label className="knowledge-checkbox"><input type="checkbox" data-testid="document-ocr" checked={draft.document.ocr}
+          {!isPageProcessor(draft.document.processor) && <label className="knowledge-checkbox"><input type="checkbox" data-testid="document-ocr" checked={draft.document.ocr}
             onChange={(event) => update({ ...draft, document: { ...draft.document, ocr: event.target.checked } })} />{copy('knowledge.ocr')}</label>}
           <label className="field-label" htmlFor="document-language">{copy('knowledge.language')}</label>
           <select id="document-language" value={draft.document.language} onChange={(event) => update({ ...draft, document: { ...draft.document, language: event.target.value as 'ch' | 'en' } })}>
             <option value="ch">{copy('knowledge.ch')}</option><option value="en">{copy('knowledge.en')}</option>
           </select>
-          <button className="secondary-button" type="button" data-testid="document-test" disabled={!draft.document.baseUrl || (draft.document.processor === 'vision' && !draft.document.model?.trim())} onClick={() => void run('document')}>{copy(draft.document.processor === 'vision' ? 'vision.test' : 'knowledge.testDocument')}</button>
+          <button className="secondary-button" type="button" data-testid="document-test" disabled={invalidSettings.document || !draft.document.baseUrl || (['vision', 'mistral-ocr'].includes(draft.document.processor) && !draft.document.model?.trim())} onClick={() => void run('document')}>{copy(isPageProcessor(draft.document.processor) ? 'vision.test' : 'knowledge.testDocument')}</button>
         </>}
+        <RequestSettingsEditor key={editorRevision + '-document-' + draft.document.baseUrl + draft.document.processor + draft.document.protocol} id="document" value={draft.document}
+          savedHeaders={saved?.document.hasCustomHeaders && draft.document.baseUrl === saved.document.baseUrl && draft.document.processor === saved.document.processor && draft.document.protocol === saved.document.protocol}
+          onInvalidChange={(invalid) => setInvalidSettings((current) => ({ ...current, document: invalid }))}
+          onChange={(settings) => update({ ...draft, document: { ...draft.document, ...settings } })} />
         {feedback('document')}</details>
         <p className="field-hint">{copy('knowledge.endpointHint')} {copy('knowledge.testHint')}</p>
-        <button className="primary-button" type="submit" data-testid="knowledge-save" disabled={!dirty}>{copy('knowledge.save')}</button>
+        <button className="primary-button" type="submit" data-testid="knowledge-save" disabled={!dirty || Object.values(invalidSettings).some(Boolean)}>{copy('knowledge.save')}</button>
       </fieldset>
     </form>}
     {(busy === 'save' || status) && <p role="status" className="field-hint" data-testid="knowledge-status">{busy === 'save' ? copy('knowledge.testing') : status}</p>}

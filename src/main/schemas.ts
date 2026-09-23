@@ -1,12 +1,30 @@
 import { copy } from '@shared/copy'
 import { z } from 'zod'
+import { requestSettingsFields } from '@shared/request-settings'
+import { normalizeReaderSearchQuery } from '@shared/reader-search'
 import { validateDocument } from '@shared/document-structure'
-import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGES } from '@shared/vision-ocr'
+import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR_MAX_PAGES } from '@shared/vision-ocr'
 
 const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
 
+export const clipboardTextSchema = z.string().max(OCR_MAX_PAGE_CHARACTERS)
+export const bookOcrPageSchema = z.object({ bookId: idSchema, pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES) }).strict()
 export const bookIdSchema = idSchema
+export const recentBookSessionSchema = z.object({ bookId: idSchema, conversationId: z.uuid({ version: 'v4' }) }).strict()
+export const deleteBookSessionSchema = z.union([bookIdSchema.transform((bookId) => ({ bookId, conversationId: undefined })), recentBookSessionSchema])
+export const bookDocumentSearchSchema = z.object({
+  bookId: idSchema,
+  query: z.string().max(200).trim().refine((value) => normalizeReaderSearchQuery(value) !== null)
+}).strict()
+export const bookPagePreviewSchema = z.object({
+  bookId: idSchema,
+  requestId: idSchema,
+  pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES),
+  pageCount: z.number().int().min(1).max(OCR_MAX_PAGES),
+  imageDataUrl: z.string().max(OCR_MAX_IMAGE_DATA_URL).regex(OCR_IMAGE_PATTERN),
+  force: z.boolean().optional()
+}).strict().refine((value) => value.pageNumber <= value.pageCount)
 export const bookChapterNotesSchema = z.object({
   bookId: idSchema,
   chapterId: z.string().min(1).max(128),
@@ -163,7 +181,7 @@ export const insightExportScopeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('insight'), insightId: idSchema })
 ])
 
-// 临时会话按本存一份；轮次上限与渲染层一致，超出的轮次在写入前已被渲染层裁掉。
+// 每个会话的轮次上限与渲染层一致。
 const sessionTurnSchema = z.object({
   id: idSchema,
   action: z.enum(['explain', 'context', 'ask']),
@@ -236,6 +254,8 @@ const providerBaseUrlSchema = z
 export const providerProfileIdSchema = z.string().trim().min(1).max(128).regex(/^[\w-]+$/u)
 
 const providerProfileFields = {
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
   name: z.string().trim().min(1).max(60),
   baseUrl: providerBaseUrlSchema,
@@ -251,6 +271,9 @@ export const updateProviderProfileSchema = z.object({
 })
 
 export const providerConfigurationSchema = z.object({
+  testMode: z.enum(['text', 'stream']).optional(),
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
   profileId: providerProfileIdSchema.optional(),
   baseUrl: providerBaseUrlSchema,
@@ -259,6 +282,8 @@ export const providerConfigurationSchema = z.object({
 })
 
 export const providerModelListSchema = z.object({
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
   profileId: providerProfileIdSchema.optional(),
   baseUrl: providerBaseUrlSchema,
@@ -297,15 +322,15 @@ const knowledgeUrl = z.union([z.literal(''), providerBaseUrlSchema]).refine((val
 }, copy('validation.endpoint'))
 const knowledgeKey = z.string().trim().min(1).max(10_000).regex(/^[^\r\n]+$/u).nullable().optional()
 export const knowledgeSettingsSchema = z.object({
-  rerank: z.object({ enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
+  rerank: z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
     .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.rerank')).optional(),
-  embedding: z.object({ enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
+  embedding: z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
     .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.embedding')),
-  document: z.object({ processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision']), baseUrl: knowledgeUrl,
+  document: z.object({ ...requestSettingsFields, protocol: z.enum(['openai', 'anthropic']).optional(), processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured']), baseUrl: knowledgeUrl,
     model: z.string().trim().max(256).optional(), compatibility: z.enum(['auto', 'opencode-go']).optional(),
     ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
     .refine((value) => value.processor === 'none' || Boolean(value.baseUrl), copy('validation.documentUrl'))
-    .refine((value) => value.processor !== 'vision' || Boolean(value.model), copy('vision.configRequired'))
+    .refine((value) => !['vision', 'mistral-ocr'].includes(value.processor) || Boolean(value.model), copy('vision.configRequired'))
 }).strict()
 export const testKnowledgeSettingsSchema = knowledgeSettingsSchema.extend({ target: z.enum(['embedding', 'rerank', 'document']) })
   .refine((value) => value.target !== 'rerank' || Boolean(value.rerank?.baseUrl && value.rerank.model), copy('validation.rerank'))

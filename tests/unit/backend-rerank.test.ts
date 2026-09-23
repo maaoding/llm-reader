@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ContextSnapshot, DocumentSection, LlmEvent, LlmRequest, Passage, SaveKnowledgeSettingsInput } from '../../src/shared/contracts'
+import { copy } from '../../src/shared/copy'
 import { AppDatabase } from '../../src/main/database'
 import { KnowledgeSettingsService } from '../../src/main/knowledge-settings'
 import { KnowledgeHttp } from '../../src/main/knowledge-http'
@@ -67,14 +68,14 @@ describe('rerank configuration and archives', () => {
     let db = new AppDatabase(path)
     db.connection.exec(`DROP TABLE knowledge_settings;
       CREATE TABLE knowledge_settings(kind TEXT PRIMARY KEY CHECK(kind IN ('embedding', 'document')), config_json TEXT NOT NULL, secret BLOB, revision TEXT NOT NULL) STRICT;
-      DELETE FROM schema_migrations WHERE version = 13;`)
+      ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; DELETE FROM schema_migrations WHERE version IN (13, 17);`)
     for (const kind of ['embedding', 'document']) db.connection.prepare('INSERT INTO knowledge_settings VALUES (?, ?, ?, ?)').run(kind, '{ "enabled": false, "unknownOldField": "保留" }', Buffer.from([0, 255, 14, 87]), `original-${kind}`)
-    const previous = db.connection.prepare('SELECT * FROM knowledge_settings ORDER BY kind').all()
+    const previous = db.connection.prepare('SELECT kind, config_json, secret, revision FROM knowledge_settings ORDER BY kind').all()
     db.close()
     for (let attempt = 0; attempt < 2; attempt++) {
       db = new AppDatabase(path)
-      expect(db.connection.prepare("SELECT * FROM knowledge_settings WHERE kind <> 'rerank' ORDER BY kind").all()).toEqual(previous)
-      expect(db.connection.prepare('SELECT MAX(version) AS n FROM schema_migrations').get()?.n).toBe(16)
+      expect(db.connection.prepare("SELECT kind, config_json, secret, revision FROM knowledge_settings WHERE kind <> 'rerank' ORDER BY kind").all()).toEqual(previous)
+      expect(db.connection.prepare('SELECT MAX(version) AS n FROM schema_migrations').get()?.n).toBe(19)
       expect(new KnowledgeSettingsService(db, protector).get().rerank.enabled).toBe(false)
       db.close()
     }
@@ -210,7 +211,7 @@ describe('retrieval, protected evidence and retry integration', () => {
   it('caps Unicode query and selection, using action prompts and existing planning terms only', () => {
     const state = bookSetup()
     const local: LlmRequest = { ...state.request, scope: 'selection', action: 'explain', question: '', selection: { bookId: state.bookId, quote: '😀'.repeat(900), chapterTitle: '章', anchor: 'txt:0:900', passages: [] } }
-    expect(rerankQuery(local, ['既有规划词'])).toContain('请用清晰')
+    expect(rerankQuery(local, ['既有规划词'])).toContain(copy('assistant.questionExplain'))
     expect(rerankQuery(local, ['既有规划词'])).toContain('既有规划词')
     expect(Array.from(rerankQuery(local, [])).filter((text) => text === '😀')).toHaveLength(600)
     expect(Array.from(rerankQuery({ ...state.request, question: '😀'.repeat(2500) }, [])).length).toBe(2000)

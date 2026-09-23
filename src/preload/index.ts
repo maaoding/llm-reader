@@ -9,6 +9,8 @@ import {
 } from '@shared/contracts'
 
 export const readerApi: ReaderApi = {
+  copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.clipboardWriteText, text),
+  getBookOcrPage: (input) => ipcRenderer.invoke(IPC_CHANNELS.documentOcrPage, input),
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
   getAppUpdatePhase: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatePhase),
   checkForAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateCheck),
@@ -49,8 +51,10 @@ export const readerApi: ReaderApi = {
   deleteInsight: (id) => ipcRenderer.invoke(IPC_CHANNELS.insightsDelete, id),
   updateInsightHistory: (input) => ipcRenderer.invoke(IPC_CHANNELS.insightsUpdateHistory, input),
   getBookSession: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.sessionsGet, bookId),
+  listRecentBookSessions: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.sessionsRecent, bookId),
+  getRecentBookSession: (input) => ipcRenderer.invoke(IPC_CHANNELS.sessionsReadRecent, input),
   saveBookSession: (input) => ipcRenderer.invoke(IPC_CHANNELS.sessionsSave, input),
-  deleteBookSession: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.sessionsDelete, bookId),
+  deleteBookSession: (bookId, conversationId) => ipcRenderer.invoke(IPC_CHANNELS.sessionsDelete, conversationId ? { bookId, conversationId } : bookId),
   listSessionTabs: () => ipcRenderer.invoke(IPC_CHANNELS.sessionTabsList),
   saveSessionTabs: (input) => ipcRenderer.invoke(IPC_CHANNELS.sessionTabsSave, input),
   getProviderOverview: () => ipcRenderer.invoke(IPC_CHANNELS.providerOverview),
@@ -73,6 +77,9 @@ export const readerApi: ReaderApi = {
   getBookChapterNotes: (input) => ipcRenderer.invoke(IPC_CHANNELS.notesChapter, input),
   prepareBookDocument: (input) => ipcRenderer.invoke(IPC_CHANNELS.documentPrepare, input),
   cancelBookDocument: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.documentCancel, bookId),
+  searchBookDocument: (input) => ipcRenderer.invoke(IPC_CHANNELS.documentSearch, input),
+  previewBookPage: (input) => ipcRenderer.invoke(IPC_CHANNELS.documentPreview, input),
+  cancelBookPagePreview: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.documentPreviewCancel, requestId),
   startBookAnalysis: (input) => ipcRenderer.invoke(IPC_CHANNELS.analysisStart, input),
   cancelBookAnalysis: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.analysisCancel, bookId),
   onBookAnalysisEvent: (listener) => {

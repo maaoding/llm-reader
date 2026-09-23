@@ -7,11 +7,13 @@ const electronMocks = vi.hoisted(() => ({
   handlers: new Map<string, InvokeHandler>(),
   removeHandler: vi.fn(),
   showOpenDialog: vi.fn(),
+  writeText: vi.fn(),
   getVersion: vi.fn(() => '0.3.0')
 }))
 
 vi.mock('electron', () => ({
   app: { getVersion: electronMocks.getVersion },
+  clipboard: { writeText: electronMocks.writeText },
   dialog: { showOpenDialog: electronMocks.showOpenDialog, showSaveDialog: vi.fn() },
   ipcMain: {
     removeHandler: electronMocks.removeHandler,
@@ -56,6 +58,22 @@ describe('book import IPC', () => {
     electronMocks.handlers.clear()
     electronMocks.removeHandler.mockClear()
     electronMocks.showOpenDialog.mockReset()
+    electronMocks.writeText.mockReset()
+  })
+
+  it('writes bounded text to the clipboard only from the trusted main frame', async () => {
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.clipboardWriteText)!
+    const text = '# 原文\n\n**逐字复制**'
+    await handler(trustedEvent(), text)
+    expect(electronMocks.writeText).toHaveBeenCalledWith(text)
+    await expect(handler(trustedEvent(), 'x'.repeat(40_001))).rejects.toThrow('[INVALID_INPUT]')
+    await expect(handler(trustedEvent(), { text })).rejects.toThrow('[INVALID_INPUT]')
+    const frame = { url: 'llm-reader://app/index.html' }
+    await expect(handler({ sender: { id: 99, mainFrame: frame }, senderFrame: frame }, text)).rejects.toThrow('[UNTRUSTED_SENDER]')
+    const childFrame = { url: 'llm-reader://app/book.html' }
+    await expect(handler({ ...trustedEvent() as object, senderFrame: childFrame }, text)).rejects.toThrow('[UNTRUSTED_SENDER]')
+    expect(electronMocks.writeText).toHaveBeenCalledTimes(1)
   })
 
   it('opens the native picker with multi-selection and forwards the ordered paths', async () => {

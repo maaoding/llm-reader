@@ -5,6 +5,12 @@ export const ASSISTANT_ACTIONS_STORAGE_KEY = 'llm-reader.assistant-actions'
 export const MAX_ASSISTANT_ACTION_LABEL_LENGTH = 12
 export const MAX_ASSISTANT_ACTION_PROMPT_LENGTH = 2_000
 
+const DEFAULT_PROMPT_VERSION = 2
+const LEGACY_DEFAULT_PROMPTS = {
+  explain: '请用清晰、准确的语言解释这段内容。',
+  context: '请结合本章上下文说明这段内容的含义与作用。'
+}
+
 export const ASSISTANT_ACTION_ICONS = [
   'highlighter',
   'book-open',
@@ -98,7 +104,17 @@ export function readAssistantActionSettings(): AssistantActionSettings {
   if (typeof window === 'undefined') return createDefaultAssistantActionSettings()
   try {
     const stored = window.localStorage.getItem(ASSISTANT_ACTIONS_STORAGE_KEY)
-    return normalizeAssistantActionSettings(stored ? JSON.parse(stored) as unknown : null)
+    const record = toRecord(stored ? JSON.parse(stored) as unknown : null)
+    const settings = normalizeAssistantActionSettings(record)
+    // Older versions persisted defaults too. Upgrade only exact old defaults;
+    // custom prompts, labels and icons retain their existing values.
+    if (record.defaultPromptVersion === undefined) {
+      const defaults = createDefaultAssistantActionSettings()
+      for (const action of ['explain', 'context'] as const) {
+        if (settings[action].prompt === LEGACY_DEFAULT_PROMPTS[action]) settings[action].prompt = defaults[action].prompt
+      }
+    }
+    return settings
   } catch {
     return createDefaultAssistantActionSettings()
   }
@@ -107,7 +123,7 @@ export function readAssistantActionSettings(): AssistantActionSettings {
 export function persistAssistantActionSettings(settings: AssistantActionSettings): void {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(ASSISTANT_ACTIONS_STORAGE_KEY, JSON.stringify(settings))
+    window.localStorage.setItem(ASSISTANT_ACTIONS_STORAGE_KEY, JSON.stringify({ ...settings, defaultPromptVersion: DEFAULT_PROMPT_VERSION }))
   } catch {
     // Custom assistant actions remain active for this session when storage is unavailable.
   }

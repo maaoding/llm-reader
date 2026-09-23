@@ -153,7 +153,7 @@
 | knowledge.testDocument | 检查处理服务 |
 | vision.title | 视觉模型 OCR |
 | vision.model | 视觉模型名称 |
-| vision.hint | 使用支持图片输入的 OpenAI 兼容接口识别 PDF，可与提问模型分开配置。先用固定样图测试图片识别；测试可能消耗额度，不会发送书籍。 |
+| vision.hint | 使用支持图片输入的 OpenAI 兼容或 Anthropic 接口识别 PDF，可与提问模型分开配置。先用固定样图测试图片识别；测试可能消耗额度，不会发送书籍。 |
 | vision.preparation | 把 PDF 页面转为图片交给视觉模型，识别的文字可用于全书提问和章节笔记。 |
 | vision.disclosure | 点击准备后，会逐页发送图片至所配置的模型服务，可能产生费用。已完成页保存在本机，暂停、失败或退出后可手动继续；未完成页可能重复计费。原 PDF 保留，引用可返回页面核对。识别结果可能有误，暂不生成可选择的文字层，也不保证复杂表格与章节结构。 |
 | vision.progress | 已识别 {completed}/{total} 页 |
@@ -337,8 +337,8 @@
 | assistant.actionContext | 联系上下文 |
 | assistant.actionAsk | 自由提问 |
 | assistant.actionSaveHighlight | 摘录这段 |
-| assistant.questionExplain | 请用清晰、准确的语言解释这段内容。 |
-| assistant.questionContext | 请结合本章上下文说明这段内容的含义与作用。 |
+| assistant.questionExplain | 请解释我选中的原文，帮助我读懂它，而不只是换一种说法。先用一两句话说清核心意思，再按理解需要解释关键概念在这里的含义，理清指代、转折或因果；若涉及论证，说明作者的主张、依据与成立条件。简化表达时保留原文的限定、否定和语气，不把可能性说成必然，也不把作者的观点当成公认事实。必要时用一个简短的假设例子辅助理解，并标明是示例。以本次提供的原文为依据，引用关键语句支撑解释，区分明确表述与推断；遇到歧义或信息不足，说明具体不确定之处。用自然、清楚的中文直接回答，篇幅随内容难度调整，不机械套用固定栏目，不复述整段原文或反复总结。 |
+| assistant.questionContext | 请以我选中的原文为中心，结合本次实际提供的前后文和相关原文，说明它在文本中的作用。先点明最重要的上下文联系，再解释它承接了什么问题或观点，以及它是在定义、举例、推进论证、转折、反驳、补充限制还是形成结论，指出体现这种关系的具体词句。论述性内容要说清相关前提与结论的联系；叙事或描写则关注人物、情节或主题，不强套论证结构。引用实际提供的关键原文支撑分析，区分原文依据、背景笔记与推断；不要把检索片段的排列当作原文顺序，也不要据此虚构全书主旨。上下文不足时，先说明能确定的关系，再指出缺少什么。用自然、清楚的中文连贯说明，围绕选区展开，避免泛泛评价、整章摘要和固定栏目。 |
 | assistant.cancelledPartial | 已停止生成 |
 | assistant.cancelledEmpty | 请求已取消 |
 | assistant.expandDialog | 展开对话 |
@@ -494,7 +494,55 @@
 | settings.apiKeyPlaceholderSaved | 留空以继续使用已保存的密钥 |
 | settings.apiKeyPlaceholderEmpty | 输入 API 密钥 |
 | settings.apiKeyHint | 密钥只交给主进程加密保存，不写入书库数据库。 |
-| settings.testConnection | 测试连接 |
+| assistant.recentSessions | 最近对话 |
+| assistant.promptDetails | 查看本次提示词 |
+| vision.previewTitle | 先识别一页 |
+| vision.previewHint | 优先使用相同书籍和配置下的识别结果；没有结果时仅发送所选页图片。正式准备会复用已识别页。 |
+| vision.previewPage | PDF 页码 |
+| vision.previewStart | 查看这一页 |
+| vision.previewRetry | 重试这一页 |
+| vision.previewRefresh | 重新识别 |
+| vision.previewRefreshHint | 重新识别会再次发送此页，可能消耗服务额度；失败时保留上次结果。 |
+| vision.previewCached | 已复用本机识别结果，本次未发送识别请求。 |
+| vision.previewSaved | 识别结果已保存，可用于后续原文准备。 |
+| vision.previewPreparedHint | 新结果需点击“重新准备原文”后才会用于检索和笔记。 |
+| vision.previewCopy | 复制文字 |
+| vision.previewCopied | 已复制 |
+| vision.previewCopyFailed | 复制失败，可选中下方文字手动复制。 |
+| vision.previewCancel | 取消预览 |
+| vision.previewRendering | 正在生成页面图片… |
+| vision.previewRecognizing | 正在识别这一页… |
+| vision.previewImage | 页面图片 |
+| vision.previewText | 识别文字 |
+| vision.previewBlank | 这一页没有识别到文字。请对照图片，或尝试其他页。 |
+| vision.previewFailed | 单页识别失败，请检查文档服务配置后重试。 |
+| vision.previewCancelled | 已取消本次预览。 |
+| vision.previewUnsupported | 单页预览支持视觉模型、Mistral OCR 和 Unstructured，请先配置并保存。 |
+| vision.previewBusy | 正在处理文档，请暂停或等待完成后再预览。 |
+| vision.previewPageRange | 请输入 1 至 {count} 之间的 PDF 页码。 |
+| ocrReading.title | 识别文字 |
+| ocrReading.viewPdf | 查看 PDF 原页 |
+| ocrReading.hint | 从本机读取已准备的原文，不会重新识别。划选文字即可解释、联系上下文或提问；可随时回到 PDF 核对。 |
+| ocrReading.loading | 正在读取本页文字… |
+| ocrReading.loadFailed | 无法读取识别文字，请重试。 |
+| ocrReading.unprepared | 请先完成本书的逐页 OCR 原文准备，再查看和划选识别文字。 |
+| ocrReading.unsupported | 本书没有保存逐页 OCR 文字。可使用视觉模型、Mistral OCR 或 Unstructured 重新准备原文。 |
+| ocrReading.prepare | 打开本书准备 |
+| ocrReading.previous | 上一页 |
+| ocrReading.next | 下一页 |
+| ocrReading.go | 跳转 |
+| ocrReading.copy | 复制本页 |
+| ocrReading.blank | 本页未识别到文字，可查看 PDF 原页核对。 |
+| ocrReading.selectionTooLong | 选中文字过长，请缩小到 2 万字以内再提问。 |
+| assistant.recentSessionTurns | {count} 轮对话 |
+| assistant.recentSessionsHint | 每本书保留最近 20 个对话，每个最多 20 轮。点击可恢复选区、回答和草稿。 |
+| assistant.recentSessionsEmpty | 还没有其他对话。 |
+| assistant.sessionRestoreFailed | 无法读取或恢复对话，请重试。 |
+| assistant.sessionSaveFailed | 对话保存失败。请检查可用空间后重试，切换前需成功保存当前对话。 |
+| settings.testConnection | 测试文本回复 |
+| settings.testStream | 测试流式回复 |
+| provider.testStreamConnected | 流式测试通过：已收到文本和结束标记。 |
+| provider.testStreamUnsupported | 未收到流式回复。请检查接口是否支持流式输出，或先测试文本回复。 |
 | settings.save | 保存设置 |
 | settings.savedToast | 模型设置已安全保存 |
 | settings.profileActivatedToast | 已切换当前模型配置 |
@@ -612,9 +660,9 @@
 | reader.pdfRegionCancel | 取消 |
 | reader.pdfRegionConfirm | 使用此选区 |
 | reader.pdfInternalLink | 跳转到 PDF 内部页面 |
-| reader.pdfNoText | 页面没有可选文字，无法直接划词或搜索；准备原文后仍可整本书提问。 |
+| reader.pdfNoText | 页面没有可选文字；完成逐页 OCR 后，可用“识别文字”阅读和划词，也可搜索或整本书提问。 |
 | reader.pdfPageNoText | 本页没有文字层 |
-| reader.pdfSearchUnavailable | 这份 PDF 没有可搜索的文字层。 |
+| reader.pdfSearchUnavailable | 这份 PDF 没有可搜索的文字层。请先在「阅读准备」中识别正文，再搜索。 |
 | reader.pdfInvalidAnchor | 无效的 PDF 定位锚点。 |
 | reader.pdfOpenFailed | 无法打开 PDF，文件可能已损坏或受密码保护。 |
 | reader.areaAria | 正文阅读区 |
@@ -737,7 +785,7 @@
 | error.providerNotConfigured | 请先保存 API 密钥和模型设置。 |
 | error.keyReadUnavailable | 当前系统无法读取 API 密钥。 |
 | error.keyDecryptFailed | API 密钥解密失败，请重新保存。 |
-| provider.testConnected | 连接成功。 |
+| provider.testConnected | 文本测试通过：已收到有效回复。 |
 | provider.testTimeout | 连接超时。 |
 | provider.testFailed | 无法连接到模型服务。 |
 | error.keyReadFailed | 无法读取加密的 API 密钥。 |
@@ -781,3 +829,35 @@
 | validation.tableRows | 表格行数无效。 |
 | validation.tableOverlap | 表格单元格重叠。 |
 | validation.tableEmpty | 表格没有单元格。 |
+
+
+## 接口与请求配置
+
+| key | 文案 |
+| --- | --- |
+| request.advanced | 高级请求设置 |
+| request.protocol | 接口协议 |
+| request.openai | OpenAI 兼容 |
+| request.anthropic | Anthropic / Claude |
+| request.headers | 自定义请求头（JSON） |
+| request.headersSaved | 已保存请求头；留空保留，填写后整体替换 |
+| request.headersExample | 例如：{example} |
+| request.headersHint | 请求头加密保存。可覆盖 Authorization、x-api-key、User-Agent 等；名称不区分大小写。更换地址或协议后请重新填写。 |
+| request.headersInvalid | 请输入 JSON 对象，所有值需为字符串。名称不能重复，也不能设置 Host、Content-Type、Content-Length 等传输请求头。 |
+| request.clearHeaders | 清除已保存的自定义请求头 |
+| request.body | 额外请求参数（JSON） |
+| request.bodyExample | 例如：{example} |
+| request.bodyHint | 可填写服务支持的选项，例如模型的 max_tokens、temperature，文档服务的 strategy、ocr_engine。文件、消息、模型及返回格式由阅读器填写。密钥请放在请求头中。 |
+| request.bodyInvalid | 请输入有效 JSON 对象；不能覆盖文件、消息、模型、返回格式等阅读器管理的字段。 |
+| request.timeout | 请求超时（秒，1–600） |
+| request.timeoutDefault | 使用默认超时 |
+| request.streamError | 模型服务在流式响应中返回错误，请稍后重试。 |
+| request.incomplete | 模型输出未完整结束，请增加 max_tokens 或调整模型参数后重试。 |
+| request.mistral | Mistral OCR |
+| request.unstructured | Unstructured Partition |
+| request.pageHint | 逐页发送 PDF 页面图片进行识别，完成页会缓存；暂停后可继续。结果用于检索和问答，引用页码取自原 PDF。 |
+| request.partitionHint | 填写 Unstructured Partition 接口地址或本机兼容服务地址；不适用于 Workflow 接口。 |
+| request.preset | 常用服务 |
+| request.custom | 自定义地址 |
+
+| request.keyScope | 更换接口地址或协议后，请重新填写 API 密钥；原密钥不会自动发送到新接口。 |

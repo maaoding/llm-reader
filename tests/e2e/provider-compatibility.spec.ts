@@ -46,7 +46,7 @@ test('Go proxy drafts, profile switching and persisted settings work in both the
     await page.getByTestId('provider-api-key').fill('local-fixture-only')
     await page.getByTestId('provider-compatibility').selectOption('opencode-go')
     await page.getByTestId('provider-test').click()
-    await expect(page.getByTestId('provider-status')).toContainText('连接成功')
+    await expect(page.getByTestId('provider-status')).toContainText('文本测试通过')
     expect((await page.evaluate(() => window.readerApi.getProviderOverview())).profiles).toHaveLength(0)
     await page.getByTestId('provider-models-fetch').click()
     await expect(page.locator('#provider-model-options option')).toHaveCount(1)
@@ -63,7 +63,12 @@ test('Go proxy drafts, profile switching and persisted settings work in both the
     await expect(page.getByTestId('provider-connection-status')).toHaveAttribute('aria-label', 'API 连接正常')
     await page.getByTestId('provider-compatibility').selectOption('auto')
     await expect(page.getByTestId('provider-dirty-hint')).toBeVisible()
-    page.once('dialog', (dialog) => dialog.dismiss())
+    // Electron's native confirm dialog needs a display server. Dismiss this one
+    // prompt in the renderer so the same dirty-draft guard runs on headless CI.
+    await page.evaluate(() => {
+      const originalConfirm = window.confirm
+      window.confirm = () => { window.confirm = originalConfirm; return false }
+    })
     await page.getByTestId('provider-new').click()
     await expect(page.getByTestId('provider-profile')).toHaveValue(goId)
     await page.getByTestId('provider-compatibility').selectOption('opencode-go')
@@ -101,7 +106,7 @@ test('Go proxy drafts, profile switching and persisted settings work in both the
         await expect(page.getByTestId('provider-dirty-hint')).toBeVisible()
         await page.getByTestId('provider-compatibility').selectOption('opencode-go')
         await page.getByTestId('provider-test').click()
-        await expect(page.getByTestId('provider-status')).toContainText('连接成功')
+        await expect(page.getByTestId('provider-status')).toContainText('文本测试通过')
         await page.getByTestId('provider-save').click()
         await expect(page.getByTestId('provider-dirty-hint')).toHaveCount(0)
         await expect(page.getByTestId('provider-save')).toBeVisible()

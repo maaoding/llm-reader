@@ -6,13 +6,17 @@ import type {
   LlmUsage,
   Passage,
   ProviderCompatibility,
+  ProviderProtocol,
+  RequestSettingsInput,
   SelectionContext
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { cropPassage } from '@shared/document-structure'
 import { addUsage } from '@shared/book-context'
 import { AppError, toPublicError } from './errors'
+import { abortable } from './abortable'
 import { ProviderTransport, type ProviderRequestContext } from './provider-transport'
+import { buildCompletionUrl, buildProviderUrl, completionBody, parseAnthropicCompletion } from './provider-protocol'
 
 const PRIMARY_CONTEXT_LIMIT = 6_000
 const RETRY_CONTEXT_LIMIT = 3_000
@@ -20,7 +24,8 @@ const MAX_RESPONSE_CHARACTERS = 2_000_000
 const MAX_RAW_RESPONSE_BYTES = 16 * 1024 * 1024
 const ERROR_BODY_PREFIX_BYTES = 8 * 1024
 
-export interface ProviderCredentials {
+export interface ProviderCredentials extends RequestSettingsInput {
+  protocol?: ProviderProtocol
   baseUrl: string
   model: string
   apiKey: string
@@ -102,10 +107,10 @@ export function selectContextPassages(selection: SelectionContext, budget: numbe
 
 export function actionPrompt(request: LlmRequest): string {
   if (request.action === 'explain') {
-    return request.question || '请用清晰、精确的语言解释选中的内容。'
+    return request.question || copy('assistant.questionExplain')
   }
   if (request.action === 'context') {
-    return request.question || '请结合给定的章节上下文说明选中内容的作用和关联。'
+    return request.question || copy('assistant.questionContext')
   }
   return request.question
 }
@@ -255,53 +260,8 @@ function buildPayload(request: LlmRequest, model: string, context: ContextSnapsh
   }
 }
 
-function normalizedProviderUrl(baseUrl: string): URL {
-  let url: URL
-  try {
-    url = new URL(baseUrl)
-  } catch (error) {
-    throw new AppError('INVALID_BASE_URL', copy('error.baseUrlInvalid'), false, { cause: error })
-  }
-  const hostname = url.hostname.toLowerCase()
-  const localHttpHost = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)
-  if (
-    !['http:', 'https:'].includes(url.protocol) ||
-    (url.protocol === 'http:' && !localHttpHost) ||
-    url.username ||
-    url.password
-  ) {
-    throw new AppError('INVALID_BASE_URL', copy('error.baseUrlUnsafe'))
-  }
-  url.search = ''
-  url.hash = ''
-  return url
-}
-
-export function buildChatCompletionsUrl(baseUrl: string): string {
-  const url = normalizedProviderUrl(baseUrl)
-  const path = url.pathname.replace(/\/+$/, '')
-  if (path.endsWith('/chat/completions')) {
-    url.pathname = path
-  } else if (path.endsWith('/v1')) {
-    url.pathname = `${path}/chat/completions`
-  } else {
-    url.pathname = `${path}/v1/chat/completions`.replace(/\/{2,}/g, '/')
-  }
-  return url.toString()
-}
-
-export function buildModelsUrl(baseUrl: string): string {
-  const url = normalizedProviderUrl(baseUrl)
-  const path = url.pathname.replace(/\/+$/, '')
-  if (path.endsWith('/chat/completions')) {
-    url.pathname = `${path.slice(0, -'/chat/completions'.length)}/models`.replace(/\/{2,}/g, '/')
-  } else if (path.endsWith('/v1')) {
-    url.pathname = `${path}/models`
-  } else {
-    url.pathname = `${path}/v1/models`.replace(/\/{2,}/g, '/')
-  }
-  return url.toString()
-}
+export function buildChatCompletionsUrl(baseUrl: string): string { return buildProviderUrl(baseUrl, 'chat/completions') }
+export function buildModelsUrl(baseUrl: string): string { return buildProviderUrl(baseUrl, 'models') }
 
 export async function readSafeErrorStatus(response: Response): Promise<string> {
   const messages: Record<number, string> = {
@@ -317,7 +277,8 @@ export async function readSafeErrorStatus(response: Response): Promise<string> {
 export async function readResponseTextBounded(
   response: Response,
   maximumBytes: number,
-  truncate = false
+  truncate = false,
+  signal?: AbortSignal
 ): Promise<string> {
   if (!response.body) return ''
   const reader = response.body.getReader()
@@ -325,33 +286,38 @@ export async function readResponseTextBounded(
   let bytesRead = 0
   let text = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) return text + decoder.decode()
-    if (!value) continue
-    const remaining = maximumBytes - bytesRead
-    if (value.byteLength > remaining) {
-      if (!truncate) {
+  try {
+    while (true) {
+      const { done, value } = await abortable(reader.read(), signal)
+      if (done) return text + decoder.decode()
+      if (!value) continue
+      const remaining = maximumBytes - bytesRead
+      if (value.byteLength > remaining) {
+        if (!truncate) {
+          void reader.cancel().catch(() => undefined)
+          throw new AppError('RESPONSE_TOO_LARGE', copy('error.responseTooLarge'))
+        }
+        if (remaining > 0) text += decoder.decode(value.subarray(0, remaining), { stream: true })
         void reader.cancel().catch(() => undefined)
-        throw new AppError('RESPONSE_TOO_LARGE', copy('error.responseTooLarge'))
+        return text + decoder.decode()
       }
-      if (remaining > 0) text += decoder.decode(value.subarray(0, remaining), { stream: true })
-      void reader.cancel().catch(() => undefined)
-      return text + decoder.decode()
+      bytesRead += value.byteLength
+      text += decoder.decode(value, { stream: true })
+      if (truncate && bytesRead === maximumBytes) {
+        void reader.cancel().catch(() => undefined)
+        return text + decoder.decode()
+      }
     }
-    bytesRead += value.byteLength
-    text += decoder.decode(value, { stream: true })
-    if (truncate && bytesRead === maximumBytes) {
-      void reader.cancel().catch(() => undefined)
-      return text + decoder.decode()
-    }
+  } finally {
+    void reader.cancel().catch(() => undefined)
+    reader.releaseLock()
   }
 }
 
-export async function errorResponseDetails(response: Response): Promise<{ contextLength: boolean; error: AppError }> {
+export async function errorResponseDetails(response: Response, signal?: AbortSignal): Promise<{ contextLength: boolean; error: AppError }> {
   let text = ''
   try {
-    text = await readResponseTextBounded(response, ERROR_BODY_PREFIX_BYTES, true)
+    text = await readResponseTextBounded(response, ERROR_BODY_PREFIX_BYTES, true, signal)
   } catch {
     // The status is still sufficient for a safe public error.
   }
@@ -386,15 +352,17 @@ function extractUsage(value: unknown): LlmUsage | null {
   return Object.keys(usage).length > 0 ? usage : null
 }
 
-function parseCompletionObject(value: unknown): {
+function parseCompletionObject(value: unknown, protocol?: ProviderProtocol): {
   delta: string
   model?: string
   usage: LlmUsage | null
   finished: boolean
 } {
+  if (protocol === 'anthropic') return parseAnthropicCompletion(value)
   if (!value || typeof value !== 'object') return { delta: '', usage: null, finished: false }
   const record = value as Record<string, unknown>
   const choices = Array.isArray(record.choices) ? record.choices : []
+  if (record.error) throw new AppError('PROVIDER_STREAM_ERROR', copy('request.streamError'), true)
   const first = choices[0] && typeof choices[0] === 'object' ? (choices[0] as Record<string, unknown>) : null
   const deltaRecord = first?.delta && typeof first.delta === 'object' ? (first.delta as Record<string, unknown>) : null
   const messageRecord = first?.message && typeof first.message === 'object' ? (first.message as Record<string, unknown>) : null
@@ -414,29 +382,37 @@ function parseCompletionObject(value: unknown): {
   }
 }
 
-async function parseJsonCompletion(response: Response, emit: (event: LlmEventPayload) => void): Promise<string | undefined> {
+async function parseJsonCompletion(response: Response, emit: (event: LlmEventPayload) => void, protocol?: ProviderProtocol, signal?: AbortSignal): Promise<string | undefined> {
   let parsed: unknown
   try {
-    parsed = JSON.parse(await readResponseTextBounded(response, MAX_RAW_RESPONSE_BYTES)) as unknown
+    parsed = JSON.parse(await readResponseTextBounded(response, MAX_RAW_RESPONSE_BYTES, false, signal)) as unknown
   } catch (error) {
+    signal?.throwIfAborted()
     if (error instanceof AppError) throw error
     throw new AppError('INVALID_PROVIDER_RESPONSE', copy('error.providerInvalidJson'), true, { cause: error })
   }
-  const completion = parseCompletionObject(parsed)
-  if (!completion.delta) {
+  const completion = parseCompletionObject(parsed, protocol)
+  if (protocol === 'anthropic' && !completion.finished) {
+    throw new AppError('PROVIDER_INCOMPLETE', copy('request.incomplete'), true)
+  }
+  if (!completion.delta.trim()) {
     throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyText'), true)
   }
   if (unicodeLength(completion.delta) > MAX_RESPONSE_CHARACTERS) {
     throw new AppError('RESPONSE_TOO_LARGE', copy('error.answerTooLarge'))
   }
   emit({ type: 'delta', delta: completion.delta })
-  if (completion.usage) emit({ type: 'usage', usage: completion.usage })
+  if (completion.usage) emit({ type: 'usage', usage: protocol === 'anthropic'
+    ? { ...completion.usage, totalTokens: (completion.usage.promptTokens ?? 0) + (completion.usage.completionTokens ?? 0) }
+    : completion.usage })
   return completion.model
 }
 
 async function parseSseCompletion(
   response: Response,
-  emit: (event: LlmEventPayload) => void
+  emit: (event: LlmEventPayload) => void,
+  protocol?: ProviderProtocol,
+  signal?: AbortSignal
 ): Promise<string | undefined> {
   if (!response.body) {
     throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyStream'), true)
@@ -446,15 +422,17 @@ async function parseSseCompletion(
   let buffer = ''
   let model: string | undefined
   let receivedCharacters = 0
+  let receivedText = false
   let streamCompleted = false
   let receivedBytes = 0
+  let usage: LlmUsage = {}
 
   const consumeLine = (line: string): void => {
     if (!line.startsWith('data:')) return
     const data = line.slice(5).trimStart()
     if (!data) return
     if (data === '[DONE]') {
-      streamCompleted = true
+      if (protocol !== 'anthropic') streamCompleted = true
       return
     }
     let parsed: unknown
@@ -463,48 +441,65 @@ async function parseSseCompletion(
     } catch {
       return
     }
-    const completion = parseCompletionObject(parsed)
+    const completion = parseCompletionObject(parsed, protocol)
     if (completion.finished) streamCompleted = true
     if (completion.model) model = completion.model
     if (completion.delta) {
+      receivedText ||= Boolean(completion.delta.trim())
       receivedCharacters += unicodeLength(completion.delta)
       if (receivedCharacters > MAX_RESPONSE_CHARACTERS) {
         throw new AppError('RESPONSE_TOO_LARGE', copy('error.answerTooLarge'))
       }
       emit({ type: 'delta', delta: completion.delta })
     }
-    if (completion.usage) emit({ type: 'usage', usage: completion.usage })
+    if (completion.usage) {
+      usage = { ...usage, ...completion.usage }
+      if (protocol === 'anthropic') usage.totalTokens = (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
+      emit({ type: 'usage', usage })
+    }
   }
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (value) {
-      receivedBytes += value.byteLength
-      if (receivedBytes > MAX_RAW_RESPONSE_BYTES) {
+  try {
+    while (true) {
+      const { done, value } = await abortable(reader.read(), signal)
+      if (value) {
+        receivedBytes += value.byteLength
+        if (receivedBytes > MAX_RAW_RESPONSE_BYTES) {
+          void reader.cancel().catch(() => undefined)
+          throw new AppError('RESPONSE_TOO_LARGE', copy('error.responseTooLarge'))
+        }
+      }
+      buffer += decoder.decode(value, { stream: !done })
+      if (buffer.length > MAX_RAW_RESPONSE_BYTES) {
         void reader.cancel().catch(() => undefined)
-        throw new AppError('RESPONSE_TOO_LARGE', copy('error.responseTooLarge'))
+        throw new AppError('RESPONSE_TOO_LARGE', copy('error.streamEventTooLarge'))
+      }
+      const lines = buffer.split(/\r?\n/)
+      buffer = done ? '' : (lines.pop() ?? '')
+      for (const line of lines) consumeLine(line)
+      if (done) {
+        if (buffer) consumeLine(buffer)
+        break
       }
     }
-    buffer += decoder.decode(value, { stream: !done })
-    if (buffer.length > MAX_RAW_RESPONSE_BYTES) {
-      void reader.cancel().catch(() => undefined)
-      throw new AppError('RESPONSE_TOO_LARGE', copy('error.streamEventTooLarge'))
-    }
-    const lines = buffer.split(/\r?\n/)
-    buffer = done ? '' : (lines.pop() ?? '')
-    for (const line of lines) consumeLine(line)
-    if (done) {
-      if (buffer) consumeLine(buffer)
-      break
-    }
+  } finally {
+    void reader.cancel().catch(() => undefined)
+    reader.releaseLock()
   }
-  if (receivedCharacters === 0) {
+  if (!receivedText) {
     throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyText'), true)
   }
   if (!streamCompleted) {
     throw new AppError('STREAM_INTERRUPTED', copy('error.streamInterrupted'), true)
   }
   return model
+}
+
+/** Use the same protocol validation for real answers and connection probes. */
+export function readProviderCompletion(response: Response, emit: (event: LlmEventPayload) => void, protocol?: ProviderProtocol, signal?: AbortSignal): Promise<string | undefined> {
+  return response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')
+    ? parseSseCompletion(response, emit, protocol, signal)
+    : parseJsonCompletion(response, emit, protocol, signal)
 }
 
 export class LlmService {
@@ -548,12 +543,10 @@ export class LlmService {
 
   private async run(request: LlmRequest, active: ActiveRequest, emitEvent: (event: LlmEvent) => void): Promise<void> {
     const emit = (event: LlmEventPayload): void => emitEvent({ requestId: request.requestId, ...event } as LlmEvent)
-    const timer = setTimeout(() => {
-      active.timedOut = true
-      active.controller.abort()
-    }, 90_000)
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
       const credentials = this.credentials.getCredentials()
+      timer = setTimeout(() => { active.timedOut = true; active.controller.abort() }, credentials.timeoutMs ?? 90_000)
       const source = this.contextProvider ? await this.contextProvider(request, credentials, active.controller.signal) : this.localContext(request)
       let model: string
       try {
@@ -603,7 +596,7 @@ export class LlmService {
   async requestText(credentials: ProviderCredentials, messages: CompletionPayload['messages'], context: ProviderRequestContext, signal: AbortSignal, maximumCharacters = 20_000, timeoutMs = 90_000): Promise<{ text: string; usage?: LlmUsage }> {
     const controller = new AbortController()
     let timedOut = false
-    const timeout = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
+    const timeout = setTimeout(() => { timedOut = true; controller.abort() }, credentials.timeoutMs ?? timeoutMs)
     const combined = AbortSignal.any([signal, controller.signal])
     let text = ''
     let usage: LlmUsage | undefined
@@ -623,7 +616,7 @@ export class LlmService {
   }
 
   private async performCompletion(credentials: ProviderCredentials, payload: CompletionPayload, context: ProviderRequestContext, signal: AbortSignal, emit: (event: LlmEventPayload) => void): Promise<string> {
-    const endpoint = buildChatCompletionsUrl(credentials.baseUrl)
+    const endpoint = buildCompletionUrl(credentials.baseUrl, credentials.protocol)
     let response = await this.send(endpoint, credentials, payload, context, signal)
     if (!response.ok) {
       const details = await errorResponseDetails(response)
@@ -647,10 +640,7 @@ export class LlmService {
       throw details.error
     }
 
-    const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
-    const responseModel = contentType.includes('text/event-stream')
-      ? await parseSseCompletion(response, emit)
-      : await parseJsonCompletion(response, emit)
+    const responseModel = await readProviderCompletion(response, emit, credentials.protocol, signal)
     return responseModel ?? credentials.model
   }
 
@@ -664,7 +654,7 @@ export class LlmService {
     return this.transport.send(endpoint, credentials, context, {
       method: 'POST',
       accept: payload.stream ? 'text/event-stream, application/json' : 'application/json',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(completionBody(credentials, payload.messages, payload.stream)),
       signal
     })
   }

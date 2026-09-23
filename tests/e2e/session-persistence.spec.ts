@@ -18,6 +18,7 @@ async function stubImportDialog(application: ElectronApplication, paths: string[
 let mockServer: Server
 let endpoint = ''
 let streamCount = 0
+const streamRequests: { sessionId: string | undefined; body: string }[] = []
 
 async function selectNodeContents(locator: Locator): Promise<void> {
   await locator.evaluate((element) => {
@@ -30,13 +31,14 @@ async function selectNodeContents(locator: Locator): Promise<void> {
   })
 }
 
-async function configureProvider(page: Page): Promise<void> {
+async function configureProvider(page: Page, compatibility = 'auto'): Promise<void> {
   await page.getByTestId('settings-button').click()
   await page.getByTestId('settings-nav-model').click()
   await page.getByTestId('provider-profile-name').fill('会话持久化测试')
   await page.getByTestId('provider-base-url').fill(endpoint)
   await page.getByTestId('provider-model').fill('mock-session-persistence')
   await page.getByTestId('provider-api-key').fill('test-only-key')
+  await page.getByTestId('provider-compatibility').selectOption(compatibility)
   await page.getByTestId('provider-save').click()
   await page.getByTestId('provider-activate').click()
   await page.getByTestId('settings-close').click()
@@ -70,6 +72,7 @@ test.beforeAll(async () => {
         'cache-control': 'no-cache',
         connection: 'keep-alive'
       })
+      streamRequests.push({ sessionId: request.headers['x-opencode-session'] as string | undefined, body: rawBody })
       streamCount += 1
       // 分六段慢慢输出，便于在生成过程中切书、排队与清空。
       const chunks = ['临时会话里的回答，', '重启后应当仍在。', '这是第三段，', '用于拉长生成过程。', '这是第五段。', '（流式结束）']
@@ -349,4 +352,61 @@ test('keeps a draft written after switching the question scope', async () => {
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }
+})
+
+test('restores separate selection conversations with drafts across restart and clears only the current one', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-recent-selections-')
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: resolve('tests/fixtures/complex-reading.txt') })
+    application = launched.application
+    let page = launched.page
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+    await configureProvider(page, 'opencode-go')
+    const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
+    const firstQuote = (await page.getByTestId('reader-host').locator('p').first().innerText()).trim()
+    await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
+    await page.getByTestId('action-explain').click()
+    await expect(page.getByTestId('answer-current')).toContainText('（流式结束）')
+    await expect(page.getByTestId('cancel-request')).toHaveCount(0)
+    await page.getByTestId('followup-input').fill('第一处选区的草稿')
+    await expect.poll(() => page.evaluate((id) => window.readerApi.getBookSession(id).then((value) => value?.draft), bookId)).toBe('第一处选区的草稿')
+    const first = await page.evaluate((id) => window.readerApi.getBookSession(id), bookId)
+    expect(streamRequests.at(-1)?.sessionId).toBe(first?.conversationId)
+
+    await selectNodeContents(page.getByTestId('reader-host').locator('p').nth(1))
+    await page.getByTestId('action-explain').click()
+    await expect(page.getByTestId('answer-current')).toContainText('（流式结束）')
+    await expect(page.getByTestId('cancel-request')).toHaveCount(0)
+    await expect(page.locator('.right-sidebar .conversation-turn')).toHaveCount(1)
+    expect(streamRequests.at(-1)?.sessionId).not.toBe(first?.conversationId)
+    await page.getByTestId('followup-input').fill('第二处选区的草稿')
+    await page.getByTestId('recent-conversations').click()
+    await expect(page.getByTestId('recent-conversation')).toHaveCount(1)
+    await page.getByTestId('recent-conversation').filter({ hasText: firstQuote.slice(0, 20) }).click()
+    await expect(page.getByTestId('followup-input')).toHaveValue('第一处选区的草稿')
+    await expect.poll(() => page.evaluate((id) => window.readerApi.getBookSession(id).then((value) => value?.conversationId), bookId)).toBe(first?.conversationId)
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.getByTestId('cancel-request')).toHaveCount(0)
+    await expect(page.locator('.right-sidebar .conversation-turn')).toHaveCount(2)
+    expect(streamRequests.at(-1)?.sessionId).toBe(first?.conversationId)
+    expect(streamRequests.at(-1)?.body).toContain(firstQuote)
+    await page.getByTestId('followup-input').fill('第一处选区的草稿')
+
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application; page = restarted.page
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+    await expect(page.getByTestId('followup-input')).toHaveValue('第一处选区的草稿')
+    await page.getByTestId('recent-conversations').click()
+    await expect(page.getByTestId('recent-conversation')).toHaveCount(1)
+    await page.getByTestId('recent-conversation').click()
+    await expect(page.getByTestId('followup-input')).toHaveValue('第二处选区的草稿')
+    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('conversation-clear').click(); await page.getByTestId('conversation-clear-confirm').click()
+    await page.getByTestId('recent-conversations').click()
+    await expect(page.getByTestId('recent-conversation')).toHaveCount(1)
+    await expect(page.getByTestId('recent-conversation')).toContainText(firstQuote.slice(0, 20))
+    await page.screenshot({ path: test.info().outputPath('recent-conversations.png') })
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })

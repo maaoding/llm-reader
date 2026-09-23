@@ -8,6 +8,8 @@ import type { BookNotesIndex, BookChapterNotesInput, BookChapterNotesPage, BookN
 import { copy } from '@shared/copy'
 import { AppError } from './errors'
 import { z } from 'zod'
+import type { PreparedDocumentSearch } from '@shared/contracts'
+import { literalSearchExpression, normalizeReaderSearchQuery, READER_SEARCH_RESULT_LIMIT, searchExcerpt, yieldSearchWork } from '@shared/reader-search'
 
 const notesCursorSchema = z.object({ bookId: z.string(), chapterId: z.string(), revision: z.string(), ordinal: z.number().int().nonnegative() }).strict()
 
@@ -93,6 +95,36 @@ export class BookContextStore implements BookRetriever {
   structure(bookId: string): NormalizedDocument | null {
     const row = this.document(bookId)
     return row?.document_json ? JSON.parse(row.document_json) as NormalizedDocument : null
+  }
+
+  /** Search local prepared text only; never start OCR or send the query to a provider. */
+  async searchDocument(bookId: string, value: string): Promise<PreparedDocumentSearch> {
+    const unavailable: PreparedDocumentSearch = { available: false, results: [] }
+    const book = this.database.getStoredBook(bookId)
+    if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    const query = normalizeReaderSearchQuery(value)
+    if (!query) throw new AppError('INVALID_SEARCH', copy('reader.searchInvalid'))
+    if (book.format !== 'pdf') return unavailable
+    const row = this.document(bookId)
+    if (row?.status !== 'ready' || row.version !== DOCUMENT_STRUCTURE_VERSION || !row.document_json) return unavailable
+    const document = JSON.parse(row.document_json) as NormalizedDocument
+    const results: PreparedDocumentSearch['results'] = []
+    const expression = literalSearchExpression(query)
+    let visited = 0
+    for (const unit of [...document.units].sort((a, b) => a.order - b.order)) {
+      if (!unit.searchable) continue
+      for (const match of unit.text.matchAll(expression)) {
+        const source = unit.sources.find((item) => item.textStart !== undefined && item.textEnd !== undefined && item.textStart <= match.index && item.textEnd > match.index) ?? unit.sources[0]
+        if (!source?.page || !Number.isInteger(source.page) || source.page < 1 || (document.pageCount && source.page > document.pageCount)) continue
+        results.push({ anchor: `pdfpos:${source.page}:0`, chapterTitle: copy('knowledge.pdfPage', { page: source.page }), excerpt: searchExcerpt(unit.text, match.index, match.index + match[0].length) })
+        if (results.length >= READER_SEARCH_RESULT_LIMIT) break
+      }
+      if (results.length >= READER_SEARCH_RESULT_LIMIT) break
+      if (++visited % 16 === 0) await yieldSearchWork()
+    }
+    // A rebuild or deletion may have started while yielding to the main process.
+    const current = this.db.prepare('SELECT job_id, status FROM book_documents WHERE book_id = ?').get(bookId)
+    return current?.job_id === row.job_id && current.status === 'ready' ? { available: true, results } : unavailable
   }
 
   resetNotes(bookId: string, jobId: string, profileId: string, model: string, fingerprint: string, sessionId = randomUUID()): void {
