@@ -25,14 +25,8 @@ export interface ReaderHighlightAnchor {
   anchor: string
 }
 
-export interface ReaderSearchResult {
-  anchor: string
-  excerpt: string
-  chapterTitle: string
-}
-
-export const READER_SEARCH_RESULT_LIMIT = 200
-export const READER_SEARCH_QUERY_MAX_LENGTH = 100
+import type { ReaderSearchResult } from '@shared/reader-search'
+export { READER_SEARCH_QUERY_MAX_LENGTH, READER_SEARCH_RESULT_LIMIT, type ReaderSearchResult } from '@shared/reader-search'
 
 export interface ReaderSelectionDraft {
   quote: string

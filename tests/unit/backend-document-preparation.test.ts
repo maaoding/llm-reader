@@ -246,7 +246,7 @@ function downgradeDocumentTables(db: AppDatabase): void {
     CREATE TRIGGER book_blocks_delete AFTER DELETE ON book_blocks BEGIN DELETE FROM book_fts WHERE rowid = old.id; END;
     DROP TABLE book_documents;
     ALTER TABLE document_jobs DROP COLUMN raw_json; ALTER TABLE document_jobs DROP COLUMN structure_json;
-    ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; ALTER TABLE knowledge_settings DROP COLUMN headers_secret; DELETE FROM schema_migrations WHERE version >= 14;
+    ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; ALTER TABLE knowledge_settings DROP COLUMN headers_secret; DROP TABLE book_session_history; DELETE FROM schema_migrations WHERE version >= 14;
   `)
 }
 

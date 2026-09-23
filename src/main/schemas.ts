@@ -1,6 +1,7 @@
 import { copy } from '@shared/copy'
 import { z } from 'zod'
 import { requestSettingsFields } from '@shared/request-settings'
+import { normalizeReaderSearchQuery } from '@shared/reader-search'
 import { validateDocument } from '@shared/document-structure'
 import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGES } from '@shared/vision-ocr'
 
@@ -8,6 +9,12 @@ const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
 
 export const bookIdSchema = idSchema
+export const recentBookSessionSchema = z.object({ bookId: idSchema, conversationId: z.uuid({ version: 'v4' }) }).strict()
+export const deleteBookSessionSchema = z.union([bookIdSchema.transform((bookId) => ({ bookId, conversationId: undefined })), recentBookSessionSchema])
+export const bookDocumentSearchSchema = z.object({
+  bookId: idSchema,
+  query: z.string().max(200).trim().refine((value) => normalizeReaderSearchQuery(value) !== null)
+}).strict()
 export const bookChapterNotesSchema = z.object({
   bookId: idSchema,
   chapterId: z.string().min(1).max(128),
@@ -164,7 +171,7 @@ export const insightExportScopeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('insight'), insightId: idSchema })
 ])
 
-// 临时会话按本存一份；轮次上限与渲染层一致，超出的轮次在写入前已被渲染层裁掉。
+// 每个会话的轮次上限与渲染层一致。
 const sessionTurnSchema = z.object({
   id: idSchema,
   action: z.enum(['explain', 'context', 'ask']),
@@ -254,6 +261,7 @@ export const updateProviderProfileSchema = z.object({
 })
 
 export const providerConfigurationSchema = z.object({
+  testMode: z.enum(['text', 'stream']).optional(),
   ...requestSettingsFields,
   protocol: z.enum(['openai', 'anthropic']).optional(),
   compatibility: z.enum(['auto', 'opencode-go']).default('auto'),

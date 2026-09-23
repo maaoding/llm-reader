@@ -4607,3 +4607,10 @@ button.citation-valid:hover {
 .request-settings summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
 .request-settings textarea { width: 100%; box-sizing: border-box; padding: 10px; font: 12px/1.6 ui-monospace, monospace; resize: vertical; color: inherit; background: transparent; border: 1px solid var(--ui-line); border-radius: 6px; }
 .request-settings textarea[aria-invalid="true"] { border-color: #c05050; }
+
+.recent-conversations { padding: 8px 16px; border-bottom: 1px solid var(--ui-line); flex: 0 0 auto; min-width: 0; }
+.recent-conversations > button { font-size: var(--ui-small-size); }
+.recent-conversations-list { display: grid; gap: 6px; max-height: 240px; overflow-y: auto; margin-top: 8px; }
+.recent-conversations-list > button { display: grid; gap: 4px; min-width: 0; padding: 8px; text-align: left; background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: 6px; }
+.recent-conversations-list > button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.recent-conversations small { color: var(--ui-muted); font-size: var(--ui-small-size); }

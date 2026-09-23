@@ -1,4 +1,4 @@
-import { isPageProcessor } from '@shared/request-settings'
+import { isPageProcessor, providerIsConfigured } from '@shared/request-settings'
 import { useState } from 'react'
 import type { BookAnalysisState, BookRecord, ProviderOverview } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -19,7 +19,7 @@ export function BookAnalysisControls({ book, state, error, profiles, onStart, on
   const busy = preparing || state?.status === 'analyzing'
   const supported = book.format !== 'pdf' || Boolean(state?.documentProcessor && state.documentProcessor !== 'none')
   const vision = book.format === 'pdf' && isPageProcessor(state?.documentProcessor ?? 'none')
-  const canStart = !starting && profiles.profiles.some((profile) => profile.id === profileId && profile.hasApiKey)
+  const canStart = !starting && profiles.profiles.some((profile) => profile.id === profileId && providerIsConfigured(profile))
   const start = async (rebuild: boolean) => {
     if (rebuild && !window.confirm(copy('preparation.notesRebuildConfirm'))) return
     setStarting(true)
@@ -65,7 +65,7 @@ export function BookAnalysisControls({ book, state, error, profiles, onStart, on
       {state?.progress && state.progress.total > 0 && <p data-testid="analysis-stage-progress" role="status">{copy('analysis.stageProgress', { stage: copy(`analysis.stage.${state.progress.stage}`), completed: state.progress.completed, total: state.progress.total })}</p>}
       {state?.progress?.retryAttempt && <p data-testid="analysis-retrying">{copy('analysis.retrying', { attempt: state.progress.retryAttempt })}</p>}
       <label>{copy('analysis.profile')}<select data-testid="analysis-profile" value={profileId} disabled={busy || starting} onChange={(event) => setChosenProfile(event.target.value)}>
-        <option value="" disabled>{copy('analysis.profile')}</option>{profiles.profiles.map((profile) => <option key={profile.id} value={profile.id} disabled={!profile.hasApiKey}>{profile.name} · {profile.model}</option>)}
+        <option value="" disabled>{copy('analysis.profile')}</option>{profiles.profiles.map((profile) => <option key={profile.id} value={profile.id} disabled={!providerIsConfigured(profile)}>{profile.name} · {profile.model}</option>)}
       </select></label>
       <p className="field-hint">{copy('analysis.disclosure')}</p>
       <div className="analysis-actions">

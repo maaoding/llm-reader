@@ -24,12 +24,15 @@ import {
   testKnowledgeSettingsSchema,
   startSemanticIndexSchema,
   bookIdSchema,
+  bookDocumentSearchSchema,
   bookChapterNotesSchema,
   bookImportPathsSchema,
   createProviderProfileSchema,
   highlightIdSchema,
   highlightSchema,
   bookSessionSchema,
+  recentBookSessionSchema,
+  deleteBookSessionSchema,
   sessionTabsSchema,
   insightExportScopeSchema,
   insightHistorySchema,
@@ -209,12 +212,15 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.sessionsGet, dependencies, (_event, value) =>
     dependencies.library.getBookSession(parse(bookIdSchema, value))
   )
+  handle(IPC_CHANNELS.sessionsRecent, dependencies, (_event, value) => dependencies.library.listRecentBookSessions(parse(bookIdSchema, value)))
+  handle(IPC_CHANNELS.sessionsReadRecent, dependencies, (_event, value) => dependencies.library.getRecentBookSession(parse(recentBookSessionSchema, value)))
   handle(IPC_CHANNELS.sessionsSave, dependencies, (_event, value) =>
     dependencies.library.saveBookSession(parse(bookSessionSchema, value))
   )
-  handle(IPC_CHANNELS.sessionsDelete, dependencies, (_event, value) =>
-    dependencies.library.deleteBookSession(parse(bookIdSchema, value))
-  )
+  handle(IPC_CHANNELS.sessionsDelete, dependencies, (_event, value) => {
+    const input = parse(deleteBookSessionSchema, value)
+    return dependencies.library.deleteBookSession(input.bookId, input.conversationId)
+  })
   handle(IPC_CHANNELS.sessionTabsList, dependencies, () => dependencies.library.listSessionTabs())
   handle(IPC_CHANNELS.sessionTabsSave, dependencies, (_event, value) =>
     dependencies.library.saveSessionTabs(parse(sessionTabsSchema, value))
@@ -279,6 +285,10 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   if (dependencies.analysis) {
     const analysis = dependencies.analysis
     handle(IPC_CHANNELS.analysisGet, dependencies, (_event, value) => analysis.state(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.documentSearch, dependencies, (_event, value) => {
+      const input = parse(bookDocumentSearchSchema, value)
+      return analysis.store.searchDocument(input.bookId, input.query)
+    })
     handle(IPC_CHANNELS.notesIndex, dependencies, (_event, value) => analysis.store.notesIndex(parse(bookIdSchema, value)))
     handle(IPC_CHANNELS.notesChapter, dependencies, (_event, value) => analysis.store.chapterNotes(parse(bookChapterNotesSchema, value)))
     handle(IPC_CHANNELS.documentPrepare, dependencies, (_event, value) => {

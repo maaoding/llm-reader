@@ -1,5 +1,6 @@
 import { RequestSettingsEditor } from './RequestSettingsEditor'
-import { publicRequestSettings } from '@shared/request-settings'
+import { RecentConversations } from './RecentConversations'
+import { providerIsConfigured, publicRequestSettings } from '@shared/request-settings'
 import type { RequestSettingsInput, ProviderProtocol } from '@shared/contracts'
 import {
   AlertCircle,
@@ -451,10 +452,6 @@ function WindowControls(): ReactNode {
 
 function tocHrefMatchesCurrent(itemHref: string, currentHref: string | null): boolean {
   return Boolean(currentHref && itemHref.trim() === currentHref.trim())
-}
-
-function providerIsConfigured(provider: ProviderSettings): boolean {
-  return Boolean(provider.baseUrl.trim() && provider.model.trim() && (provider.hasApiKey || provider.hasCustomHeaders))
 }
 
 function activeProviderSettings(overview: ProviderOverview): ProviderSettings {
@@ -1866,7 +1863,7 @@ function SettingsModal({
     }
   }
 
-  const handleTest = async (): Promise<void> => {
+  const handleTest = async (testMode: 'text' | 'stream' = 'text'): Promise<void> => {
     const sequence = testSequenceRef.current + 1
     testSequenceRef.current = sequence
     setBusy('test')
@@ -1874,7 +1871,7 @@ function SettingsModal({
     try {
       const key = keyRef.current?.value.trim()
       const result = await window.readerApi.testProviderConfiguration({
-        ...requestSettings, protocol,
+        ...requestSettings, protocol, testMode,
         compatibility,
         ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
         baseUrl: baseUrl.trim(),
@@ -2339,11 +2336,14 @@ function SettingsModal({
                       data-testid="provider-test"
                       type="button"
                       disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
-                      onClick={handleTest}
+                      onClick={() => void handleTest()}
                     >
                       {busy === 'test' ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}
                       {copy('settings.testConnection')}
                     </button>
+                    <button className="secondary-button" data-testid="provider-test-stream" type="button"
+                      disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
+                      onClick={() => void handleTest('stream')}>{copy('settings.testStream')}</button>
                     <button
                       className="secondary-button"
                       data-testid="provider-activate"
@@ -2832,6 +2832,7 @@ export default function App(): ReactNode {
 
   // 同一本书只允许一个进行中的请求；切换书籍不会取消其他书中正在生成的回答。
   const tabHasActiveRequest = (tabId: string): boolean => {
+    if (sessionTransitionsRef.current.has(tabId)) return true
     for (const value of requestSessionRef.current.values()) if (value === tabId) return true
     return pendingRequestsRef.current.some((item) => item.tabId === tabId)
   }
@@ -2860,7 +2861,7 @@ export default function App(): ReactNode {
     void window.readerApi.getBookSession(bookId).then((record) => {
       if (!record) return
       const tab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
-      if (!tab || tab.turns.length > 0 || tab.draft) return
+      if (!tab || tab.turns.length > 0 || tab.draft || tab.selection || sessionTransitionsRef.current.has(tab.id)) return
       updateConversationTab(tab.id, (current) => ({
         ...current,
         conversationId: record.conversationId,
@@ -2888,21 +2889,59 @@ export default function App(): ReactNode {
 
   // 去抖保存所有有内容的 live 会话：后台完成的回答也必须落库，不能只保存当前书籍。
   const savedSessionsRef = useRef(new Map<string, string>())
+  const sessionWritesRef = useRef(new Map<string, Promise<unknown>>())
+  const sessionTransitionsRef = useRef(new Set<string>())
+  const [changingSessions, setChangingSessions] = useState<string[]>([])
+  const persistLiveSession = useCallback(async (tab: ConversationTab): Promise<void> => {
+    if (tab.kind !== 'live' || (!tab.draft && !tab.selection && tab.turns.length === 0)) return
+    const payload = sessionPayload(tab)
+    const snapshot = JSON.stringify(payload)
+    if (savedSessionsRef.current.get(tab.bookId) === snapshot) {
+      await sessionWritesRef.current.get(tab.bookId)
+      return
+    }
+    savedSessionsRef.current.set(tab.bookId, snapshot)
+    const pending = window.readerApi.saveBookSession(payload)
+    sessionWritesRef.current.set(tab.bookId, pending)
+    try { await pending }
+    catch (error) {
+      if (savedSessionsRef.current.get(tab.bookId) === snapshot) savedSessionsRef.current.delete(tab.bookId)
+      throw error
+    } finally {
+      if (sessionWritesRef.current.get(tab.bookId) === pending) sessionWritesRef.current.delete(tab.bookId)
+    }
+  }, [sessionPayload])
+
+  // Save before replacing the selection; a failed write leaves the old conversation intact.
+  const replaceSession = async (tab: ConversationTab, next: () => Promise<Partial<ConversationTab>>): Promise<boolean> => {
+    if (tabHasActiveRequest(tab.id)) return false
+    sessionTransitionsRef.current.add(tab.id)
+    setChangingSessions([...sessionTransitionsRef.current])
+    try {
+      await persistLiveSession(tab)
+      const changes = await next()
+      if (conversationTabsRef.current.find((item) => item.id === tab.id) !== tab) return false
+      updateConversationTab(tab.id, (current) => ({ ...current, ...changes }))
+      savedSessionsRef.current.delete(tab.bookId)
+      return true
+    } catch {
+      pushToast(copy('assistant.sessionSaveFailed'), 'error')
+      return false
+    } finally {
+      sessionTransitionsRef.current.delete(tab.id)
+      setChangingSessions([...sessionTransitionsRef.current])
+    }
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       for (const tab of conversationTabs) {
-        if (tab.kind !== 'live') continue
-        if (!tab.draft && tab.turns.length === 0) continue
-        const payload = sessionPayload(tab)
-        const snapshot = JSON.stringify(payload)
-        if (savedSessionsRef.current.get(tab.bookId) === snapshot) continue
-        savedSessionsRef.current.set(tab.bookId, snapshot)
-        // 写入失败时清掉快照，下一次变更会重试。
-        void window.readerApi.saveBookSession(payload).catch(() => { savedSessionsRef.current.delete(tab.bookId) })
+        if (sessionTransitionsRef.current.has(tab.id)) continue
+        void persistLiveSession(tab).catch(() => pushToast(copy('assistant.sessionSaveFailed'), 'error'))
       }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [conversationTabs, sessionPayload])
+  }, [conversationTabs, persistLiveSession, pushToast])
 
   const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'overview', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
     // landingPage 为 null 表示不再切换页面（后台打开书籍）。
@@ -3127,11 +3166,13 @@ export default function App(): ReactNode {
     updateConversationTab(tab.id, (current) => ({
       ...current,
       conversationId: crypto.randomUUID(),
+      scope: 'book',
       selection: null,
       draft: '',
       turns: []
     }))
-    void window.readerApi.deleteBookSession(tab.bookId).catch(() => undefined)
+    savedSessionsRef.current.delete(tab.bookId)
+    void window.readerApi.deleteBookSession(tab.bookId, tab.conversationId).catch(() => pushToast(copy('assistant.sessionSaveFailed'), 'error'))
     // 释放出来的并发位让后面的排队请求补位。
     pumpRequestQueue()
   }
@@ -3192,7 +3233,7 @@ export default function App(): ReactNode {
       await flushProgress()
       // 退出前补写去抖中的会话与标签列表：所有有内容的 live 会话都写，含后台完成的回答。
       const flushTabs = conversationTabsRef.current.filter((candidate) => (
-        candidate.kind === 'live' && (candidate.draft || candidate.turns.length > 0)
+        candidate.kind === 'live' && (candidate.draft || candidate.selection || candidate.turns.length > 0)
       ))
       for (const tab of flushTabs) {
         await window.readerApi.saveBookSession(sessionPayload(tab)).catch(() => undefined)
@@ -3423,7 +3464,8 @@ export default function App(): ReactNode {
     setSearchState('searching')
     setSearchError('')
     try {
-      const results = await adapter.search(query)
+      const prepared = adapter.format === 'pdf' ? await window.readerApi.searchBookDocument({ bookId, query }) : null
+      const results = prepared?.available ? prepared.results : await adapter.search(query)
       if (
         sequence !== searchSequenceRef.current ||
         adapterRef.current !== adapter ||
@@ -3469,17 +3511,21 @@ export default function App(): ReactNode {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [assistantDialogOpen, bookState, detailsBook, openSearchView, settingsOpen])
 
-  const enqueueRequest = (action: LlmAction, question: string, tabId: string, sourceSelection?: SelectionContext): void => {
+  const enqueueRequest = async (action: LlmAction, question: string, tabId: string, sourceSelection?: SelectionContext): Promise<void> => {
     const cleanQuestion = question.trim()
     if (!cleanQuestion) return
-    const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
+    let tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
     if (!tab || tabHasActiveRequest(tab.id)) return
     const scope = sourceSelection ? 'selection' : tab.scope
     const context = scope === 'book' ? null : sourceSelection ?? tab.selection
     if (scope === 'selection' && !context) return
 
     const newContext = scope !== tab.scope || (scope === 'selection' && tab.selection?.anchor !== context?.anchor)
-    const conversationId = newContext ? crypto.randomUUID() : tab.conversationId
+    if (newContext) {
+      if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '' }))) return
+      tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)!
+    }
+    const conversationId = tab.conversationId
     const priorTurns = newContext ? [] : tab.turns.filter((turn) => turn.status === 'completed' && turn.answer)
     const requestId = createId()
     const turn: ConversationTurn = {
@@ -3573,28 +3619,22 @@ export default function App(): ReactNode {
     }
   }, [selection, bookState, interfaceScale])
 
-  const handleSelectionAction = (action: LlmAction): void => {
+  const handleSelectionAction = async (action: LlmAction): Promise<void> => {
     if (compactWindow) setLeftPanelOpen(false)
     if (!selection || !activeBook) return
     const liveTabId = ensureLiveTab(activeBook)
     if (action === 'ask') {
       const liveTab = conversationTabsRef.current.find((tab) => tab.id === liveTabId)
-      const isNew = !liveTab?.selection || liveTab.selection.anchor !== selection.anchor
-      updateConversationTab(liveTabId, (tab) => ({
-        ...tab,
-        conversationId: isNew ? crypto.randomUUID() : tab.conversationId,
-        selection,
-        scope: 'selection',
-        turns: isNew ? [] : tab.turns,
-        draft: tab.draft
-      }))
+      if (!liveTab || tabHasActiveRequest(liveTab.id)) return
+      const isNew = liveTab.scope !== 'selection' || liveTab.selection?.anchor !== selection.anchor
+      if (isNew && !await replaceSession(liveTab, async () => ({ conversationId: crypto.randomUUID(), selection, scope: 'selection', turns: [], draft: '' }))) return
       focusConversationTab(liveTabId)
       adapterRef.current?.clearSelection()
       setSelection(null)
       window.setTimeout(() => followupRef.current?.focus(), 0)
       return
     }
-    enqueueRequest(action, assistantActions[action].prompt, liveTabId, selection)
+    await enqueueRequest(action, assistantActions[action].prompt, liveTabId, selection)
   }
 
   const cancelRequest = async (requestId: string | null): Promise<void> => {
@@ -4096,6 +4136,35 @@ export default function App(): ReactNode {
   // 进行中或排队中的请求：用于禁用发送、显示停止按钮与阻止重复入队。
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
+  const changeConversationScope = async (tab: ConversationTab, scope: 'selection' | 'book'): Promise<void> => {
+    if (scope === tab.scope || tabHasActiveRequest(tab.id)) return
+    // A new scope from an archived insight starts a live conversation, preserving the archive.
+    const book = books.find((item) => item.id === tab.bookId)
+    const target = tab.kind === 'archive' && book
+      ? conversationTabsRef.current.find((item) => item.id === ensureLiveTab(book))!
+      : tab
+    const context = scope === 'selection' ? (selection?.bookId === tab.bookId ? selection : tab.selection) : null
+    if (await replaceSession(target, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '' }))) focusConversationTab(target.id)
+  }
+  const recentConversations = (tab: ConversationTab | undefined): ReactNode => tab?.kind === 'live' && <RecentConversations
+    key={`${tab.id}:${tab.conversationId}`} currentId={tab.conversationId}
+    disabled={Boolean(streamingRequestId(tab)) || changingSessions.includes(tab.id)}
+    onList={async () => {
+      const current = conversationTabsRef.current.find((item) => item.id === tab.id)
+      if (current) await persistLiveSession(current)
+      return window.readerApi.listRecentBookSessions(tab.bookId)
+    }}
+    onRestore={async (conversationId) => {
+      const restored = await replaceSession(tab, async () => {
+        const record = await window.readerApi.getRecentBookSession({ bookId: tab.bookId, conversationId })
+        if (!record) throw new Error(copy('assistant.sessionRestoreFailed'))
+        return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft,
+          turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })) }
+      })
+      if (!restored) throw new Error(copy('assistant.sessionRestoreFailed'))
+      setConversationQuery(''); setPendingClearSession(false)
+      focusConversationTab(tab.id)
+    }} />
   const conversationNeedle = normalizeNeedle(conversationQuery)
   const conversationMatches = useMemo(() => {
     if (!conversationNeedle) return 0
@@ -4574,7 +4643,7 @@ export default function App(): ReactNode {
         {!assistantDialogOpen && (
           <ConversationPane
             scope={sidebarTab?.scope}
-            controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab))} onScope={(scope) => { if (sidebarTab) updateConversationTab(sidebarTab.id, (current) => ({ ...current, scope })) }} />}
+            controls={<><AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />{recentConversations(sidebarTab)}</>}
             conversationSelection={sidebarTab?.selection ?? null}
             turns={sidebarTab?.turns ?? []}
             provider={provider}
@@ -4697,7 +4766,7 @@ export default function App(): ReactNode {
                 pendingClearSession ? (
                   <span className="assistant-session-clear is-confirming">
                     <span>{copy('assistant.clearSessionQuestion')}</span>
-                    <button data-testid="conversation-clear-confirm" type="button" onClick={() => clearLiveSession(activeConversationTab)}>{copy('common.confirm')}</button>
+                    <button data-testid="conversation-clear-confirm" type="button" disabled={changingSessions.includes(activeConversationTab.id)} onClick={() => clearLiveSession(activeConversationTab)}>{copy('common.confirm')}</button>
                     <button data-testid="conversation-clear-cancel" type="button" onClick={() => setPendingClearSession(false)}>{copy('common.back')}</button>
                   </span>
                 ) : (
@@ -4732,7 +4801,8 @@ export default function App(): ReactNode {
               ) : activeConversationTab ? (
                 <ConversationPane
                   scope={activeConversationTab.scope}
-                  composerControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab))} onScope={(scope) => updateConversationTab(activeConversationTab.id, (current) => ({ ...current, scope }))} />}
+                  controls={recentConversations(activeConversationTab)}
+                  composerControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />}
                   conversationSelection={activeConversationTab.selection}
                   turns={activeConversationTab.turns}
                   provider={provider}

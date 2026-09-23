@@ -494,7 +494,16 @@
 | settings.apiKeyPlaceholderSaved | 留空以继续使用已保存的密钥 |
 | settings.apiKeyPlaceholderEmpty | 输入 API 密钥 |
 | settings.apiKeyHint | 密钥只交给主进程加密保存，不写入书库数据库。 |
-| settings.testConnection | 测试连接 |
+| assistant.recentSessions | 最近对话 |
+| assistant.recentSessionTurns | {count} 轮对话 |
+| assistant.recentSessionsHint | 每本书保留最近 20 个对话，每个最多 20 轮。点击可恢复选区、回答和草稿。 |
+| assistant.recentSessionsEmpty | 还没有其他对话。 |
+| assistant.sessionRestoreFailed | 无法读取或恢复对话，请重试。 |
+| assistant.sessionSaveFailed | 对话保存失败。请检查可用空间后重试，切换前需成功保存当前对话。 |
+| settings.testConnection | 测试文本回复 |
+| settings.testStream | 测试流式回复 |
+| provider.testStreamConnected | 流式测试通过：已收到文本和结束标记。 |
+| provider.testStreamUnsupported | 未收到流式回复。请检查接口是否支持流式输出，或先测试文本回复。 |
 | settings.save | 保存设置 |
 | settings.savedToast | 模型设置已安全保存 |
 | settings.profileActivatedToast | 已切换当前模型配置 |
@@ -614,7 +623,7 @@
 | reader.pdfInternalLink | 跳转到 PDF 内部页面 |
 | reader.pdfNoText | 页面没有可选文字，无法直接划词或搜索；准备原文后仍可整本书提问。 |
 | reader.pdfPageNoText | 本页没有文字层 |
-| reader.pdfSearchUnavailable | 这份 PDF 没有可搜索的文字层。 |
+| reader.pdfSearchUnavailable | 这份 PDF 没有可搜索的文字层。请先在「阅读准备」中识别正文，再搜索。 |
 | reader.pdfInvalidAnchor | 无效的 PDF 定位锚点。 |
 | reader.pdfOpenFailed | 无法打开 PDF，文件可能已损坏或受密码保护。 |
 | reader.areaAria | 正文阅读区 |
@@ -737,7 +746,7 @@
 | error.providerNotConfigured | 请先保存 API 密钥和模型设置。 |
 | error.keyReadUnavailable | 当前系统无法读取 API 密钥。 |
 | error.keyDecryptFailed | API 密钥解密失败，请重新保存。 |
-| provider.testConnected | 连接成功。 |
+| provider.testConnected | 文本测试通过：已收到有效回复。 |
 | provider.testTimeout | 连接超时。 |
 | provider.testFailed | 无法连接到模型服务。 |
 | error.keyReadFailed | 无法读取加密的 API 密钥。 |

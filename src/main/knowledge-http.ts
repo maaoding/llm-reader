@@ -1,17 +1,6 @@
 import { AppError } from './errors'
 import { copy } from '@shared/copy'
-
-/** Bound even transports or response streams that do not implement signal cancellation. */
-async function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
-  let abort: () => void = () => undefined
-  const cancelled = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(signal.reason)
-    signal.addEventListener('abort', abort, { once: true })
-    if (signal.aborted) abort()
-  })
-  try { return await Promise.race([pending, cancelled]) }
-  finally { signal.removeEventListener('abort', abort) }
-}
+import { abortable } from './abortable'
 
 export class KnowledgeHttp {
   constructor(private readonly fetchImpl: typeof fetch = fetch, private readonly version = '0.0.0') {}

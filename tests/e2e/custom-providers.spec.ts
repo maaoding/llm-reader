@@ -15,7 +15,17 @@ test.beforeAll(async () => {
       requests.push({ path: request.url!, headers: request.headers, body })
       response.setHeader('Content-Type', 'application/json')
       if (request.url?.endsWith('/models')) response.end(JSON.stringify({ data: [{ id: 'claude-fixture' }] }))
-      else if (request.url?.endsWith('/messages')) response.end(JSON.stringify({ type: 'message', model: 'claude-fixture', stop_reason: 'end_turn', content: [{ type: 'text', text: 'OK' }] }))
+      else if (request.url?.endsWith('/messages')) {
+        if (JSON.parse(body).stream) {
+          response.setHeader('Content-Type', 'text/event-stream')
+          response.end([
+            { type: 'message_start', message: { model: 'claude-fixture' } },
+            { type: 'content_block_delta', delta: { type: 'text_delta', text: 'OK' } },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+            { type: 'message_stop' }
+          ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''))
+        } else response.end(JSON.stringify({ type: 'message', model: 'claude-fixture', stop_reason: 'end_turn', content: [{ type: 'text', text: 'OK' }] }))
+      }
       else if (request.url?.endsWith('/ocr')) {
         const raw = JSON.parse(body) as { document: { image_url: string } }
         response.end(JSON.stringify({ pages: [{ index: 0, markdown: raw.document.image_url.startsWith('data:image/png') ? 'OCR' : '扫描原文：独立复核是必要条件。' }] }))
@@ -47,9 +57,12 @@ test('Claude settings use draft headers, support header-only authentication and 
     await page.getByTestId('provider-body').fill('{"max_tokens":256,"temperature":0.2}')
     await page.getByTestId('provider-timeout').fill('30')
     await page.getByTestId('provider-test').click()
-    await expect(page.getByTestId('provider-status')).toContainText('连接成功')
+    await expect(page.getByTestId('provider-status')).toContainText('文本测试通过')
     expect(requests.at(-1)).toMatchObject({ path: '/proxy/v1/messages', headers: { 'x-api-key': 'header-only-fixture', 'anthropic-version': '2023-06-01', 'x-project': 'reading' } })
     expect(JSON.parse(requests.at(-1)!.body)).toMatchObject({ max_tokens: 256, temperature: 0.2, stream: false })
+    await page.getByTestId('provider-test-stream').click()
+    await expect(page.getByTestId('provider-status')).toContainText('流式测试通过')
+    expect(JSON.parse(requests.at(-1)!.body)).toMatchObject({ max_tokens: 256, temperature: 0.2, stream: true })
     expect(await page.evaluate(() => window.readerApi.getProviderOverview().then((value) => value.profiles))).toHaveLength(0)
     await page.getByTestId('provider-models-fetch').click()
     await expect(page.locator('#provider-model-options option')).toHaveCount(1)
@@ -66,7 +79,7 @@ test('Claude settings use draft headers, support header-only authentication and 
     await expect(page.getByTestId('provider-headers')).toHaveAttribute('placeholder', /已保存/)
     await expect(page.getByTestId('provider-timeout')).toHaveValue('30')
     await page.getByTestId('provider-test').click()
-    await expect(page.getByTestId('provider-status')).toContainText('连接成功')
+    await expect(page.getByTestId('provider-status')).toContainText('文本测试通过')
     await page.screenshot({ path: test.info().outputPath('claude-custom-settings.png') })
     await page.getByTestId('provider-base-url').fill(`${endpoint}/different`)
     const before = requests.length

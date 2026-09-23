@@ -15,10 +15,12 @@ import type {
 import { copy } from '@shared/copy'
 import { AppDatabase, type ProviderProfileRecord } from './database'
 import { AppError } from './errors'
+import { abortable } from './abortable'
 import {
   buildModelsUrl,
   errorResponseDetails,
   readResponseTextBounded,
+  readProviderCompletion,
   type ProviderCredentials
 } from './llm-service'
 import { ProfileSecretStore } from './secret-store'
@@ -234,18 +236,30 @@ export class ProviderService {
     return { ...publicRequestSettings(JSON.parse(active.request_json ?? '{}')), baseUrl: active.base_url, model: active.model, compatibility: active.compatibility, protocol: active.protocol ?? 'openai', customHeaders, apiKey: this.resolveKey({ profileId: active.id, baseUrl: active.base_url, protocol: active.protocol }, customHeaders) }
   }
 
-  private async testCredentials(credentials: ProviderCredentials): Promise<ProviderTestResult> {
+  private async testCredentials(credentials: ProviderCredentials, mode: 'text' | 'stream' = 'text'): Promise<ProviderTestResult> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), credentials.timeoutMs ?? PROVIDER_TIMEOUT_MS)
     try {
-      const response = await this.transport.send(buildCompletionUrl(credentials.baseUrl, credentials.protocol), credentials, { sessionId: randomUUID() }, {
+      const response = await abortable(this.transport.send(buildCompletionUrl(credentials.baseUrl, credentials.protocol), credentials, { sessionId: randomUUID() }, {
         method: 'POST',
-        accept: 'application/json',
-        body: JSON.stringify(completionBody({ ...credentials, extraBody: { max_tokens: 16, ...credentials.extraBody } }, [{ role: 'user', content: '回复 OK' }], false, 16)),
+        accept: mode === 'stream' ? 'text/event-stream' : 'application/json',
+        body: JSON.stringify(completionBody({ ...credentials, extraBody: { max_tokens: 16, ...credentials.extraBody } }, [{ role: 'user', content: '回复 OK' }], mode === 'stream', 16)),
         signal: controller.signal
-      })
-      if (!response.ok) return { ok: false, message: (await errorResponseDetails(response)).error.message }
-      return { ok: true, message: copy('provider.testConnected') }
+      }).then((value) => {
+        if (controller.signal.aborted) { void value.body?.cancel().catch(() => undefined); controller.signal.throwIfAborted() }
+        return value
+      }), controller.signal)
+      if (!response.ok) {
+        const details = await errorResponseDetails(response, controller.signal)
+        controller.signal.throwIfAborted()
+        return { ok: false, message: details.error.message }
+      }
+      if (mode === 'stream' && !response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
+        void response.body?.cancel().catch(() => undefined)
+        return { ok: false, message: copy('provider.testStreamUnsupported') }
+      }
+      await readProviderCompletion(response, () => undefined, credentials.protocol, controller.signal)
+      return { ok: true, message: copy(mode === 'stream' ? 'provider.testStreamConnected' : 'provider.testConnected') }
     } finally {
       clearTimeout(timer)
     }
@@ -273,7 +287,7 @@ export class ProviderService {
         model: input.model,
         compatibility: input.compatibility ?? 'auto',
         apiKey: this.resolveKey(input, customHeaders)
-      })
+      }, input.testMode)
     } catch (error) {
       if (error instanceof AppError) return { ok: false, message: error.message }
       if ((error as Error).name === 'AbortError') return { ok: false, message: copy('provider.testTimeout') }

@@ -116,7 +116,7 @@ describe('LibraryService', () => {
       expect.objectContaining({ id: 'legacy-txt', format: 'txt', sourceFormat: 'txt' })
     ])
     expect(database.connection.prepare('SELECT MAX(version) AS version FROM schema_migrations').get())
-      .toMatchObject({ version: 17 })
+      .toMatchObject({ version: 18 })
     expect(database.listProviderProfiles()).toEqual([
       expect.objectContaining({
         id: 'legacy',

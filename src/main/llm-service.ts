@@ -14,6 +14,7 @@ import { copy } from '@shared/copy'
 import { cropPassage } from '@shared/document-structure'
 import { addUsage } from '@shared/book-context'
 import { AppError, toPublicError } from './errors'
+import { abortable } from './abortable'
 import { ProviderTransport, type ProviderRequestContext } from './provider-transport'
 import { buildCompletionUrl, buildProviderUrl, completionBody, parseAnthropicCompletion } from './provider-protocol'
 
@@ -276,7 +277,8 @@ export async function readSafeErrorStatus(response: Response): Promise<string> {
 export async function readResponseTextBounded(
   response: Response,
   maximumBytes: number,
-  truncate = false
+  truncate = false,
+  signal?: AbortSignal
 ): Promise<string> {
   if (!response.body) return ''
   const reader = response.body.getReader()
@@ -284,33 +286,38 @@ export async function readResponseTextBounded(
   let bytesRead = 0
   let text = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) return text + decoder.decode()
-    if (!value) continue
-    const remaining = maximumBytes - bytesRead
-    if (value.byteLength > remaining) {
-      if (!truncate) {
+  try {
+    while (true) {
+      const { done, value } = await abortable(reader.read(), signal)
+      if (done) return text + decoder.decode()
+      if (!value) continue
+      const remaining = maximumBytes - bytesRead
+      if (value.byteLength > remaining) {
+        if (!truncate) {
+          void reader.cancel().catch(() => undefined)
+          throw new AppError('RESPONSE_TOO_LARGE', copy('error.responseTooLarge'))
+        }
+        if (remaining > 0) text += decoder.decode(value.subarray(0, remaining), { stream: true })
         void reader.cancel().catch(() => undefined)
-        throw new AppError('RESPONSE_TOO_LARGE', copy('error.responseTooLarge'))
+        return text + decoder.decode()
       }
-      if (remaining > 0) text += decoder.decode(value.subarray(0, remaining), { stream: true })
-      void reader.cancel().catch(() => undefined)
-      return text + decoder.decode()
+      bytesRead += value.byteLength
+      text += decoder.decode(value, { stream: true })
+      if (truncate && bytesRead === maximumBytes) {
+        void reader.cancel().catch(() => undefined)
+        return text + decoder.decode()
+      }
     }
-    bytesRead += value.byteLength
-    text += decoder.decode(value, { stream: true })
-    if (truncate && bytesRead === maximumBytes) {
-      void reader.cancel().catch(() => undefined)
-      return text + decoder.decode()
-    }
+  } finally {
+    void reader.cancel().catch(() => undefined)
+    reader.releaseLock()
   }
 }
 
-export async function errorResponseDetails(response: Response): Promise<{ contextLength: boolean; error: AppError }> {
+export async function errorResponseDetails(response: Response, signal?: AbortSignal): Promise<{ contextLength: boolean; error: AppError }> {
   let text = ''
   try {
-    text = await readResponseTextBounded(response, ERROR_BODY_PREFIX_BYTES, true)
+    text = await readResponseTextBounded(response, ERROR_BODY_PREFIX_BYTES, true, signal)
   } catch {
     // The status is still sufficient for a safe public error.
   }
@@ -355,6 +362,7 @@ function parseCompletionObject(value: unknown, protocol?: ProviderProtocol): {
   if (!value || typeof value !== 'object') return { delta: '', usage: null, finished: false }
   const record = value as Record<string, unknown>
   const choices = Array.isArray(record.choices) ? record.choices : []
+  if (record.error) throw new AppError('PROVIDER_STREAM_ERROR', copy('request.streamError'), true)
   const first = choices[0] && typeof choices[0] === 'object' ? (choices[0] as Record<string, unknown>) : null
   const deltaRecord = first?.delta && typeof first.delta === 'object' ? (first.delta as Record<string, unknown>) : null
   const messageRecord = first?.message && typeof first.message === 'object' ? (first.message as Record<string, unknown>) : null
@@ -374,11 +382,12 @@ function parseCompletionObject(value: unknown, protocol?: ProviderProtocol): {
   }
 }
 
-async function parseJsonCompletion(response: Response, emit: (event: LlmEventPayload) => void, protocol?: ProviderProtocol): Promise<string | undefined> {
+async function parseJsonCompletion(response: Response, emit: (event: LlmEventPayload) => void, protocol?: ProviderProtocol, signal?: AbortSignal): Promise<string | undefined> {
   let parsed: unknown
   try {
-    parsed = JSON.parse(await readResponseTextBounded(response, MAX_RAW_RESPONSE_BYTES)) as unknown
+    parsed = JSON.parse(await readResponseTextBounded(response, MAX_RAW_RESPONSE_BYTES, false, signal)) as unknown
   } catch (error) {
+    signal?.throwIfAborted()
     if (error instanceof AppError) throw error
     throw new AppError('INVALID_PROVIDER_RESPONSE', copy('error.providerInvalidJson'), true, { cause: error })
   }
@@ -386,7 +395,7 @@ async function parseJsonCompletion(response: Response, emit: (event: LlmEventPay
   if (protocol === 'anthropic' && !completion.finished) {
     throw new AppError('PROVIDER_INCOMPLETE', copy('request.incomplete'), true)
   }
-  if (!completion.delta) {
+  if (!completion.delta.trim()) {
     throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyText'), true)
   }
   if (unicodeLength(completion.delta) > MAX_RESPONSE_CHARACTERS) {
@@ -402,7 +411,8 @@ async function parseJsonCompletion(response: Response, emit: (event: LlmEventPay
 async function parseSseCompletion(
   response: Response,
   emit: (event: LlmEventPayload) => void,
-  protocol?: ProviderProtocol
+  protocol?: ProviderProtocol,
+  signal?: AbortSignal
 ): Promise<string | undefined> {
   if (!response.body) {
     throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyStream'), true)
@@ -412,6 +422,7 @@ async function parseSseCompletion(
   let buffer = ''
   let model: string | undefined
   let receivedCharacters = 0
+  let receivedText = false
   let streamCompleted = false
   let receivedBytes = 0
   let usage: LlmUsage = {}
@@ -434,6 +445,7 @@ async function parseSseCompletion(
     if (completion.finished) streamCompleted = true
     if (completion.model) model = completion.model
     if (completion.delta) {
+      receivedText ||= Boolean(completion.delta.trim())
       receivedCharacters += unicodeLength(completion.delta)
       if (receivedCharacters > MAX_RESPONSE_CHARACTERS) {
         throw new AppError('RESPONSE_TOO_LARGE', copy('error.answerTooLarge'))
@@ -449,7 +461,7 @@ async function parseSseCompletion(
 
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      const { done, value } = await abortable(reader.read(), signal)
       if (value) {
         receivedBytes += value.byteLength
         if (receivedBytes > MAX_RAW_RESPONSE_BYTES) {
@@ -474,13 +486,20 @@ async function parseSseCompletion(
     void reader.cancel().catch(() => undefined)
     reader.releaseLock()
   }
-  if (receivedCharacters === 0) {
+  if (!receivedText) {
     throw new AppError('EMPTY_PROVIDER_RESPONSE', copy('error.providerEmptyText'), true)
   }
   if (!streamCompleted) {
     throw new AppError('STREAM_INTERRUPTED', copy('error.streamInterrupted'), true)
   }
   return model
+}
+
+/** Use the same protocol validation for real answers and connection probes. */
+export function readProviderCompletion(response: Response, emit: (event: LlmEventPayload) => void, protocol?: ProviderProtocol, signal?: AbortSignal): Promise<string | undefined> {
+  return response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')
+    ? parseSseCompletion(response, emit, protocol, signal)
+    : parseJsonCompletion(response, emit, protocol, signal)
 }
 
 export class LlmService {
@@ -621,10 +640,7 @@ export class LlmService {
       throw details.error
     }
 
-    const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
-    const responseModel = contentType.includes('text/event-stream')
-      ? await parseSseCompletion(response, emit, credentials.protocol)
-      : await parseJsonCompletion(response, emit, credentials.protocol)
+    const responseModel = await readProviderCompletion(response, emit, credentials.protocol, signal)
     return responseModel ?? credentials.model
   }
 

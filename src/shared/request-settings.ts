@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import type { JsonValue, RequestSettings } from './contracts'
+import type { JsonValue, ProviderSettings, RequestSettings } from './contracts'
+
+export function providerIsConfigured(provider: Pick<ProviderSettings, 'baseUrl' | 'model' | 'hasApiKey' | 'hasCustomHeaders'>): boolean {
+  return Boolean(provider.baseUrl.trim() && provider.model.trim() && (provider.hasApiKey || provider.hasCustomHeaders))
+}
 
 const forbiddenHeaders = new Set(['host', 'content-length', 'content-type', 'connection', 'transfer-encoding', 'upgrade', 'trailer', 'te', 'proxy-authorization', 'proxy-connection'])
 export const customHeadersSchema = z.record(

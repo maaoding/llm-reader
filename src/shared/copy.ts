@@ -1,6 +1,12 @@
 import copySource from './copy.md?raw'
 
 export const COPY_KEYS = [
+  'assistant.recentSessions',
+  'assistant.recentSessionTurns',
+  'assistant.recentSessionsHint',
+  'assistant.recentSessionsEmpty',
+  'assistant.sessionRestoreFailed',
+  'assistant.sessionSaveFailed',
   'request.keyScope',
   'request.advanced',
   'request.protocol',
@@ -512,6 +518,9 @@ export const COPY_KEYS = [
   'settings.apiKeyPlaceholderEmpty',
   'settings.apiKeyHint',
   'settings.testConnection',
+  'settings.testStream',
+  'provider.testStreamConnected',
+  'provider.testStreamUnsupported',
   'settings.save',
   'settings.savedToast',
   'settings.profileActivatedToast',
@@ -753,6 +762,7 @@ export type CopyKey = (typeof COPY_KEYS)[number]
 export type CopyValues = Readonly<Record<string, string | number>>
 
 export const COPY_PLACEHOLDERS = {
+  'assistant.recentSessionTurns': ['count'],
   'request.headersExample': ['example'],
   'request.bodyExample': ['example'],
   'workspace.readingProgress': ['percent'],

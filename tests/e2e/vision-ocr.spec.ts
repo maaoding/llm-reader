@@ -84,6 +84,15 @@ test('vision settings recognize scanned PDF images and support cited, archived q
     expect(Buffer.from(pageImages()[0].image.split(',')[1], 'base64').subarray(0, 2).toString('hex')).toBe('ffd8')
     expect(pageImages()[0]).toMatchObject({ authorization: 'Bearer ocr-only', session: expect.stringMatching(/^[\da-f-]{36}$/u) })
     await hidePreparation(page)
+    // Ordinary in-book search uses the saved OCR text and does not recognize pages again.
+    await page.keyboard.press('Control+f')
+    await page.getByTestId('reader-search-input').fill('独立复核')
+    await page.getByTestId('reader-search-input').press('Enter')
+    await expect(page.getByTestId('reader-search-result')).toHaveCount(1)
+    await expect(page.getByTestId('reader-search-result')).toContainText('第 1 页')
+    await page.getByTestId('reader-search-result').click()
+    await expect(page.locator('.toast.is-error')).toHaveCount(0)
+    expect(pageImages()).toHaveLength(1)
     await page.getByTestId('scope-book').click()
     await page.getByTestId('followup-input').fill('扫描书中提到什么必要条件？')
     await page.getByTestId('followup-input').press('Enter')
@@ -98,6 +107,7 @@ test('vision settings recognize scanned PDF images and support cited, archived q
     const restarted = await restartReader(application, { userData: workspace.userData }); application = restarted.application; page = restarted.page
     await showLibrary(page)
     expect(await status(page, bookId)).toBe('ready')
+    expect(await page.evaluate((id) => window.readerApi.searchBookDocument({ bookId: id, query: '独立复核' }), bookId)).toMatchObject({ available: true, results: [{ anchor: 'pdfpos:1:0' }] })
     await page.evaluate((id) => window.readerApi.prepareBookDocument({ bookId: id, rebuild: true }), bookId)
     await expect.poll(() => status(page, bookId)).toBe('ready')
     expect(pageImages()).toHaveLength(1)

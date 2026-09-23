@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
+import { RECENT_BOOK_SESSION_LIMIT, type BookSessionSummary } from '@shared/contracts'
 import type {
   ArchivedChatMessage,
   BookFormat,
@@ -431,6 +432,20 @@ const migrations = [
       ALTER TABLE provider_profiles ADD COLUMN request_json TEXT NOT NULL DEFAULT '{}';
       ALTER TABLE provider_profiles ADD COLUMN headers_secret BLOB;
       ALTER TABLE knowledge_settings ADD COLUMN headers_secret BLOB;
+    `,
+    `
+      CREATE TABLE book_session_history (
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        conversation_id TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK(scope IN ('selection', 'book')),
+        selection_json TEXT,
+        draft TEXT NOT NULL DEFAULT '',
+        turns_json TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (book_id, conversation_id)
+      ) STRICT;
+      CREATE INDEX book_session_history_recent ON book_session_history(book_id, updated_at DESC);
+      INSERT INTO book_session_history SELECT * FROM book_sessions;
     `
 ] as const
 
@@ -793,9 +808,24 @@ export class AppDatabase {
     return row ? mapBookSession(row) : null
   }
 
-  /** 每本书只保留最后一个临时会话：写入即覆盖旧记录，不累积历史。 */
+  listRecentBookSessions(bookId: string): BookSessionSummary[] {
+    const rows = this.connection.prepare(`SELECT conversation_id, scope, updated_at,
+      substr(COALESCE(NULLIF(json_extract(selection_json, '$.quote'), ''), NULLIF(json_extract(turns_json, '$[0].question'), ''), draft), 1, 80) AS title,
+      json_array_length(turns_json) AS turn_count
+      FROM book_session_history WHERE book_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?`).all(bookId, RECENT_BOOK_SESSION_LIMIT)
+    return rows.map((row) => ({ conversationId: String(row.conversation_id), scope: row.scope as 'selection' | 'book', title: String(row.title), turnCount: Number(row.turn_count), updatedAt: String(row.updated_at) }))
+  }
+
+  getRecentBookSession(bookId: string, conversationId: string): BookSessionRecord | null {
+    const row = this.connection.prepare('SELECT * FROM book_session_history WHERE book_id = ? AND conversation_id = ?').get(bookId, conversationId) as unknown as BookSessionRow | undefined
+    return row ? mapBookSession(row) : null
+  }
+
+  /** Atomically update the current session and a bounded, per-book history. */
   upsertBookSession(record: BookSessionRecord): BookSessionRecord {
-    this.connection
+    this.connection.exec('BEGIN')
+    try {
+      this.connection
       .prepare(
         `INSERT INTO book_sessions(book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -816,12 +846,26 @@ export class AppDatabase {
         JSON.stringify(record.turns),
         record.updatedAt
       )
+      this.connection.prepare(`INSERT INTO book_session_history SELECT * FROM book_sessions WHERE book_id = ?
+        ON CONFLICT(book_id, conversation_id) DO UPDATE SET scope = excluded.scope, selection_json = excluded.selection_json,
+          draft = excluded.draft, turns_json = excluded.turns_json, updated_at = excluded.updated_at`).run(record.bookId)
+      this.connection.prepare(`DELETE FROM book_session_history WHERE book_id = ? AND conversation_id != ? AND rowid NOT IN (
+        SELECT rowid FROM book_session_history WHERE book_id = ? AND conversation_id != ? ORDER BY updated_at DESC, rowid DESC LIMIT ?
+      )`).run(record.bookId, record.conversationId, record.bookId, record.conversationId, RECENT_BOOK_SESSION_LIMIT - 1)
+      this.connection.exec('COMMIT')
+    } catch (error) { this.connection.exec('ROLLBACK'); throw error }
     return record
   }
 
-  deleteBookSession(bookId: string): boolean {
-    const result = this.connection.prepare('DELETE FROM book_sessions WHERE book_id = ?').run(bookId)
-    return result.changes > 0
+  deleteBookSession(bookId: string, conversationId = this.getBookSession(bookId)?.conversationId): boolean {
+    if (!conversationId) return false
+    this.connection.exec('BEGIN')
+    try {
+      const current = this.connection.prepare('DELETE FROM book_sessions WHERE book_id = ? AND conversation_id = ?').run(bookId, conversationId)
+      const history = this.connection.prepare('DELETE FROM book_session_history WHERE book_id = ? AND conversation_id = ?').run(bookId, conversationId)
+      this.connection.exec('COMMIT')
+      return current.changes > 0 || history.changes > 0
+    } catch (error) { this.connection.exec('ROLLBACK'); throw error }
   }
 
   listSessionTabs(): SessionTabsState {
