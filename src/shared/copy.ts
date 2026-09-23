@@ -1,6 +1,22 @@
 import copySource from './copy.md?raw'
 
 export const COPY_KEYS = [
+  'assistant.promptDetails',
+  'vision.previewTitle',
+  'vision.previewHint',
+  'vision.previewPage',
+  'vision.previewStart',
+  'vision.previewCancel',
+  'vision.previewRendering',
+  'vision.previewRecognizing',
+  'vision.previewImage',
+  'vision.previewText',
+  'vision.previewBlank',
+  'vision.previewFailed',
+  'vision.previewCancelled',
+  'vision.previewUnsupported',
+  'vision.previewBusy',
+  'vision.previewPageRange',
   'assistant.recentSessions',
   'assistant.recentSessionTurns',
   'assistant.recentSessionsHint',
@@ -762,6 +778,7 @@ export type CopyKey = (typeof COPY_KEYS)[number]
 export type CopyValues = Readonly<Record<string, string | number>>
 
 export const COPY_PLACEHOLDERS = {
+  'vision.previewPageRange': ['count'],
   'assistant.recentSessionTurns': ['count'],
   'request.headersExample': ['example'],
   'request.bodyExample': ['example'],

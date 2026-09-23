@@ -61,6 +61,8 @@ export const IPC_CHANNELS = {
   documentPrepare: 'document:prepare',
   documentCancel: 'document:cancel',
   documentSearch: 'document:search',
+  documentPreview: 'document:preview',
+  documentPreviewCancel: 'document:preview-cancel',
   analysisRead: 'analysis:read',
   analysisPdf: 'analysis:pdf',
   analysisPdfPageRequest: 'analysis:pdf-page-request',
@@ -80,6 +82,22 @@ export type BookFormat = 'epub' | 'txt' | 'pdf'
 export interface PreparedDocumentSearch {
   available: boolean
   results: ReaderSearchResult[]
+}
+
+export interface BookPagePreviewInput {
+  bookId: string
+  requestId: string
+  pageNumber: number
+  pageCount: number
+  imageDataUrl: string
+}
+
+export interface BookPagePreview {
+  pageNumber: number
+  pageCount: number
+  text: string
+  processor: DocumentProcessor
+  model?: string
 }
 export type BookSourceFormat = BookFormat | 'mobi' | 'azw3'
 
@@ -728,6 +746,8 @@ export interface ReaderApi {
   prepareBookDocument(input: PrepareBookDocumentInput): Promise<BookAnalysisState>
   cancelBookDocument(bookId: string): Promise<void>
   searchBookDocument(input: { bookId: string; query: string }): Promise<PreparedDocumentSearch>
+  previewBookPage(input: BookPagePreviewInput): Promise<BookPagePreview>
+  cancelBookPagePreview(requestId: string): Promise<void>
   startBookAnalysis(input: StartBookAnalysisInput): Promise<BookAnalysisState>
   cancelBookAnalysis(bookId: string): Promise<void>
   onBookAnalysisEvent(listener: (state: BookAnalysisState) => void): () => void

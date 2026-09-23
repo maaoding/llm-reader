@@ -145,6 +145,12 @@ test('customizes selection action names and prompts and restores them after rest
     await page.getByTestId('action-explain').click()
     await expect(page.getByTestId('answer-current')).toContainText('自定义提示词已收到。')
     await expect(page.locator('.question-bubble')).toContainText('通俗解释')
+    await expect(page.getByTestId('question-prompt')).not.toHaveAttribute('open')
+    await page.getByTestId('question-prompt').locator('summary').click()
+    await expect(page.getByTestId('question-prompt').locator('p')).toBeVisible()
+    await expect(page.getByTestId('question-prompt').locator('p')).toHaveText('请用通俗语言解释这段内容。')
+    await page.getByTestId('question-prompt').locator('summary').click()
+    await expect(page.getByTestId('question-prompt').locator('p')).not.toBeVisible()
     await expect.poll(() => latestStreamPrompt).toContain('读者请求：请用通俗语言解释这段内容。')
     expect(streamRequestCount).toBeGreaterThanOrEqual(1)
 

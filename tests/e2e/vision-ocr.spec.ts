@@ -144,3 +144,57 @@ test('multi-page OCR keeps completed pages when paused and resumes only on reque
     expect(new Set(pageImages().map((item) => item.session)).size).toBe(1)
   } finally { server.closeAllConnections(); await cleanupE2eWorkspace(application, workspace.root) }
 })
+
+test('previews a real PDF page, validates page ranges and cancels without starting whole-book OCR', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-page-preview-')
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: resolve('tests/e2e/fixtures/text-reader.pdf') })
+    application = launched.application
+    const page = launched.page
+    await showLibrary(page)
+    await page.evaluate((baseUrl) => window.readerApi.saveKnowledgeSettings({ embedding: { enabled: false, baseUrl: '', model: '' },
+      document: { processor: 'vision', baseUrl, model: 'vision-fixture', apiKey: 'ocr-only', compatibility: 'opencode-go', ocr: true, language: 'ch' } }), endpoint)
+    await page.getByTestId('book-item').click(); await enterReading(page)
+    const before = await page.evaluate(async () => (await window.readerApi.listBooks())[0])
+    await showPreparation(page)
+    await page.getByTestId('ocr-preview-page').fill('2')
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-text')).toContainText('独立复核是必要条件')
+    await expect(page.getByTestId('ocr-preview-result')).toContainText('第 2 页')
+    await expect.poll(() => page.getByTestId('ocr-preview-result').locator('img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
+    expect(pageImages()).toHaveLength(1)
+    expect(await status(page, before.id)).toBe('empty')
+    await expect(page.getByTestId('document-prepare')).toBeEnabled()
+    const after = await page.evaluate(async () => (await window.readerApi.listBooks())[0])
+    expect(after.lastLocator).toBe(before.lastLocator)
+    expect(after.progress).toBe(before.progress)
+    await page.getByTestId('ocr-preview-result').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: test.info().outputPath('ocr-page-preview.png') })
+
+    await page.getByTestId('ocr-preview-page').fill('600')
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-error')).toContainText('PDF 页码')
+    expect(pageImages()).toHaveLength(1)
+    await page.getByTestId('ocr-preview-page').fill('1')
+    holdPages = true
+    await page.getByTestId('ocr-preview-start').click()
+    await expect.poll(() => pageImages().length).toBe(2)
+    await expect(page.getByTestId('document-prepare')).toBeDisabled()
+    await page.getByTestId('ocr-preview-cancel').click()
+    await expect(page.getByTestId('ocr-preview-error')).toContainText('已取消')
+    await expect(page.getByTestId('document-prepare')).toBeEnabled()
+    expect(await status(page, before.id)).toBe('empty')
+
+    await page.getByTestId('ocr-preview-start').click()
+    await expect.poll(() => pageImages().length).toBe(3)
+    await hidePreparation(page)
+    holdPages = false
+    await showPreparation(page)
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-text')).toContainText('独立复核是必要条件')
+    expect(pageImages()).toHaveLength(4)
+    expect(await status(page, before.id)).toBe('empty')
+  } finally { server.closeAllConnections(); await cleanupE2eWorkspace(application, workspace.root) }
+})

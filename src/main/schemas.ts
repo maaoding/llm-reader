@@ -15,6 +15,13 @@ export const bookDocumentSearchSchema = z.object({
   bookId: idSchema,
   query: z.string().max(200).trim().refine((value) => normalizeReaderSearchQuery(value) !== null)
 }).strict()
+export const bookPagePreviewSchema = z.object({
+  bookId: idSchema,
+  requestId: idSchema,
+  pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES),
+  pageCount: z.number().int().min(1).max(OCR_MAX_PAGES),
+  imageDataUrl: z.string().max(OCR_MAX_IMAGE_DATA_URL).regex(OCR_IMAGE_PATTERN)
+}).strict().refine((value) => value.pageNumber <= value.pageCount)
 export const bookChapterNotesSchema = z.object({
   bookId: idSchema,
   chapterId: z.string().min(1).max(128),

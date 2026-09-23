@@ -2,7 +2,7 @@ import { expect, test, type ElectronApplication } from '@playwright/test'
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http'
 import { resolve } from 'node:path'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
-import { showLibrary } from './support/workspace'
+import { enterReading, hidePreparation, showLibrary, showPreparation } from './support/workspace'
 
 let server: Server, endpoint: string
 const requests: Array<{ path: string; headers: IncomingHttpHeaders; body: string }> = []
@@ -110,16 +110,22 @@ for (const processor of ['mistral-ocr', 'unstructured'] as const) {
       await page.getByTestId('knowledge-save').click(); await expect(page.getByTestId('knowledge-status')).toContainText('已保存')
       await page.getByTestId('settings-close').click()
       const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
+      await page.getByTestId('book-item').click(); await enterReading(page); await showPreparation(page)
+      await page.getByTestId('ocr-preview-start').click()
+      await expect(page.getByTestId('ocr-preview-text')).toContainText('独立复核是必要条件')
+      expect(requests).toHaveLength(2)
+      expect((await page.evaluate((id) => window.readerApi.getBookAnalysis(id), bookId)).document?.status).toBe('empty')
+      await hidePreparation(page)
       await page.evaluate((id) => window.readerApi.prepareBookDocument({ bookId: id }), bookId)
       await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.getBookAnalysis(id)).document?.status, bookId), { timeout: 20_000 }).toBe('ready')
       const state = await page.evaluate((id) => window.readerApi.getBookAnalysis(id), bookId)
       expect(state.document?.ocrProgress).toEqual({ completed: 1, total: 1 })
-      expect(requests).toHaveLength(2)
+      expect(requests).toHaveLength(3)
       if (processor === 'unstructured') expect(requests.at(-1)?.headers['content-type']).toContain('multipart/form-data; boundary=')
       launched = await restartReader(application, { userData: workspace.userData }); application = launched.application; page = launched.page
       await page.evaluate((id) => window.readerApi.prepareBookDocument({ bookId: id, rebuild: true }), bookId)
       await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.getBookAnalysis(id)).document?.status, bookId)).toBe('ready')
-      expect(requests).toHaveLength(2)
+      expect(requests).toHaveLength(3)
     } finally { await cleanupE2eWorkspace(application, workspace.root) }
   })
 }

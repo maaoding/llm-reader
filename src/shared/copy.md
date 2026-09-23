@@ -495,6 +495,22 @@
 | settings.apiKeyPlaceholderEmpty | 输入 API 密钥 |
 | settings.apiKeyHint | 密钥只交给主进程加密保存，不写入书库数据库。 |
 | assistant.recentSessions | 最近对话 |
+| assistant.promptDetails | 查看本次提示词 |
+| vision.previewTitle | 先识别一页 |
+| vision.previewHint | 使用已保存的文档服务，仅发送所选页的图片，便于对照检查识别效果。正式准备会再次识别此页。 |
+| vision.previewPage | PDF 页码 |
+| vision.previewStart | 识别这一页 |
+| vision.previewCancel | 取消预览 |
+| vision.previewRendering | 正在生成页面图片… |
+| vision.previewRecognizing | 正在识别这一页… |
+| vision.previewImage | 页面图片 |
+| vision.previewText | 识别文字 |
+| vision.previewBlank | 这一页没有识别到文字。请对照图片，或尝试其他页。 |
+| vision.previewFailed | 单页识别失败，请检查文档服务配置后重试。 |
+| vision.previewCancelled | 已取消本次预览。 |
+| vision.previewUnsupported | 单页预览支持视觉模型、Mistral OCR 和 Unstructured，请先配置并保存。 |
+| vision.previewBusy | 正在处理文档，请暂停或等待完成后再预览。 |
+| vision.previewPageRange | 请输入 1 至 {count} 之间的 PDF 页码。 |
 | assistant.recentSessionTurns | {count} 轮对话 |
 | assistant.recentSessionsHint | 每本书保留最近 20 个对话，每个最多 20 轮。点击可恢复选区、回答和草稿。 |
 | assistant.recentSessionsEmpty | 还没有其他对话。 |

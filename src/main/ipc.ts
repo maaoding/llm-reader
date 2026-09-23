@@ -25,6 +25,7 @@ import {
   startSemanticIndexSchema,
   bookIdSchema,
   bookDocumentSearchSchema,
+  bookPagePreviewSchema,
   bookChapterNotesSchema,
   bookImportPathsSchema,
   createProviderProfileSchema,
@@ -158,6 +159,7 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     dependencies.analysis?.cancelPreparation(bookId)
     dependencies.semantic?.cancel(bookId)
     dependencies.llm.cancelBook(bookId)
+    dependencies.documents?.cancelBookPreview(bookId)
     return dependencies.library.deleteBook(bookId)
   })
   handle(IPC_CHANNELS.booksCover, dependencies, (_event, value) =>
@@ -260,6 +262,7 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
       const saved = knowledge.save(parse(knowledgeSettingsSchema, value))
       const embeddingChanged = previousRevision !== knowledge.embeddingRevision() || previousEnabled !== saved.embedding.enabled
       if (embeddingChanged) dependencies.semantic?.dispose()
+      if (previousDocumentRevision !== knowledge.documentRevision()) dependencies.documents?.cancelPreview()
       if (embeddingChanged || previousDocumentRevision !== knowledge.documentRevision()) dependencies.analysis?.knowledgeChanged()
       return saved
     })
@@ -292,13 +295,19 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     handle(IPC_CHANNELS.notesIndex, dependencies, (_event, value) => analysis.store.notesIndex(parse(bookIdSchema, value)))
     handle(IPC_CHANNELS.notesChapter, dependencies, (_event, value) => analysis.store.chapterNotes(parse(bookChapterNotesSchema, value)))
     handle(IPC_CHANNELS.documentPrepare, dependencies, (_event, value) => {
-      const state = analysis.prepare(parse(prepareBookDocumentSchema, value))
+      const input = parse(prepareBookDocumentSchema, value)
+      dependencies.documents?.cancelPreview()
+      const state = analysis.prepare(input)
       dependencies.extractor?.start(state)
       return state
     })
     handle(IPC_CHANNELS.documentCancel, dependencies, (_event, value) => analysis.cancelPreparation(parse(bookIdSchema, value)))
     handle(IPC_CHANNELS.analysisStart, dependencies, (_event, value) => analysis.start(parse(startBookAnalysisSchema, value)))
     handle(IPC_CHANNELS.analysisCancel, dependencies, (_event, value) => analysis.cancel(parse(bookIdSchema, value)))
+  }
+  if (dependencies.documents) {
+    handle(IPC_CHANNELS.documentPreview, dependencies, (_event, value) => dependencies.documents!.previewPage(parse(bookPagePreviewSchema, value)))
+    handle(IPC_CHANNELS.documentPreviewCancel, dependencies, (_event, value) => dependencies.documents!.cancelPreview(parse(requestIdSchema, value)))
   }
   handle(IPC_CHANNELS.llmStart, dependencies, (event, value) => {
     const request = parse(llmRequestSchema, value)

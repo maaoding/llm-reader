@@ -1,5 +1,6 @@
 import { RequestSettingsEditor } from './RequestSettingsEditor'
 import { RecentConversations } from './RecentConversations'
+import { QuestionBubble } from './QuestionBubble'
 import { providerIsConfigured, publicRequestSettings } from '@shared/request-settings'
 import type { RequestSettingsInput, ProviderProtocol } from '@shared/contracts'
 import {
@@ -1293,7 +1294,7 @@ function ConversationPane({
             const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? turn.selection?.chapterTitle)
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
-                <div className="question-bubble"><span>{turn.actionLabel}</span><p><MarkedText value={turn.question} needle={searchNeedle} /></p></div>
+                <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
                   {turn.context && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
@@ -4678,7 +4679,7 @@ export default function App(): ReactNode {
       {preparationBook && <div className="modal-backdrop preparation-backdrop" hidden={settingsOpen} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreparation() }}>
         <section ref={preparationDialogRef} className="preparation-dialog" data-testid="book-preparation-dialog" role="dialog" aria-modal="true" aria-labelledby="preparation-title">
           <header className="modal-header"><div><h2 id="preparation-title">{copy('preparation.title')}</h2><p title={preparationBook.title}>{preparationBook.title}</p></div><button className="icon-button" type="button" data-testid="preparation-close" aria-label={copy('preparation.close')} onClick={closePreparation}><X size={18} /></button></header>
-          <BookAnalysisControls key={preparationBook.id} book={preparationBook} state={analysis.states[preparationBook.id]} error={analysis.errors[preparationBook.id]} profiles={providerOverview}
+          <BookAnalysisControls key={preparationBook.id} book={preparationBook} state={analysis.states[preparationBook.id]} error={analysis.errors[preparationBook.id]} profiles={providerOverview} suspended={settingsOpen}
             onStart={(profileId, rebuild) => analysis.start(preparationBook.id, profileId, rebuild)} onCancel={() => void analysis.cancel(preparationBook.id)}
             onPrepare={(rebuild) => analysis.prepare(preparationBook.id, rebuild)} onCancelPreparation={() => void analysis.cancelPreparation(preparationBook.id)} onConfigure={openSettings} />
         </section>

@@ -7,7 +7,7 @@ import { KnowledgeHttp } from '../../src/main/knowledge-http'
 import { DocumentProcessingService } from '../../src/main/document-processing'
 import { normalizeOcrPages, VisionOcrService, type PdfPageRenderer } from '../../src/main/vision-ocr'
 import { OCR_TEST_IMAGE } from '../../src/main/vision-ocr-sample'
-import { knowledgeSettingsSchema, pdfOcrPageSchema } from '../../src/main/schemas'
+import { bookPagePreviewSchema, knowledgeSettingsSchema, pdfOcrPageSchema } from '../../src/main/schemas'
 import type { SaveKnowledgeSettingsInput } from '../../src/shared/contracts'
 
 const resources: AppDatabase[] = []
@@ -32,6 +32,51 @@ function setup(fetcher = vi.fn<typeof fetch>(async () => response('独立复核�
 }
 
 describe('visual model OCR', () => {
+  it('previews one page with saved credentials without altering preparation checkpoints', async () => {
+    const fixture = setup()
+    await fixture.extract(1)
+    const before = fixture.db.connection.prepare('SELECT * FROM document_jobs').get()
+    const request = { bookId: fixture.bookId, requestId: randomUUID(), pageNumber: 3, pageCount: 5, imageDataUrl: OCR_TEST_IMAGE }
+    expect(await fixture.service.previewPage(request)).toEqual({ pageNumber: 3, pageCount: 5, text: '独立复核是必要条件。', processor: 'vision', model: 'vision-fixture' })
+    expect(fixture.db.connection.prepare('SELECT * FROM document_jobs').get()).toEqual(before)
+    const headers = new Headers(fixture.fetcher.mock.calls.at(-1)?.[1]?.headers)
+    expect(headers.get('authorization')).toBe('Bearer ocr-only-secret')
+    expect(headers.get('x-opencode-session')).toBe(request.requestId)
+  })
+
+  it('cancels only the matching preview, rejects overlaps and discards late responses', async () => {
+    let resolve: (response: Response) => void = () => undefined
+    const fixture = setup(vi.fn<typeof fetch>(() => new Promise((done) => { resolve = done })))
+    const request = { bookId: fixture.bookId, requestId: randomUUID(), pageNumber: 1, pageCount: 2, imageDataUrl: OCR_TEST_IMAGE }
+    const pending = fixture.service.previewPage(request)
+    const rejected = expect(pending).rejects.toBeDefined()
+    fixture.service.cancelPreview(randomUUID())
+    await expect(fixture.service.previewPage({ ...request, requestId: randomUUID() })).rejects.toMatchObject({ code: 'ANALYSIS_BUSY' })
+    fixture.service.cancelPreview(request.requestId)
+    await rejected
+    resolve(response('迟到的识别结果'))
+    expect(fixture.db.connection.prepare('SELECT * FROM document_jobs').all()).toEqual([])
+    fixture.fetcher.mockImplementation(async () => response('重新预览'))
+    expect((await fixture.service.previewPage({ ...request, requestId: randomUUID() })).text).toBe('重新预览')
+  })
+
+  it('rejects a preview if the saved document configuration changes during recognition', async () => {
+    let resolve: (response: Response) => void = () => undefined
+    const fixture = setup(vi.fn<typeof fetch>(() => new Promise((done) => { resolve = done })))
+    const pending = fixture.service.previewPage({ bookId: fixture.bookId, requestId: randomUUID(), pageNumber: 1, pageCount: 1, imageDataUrl: OCR_TEST_IMAGE })
+    fixture.settings.save({ ...input(), document: { ...input().document, model: 'changed-model' } })
+    resolve(response('旧配置的回答'))
+    await expect(pending).rejects.toMatchObject({ code: 'DOCUMENT_CHANGED' })
+    expect(fixture.db.connection.prepare('SELECT * FROM document_jobs').all()).toEqual([])
+  })
+
+  it('validates preview page numbers and image payloads before any network request', () => {
+    const valid = { bookId: randomUUID(), requestId: randomUUID(), pageNumber: 1, pageCount: 2, imageDataUrl: OCR_TEST_IMAGE }
+    expect(bookPagePreviewSchema.safeParse(valid).success).toBe(true)
+    for (const overrides of [{ pageNumber: 0 }, { pageNumber: 3 }, { pageNumber: 1.5 }, { pageCount: 601 }, { requestId: 'invalid' }, { imageDataUrl: 'https://example.test/page.png' }, { imageDataUrl: 'data:image/svg+xml;base64,PHN2Zz4=' }]) {
+      expect(bookPagePreviewSchema.safeParse({ ...valid, ...overrides }).success).toBe(false)
+    }
+  })
   it('requires a vision model, preserves legacy defaults and isolates credentials', () => {
     const { settings } = setup()
     expect(knowledgeSettingsSchema.safeParse({ ...input(), document: { ...input().document, model: ' ' } }).success).toBe(false)

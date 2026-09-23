@@ -70,6 +70,7 @@ async function openWindow(): Promise<void> {
     analysis?.dispose()
     extractor?.cancel()
     semantic?.dispose()
+    documents?.cancelPreview()
   })
   if (analysis) analysis.onState = (state) => {
     extractor?.observe(state)
@@ -164,6 +165,7 @@ app.on('will-quit', () => {
   analysis?.dispose()
   extractor?.dispose()
   semantic?.dispose()
+  documents?.cancelPreview()
   database?.close()
   database = undefined
 })

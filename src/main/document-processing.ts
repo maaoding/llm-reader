@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import JSZip from 'jszip'
 import { z } from 'zod'
-import type { DocumentSection, NormalizedDocument } from '@shared/contracts'
+import type { BookPagePreview, BookPagePreviewInput, DocumentSection, NormalizedDocument } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppDatabase } from './database'
 import { AppError } from './errors'
@@ -85,6 +85,7 @@ async function contentListFromZip(bytes: Uint8Array): Promise<unknown> {
 
 export class DocumentProcessingService {
   private readonly vision: VisionOcrService
+  private previewJob?: { bookId: string; requestId: string; controller: AbortController }
   constructor(private readonly database: AppDatabase, private readonly settings: KnowledgeSettingsService,
     private readonly http: KnowledgeHttp, private readonly pollMs = 2_000, private readonly foregroundBusy: () => boolean = () => false) {
     this.vision = new VisionOcrService(database, settings, http)
@@ -97,6 +98,32 @@ export class DocumentProcessingService {
     return JSON.stringify([config.processor, config.baseUrl, config.ocr, config.language, revision, 1])
   }
   enabled(): boolean { return this.settings.get().document.processor !== 'none' }
+  cancelPreview(requestId?: string): void {
+    if (!this.previewJob || (requestId && this.previewJob.requestId !== requestId)) return
+    this.previewJob.controller.abort()
+    this.previewJob = undefined
+  }
+  cancelBookPreview(bookId: string): void {
+    if (this.previewJob?.bookId === bookId) this.cancelPreview()
+  }
+
+  /** A single explicit preview never creates or modifies a preparation checkpoint. */
+  async previewPage(input: BookPagePreviewInput): Promise<BookPagePreview> {
+    const book = this.database.getStoredBook(input.bookId)
+    if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    const config = this.settings.document()
+    if (book.format !== 'pdf' || !isPageProcessor(config.processor)) throw new AppError('OCR_CONFIG', copy('vision.previewUnsupported'))
+    const preparing = this.database.connection.prepare("SELECT book_id FROM book_documents WHERE status = 'preparing' LIMIT 1").get()
+    if (this.previewJob || preparing) throw new AppError('ANALYSIS_BUSY', copy('vision.previewBusy'))
+    const job = { bookId: input.bookId, requestId: input.requestId, controller: new AbortController() }
+    this.previewJob = job
+    try {
+      const text = await this.vision.recognize(config, input.imageDataUrl, input.requestId, job.controller.signal)
+      job.controller.signal.throwIfAborted()
+      if (this.settings.documentRevision() !== config.revision || !this.database.getStoredBook(input.bookId)) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))
+      return { text, pageNumber: input.pageNumber, pageCount: input.pageCount, processor: config.processor, ...(config.model ? { model: config.model } : {}) }
+    } finally { if (this.previewJob === job) this.previewJob = undefined }
+  }
   reset(bookId: string): void { this.database.connection.prepare('DELETE FROM document_jobs WHERE book_id = ?').run(bookId) }
   rebuild(bookId: string): void {
     const row = this.database.connection.prepare('SELECT raw_json, structure_json, fingerprint FROM document_jobs WHERE book_id = ?').get(bookId)
