@@ -52,7 +52,7 @@ it('migrates the existing current conversation without losing its draft, answers
     const bookId = addBook(database)
     const record = { ...session(bookId, 1), turns: [{ id: randomUUID(), action: 'ask' as const, actionLabel: '提问', question: '旧问题', answer: '旧回答', model: 'fixture', status: 'completed' as const }] }
     database.upsertBookSession(record)
-    database.connection.exec('DROP TABLE book_session_history; DELETE FROM schema_migrations WHERE version = 18')
+    database.connection.exec('DROP TABLE book_session_history; DROP TABLE ocr_page_previews; DELETE FROM schema_migrations WHERE version >= 18')
     database.close(); database = new AppDatabase(join(root, 'reader.sqlite'))
     expect(database.getBookSession(bookId)).toEqual(record)
     expect(database.getRecentBookSession(bookId, record.conversationId)).toEqual(record)

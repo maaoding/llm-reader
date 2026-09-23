@@ -53,7 +53,7 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
             {state?.document && state.document.status !== 'empty' && <button className="secondary-button" data-testid="document-rebuild" disabled={busy || starting} onClick={() => void prepare(true)}>{copy('preparation.rebuild')}</button>}</>}
       </div>
       {book.format === 'pdf' && <p className="field-hint">{copy(vision ? 'vision.disclosure' : 'knowledge.pdfDisclosure')}</p>}
-      {vision && <BookOcrPreview key={`${state?.documentProcessor}:${suspended}`} bookId={book.id} suspended={suspended} disabled={preparing || state?.status === 'analyzing' || starting} onBusyChange={setPreviewing} />}
+      {vision && <BookOcrPreview key={`${book.id}:${state?.documentProcessor}:${suspended}`} bookId={book.id} documentReady={documentReady} suspended={suspended} disabled={preparing || state?.status === 'analyzing' || starting} onBusyChange={setPreviewing} />}
       {!!state?.document?.diagnostics.length && <details data-testid="document-check" className="analysis-failures">
         <summary>{copy('preparation.check', { count: state.document.diagnostics.length })}</summary><p>{copy('preparation.checkHint')}</p>
         <ol>{state.document.diagnostics.slice(0, 100).map((item, index) => <li key={index}>{item.page ? copy('preparation.pageDiagnostic', { page: item.page, message: copy(diagnosticKeys[item.code]) }) : copy(diagnosticKeys[item.code])}</li>)}</ol>

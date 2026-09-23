@@ -1,6 +1,7 @@
 import type { ReaderSearchResult } from './reader-search'
 
 export const IPC_CHANNELS = {
+  clipboardWriteText: 'clipboard:write-text',
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
   appInfo: 'app:info',
@@ -90,12 +91,14 @@ export interface BookPagePreviewInput {
   pageNumber: number
   pageCount: number
   imageDataUrl: string
+  force?: boolean
 }
 
 export interface BookPagePreview {
   pageNumber: number
   pageCount: number
   text: string
+  cached: boolean
   processor: DocumentProcessor
   model?: string
 }
@@ -693,6 +696,7 @@ export interface SaveHighlightInput {
 }
 
 export interface ReaderApi {
+  copyText(text: string): Promise<void>
   getAppInfo(): Promise<AppInfo>
   getAppUpdatePhase(): Promise<AppUpdatePhase>
   checkForAppUpdate(): Promise<AppUpdatePhase>

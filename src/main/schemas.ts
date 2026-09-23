@@ -3,11 +3,12 @@ import { z } from 'zod'
 import { requestSettingsFields } from '@shared/request-settings'
 import { normalizeReaderSearchQuery } from '@shared/reader-search'
 import { validateDocument } from '@shared/document-structure'
-import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGES } from '@shared/vision-ocr'
+import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR_MAX_PAGES } from '@shared/vision-ocr'
 
 const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
 
+export const clipboardTextSchema = z.string().max(OCR_MAX_PAGE_CHARACTERS)
 export const bookIdSchema = idSchema
 export const recentBookSessionSchema = z.object({ bookId: idSchema, conversationId: z.uuid({ version: 'v4' }) }).strict()
 export const deleteBookSessionSchema = z.union([bookIdSchema.transform((bookId) => ({ bookId, conversationId: undefined })), recentBookSessionSchema])
@@ -20,7 +21,8 @@ export const bookPagePreviewSchema = z.object({
   requestId: idSchema,
   pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES),
   pageCount: z.number().int().min(1).max(OCR_MAX_PAGES),
-  imageDataUrl: z.string().max(OCR_MAX_IMAGE_DATA_URL).regex(OCR_IMAGE_PATTERN)
+  imageDataUrl: z.string().max(OCR_MAX_IMAGE_DATA_URL).regex(OCR_IMAGE_PATTERN),
+  force: z.boolean().optional()
 }).strict().refine((value) => value.pageNumber <= value.pageCount)
 export const bookChapterNotesSchema = z.object({
   bookId: idSchema,

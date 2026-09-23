@@ -97,6 +97,9 @@ export class DocumentProcessingService {
     const revision = this.database.connection.prepare("SELECT revision FROM knowledge_settings WHERE kind = 'document'").get()?.revision
     return JSON.stringify([config.processor, config.baseUrl, config.ocr, config.language, revision, 1])
   }
+  private fingerprint(bookId: string): string {
+    return createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
+  }
   enabled(): boolean { return this.settings.get().document.processor !== 'none' }
   cancelPreview(requestId?: string): void {
     if (!this.previewJob || (requestId && this.previewJob.requestId !== requestId)) return
@@ -115,19 +118,25 @@ export class DocumentProcessingService {
     if (book.format !== 'pdf' || !isPageProcessor(config.processor)) throw new AppError('OCR_CONFIG', copy('vision.previewUnsupported'))
     const preparing = this.database.connection.prepare("SELECT book_id FROM book_documents WHERE status = 'preparing' LIMIT 1").get()
     if (this.previewJob || preparing) throw new AppError('ANALYSIS_BUSY', copy('vision.previewBusy'))
+    const fingerprint = this.fingerprint(input.bookId)
+    const cachedText = input.force ? undefined : this.vision.cachedPage(input.bookId, input.pageNumber, input.pageCount, fingerprint)
+    const metadata = { pageNumber: input.pageNumber, pageCount: input.pageCount, processor: config.processor, ...(config.model ? { model: config.model } : {}) }
+    if (cachedText !== undefined) return { ...metadata, text: cachedText, cached: true }
     const job = { bookId: input.bookId, requestId: input.requestId, controller: new AbortController() }
     this.previewJob = job
     try {
       const text = await this.vision.recognize(config, input.imageDataUrl, input.requestId, job.controller.signal)
       job.controller.signal.throwIfAborted()
-      if (this.settings.documentRevision() !== config.revision || !this.database.getStoredBook(input.bookId)) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))
-      return { text, pageNumber: input.pageNumber, pageCount: input.pageCount, processor: config.processor, ...(config.model ? { model: config.model } : {}) }
+      if (!this.database.getStoredBook(input.bookId) || this.fingerprint(input.bookId) !== fingerprint) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))
+      this.vision.savePreview(input.bookId, input.pageNumber, input.pageCount, fingerprint, text)
+      return { ...metadata, text, cached: false }
     } finally { if (this.previewJob === job) this.previewJob = undefined }
   }
   reset(bookId: string): void { this.database.connection.prepare('DELETE FROM document_jobs WHERE book_id = ?').run(bookId) }
   rebuild(bookId: string): void {
+    this.cancelBookPreview(bookId)
     const row = this.database.connection.prepare('SELECT raw_json, structure_json, fingerprint FROM document_jobs WHERE book_id = ?').get(bookId)
-    const fingerprint = createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
+    const fingerprint = this.fingerprint(bookId)
     if (row?.raw_json && row.structure_json && row.fingerprint === fingerprint) this.database.connection.prepare('UPDATE document_jobs SET result_json = NULL, structure_json = NULL WHERE book_id = ?').run(bookId)
     else this.reset(bookId)
   }
@@ -159,7 +168,7 @@ export class DocumentProcessingService {
     if (!this.enabled()) throw new AppError('DOCUMENT_CONFIG', copy('knowledge.pdfRequired'))
     if (bytes.length > 200_000_000 || pageCount > 600) throw new AppError('DOCUMENT_TOO_LARGE', copy('knowledge.tooLarge'))
     const config = this.settings.document()
-    const fingerprint = createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
+    const fingerprint = this.fingerprint(bookId)
     if (isPageProcessor(config.processor)) return this.vision.extract(bookId, pageCount, config, fingerprint, signal, renderPage, () => this.yieldToQuestions(signal), onProgress)
     let row = this.database.connection.prepare('SELECT * FROM document_jobs WHERE book_id = ?').get(bookId) as unknown as JobRow | undefined
     if (row && row.fingerprint !== fingerprint) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))

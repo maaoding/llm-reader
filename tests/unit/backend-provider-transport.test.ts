@@ -201,7 +201,7 @@ it('migrates old archives and analysis IDs once, preserving timestamps, notes an
       ALTER TABLE insights DROP COLUMN conversation_id; ALTER TABLE book_analysis DROP COLUMN session_id;
       ALTER TABLE book_analysis DROP COLUMN progress_json; DROP TABLE book_analysis_failures;
       DROP TABLE book_vectors; DROP TABLE semantic_indexes; DROP TABLE knowledge_settings; DROP TABLE document_jobs;
-      ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; DROP TABLE book_session_history; DELETE FROM schema_migrations WHERE version >= 10;`)
+      ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; DROP TABLE book_session_history; DROP TABLE ocr_page_previews; DELETE FROM schema_migrations WHERE version >= 10;`)
     database.close()
     database = new AppDatabase(path)
     const migrated = database.listInsights(bookId)[0]
@@ -233,7 +233,7 @@ it('upgrades a version-10 analysis cache without changing its identity and persi
     store.saveSummary(bookId, 'book-0-0', '已保存的中间笔记')
     store.status(bookId, 'error', '旧提示')
     const previous = store.record(bookId)!
-    database.connection.exec('ALTER TABLE book_analysis DROP COLUMN progress_json; DROP TABLE book_analysis_failures; DROP TABLE book_vectors; DROP TABLE semantic_indexes; DROP TABLE knowledge_settings; DROP TABLE document_jobs; ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; DROP TABLE book_session_history; DELETE FROM schema_migrations WHERE version >= 11;')
+    database.connection.exec('ALTER TABLE book_analysis DROP COLUMN progress_json; DROP TABLE book_analysis_failures; DROP TABLE book_vectors; DROP TABLE semantic_indexes; DROP TABLE knowledge_settings; DROP TABLE document_jobs; ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; DROP TABLE book_session_history; DROP TABLE ocr_page_previews; DELETE FROM schema_migrations WHERE version >= 11;')
     database.close()
     database = new AppDatabase(path)
     store = new BookContextStore(database)

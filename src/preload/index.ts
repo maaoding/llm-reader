@@ -9,6 +9,7 @@ import {
 } from '@shared/contracts'
 
 export const readerApi: ReaderApi = {
+  copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.clipboardWriteText, text),
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
   getAppUpdatePhase: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatePhase),
   checkForAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateCheck),

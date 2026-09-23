@@ -6,6 +6,7 @@ import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } 
 import { enterReading, hidePreparation, showLibrary, showPreparation } from './support/workspace'
 
 let server: Server, endpoint = '', holdPages = false
+let failNextPage = false, pageText = '扫描原文：独立复核是必要条件。'
 const images: { image: string; session: string | undefined; authorization: string | undefined }[] = []
 test.beforeAll(async () => {
   server = createServer((request, response) => {
@@ -21,7 +22,8 @@ test.beforeAll(async () => {
       if (image) {
         images.push({ image, session: request.headers['x-opencode-session'] as string | undefined, authorization: request.headers.authorization })
         if (image.startsWith('data:image/jpeg') && holdPages && pageImages().length > 1) return
-        content = image.startsWith('data:image/png') ? 'OCR' : '扫描原文：独立复核是必要条件。'
+        if (image.startsWith('data:image/jpeg') && failNextPage) { failNextPage = false; response.writeHead(502).end(); return }
+        content = image.startsWith('data:image/png') ? 'OCR' : pageText
       } else if (typeof user === 'string') {
         const system = String(body.messages[0].content)
         if (system.includes('为阅读问题')) content = '{"chapters":[],"terms":["独立复核"]}'
@@ -40,7 +42,7 @@ test.beforeAll(async () => {
   if (!address || typeof address === 'string') throw new Error('Fixture server unavailable')
   endpoint = `http://127.0.0.1:${address.port}/v1`
 })
-test.beforeEach(() => { images.length = 0; holdPages = false })
+test.beforeEach(() => { images.length = 0; holdPages = false; failNextPage = false; pageText = '扫描原文：独立复核是必要条件。' })
 test.afterAll(async () => { server.closeAllConnections(); await new Promise<void>((done) => server.close(() => done())) })
 const pageImages = () => images.filter((item) => item.image.startsWith('data:image/jpeg'))
 const status = (page: Page, bookId: string) => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.document?.status), bookId)
@@ -196,5 +198,79 @@ test('previews a real PDF page, validates page ranges and cancels without starti
     await expect(page.getByTestId('ocr-preview-text')).toContainText('独立复核是必要条件')
     expect(pageImages()).toHaveLength(4)
     expect(await status(page, before.id)).toBe('empty')
+  } finally { server.closeAllConnections(); await cleanupE2eWorkspace(application, workspace.root) }
+})
+
+test('reuses previews across restart and preparation, copies text and retries only on request', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-preview-cache-')
+  let application: ElectronApplication | undefined
+  try {
+    let launched = await launchReader({ userData: workspace.userData, importPath: resolve('tests/e2e/fixtures/text-reader.pdf') })
+    application = launched.application; let page = launched.page
+    await showLibrary(page)
+    await page.evaluate((baseUrl) => window.readerApi.saveKnowledgeSettings({ embedding: { enabled: false, baseUrl: '', model: '' },
+      document: { processor: 'vision', baseUrl, model: 'vision-fixture', apiKey: 'ocr-only', ocr: true, language: 'ch' } }), endpoint)
+    const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
+    await page.getByTestId('book-item').click(); await enterReading(page); await showPreparation(page)
+    await page.getByTestId('ocr-preview-page').fill('2')
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-text')).toHaveText(pageText)
+    expect(pageImages()).toHaveLength(1)
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-source')).toContainText('未发送识别请求')
+    expect(pageImages()).toHaveLength(1)
+    await page.getByTestId('ocr-preview-copy').click()
+    await expect(page.getByTestId('ocr-preview-copy')).toHaveText('已复制')
+    expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(pageText)
+
+    failNextPage = true
+    await page.getByTestId('ocr-preview-refresh').click()
+    await expect(page.getByTestId('ocr-preview-error')).toBeVisible()
+    await expect(page.getByTestId('ocr-preview-text')).toHaveText(pageText)
+    await expect(page.getByTestId('ocr-preview-start')).toHaveText('重试这一页')
+    expect(pageImages()).toHaveLength(2)
+    pageText = '复核后的第二页原文。'
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-text')).toHaveText(pageText)
+    expect(pageImages()).toHaveLength(3)
+    expect(await status(page, bookId)).toBe('empty')
+    await page.getByTestId('ocr-preview-result').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: test.info().outputPath('ocr-preview-retry-and-copy.png') })
+
+    launched = await restartReader(application, { userData: workspace.userData }); application = launched.application; page = launched.page
+    await enterReading(page); await showPreparation(page)
+    await page.getByTestId('ocr-preview-page').fill('2')
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-source')).toContainText('未发送识别请求')
+    await expect(page.getByTestId('ocr-preview-text')).toHaveText(pageText)
+    expect(pageImages()).toHaveLength(3)
+    pageText = '其余页面的原文。'
+    await page.getByTestId('document-prepare').click()
+    await expect.poll(() => status(page, bookId), { timeout: 20_000 }).toBe('ready')
+    expect(pageImages()).toHaveLength(5)
+    expect(await page.evaluate((id) => window.readerApi.searchBookDocument({ bookId: id, query: '复核后的第二页' }), bookId))
+      .toMatchObject({ available: true, results: [{ anchor: 'pdfpos:2:0' }] })
+    await page.getByTestId('ocr-preview-page').fill('1')
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-source')).toContainText('未发送识别请求')
+    await expect(page.getByTestId('ocr-preview-text')).toHaveText(pageText)
+    expect(pageImages()).toHaveLength(5)
+
+    await page.getByTestId('ocr-preview-page').fill('2')
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-text')).toHaveText('复核后的第二页原文。')
+    pageText = '再次核验的第二页。'
+    await page.getByTestId('ocr-preview-refresh').click()
+    await expect(page.getByTestId('ocr-preview-text')).toHaveText(pageText)
+    expect(pageImages()).toHaveLength(6)
+    expect((await page.evaluate((id) => window.readerApi.searchBookDocument({ bookId: id, query: '再次核验' }), bookId)).results).toHaveLength(0)
+    // Native dialogs are unavailable in the headless fixture; accept this one rebuild confirmation.
+    await page.evaluate(() => { const original = window.confirm; window.confirm = () => { window.confirm = original; return true } })
+    await page.getByTestId('document-rebuild').click()
+    await expect.poll(() => status(page, bookId), { timeout: 20_000 }).toBe('ready')
+    expect(await page.evaluate((id) => window.readerApi.searchBookDocument({ bookId: id, query: '再次核验' }), bookId))
+      .toMatchObject({ available: true, results: [{ anchor: 'pdfpos:2:0' }] })
+    expect(pageImages()).toHaveLength(6)
   } finally { server.closeAllConnections(); await cleanupE2eWorkspace(application, workspace.root) }
 })

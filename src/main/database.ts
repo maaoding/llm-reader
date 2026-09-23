@@ -446,6 +446,16 @@ const migrations = [
       ) STRICT;
       CREATE INDEX book_session_history_recent ON book_session_history(book_id, updated_at DESC);
       INSERT INTO book_session_history SELECT * FROM book_sessions;
+    `,
+    `
+      CREATE TABLE ocr_page_previews (
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        page_number INTEGER NOT NULL CHECK(page_number BETWEEN 1 AND 600),
+        page_count INTEGER NOT NULL CHECK(page_count BETWEEN page_number AND 600),
+        fingerprint TEXT NOT NULL,
+        text TEXT NOT NULL CHECK(length(text) <= 40000),
+        PRIMARY KEY (book_id, page_number)
+      ) STRICT;
     `
 ] as const
 

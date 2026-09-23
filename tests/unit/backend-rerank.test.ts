@@ -75,7 +75,7 @@ describe('rerank configuration and archives', () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       db = new AppDatabase(path)
       expect(db.connection.prepare("SELECT kind, config_json, secret, revision FROM knowledge_settings WHERE kind <> 'rerank' ORDER BY kind").all()).toEqual(previous)
-      expect(db.connection.prepare('SELECT MAX(version) AS n FROM schema_migrations').get()?.n).toBe(18)
+      expect(db.connection.prepare('SELECT MAX(version) AS n FROM schema_migrations').get()?.n).toBe(19)
       expect(new KnowledgeSettingsService(db, protector).get().rerank.enabled).toBe(false)
       db.close()
     }

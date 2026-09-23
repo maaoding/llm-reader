@@ -120,12 +120,12 @@ for (const processor of ['mistral-ocr', 'unstructured'] as const) {
       await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.getBookAnalysis(id)).document?.status, bookId), { timeout: 20_000 }).toBe('ready')
       const state = await page.evaluate((id) => window.readerApi.getBookAnalysis(id), bookId)
       expect(state.document?.ocrProgress).toEqual({ completed: 1, total: 1 })
-      expect(requests).toHaveLength(3)
+      expect(requests).toHaveLength(2)
       if (processor === 'unstructured') expect(requests.at(-1)?.headers['content-type']).toContain('multipart/form-data; boundary=')
       launched = await restartReader(application, { userData: workspace.userData }); application = launched.application; page = launched.page
       await page.evaluate((id) => window.readerApi.prepareBookDocument({ bookId: id, rebuild: true }), bookId)
       await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.getBookAnalysis(id)).document?.status, bookId)).toBe('ready')
-      expect(requests).toHaveLength(3)
+      expect(requests).toHaveLength(2)
     } finally { await cleanupE2eWorkspace(application, workspace.root) }
   })
 }

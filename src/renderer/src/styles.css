@@ -4627,6 +4627,7 @@ button.citation-valid:hover {
 .ocr-preview-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .ocr-preview-comparison > * { min-width: 0; margin: 0; }
 .ocr-preview-comparison img { display: block; width: 100%; height: auto; max-height: 420px; object-fit: contain; background: white; }
-.ocr-preview-comparison figcaption, .ocr-preview-comparison > div > p { margin: 0 0 8px; color: var(--ui-muted); }
+.ocr-preview-comparison figcaption, .ocr-preview-text-heading { margin: 0 0 8px; color: var(--ui-muted); }
+.ocr-preview-text-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .ocr-preview-comparison pre { margin: 0; max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: inherit; line-height: 1.7; }
 @media (max-width: 680px) { .ocr-preview-comparison { grid-template-columns: 1fr; } }

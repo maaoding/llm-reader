@@ -497,9 +497,18 @@
 | assistant.recentSessions | 最近对话 |
 | assistant.promptDetails | 查看本次提示词 |
 | vision.previewTitle | 先识别一页 |
-| vision.previewHint | 使用已保存的文档服务，仅发送所选页的图片，便于对照检查识别效果。正式准备会再次识别此页。 |
+| vision.previewHint | 优先使用相同书籍和配置下的识别结果；没有结果时仅发送所选页图片。正式准备会复用已识别页。 |
 | vision.previewPage | PDF 页码 |
-| vision.previewStart | 识别这一页 |
+| vision.previewStart | 查看这一页 |
+| vision.previewRetry | 重试这一页 |
+| vision.previewRefresh | 重新识别 |
+| vision.previewRefreshHint | 重新识别会再次发送此页，可能消耗服务额度；失败时保留上次结果。 |
+| vision.previewCached | 已复用本机识别结果，本次未发送识别请求。 |
+| vision.previewSaved | 识别结果已保存，可用于后续原文准备。 |
+| vision.previewPreparedHint | 新结果需点击“重新准备原文”后才会用于检索和笔记。 |
+| vision.previewCopy | 复制文字 |
+| vision.previewCopied | 已复制 |
+| vision.previewCopyFailed | 复制失败，可选中下方文字手动复制。 |
 | vision.previewCancel | 取消预览 |
 | vision.previewRendering | 正在生成页面图片… |
 | vision.previewRecognizing | 正在识别这一页… |

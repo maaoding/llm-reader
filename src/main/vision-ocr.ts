@@ -43,6 +43,38 @@ export function normalizeOcrPages(pages: string[]): NormalizedDocument {
 export class VisionOcrService {
   constructor(private readonly database: AppDatabase, private readonly settings: KnowledgeSettingsService, private readonly http: KnowledgeHttp) {}
 
+  private previewPages(bookId: string, pageCount: number, fingerprint: string): Map<number, string> {
+    const rows = this.database.connection.prepare('SELECT page_number, text FROM ocr_page_previews WHERE book_id = ? AND page_count = ? AND fingerprint = ?')
+      .all(bookId, pageCount, fingerprint)
+    return new Map(rows.filter((row) => typeof row.text === 'string' && row.text.length <= OCR_MAX_PAGE_CHARACTERS)
+      .map((row) => [Number(row.page_number), String(row.text)]))
+  }
+
+  cachedPage(bookId: string, pageNumber: number, pageCount: number, fingerprint: string): string | undefined {
+    const preview = this.database.connection.prepare('SELECT text FROM ocr_page_previews WHERE book_id = ? AND page_number = ? AND page_count = ? AND fingerprint = ?')
+      .get(bookId, pageNumber, pageCount, fingerprint)
+    if (typeof preview?.text === 'string' && preview.text.length <= OCR_MAX_PAGE_CHARACTERS) return preview.text
+    const row = this.database.connection.prepare('SELECT raw_json FROM document_jobs WHERE book_id = ? AND fingerprint = ?').get(bookId, fingerprint)
+    if (!row?.raw_json) return undefined
+    try {
+      const checkpoint = checkpointSchema.safeParse(JSON.parse(String(row.raw_json)))
+      return checkpoint.success && checkpoint.data.pageCount === pageCount ? checkpoint.data.pages[pageNumber - 1] : undefined
+    } catch { return undefined }
+  }
+
+  savePreview(bookId: string, pageNumber: number, pageCount: number, fingerprint: string, text: string): void {
+    const db = this.database.connection
+    // One bounded set per book; page images and request credentials are never persisted.
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      db.prepare('DELETE FROM ocr_page_previews WHERE book_id = ? AND (fingerprint != ? OR page_count != ?)').run(bookId, fingerprint, pageCount)
+      db.prepare(`INSERT INTO ocr_page_previews(book_id, page_number, page_count, fingerprint, text) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(book_id, page_number) DO UPDATE SET page_count = excluded.page_count, fingerprint = excluded.fingerprint, text = excluded.text`)
+        .run(bookId, pageNumber, pageCount, fingerprint, text)
+      db.exec('COMMIT')
+    } catch (error) { db.exec('ROLLBACK'); throw error }
+  }
+
   progress(bookId: string): { completed: number; total: number } | undefined {
     const row = this.database.connection.prepare('SELECT raw_json FROM document_jobs WHERE book_id = ?').get(bookId)
     if (!row?.raw_json) return undefined
@@ -103,23 +135,37 @@ export class VisionOcrService {
     if (row?.structure_json) return documentSections(normalizedDocumentSchema.parse(JSON.parse(row.structure_json)))
     const checkpoint = checkpointSchema.parse(row?.raw_json ? JSON.parse(row.raw_json) : { kind: 'vision', version: 1, pageCount, pages: [] })
     if (checkpoint.pageCount !== pageCount || (row && !row.raw_json)) throw new AppError('DOCUMENT_INVALID', copy('knowledge.invalid'))
-    if (checkpoint.pages.length < pageCount && !renderPage) throw new AppError('OCR_IMAGE', copy('vision.renderFailed'))
+    const previews = this.previewPages(bookId, pageCount, fingerprint)
+    // Explicitly refreshed previews replace the corresponding text when rebuilding a document.
+    let updated = false
+    for (const [page, text] of previews) {
+      if (page <= checkpoint.pages.length && checkpoint.pages[page - 1] !== text) { checkpoint.pages[page - 1] = text; updated = true }
+    }
     const sessionId = row?.task_id ?? randomUUID()
     if (!row) db.prepare('INSERT INTO document_jobs(book_id, fingerprint, task_id, raw_json) VALUES (?, ?, ?, ?)')
       .run(bookId, fingerprint, sessionId, JSON.stringify(checkpoint))
-    onProgress()
-    while (checkpoint.pages.length < pageCount) {
-      await beforePage(); check()
-      const image = await renderPage!(checkpoint.pages.length + 1, signal)
-      check()
-      const text = await this.recognize(config, image, sessionId, signal)
-      check()
-      checkpoint.pages.push(text)
+    const saveCheckpoint = (): void => {
       const raw = JSON.stringify(checkpoint)
       if (Buffer.byteLength(raw) > 48_000_000) throw new AppError('DOCUMENT_TOO_LARGE', copy('knowledge.tooLarge'))
       // A deleted/replaced job must never be resurrected by a late response.
       if (!db.prepare('UPDATE document_jobs SET raw_json = ? WHERE book_id = ? AND fingerprint = ? AND task_id = ?')
         .run(raw, bookId, fingerprint, sessionId).changes) cancelled()
+    }
+    if (updated) saveCheckpoint()
+    onProgress()
+    while (checkpoint.pages.length < pageCount) {
+      await beforePage(); check()
+      const page = checkpoint.pages.length + 1
+      let text = previews.get(page)
+      if (text === undefined) {
+        if (!renderPage) throw new AppError('OCR_IMAGE', copy('vision.renderFailed'))
+        const image = await renderPage(page, signal)
+        check()
+        text = await this.recognize(config, image, sessionId, signal)
+      }
+      check()
+      checkpoint.pages.push(text)
+      saveCheckpoint()
       onProgress()
     }
     check()

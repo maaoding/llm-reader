@@ -1,5 +1,5 @@
 import { isPageProcessor } from '@shared/request-settings'
-import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { app, clipboard, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -26,6 +26,7 @@ import {
   bookIdSchema,
   bookDocumentSearchSchema,
   bookPagePreviewSchema,
+  clipboardTextSchema,
   bookChapterNotesSchema,
   bookImportPathsSchema,
   createProviderProfileSchema,
@@ -120,6 +121,7 @@ function handle(
 }
 
 export function registerIpcHandlers(dependencies: IpcDependencies): void {
+  handle(IPC_CHANNELS.clipboardWriteText, dependencies, (_event, value) => clipboard.writeText(parse(clipboardTextSchema, value)))
   handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
   handle(IPC_CHANNELS.appUpdatePhase, dependencies, () => dependencies.updater.getPhase())
   handle(IPC_CHANNELS.appUpdateCheck, dependencies, () => dependencies.updater.check('manual'))
