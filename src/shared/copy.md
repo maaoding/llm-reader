@@ -153,7 +153,7 @@
 | knowledge.testDocument | 检查处理服务 |
 | vision.title | 视觉模型 OCR |
 | vision.model | 视觉模型名称 |
-| vision.hint | 使用支持图片输入的 OpenAI 兼容接口识别 PDF，可与提问模型分开配置。先用固定样图测试图片识别；测试可能消耗额度，不会发送书籍。 |
+| vision.hint | 使用支持图片输入的 OpenAI 兼容或 Anthropic 接口识别 PDF，可与提问模型分开配置。先用固定样图测试图片识别；测试可能消耗额度，不会发送书籍。 |
 | vision.preparation | 把 PDF 页面转为图片交给视觉模型，识别的文字可用于全书提问和章节笔记。 |
 | vision.disclosure | 点击准备后，会逐页发送图片至所配置的模型服务，可能产生费用。已完成页保存在本机，暂停、失败或退出后可手动继续；未完成页可能重复计费。原 PDF 保留，引用可返回页面核对。识别结果可能有误，暂不生成可选择的文字层，也不保证复杂表格与章节结构。 |
 | vision.progress | 已识别 {completed}/{total} 页 |
@@ -781,3 +781,35 @@
 | validation.tableRows | 表格行数无效。 |
 | validation.tableOverlap | 表格单元格重叠。 |
 | validation.tableEmpty | 表格没有单元格。 |
+
+
+## 接口与请求配置
+
+| key | 文案 |
+| --- | --- |
+| request.advanced | 高级请求设置 |
+| request.protocol | 接口协议 |
+| request.openai | OpenAI 兼容 |
+| request.anthropic | Anthropic / Claude |
+| request.headers | 自定义请求头（JSON） |
+| request.headersSaved | 已保存请求头；留空保留，填写后整体替换 |
+| request.headersExample | 例如：{example} |
+| request.headersHint | 请求头加密保存。可覆盖 Authorization、x-api-key、User-Agent 等；名称不区分大小写。更换地址或协议后请重新填写。 |
+| request.headersInvalid | 请输入 JSON 对象，所有值需为字符串。名称不能重复，也不能设置 Host、Content-Type、Content-Length 等传输请求头。 |
+| request.clearHeaders | 清除已保存的自定义请求头 |
+| request.body | 额外请求参数（JSON） |
+| request.bodyExample | 例如：{example} |
+| request.bodyHint | 可填写服务支持的选项，例如模型的 max_tokens、temperature，文档服务的 strategy、ocr_engine。文件、消息、模型及返回格式由阅读器填写。密钥请放在请求头中。 |
+| request.bodyInvalid | 请输入有效 JSON 对象；不能覆盖文件、消息、模型、返回格式等阅读器管理的字段。 |
+| request.timeout | 请求超时（秒，1–600） |
+| request.timeoutDefault | 使用默认超时 |
+| request.streamError | 模型服务在流式响应中返回错误，请稍后重试。 |
+| request.incomplete | 模型输出未完整结束，请增加 max_tokens 或调整模型参数后重试。 |
+| request.mistral | Mistral OCR |
+| request.unstructured | Unstructured Partition |
+| request.pageHint | 逐页发送 PDF 页面图片进行识别，完成页会缓存；暂停后可继续。结果用于检索和问答，引用页码取自原 PDF。 |
+| request.partitionHint | 填写 Unstructured Partition 接口地址或本机兼容服务地址；不适用于 Workflow 接口。 |
+| request.preset | 常用服务 |
+| request.custom | 自定义地址 |
+
+| request.keyScope | 更换接口地址或协议后，请重新填写 API 密钥；原密钥不会自动发送到新接口。 |

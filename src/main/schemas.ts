@@ -1,5 +1,6 @@
 import { copy } from '@shared/copy'
 import { z } from 'zod'
+import { requestSettingsFields } from '@shared/request-settings'
 import { validateDocument } from '@shared/document-structure'
 import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGES } from '@shared/vision-ocr'
 
@@ -236,6 +237,8 @@ const providerBaseUrlSchema = z
 export const providerProfileIdSchema = z.string().trim().min(1).max(128).regex(/^[\w-]+$/u)
 
 const providerProfileFields = {
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
   name: z.string().trim().min(1).max(60),
   baseUrl: providerBaseUrlSchema,
@@ -251,6 +254,8 @@ export const updateProviderProfileSchema = z.object({
 })
 
 export const providerConfigurationSchema = z.object({
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
   profileId: providerProfileIdSchema.optional(),
   baseUrl: providerBaseUrlSchema,
@@ -259,6 +264,8 @@ export const providerConfigurationSchema = z.object({
 })
 
 export const providerModelListSchema = z.object({
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
   profileId: providerProfileIdSchema.optional(),
   baseUrl: providerBaseUrlSchema,
@@ -297,15 +304,15 @@ const knowledgeUrl = z.union([z.literal(''), providerBaseUrlSchema]).refine((val
 }, copy('validation.endpoint'))
 const knowledgeKey = z.string().trim().min(1).max(10_000).regex(/^[^\r\n]+$/u).nullable().optional()
 export const knowledgeSettingsSchema = z.object({
-  rerank: z.object({ enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
+  rerank: z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
     .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.rerank')).optional(),
-  embedding: z.object({ enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
+  embedding: z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
     .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.embedding')),
-  document: z.object({ processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision']), baseUrl: knowledgeUrl,
+  document: z.object({ ...requestSettingsFields, protocol: z.enum(['openai', 'anthropic']).optional(), processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured']), baseUrl: knowledgeUrl,
     model: z.string().trim().max(256).optional(), compatibility: z.enum(['auto', 'opencode-go']).optional(),
     ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
     .refine((value) => value.processor === 'none' || Boolean(value.baseUrl), copy('validation.documentUrl'))
-    .refine((value) => value.processor !== 'vision' || Boolean(value.model), copy('vision.configRequired'))
+    .refine((value) => !['vision', 'mistral-ocr'].includes(value.processor) || Boolean(value.model), copy('vision.configRequired'))
 }).strict()
 export const testKnowledgeSettingsSchema = knowledgeSettingsSchema.extend({ target: z.enum(['embedding', 'rerank', 'document']) })
   .refine((value) => value.target !== 'rerank' || Boolean(value.rerank?.baseUrl && value.rerank.model), copy('validation.rerank'))

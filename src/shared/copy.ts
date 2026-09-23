@@ -1,6 +1,32 @@
 import copySource from './copy.md?raw'
 
 export const COPY_KEYS = [
+  'request.keyScope',
+  'request.advanced',
+  'request.protocol',
+  'request.openai',
+  'request.anthropic',
+  'request.headers',
+  'request.headersSaved',
+  'request.headersExample',
+  'request.headersHint',
+  'request.headersInvalid',
+  'request.clearHeaders',
+  'request.body',
+  'request.bodyExample',
+  'request.bodyHint',
+  'request.bodyInvalid',
+  'request.timeout',
+  'request.timeoutDefault',
+  'request.streamError',
+  'request.incomplete',
+  'request.mistral',
+  'request.unstructured',
+  'request.pageHint',
+  'request.partitionHint',
+  'request.preset',
+  'request.custom',
+
   'error.documentCancelled',
   'error.notesUpdated',
   'error.documentCacheLimit',
@@ -727,6 +753,8 @@ export type CopyKey = (typeof COPY_KEYS)[number]
 export type CopyValues = Readonly<Record<string, string | number>>
 
 export const COPY_PLACEHOLDERS = {
+  'request.headersExample': ['example'],
+  'request.bodyExample': ['example'],
   'workspace.readingProgress': ['percent'],
   'workspace.closeBookTab': ['title'],
   'workspace.noteCount': ['completed', 'total'],

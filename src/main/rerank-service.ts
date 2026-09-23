@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { mergeRequestHeaders } from '@shared/request-settings'
 import type { Passage, RerankReason, RerankRecord } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppError } from './errors'
@@ -19,10 +20,10 @@ export async function rerank(http: KnowledgeHttp, config: RerankCredentials, que
     throw new AppError('RERANK_CONFIG', copy('rerank.required'))
   }
   const raw = await http.json(`${config.baseUrl}/rerank`, { method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}) },
-    body: JSON.stringify({ model: config.model, query, documents: candidates.map((item) => `${item.headingPath?.join(' / ') ?? item.chapterTitle ?? ''}\n${item.text}`),
+    headers: mergeRequestHeaders({ 'Content-Type': 'application/json', ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}) }, config.customHeaders),
+    body: JSON.stringify({ ...config.extraBody, model: config.model, query, documents: candidates.map((item) => `${item.headingPath?.join(' / ') ?? item.chapterTitle ?? ''}\n${item.text}`),
       top_n: candidates.length, return_documents: false })
-  }, signal, RERANK_MAX_BYTES, RERANK_TIMEOUT_MS)
+  }, signal, RERANK_MAX_BYTES, config.timeoutMs ?? RERANK_TIMEOUT_MS)
   signal.throwIfAborted()
   const parsed = responseSchema.safeParse(raw)
   if (!parsed.success || parsed.data.results.some((item) => item.index >= candidates.length) ||

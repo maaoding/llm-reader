@@ -1,3 +1,4 @@
+import { isPageProcessor } from '@shared/request-settings'
 import { useState } from 'react'
 import type { BookAnalysisState, BookRecord, ProviderOverview } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -17,7 +18,7 @@ export function BookAnalysisControls({ book, state, error, profiles, onStart, on
   const documentReady = state?.document?.status === 'ready'
   const busy = preparing || state?.status === 'analyzing'
   const supported = book.format !== 'pdf' || Boolean(state?.documentProcessor && state.documentProcessor !== 'none')
-  const vision = book.format === 'pdf' && state?.documentProcessor === 'vision'
+  const vision = book.format === 'pdf' && isPageProcessor(state?.documentProcessor ?? 'none')
   const canStart = !starting && profiles.profiles.some((profile) => profile.id === profileId && profile.hasApiKey)
   const start = async (rebuild: boolean) => {
     if (rebuild && !window.confirm(copy('preparation.notesRebuildConfirm'))) return

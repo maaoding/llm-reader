@@ -1,3 +1,6 @@
+import { RequestSettingsEditor } from './RequestSettingsEditor'
+import { publicRequestSettings } from '@shared/request-settings'
+import type { RequestSettingsInput, ProviderProtocol } from '@shared/contracts'
 import {
   AlertCircle,
   ArrowLeft,
@@ -451,13 +454,13 @@ function tocHrefMatchesCurrent(itemHref: string, currentHref: string | null): bo
 }
 
 function providerIsConfigured(provider: ProviderSettings): boolean {
-  return Boolean(provider.baseUrl.trim() && provider.model.trim() && provider.hasApiKey)
+  return Boolean(provider.baseUrl.trim() && provider.model.trim() && (provider.hasApiKey || provider.hasCustomHeaders))
 }
 
 function activeProviderSettings(overview: ProviderOverview): ProviderSettings {
   const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
   return active
-    ? { baseUrl: active.baseUrl, model: active.model, compatibility: active.compatibility, hasApiKey: active.hasApiKey }
+    ? { ...publicRequestSettings(active), protocol: active.protocol, hasCustomHeaders: active.hasCustomHeaders, baseUrl: active.baseUrl, model: active.model, compatibility: active.compatibility, hasApiKey: active.hasApiKey }
     : EMPTY_PROVIDER
 }
 
@@ -1667,7 +1670,13 @@ function SettingsModal({
   const [baseUrl, setBaseUrl] = useState(initiallySelected?.baseUrl ?? 'https://api.openai.com')
   const [model, setModel] = useState(initiallySelected?.model ?? 'gpt-4.1-mini')
   const [compatibility, setCompatibility] = useState<ProviderCompatibility>(initiallySelected?.compatibility ?? 'auto')
+  const [protocol, setProtocol] = useState<ProviderProtocol>(initiallySelected?.protocol ?? 'openai')
+  const [requestSettings, setRequestSettings] = useState<RequestSettingsInput>(publicRequestSettings(initiallySelected ?? {}))
+  const [requestInvalid, setRequestInvalid] = useState(false)
+  const [requestEditorRevision, setRequestEditorRevision] = useState(0)
   const [baseline, setBaseline] = useState({
+    protocol: initiallySelected?.protocol ?? 'openai' as ProviderProtocol,
+    requestSettings: JSON.stringify(publicRequestSettings(initiallySelected ?? {})),
     name: initiallySelected?.name ?? '',
     baseUrl: initiallySelected?.baseUrl ?? 'https://api.openai.com',
     model: initiallySelected?.model ?? 'gpt-4.1-mini',
@@ -1686,10 +1695,11 @@ function SettingsModal({
   const panelRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(true)
   const testSequenceRef = useRef(0)
-  const modelCacheRef = useRef(new Map<string, { baseUrl: string; compatibility: ProviderCompatibility; models: string[]; truncated: boolean }>())
+  const modelCacheRef = useRef(new Map<string, { baseUrl: string; compatibility: ProviderCompatibility; protocol: ProviderProtocol; models: string[]; truncated: boolean }>())
 
   const selectedProfile = overview.profiles.find((profile) => profile.id === selectedProfileId) ?? null
-  const dirty = keyDirty || profileName !== baseline.name || baseUrl !== baseline.baseUrl || model !== baseline.model || compatibility !== baseline.compatibility
+  const savedKeyMatches = Boolean(selectedProfile?.hasApiKey && selectedProfile.baseUrl === baseUrl && (selectedProfile.protocol ?? 'openai') === protocol)
+  const dirty = requestInvalid || protocol !== baseline.protocol || JSON.stringify(requestSettings) !== baseline.requestSettings || keyDirty || profileName !== baseline.name || baseUrl !== baseline.baseUrl || model !== baseline.model || compatibility !== baseline.compatibility
 
   const confirmDiscard = (): boolean => !dirty || window.confirm(copy('settings.discardChanges'))
 
@@ -1732,11 +1742,15 @@ function SettingsModal({
     setBaseUrl(profile.baseUrl)
     setModel(profile.model)
     setCompatibility(profile.compatibility)
-    setBaseline({ name: profile.name, baseUrl: profile.baseUrl, model: profile.model, compatibility: profile.compatibility })
+    setProtocol(profile.protocol ?? 'openai')
+    setRequestSettings(publicRequestSettings(profile))
+    setRequestInvalid(false)
+    setRequestEditorRevision((value) => value + 1)
+    setBaseline({ protocol: profile.protocol ?? 'openai', requestSettings: JSON.stringify(publicRequestSettings(profile)), name: profile.name, baseUrl: profile.baseUrl, model: profile.model, compatibility: profile.compatibility })
     resetSecretInput()
     setStatus(null)
     const entry = modelCacheRef.current.get(cacheKey(profile.id))
-    const cached = entry?.baseUrl === profile.baseUrl && entry.compatibility === profile.compatibility ? entry : undefined
+    const cached = entry?.baseUrl === profile.baseUrl && entry.compatibility === profile.compatibility && entry.protocol === (profile.protocol ?? 'openai') ? entry : undefined
     setModelOptions(cached?.models ?? [])
     setModelStatus(cached
       ? { ok: true, message: cached.truncated
@@ -1749,6 +1763,8 @@ function SettingsModal({
     const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
     const next = {
       name: '',
+      protocol: active?.protocol ?? 'openai' as ProviderProtocol,
+      requestSettings: '{}',
       baseUrl: active?.baseUrl ?? 'https://api.openai.com',
       model: active?.model ?? 'gpt-4.1-mini',
       compatibility: 'auto' as ProviderCompatibility
@@ -1758,11 +1774,15 @@ function SettingsModal({
     setBaseUrl(next.baseUrl)
     setModel(next.model)
     setCompatibility(next.compatibility)
+    setProtocol(next.protocol)
+    setRequestSettings({})
+    setRequestInvalid(false)
+    setRequestEditorRevision((value) => value + 1)
     setBaseline(next)
     resetSecretInput()
     setStatus(null)
     const cached = modelCacheRef.current.get(cacheKey(null))
-    setModelOptions(cached?.baseUrl === next.baseUrl && cached.compatibility === next.compatibility ? cached.models : [])
+    setModelOptions(cached?.baseUrl === next.baseUrl && cached.compatibility === next.compatibility && cached.protocol === next.protocol ? cached.models : [])
     setModelStatus(null)
   }
 
@@ -1805,11 +1825,13 @@ function SettingsModal({
 
   const handleSave = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
+    if (requestInvalid) return
     setBusy('save')
     setStatus(null)
     try {
       const key = keyRef.current?.value.trim()
       const input = {
+        ...requestSettings, protocol,
         name: profileName.trim(),
         compatibility,
         baseUrl: baseUrl.trim(),
@@ -1852,6 +1874,7 @@ function SettingsModal({
     try {
       const key = keyRef.current?.value.trim()
       const result = await window.readerApi.testProviderConfiguration({
+        ...requestSettings, protocol,
         compatibility,
         ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
         baseUrl: baseUrl.trim(),
@@ -1876,6 +1899,7 @@ function SettingsModal({
     try {
       const key = keyRef.current?.value.trim()
       const result = await window.readerApi.listProviderModels({
+        ...requestSettings, protocol,
         compatibility,
         ...(selectedProfileId ? { profileId: selectedProfileId } : {}),
         baseUrl: baseUrl.trim(),
@@ -1883,7 +1907,7 @@ function SettingsModal({
       })
       if (!mountedRef.current) return
       modelCacheRef.current.set(cacheKey(selectedProfileId), {
-        compatibility,
+        protocol, compatibility,
         baseUrl: baseUrl.trim(),
         models: result.models,
         truncated: result.truncated
@@ -2193,6 +2217,19 @@ function SettingsModal({
                     required
                   />
 
+                  <label className="field-label" htmlFor="provider-protocol">{copy('request.protocol')}</label>
+                  <select id="provider-protocol" data-testid="provider-protocol" value={protocol} disabled={busy !== null}
+                    onChange={(event) => {
+                      const next = event.target.value as ProviderProtocol
+                      setProtocol(next)
+                      resetSecretInput()
+                      if (['https://api.openai.com', 'https://api.anthropic.com'].includes(baseUrl)) setBaseUrl(next === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com')
+                      setRequestSettings({ ...requestSettings, customHeaders: undefined })
+                      setRequestInvalid(false)
+                      modelCacheRef.current.delete(cacheKey(selectedProfileId)); setModelOptions([]); setModelStatus(null); setStatus(null)
+                    }}>
+                    <option value="openai">{copy('request.openai')}</option><option value="anthropic">{copy('request.anthropic')}</option>
+                  </select>
                   <label className="field-label" htmlFor="provider-base-url">{copy('settings.baseUrlLabel')}</label>
                   <input
                     id="provider-base-url"
@@ -2200,6 +2237,8 @@ function SettingsModal({
                     value={baseUrl}
                     onChange={(event) => {
                       setBaseUrl(event.target.value)
+                      resetSecretInput()
+                      setRequestSettings({ ...requestSettings, customHeaders: undefined }); setRequestInvalid(false)
                       modelCacheRef.current.delete(cacheKey(selectedProfileId))
                       setModelOptions([])
                       setModelStatus(null)
@@ -2209,7 +2248,7 @@ function SettingsModal({
                     spellCheck={false}
                     required
                   />
-                  <p className="field-hint">{copy('settings.baseUrlHint', { path: '/v1/chat/completions' })}</p>
+                  <p className="field-hint">{copy('settings.baseUrlHint', { path: protocol === 'anthropic' ? '/v1/messages' : '/v1/chat/completions' })}</p>
 
                   <label className="field-label" htmlFor="provider-compatibility">{copy('settings.compatibilityLabel')}</label>
                   <select id="provider-compatibility" data-testid="provider-compatibility" value={compatibility} disabled={busy !== null}
@@ -2231,7 +2270,7 @@ function SettingsModal({
                       className="text-button"
                       data-testid="provider-models-fetch"
                       type="button"
-                      disabled={busy !== null || !baseUrl.trim()}
+                      disabled={busy !== null || requestInvalid || !baseUrl.trim()}
                       onClick={handleFetchModels}
                     >
                       {busy === 'models' ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
@@ -2260,7 +2299,7 @@ function SettingsModal({
 
                   <div className="label-row">
                     <label className="field-label" htmlFor="provider-api-key">{copy('settings.apiKeyLabel')}</label>
-                    {selectedProfile?.hasApiKey && <span className="saved-key"><Check size={12} /> {copy('settings.apiKeySaved')}</span>}
+                    {savedKeyMatches && <span className="saved-key"><Check size={12} /> {copy('settings.apiKeySaved')}</span>}
                   </div>
                   <input
                     id="provider-api-key"
@@ -2275,7 +2314,7 @@ function SettingsModal({
                       setModelOptions([])
                       setModelStatus(null)
                     }}
-                    placeholder={selectedProfile?.hasApiKey ? copy('settings.apiKeyPlaceholderSaved') : copy('settings.apiKeyPlaceholderEmpty')}
+                    placeholder={savedKeyMatches ? copy('settings.apiKeyPlaceholderSaved') : copy('settings.apiKeyPlaceholderEmpty')}
                   />
                   <p className="field-hint">{copy('settings.apiKeyHint')}</p>
 
@@ -2286,12 +2325,20 @@ function SettingsModal({
                     </div>
                   )}
 
+                  <fieldset disabled={busy !== null} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+                    <RequestSettingsEditor key={selectedProfileId + ':' + requestEditorRevision + ':' + baseUrl + ':' + protocol} id="provider" value={requestSettings}
+                      savedHeaders={selectedProfile?.hasCustomHeaders && selectedProfile.baseUrl === baseUrl && (selectedProfile.protocol ?? 'openai') === protocol}
+                      onInvalidChange={setRequestInvalid} onChange={(settings) => {
+                        setRequestSettings(settings); setStatus(null); setModelOptions([]); setModelStatus(null)
+                        modelCacheRef.current.delete(cacheKey(selectedProfileId))
+                      }} />
+                  </fieldset>
                   <footer className="modal-actions provider-modal-actions">
                     <button
                       className="secondary-button"
                       data-testid="provider-test"
                       type="button"
-                      disabled={busy !== null || !baseUrl.trim() || !model.trim()}
+                      disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
                       onClick={handleTest}
                     >
                       {busy === 'test' ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}
@@ -2301,7 +2348,7 @@ function SettingsModal({
                       className="secondary-button"
                       data-testid="provider-activate"
                       type="button"
-                      disabled={busy !== null || !selectedProfile || dirty || !selectedProfile.hasApiKey || selectedProfile.isActive}
+                      disabled={busy !== null || !selectedProfile || dirty || (!selectedProfile.hasApiKey && !selectedProfile.hasCustomHeaders) || selectedProfile.isActive}
                       onClick={handleActivate}
                     >
                       {busy === 'activate' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
@@ -2311,7 +2358,7 @@ function SettingsModal({
                       className="primary-button"
                       data-testid="provider-save"
                       type="submit"
-                      disabled={busy !== null || !profileName.trim() || !baseUrl.trim() || !model.trim()}
+                      disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim()}
                     >
                       {busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
                       {copy('settings.save')}
@@ -2595,7 +2642,7 @@ export default function App(): ReactNode {
   const handleProviderOverviewChange = useCallback((overview: ProviderOverview, checkActive: boolean): void => {
     setProviderOverview(overview)
     const settings = activeProviderSettings(overview)
-    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey || settings.compatibility !== provider.compatibility
+    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey || settings.compatibility !== provider.compatibility || settings.protocol !== provider.protocol || JSON.stringify(publicRequestSettings(settings)) !== JSON.stringify(publicRequestSettings(provider)) || settings.hasCustomHeaders !== provider.hasCustomHeaders
     if (!checkActive && !changed) return
     const revision = commitProviderSettings(settings)
     if (!checkActive || !providerIsConfigured(settings)) return

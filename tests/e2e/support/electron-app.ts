@@ -35,6 +35,14 @@ export async function launchReader(options: LaunchReaderOptions): Promise<{
       LLM_READER_UPDATER_DISABLED: '1'
     }
   })
+  // Headless Linux runners may have no OS keyring. Opt in only for disposable
+  // test profiles with synthetic credentials; the application never enables this.
+  if (process.platform === 'linux' && process.env.LLM_READER_E2E_BASIC_TEXT === '1') {
+    await application.evaluate(({ safeStorage }) => {
+      if (safeStorage.getSelectedStorageBackend() !== 'basic_text') throw new Error('Expected a test-only basic_text backend')
+      safeStorage.setUsePlainTextEncryption(true)
+    })
+  }
   return { application, page: await application.firstWindow() }
 }
 

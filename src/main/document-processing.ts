@@ -12,6 +12,8 @@ import { documentSectionSchema, normalizedDocumentSchema } from './schemas'
 import { normalizeDoclingDocument, normalizeMineruDocument } from './document-normalizer'
 import { documentSections, MAX_DOCUMENT_CACHE_BYTES } from '@shared/document-structure'
 import { VisionOcrService, type PdfPageRenderer } from './vision-ocr'
+import { isPageProcessor, mergeRequestHeaders } from '@shared/request-settings'
+import { appendFormOptions } from './page-ocr-provider'
 
 const object = z.record(z.string(), z.unknown())
 const identifier = z.string().min(1).max(128).regex(/^[\w-]+$/u)
@@ -87,7 +89,7 @@ export class DocumentProcessingService {
     private readonly http: KnowledgeHttp, private readonly pollMs = 2_000, private readonly foregroundBusy: () => boolean = () => false) {
     this.vision = new VisionOcrService(database, settings, http)
   }
-  usesVision(): boolean { return this.settings.get().document.processor === 'vision' }
+  usesVision(): boolean { return isPageProcessor(this.settings.get().document.processor) }
   progress(bookId: string): { completed: number; total: number } | undefined { return this.vision.progress(bookId) }
   identity(): string {
     const config = this.settings.get().document
@@ -108,19 +110,19 @@ export class DocumentProcessingService {
   }
   private async yieldToQuestions(signal: AbortSignal): Promise<void> { while (this.foregroundBusy()) await delay(100, undefined, { signal }); signal.throwIfAborted() }
   private headers(config: DocumentCredentials): Record<string, string> {
-    return config.apiKey ? config.processor === 'docling' ? { 'X-Api-Key': config.apiKey } : { Authorization: `Bearer ${config.apiKey}` } : {}
+    return mergeRequestHeaders(config.apiKey ? config.processor === 'docling' ? { 'X-Api-Key': config.apiKey } : { Authorization: `Bearer ${config.apiKey}` } : {}, config.customHeaders)
   }
   async test(config: DocumentCredentials, signal: AbortSignal): Promise<void> {
-    if (config.processor === 'vision') return this.vision.test(config, signal)
+    if (isPageProcessor(config.processor)) return this.vision.test(config, signal)
     if (config.processor === 'none' || !config.baseUrl) throw new AppError('DOCUMENT_CONFIG', copy('knowledge.pdfRequired'))
     if (config.processor === 'mineru-cloud') {
       if (!config.apiKey) throw new AppError('DOCUMENT_KEY', copy('knowledge.cloudKey'))
       // Read-only query for a nonexistent random batch: checks auth without creating a paid job.
-      const result = parse(await this.http.json(`${config.baseUrl}/api/v4/extract-results/batch/${randomUUID()}`, { headers: this.headers(config) }, signal))
+      const result = parse(await this.http.json(`${config.baseUrl}/api/v4/extract-results/batch/${randomUUID()}`, { headers: this.headers(config) }, signal, undefined, config.timeoutMs))
       // -60012 is task not found. Other application errors must not masquerade as success.
       if (result.code !== 0 && result.code !== -60012 && result.code !== '-60012') failed()
     } else {
-      const spec = parse(await this.http.json(`${config.baseUrl}/openapi.json`, { headers: this.headers(config) }, signal))
+      const spec = parse(await this.http.json(`${config.baseUrl}/openapi.json`, { headers: this.headers(config) }, signal, undefined, config.timeoutMs))
       const paths = parse(spec.paths)
       if (!paths[config.processor === 'docling' ? '/v1/convert/file/async' : '/tasks']) invalid()
     }
@@ -131,7 +133,7 @@ export class DocumentProcessingService {
     if (bytes.length > 200_000_000 || pageCount > 600) throw new AppError('DOCUMENT_TOO_LARGE', copy('knowledge.tooLarge'))
     const config = this.settings.document()
     const fingerprint = createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
-    if (config.processor === 'vision') return this.vision.extract(bookId, pageCount, config, fingerprint, signal, renderPage, () => this.yieldToQuestions(signal), onProgress)
+    if (isPageProcessor(config.processor)) return this.vision.extract(bookId, pageCount, config, fingerprint, signal, renderPage, () => this.yieldToQuestions(signal), onProgress)
     let row = this.database.connection.prepare('SELECT * FROM document_jobs WHERE book_id = ?').get(bookId) as unknown as JobRow | undefined
     if (row && row.fingerprint !== fingerprint) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))
     if (row?.structure_json) return documentSections(normalizedDocumentSchema.parse(JSON.parse(row.structure_json)))
@@ -153,7 +155,7 @@ export class DocumentProcessingService {
         if (!config.apiKey) throw new AppError('DOCUMENT_KEY', copy('knowledge.cloudKey'))
         const data = cloudData(await this.http.json(`${config.baseUrl}/api/v4/file-urls/batch`, { method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'document.pdf', is_ocr: config.ocr }],
-            model_version: 'pipeline', language: config.language, enable_formula: true, enable_table: true }) }, signal))
+            model_version: 'pipeline', language: config.language, enable_formula: true, enable_table: true, ...config.extraBody }) }, signal, undefined, config.timeoutMs))
         taskId = saveTask(data.batch_id)
         const urls = z.array(z.string()).length(1).parse(data.file_urls)
         await this.http.request(cloudAssetUrl(urls[0], config.baseUrl), { method: 'PUT', body: Buffer.from(bytes) }, signal, 1_000_000, 180_000)
@@ -166,8 +168,9 @@ export class DocumentProcessingService {
             return_content_list: 'true', return_md: 'false', return_images: 'false', response_format_zip: 'false' }
         for (const [key, value] of Object.entries(fields)) form.append(key, value)
         if (config.processor === 'docling') for (const language of config.language === 'ch' ? ['ch_sim', 'en'] : ['en']) form.append('ocr_lang', language)
+        appendFormOptions(form, config.extraBody)
         const submitted = parse(await this.http.json(`${config.baseUrl}${config.processor === 'docling' ? '/v1/convert/file/async' : '/tasks'}`,
-          { method: 'POST', headers, body: form }, signal))
+          { method: 'POST', headers, body: form }, signal, undefined, config.timeoutMs))
         taskId = saveTask(submitted.task_id)
       }
       row = { fingerprint, task_id: taskId, result_json: null }
@@ -186,7 +189,7 @@ export class DocumentProcessingService {
       await this.yieldToQuestions(signal)
       if (Date.now() > deadline) throw new AppError('DOCUMENT_TIMEOUT', copy('knowledge.timeout'))
       if (config.processor === 'mineru-cloud') {
-        const data = cloudData(await this.http.json(`${config.baseUrl}/api/v4/extract-results/batch/${row.task_id}`, { headers }, signal))
+        const data = cloudData(await this.http.json(`${config.baseUrl}/api/v4/extract-results/batch/${row.task_id}`, { headers }, signal, undefined, config.timeoutMs))
         const results = z.array(object).length(1).parse(data.extract_result)
         const item = results[0]
         if (item.state === 'failed') failed()
@@ -197,11 +200,11 @@ export class DocumentProcessingService {
         } else if (!['waiting-file', 'pending', 'running', 'converting'].includes(String(item.state))) invalid()
       } else {
         const isDocling = config.processor === 'docling'
-        const status = parse(await this.http.json(`${config.baseUrl}${isDocling ? '/v1/status/poll/' : '/tasks/'}${row.task_id}`, { headers }, signal))
+        const status = parse(await this.http.json(`${config.baseUrl}${isDocling ? '/v1/status/poll/' : '/tasks/'}${row.task_id}`, { headers }, signal, undefined, config.timeoutMs))
         const phase = isDocling ? status.task_status : status.status
         if (phase === 'failure' || phase === 'failed') failed()
         if (phase === 'success' || phase === 'completed') {
-          const result = parse(await this.http.json(`${config.baseUrl}${isDocling ? '/v1/result/' : '/tasks/'}${row.task_id}${isDocling ? '' : '/result'}`, { headers }, signal, MAX_RESULT))
+          const result = parse(await this.http.json(`${config.baseUrl}${isDocling ? '/v1/result/' : '/tasks/'}${row.task_id}${isDocling ? '' : '/result'}`, { headers }, signal, MAX_RESULT, config.timeoutMs))
           if (isDocling) {
             if (result.status !== 'success') failed()
             normalized = normalize(parse(result.document).json_content)

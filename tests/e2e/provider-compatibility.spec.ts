@@ -63,7 +63,12 @@ test('Go proxy drafts, profile switching and persisted settings work in both the
     await expect(page.getByTestId('provider-connection-status')).toHaveAttribute('aria-label', 'API 连接正常')
     await page.getByTestId('provider-compatibility').selectOption('auto')
     await expect(page.getByTestId('provider-dirty-hint')).toBeVisible()
-    page.once('dialog', (dialog) => dialog.dismiss())
+    // Electron's native confirm dialog needs a display server. Dismiss this one
+    // prompt in the renderer so the same dirty-draft guard runs on headless CI.
+    await page.evaluate(() => {
+      const originalConfirm = window.confirm
+      window.confirm = () => { window.confirm = originalConfirm; return false }
+    })
     await page.getByTestId('provider-new').click()
     await expect(page.getByTestId('provider-profile')).toHaveValue(goId)
     await page.getByTestId('provider-compatibility').selectOption('opencode-go')

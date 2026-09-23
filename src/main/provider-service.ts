@@ -8,13 +8,14 @@ import type {
   ProviderProfile,
   ProviderSettings,
   ProviderTestResult,
+  RequestSettingsInput,
+  ProviderProtocol,
   UpdateProviderProfileInput
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppDatabase, type ProviderProfileRecord } from './database'
 import { AppError } from './errors'
 import {
-  buildChatCompletionsUrl,
   buildModelsUrl,
   errorResponseDetails,
   readResponseTextBounded,
@@ -22,6 +23,9 @@ import {
 } from './llm-service'
 import { ProfileSecretStore } from './secret-store'
 import { ProviderTransport } from './provider-transport'
+import { buildCompletionUrl, completionBody } from './provider-protocol'
+import { customHeadersSchema, publicRequestSettings } from '@shared/request-settings'
+import { createProviderProfileSchema, updateProviderProfileSchema, providerConfigurationSchema, providerModelListSchema } from './schemas'
 
 const MAX_PROFILE_COUNT = 10
 const PROVIDER_TIMEOUT_MS = 15_000
@@ -39,6 +43,9 @@ export type FetchImplementation = typeof fetch
 
 function publicProfile(row: ProviderProfileRecord, hasApiKey: boolean): ProviderProfile {
   return {
+    ...JSON.parse(row.request_json ?? '{}'),
+    ...(row.headers_secret ? { hasCustomHeaders: true } : {}),
+    protocol: row.protocol ?? 'openai',
     id: row.id,
     name: row.name,
     baseUrl: row.base_url,
@@ -77,7 +84,7 @@ export class ProviderService {
   getSettings(): ProviderSettings {
     const active = this.database.getActiveProviderProfile()
     return active
-      ? { baseUrl: active.base_url, model: active.model, compatibility: active.compatibility, hasApiKey: this.secretStore.has(active.id) }
+      ? { ...publicRequestSettings(JSON.parse(active.request_json ?? '{}')), protocol: active.protocol ?? 'openai', ...(active.headers_secret ? { hasCustomHeaders: true } : {}), baseUrl: active.base_url, model: active.model, compatibility: active.compatibility, hasApiKey: this.secretStore.has(active.id) }
       : { baseUrl: 'https://api.openai.com', model: 'gpt-4.1-mini', compatibility: 'auto', hasApiKey: false }
   }
 
@@ -97,14 +104,17 @@ export class ProviderService {
     this.secretStore.write(profileId, this.keyProtector.encrypt(apiKey))
   }
 
-  createProfile(input: CreateProviderProfileInput): ProviderOverview {
+  createProfile(raw: CreateProviderProfileInput): ProviderOverview {
+    buildCompletionUrl(raw.baseUrl, raw.protocol)
+    const input = createProviderProfileSchema.parse(raw)
     if (this.database.listProviderProfiles().length >= MAX_PROFILE_COUNT) {
       throw new AppError('PROVIDER_PROFILE_LIMIT', copy('error.providerProfileLimit'))
     }
-    buildChatCompletionsUrl(input.baseUrl)
+    buildCompletionUrl(input.baseUrl, input.protocol)
     this.assertUniqueName(input.name)
     const id = randomUUID()
     const now = new Date().toISOString()
+    const headersSecret = this.encryptHeaders(input.customHeaders ?? {})
     this.writeKey(id, input.apiKey)
     try {
       this.database.createProviderProfile({
@@ -113,6 +123,9 @@ export class ProviderService {
         base_url: input.baseUrl,
         model: input.model,
         compatibility: input.compatibility ?? 'auto',
+        protocol: input.protocol ?? 'openai',
+        request_json: JSON.stringify(publicRequestSettings(input)),
+        headers_secret: headersSecret,
         is_active: 0,
         created_at: now,
         updated_at: now
@@ -124,14 +137,19 @@ export class ProviderService {
     return this.getOverview()
   }
 
-  updateProfile(input: UpdateProviderProfileInput): ProviderOverview {
-    if (!this.database.getProviderProfile(input.id)) {
-      throw new AppError('PROVIDER_PROFILE_NOT_FOUND', copy('error.providerProfileNotFound'))
+  updateProfile(raw: UpdateProviderProfileInput): ProviderOverview {
+    buildCompletionUrl(raw.baseUrl, raw.protocol)
+    const input = updateProviderProfileSchema.parse(raw)
+    const previous = this.database.getProviderProfile(input.id)
+    if (!previous) throw new AppError('PROVIDER_PROFILE_NOT_FOUND', copy('error.providerProfileNotFound'))
+    if (this.secretStore.has(input.id) && input.apiKey === undefined && !this.sameEndpoint(previous, input)) {
+      throw new AppError('PROVIDER_KEY_SCOPE', copy('request.keyScope'))
     }
-    buildChatCompletionsUrl(input.baseUrl)
+    buildCompletionUrl(input.baseUrl, input.protocol)
     this.assertUniqueName(input.name, input.id)
+    const headersSecret = this.encryptHeaders(this.resolveHeaders(input, input.id))
     this.writeKey(input.id, input.apiKey)
-    if (!this.database.updateProviderProfile(input.id, input.name, input.baseUrl, input.model, new Date().toISOString(), input.compatibility ?? 'auto')) {
+    if (!this.database.updateProviderProfile(input.id, input.name, input.baseUrl, input.model, new Date().toISOString(), input.compatibility ?? 'auto', input.protocol ?? 'openai', JSON.stringify(publicRequestSettings(input)), headersSecret)) {
       throw new AppError('PROVIDER_PROFILE_NOT_FOUND', copy('error.providerProfileNotFound'))
     }
     return this.getOverview()
@@ -141,7 +159,7 @@ export class ProviderService {
     if (!this.database.getProviderProfile(id)) {
       throw new AppError('PROVIDER_PROFILE_NOT_FOUND', copy('error.providerProfileNotFound'))
     }
-    if (!this.secretStore.has(id)) {
+    if (!this.secretStore.has(id) && !this.database.getProviderProfile(id)?.headers_secret) {
       throw new AppError('PROVIDER_PROFILE_KEY_REQUIRED', copy('error.providerProfileKeyRequired'))
     }
     if (!this.database.activateProviderProfile(id)) {
@@ -183,33 +201,47 @@ export class ProviderService {
     }
   }
 
-  private resolveKey(profileId: string | undefined, apiKey: string | undefined): string {
-    if (apiKey !== undefined) return apiKey
-    if (!profileId || !this.database.getProviderProfile(profileId)) {
-      throw new AppError('PROVIDER_PROFILE_KEY_REQUIRED', copy('error.providerProfileKeyRequired'))
-    }
-    return this.decryptKey(profileId)
+  private sameEndpoint(row: ProviderProfileRecord, input: { baseUrl: string; protocol?: ProviderProtocol }): boolean {
+    return (row.protocol ?? 'openai') === (input.protocol ?? 'openai') && buildCompletionUrl(row.base_url, row.protocol) === buildCompletionUrl(input.baseUrl, input.protocol)
+  }
+
+  private resolveKey(input: ProviderModelListInput, headers: Record<string, string>): string {
+    if (input.apiKey !== undefined) return input.apiKey
+    const row = input.profileId ? this.database.getProviderProfile(input.profileId) : null
+    if (row && this.sameEndpoint(row, input) && this.secretStore.has(row.id)) return this.decryptKey(row.id)
+    if (Object.keys(headers).length) return ''
+    throw new AppError('PROVIDER_PROFILE_KEY_REQUIRED', copy(row && !this.sameEndpoint(row, input) ? 'request.keyScope' : 'error.providerProfileKeyRequired'))
+  }
+
+  private encryptHeaders(headers: Record<string, string>): Uint8Array | null {
+    if (!Object.keys(headers).length) return null
+    if (!this.keyProtector.isAvailable()) throw new AppError('KEY_STORAGE_UNAVAILABLE', copy('error.keyStorageUnavailable'))
+    return this.keyProtector.encrypt(JSON.stringify(customHeadersSchema.parse(headers)))
+  }
+
+  private resolveHeaders(input: RequestSettingsInput & { baseUrl: string; protocol?: ProviderProtocol }, profileId?: string): Record<string, string> {
+    if (input.customHeaders !== undefined) return customHeadersSchema.parse(input.customHeaders ?? {})
+    const row = profileId ? this.database.getProviderProfile(profileId) : null
+    if (!row?.headers_secret || !this.sameEndpoint(row, input)) return {}
+    try { return customHeadersSchema.parse(JSON.parse(this.keyProtector.decrypt(row.headers_secret))) }
+    catch { throw new AppError('KEY_DECRYPT_FAILED', copy('error.keyDecryptFailed')) }
   }
 
   getCredentials(profileId?: string): ProviderCredentials {
     const active = profileId ? this.database.getProviderProfile(profileId) : this.database.getActiveProviderProfile()
     if (!active) throw new AppError('PROVIDER_NOT_CONFIGURED', copy('error.providerNotConfigured'))
-    return { baseUrl: active.base_url, model: active.model, compatibility: active.compatibility, apiKey: this.decryptKey(active.id) }
+    const customHeaders = this.resolveHeaders({ baseUrl: active.base_url, protocol: active.protocol }, active.id)
+    return { ...publicRequestSettings(JSON.parse(active.request_json ?? '{}')), baseUrl: active.base_url, model: active.model, compatibility: active.compatibility, protocol: active.protocol ?? 'openai', customHeaders, apiKey: this.resolveKey({ profileId: active.id, baseUrl: active.base_url, protocol: active.protocol }, customHeaders) }
   }
 
   private async testCredentials(credentials: ProviderCredentials): Promise<ProviderTestResult> {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS)
+    const timer = setTimeout(() => controller.abort(), credentials.timeoutMs ?? PROVIDER_TIMEOUT_MS)
     try {
-      const response = await this.transport.send(buildChatCompletionsUrl(credentials.baseUrl), credentials, { sessionId: randomUUID() }, {
+      const response = await this.transport.send(buildCompletionUrl(credentials.baseUrl, credentials.protocol), credentials, { sessionId: randomUUID() }, {
         method: 'POST',
         accept: 'application/json',
-        body: JSON.stringify({
-          model: credentials.model,
-          stream: false,
-          max_tokens: 1,
-          messages: [{ role: 'user', content: '回复 OK' }]
-        }),
+        body: JSON.stringify(completionBody({ ...credentials, extraBody: { max_tokens: 16, ...credentials.extraBody } }, [{ role: 'user', content: '回复 OK' }], false, 16)),
         signal: controller.signal
       })
       if (!response.ok) return { ok: false, message: (await errorResponseDetails(response)).error.message }
@@ -229,13 +261,18 @@ export class ProviderService {
     }
   }
 
-  async testConfiguration(input: ProviderConfigurationInput): Promise<ProviderTestResult> {
+  async testConfiguration(raw: ProviderConfigurationInput): Promise<ProviderTestResult> {
     try {
+      const input = providerConfigurationSchema.parse(raw)
+      const customHeaders = this.resolveHeaders(input, input.profileId)
       return await this.testCredentials({
+        ...publicRequestSettings(input),
+        customHeaders,
+        protocol: input.protocol,
         baseUrl: input.baseUrl,
         model: input.model,
         compatibility: input.compatibility ?? 'auto',
-        apiKey: this.resolveKey(input.profileId, input.apiKey)
+        apiKey: this.resolveKey(input, customHeaders)
       })
     } catch (error) {
       if (error instanceof AppError) return { ok: false, message: error.message }
@@ -244,12 +281,14 @@ export class ProviderService {
     }
   }
 
-  async listModels(input: ProviderModelListInput): Promise<ProviderModelList> {
-    const apiKey = this.resolveKey(input.profileId, input.apiKey)
+  async listModels(raw: ProviderModelListInput): Promise<ProviderModelList> {
+    const input = providerModelListSchema.parse(raw)
+    const customHeaders = this.resolveHeaders(input, input.profileId)
+    const apiKey = this.resolveKey(input, customHeaders)
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS)
+    const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? PROVIDER_TIMEOUT_MS)
     try {
-      const response = await this.transport.send(buildModelsUrl(input.baseUrl), { apiKey, compatibility: input.compatibility ?? 'auto' }, { sessionId: randomUUID() }, {
+      const response = await this.transport.send(buildModelsUrl(input.baseUrl), { apiKey, protocol: input.protocol, customHeaders, compatibility: input.compatibility ?? 'auto' }, { sessionId: randomUUID() }, {
         method: 'GET',
         accept: 'application/json',
         signal: controller.signal
@@ -281,7 +320,7 @@ export class ProviderService {
       }
       if (unique.size === 0) throw new AppError('PROVIDER_MODELS_EMPTY', copy('error.providerModelsEmpty'))
       const models = [...unique].sort((left, right) => left.localeCompare(right))
-      return { models: models.slice(0, MAX_MODEL_COUNT), truncated: models.length > MAX_MODEL_COUNT }
+      return { models: models.slice(0, MAX_MODEL_COUNT), truncated: models.length > MAX_MODEL_COUNT || responseHasMore(parsed) }
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
         throw new AppError('PROVIDER_MODELS_TIMEOUT', copy('provider.testTimeout'))
@@ -291,4 +330,8 @@ export class ProviderService {
       clearTimeout(timer)
     }
   }
+}
+
+function responseHasMore(value: unknown): boolean {
+  return Boolean(value && typeof value === 'object' && (value as { has_more?: unknown }).has_more === true)
 }

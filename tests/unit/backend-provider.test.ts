@@ -78,6 +78,7 @@ describe('ProviderService profiles and secret storage', () => {
     const second = overview.profiles[1]
     provider.activateProfile(first.id)
     expect(provider.getCredentials()).toEqual({
+      protocol: 'openai', customHeaders: {},
       compatibility: 'auto',
       baseUrl: 'https://first.example.test/v1',
       model: 'first-model',
@@ -88,7 +89,7 @@ describe('ProviderService profiles and secret storage', () => {
 
     const columns = database.connection.prepare('PRAGMA table_info(provider_profiles)').all()
     expect(columns.map((column) => column.name)).toEqual([
-      'id', 'name', 'base_url', 'model', 'is_active', 'created_at', 'updated_at', 'compatibility'
+      'id', 'name', 'base_url', 'model', 'is_active', 'created_at', 'updated_at', 'compatibility', 'protocol', 'request_json', 'headers_secret'
     ])
     database.close()
 

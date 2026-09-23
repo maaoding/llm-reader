@@ -342,12 +342,24 @@ export interface BookAnalysisState {
   document?: BookDocumentState
 }
 
-export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling' | 'vision'
-export interface EmbeddingSettings { enabled: boolean; baseUrl: string; model: string }
-export interface RerankSettings { enabled: boolean; baseUrl: string; model: string }
-export interface DocumentSettings {
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+export interface RequestSettings {
+  timeoutMs?: number
+  extraBody?: Record<string, JsonValue>
+  /** Public settings only expose whether encrypted headers exist. */
+  hasCustomHeaders?: boolean
+}
+export interface RequestSettingsInput extends RequestSettings {
+  /** Omit to retain headers for the same endpoint; null clears them. */
+  customHeaders?: Record<string, string> | null
+}
+export type ProviderProtocol = 'openai' | 'anthropic'
+export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling' | 'vision' | 'mistral-ocr' | 'unstructured'
+export interface EmbeddingSettings extends RequestSettings { enabled: boolean; baseUrl: string; model: string }
+export interface RerankSettings extends RequestSettings { enabled: boolean; baseUrl: string; model: string }
+export interface DocumentSettings extends RequestSettings {
   processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en'
-  model?: string; compatibility?: ProviderCompatibility
+  model?: string; compatibility?: ProviderCompatibility; protocol?: ProviderProtocol
 }
 export interface KnowledgeSettings {
   embedding: EmbeddingSettings & { hasApiKey: boolean }
@@ -356,10 +368,10 @@ export interface KnowledgeSettings {
 }
 /** Omitted keys preserve the saved secret only when the endpoint is unchanged; null removes it. */
 export interface SaveKnowledgeSettingsInput {
-  embedding: EmbeddingSettings & { apiKey?: string | null }
+  embedding: EmbeddingSettings & RequestSettingsInput & { apiKey?: string | null }
   /** Older clients omit this field; preserve the existing configuration in that case. */
-  rerank?: RerankSettings & { apiKey?: string | null }
-  document: DocumentSettings & { apiKey?: string | null }
+  rerank?: RerankSettings & RequestSettingsInput & { apiKey?: string | null }
+  document: DocumentSettings & RequestSettingsInput & { apiKey?: string | null }
 }
 export interface TestKnowledgeSettingsInput extends SaveKnowledgeSettingsInput { target: 'embedding' | 'rerank' | 'document' }
 export interface SemanticIndexState {
@@ -462,11 +474,12 @@ export type LlmEvent =
 
 export type ProviderCompatibility = 'auto' | 'opencode-go'
 
-export interface ProviderSettings {
+export interface ProviderSettings extends RequestSettings {
   baseUrl: string
   model: string
   hasApiKey: boolean
   compatibility: ProviderCompatibility
+  protocol?: ProviderProtocol
 }
 
 export interface ProviderProfile extends ProviderSettings {
@@ -482,31 +495,34 @@ export interface ProviderOverview {
   activeProfileId: string | null
 }
 
-export interface CreateProviderProfileInput {
+export interface CreateProviderProfileInput extends RequestSettingsInput {
   name: string
   baseUrl: string
   model: string
   apiKey?: string
   compatibility?: ProviderCompatibility
+  protocol?: ProviderProtocol
 }
 
 export interface UpdateProviderProfileInput extends CreateProviderProfileInput {
   id: string
 }
 
-export interface ProviderConfigurationInput {
+export interface ProviderConfigurationInput extends RequestSettingsInput {
   profileId?: string
   baseUrl: string
   model: string
   apiKey?: string
   compatibility?: ProviderCompatibility
+  protocol?: ProviderProtocol
 }
 
-export interface ProviderModelListInput {
+export interface ProviderModelListInput extends RequestSettingsInput {
   profileId?: string
   baseUrl: string
   apiKey?: string
   compatibility?: ProviderCompatibility
+  protocol?: ProviderProtocol
 }
 
 export interface ProviderModelList {

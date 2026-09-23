@@ -116,7 +116,7 @@ describe('LibraryService', () => {
       expect.objectContaining({ id: 'legacy-txt', format: 'txt', sourceFormat: 'txt' })
     ])
     expect(database.connection.prepare('SELECT MAX(version) AS version FROM schema_migrations').get())
-      .toMatchObject({ version: 16 })
+      .toMatchObject({ version: 17 })
     expect(database.listProviderProfiles()).toEqual([
       expect.objectContaining({
         id: 'legacy',
@@ -558,8 +558,11 @@ describe('LibraryService', () => {
         answer,
         model: 'export-model'
       })
+    const clock = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-01-01T00:00:00.000Z')
     const firstInsight = makeInsight(firstBook.id, '第一条回答。')
+    clock.mockReturnValue('2026-01-01T00:00:01.000Z')
     const secondInsight = makeInsight(secondBook.id, '第二条回答。')
+    clock.mockRestore()
 
     const all = library.listAllInsights()
     expect(all).toHaveLength(2)
@@ -642,6 +645,7 @@ describe('LibraryService', () => {
     const firstBook = (await library.importFromPath(firstSource)).book
     const secondBook = (await library.importFromPath(secondSource)).book
 
+    const clock = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-01-01T00:00:00.000Z')
     const first = library.saveHighlight({
       bookId: firstBook.id,
       quote: 'First',
@@ -654,6 +658,7 @@ describe('LibraryService', () => {
       anchor: 'txt:0:5',
       chapterTitle: '第一章'
     })
+    clock.mockReturnValue('2026-01-01T00:00:01.000Z')
     const second = library.saveHighlight({
       bookId: firstBook.id,
       quote: 'book',
@@ -666,6 +671,8 @@ describe('LibraryService', () => {
       anchor: 'txt:0:6',
       chapterTitle: '另一本'
     })
+
+    clock.mockRestore()
 
     expect(duplicate.id).toBe(first.id)
     expect(library.listHighlights(firstBook.id)).toEqual([second, first])

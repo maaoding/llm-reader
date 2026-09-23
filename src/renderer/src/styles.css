@@ -4602,3 +4602,8 @@ button.citation-valid:hover {
   max-height: 168px;
   overflow: auto;
 }
+
+.request-settings { margin: 16px 0; }
+.request-settings summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
+.request-settings textarea { width: 100%; box-sizing: border-box; padding: 10px; font: 12px/1.6 ui-monospace, monospace; resize: vertical; color: inherit; background: transparent; border: 1px solid var(--ui-line); border-radius: 6px; }
+.request-settings textarea[aria-invalid="true"] { border-color: #c05050; }

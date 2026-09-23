@@ -15,6 +15,7 @@ import type {
   SavedInsight,
   SaveHighlightInput,
   ProviderCompatibility,
+  ProviderProtocol,
   SaveInsightInput,
   SelectionContext,
   SessionTabRecord,
@@ -93,6 +94,9 @@ export interface ProviderProfileRecord {
   created_at: string
   updated_at: string
   compatibility: ProviderCompatibility
+  protocol?: ProviderProtocol
+  request_json?: string
+  headers_secret?: Uint8Array | null
 }
 
 const migrations = [
@@ -421,6 +425,12 @@ const migrations = [
         draft TEXT NOT NULL DEFAULT '',
         is_active INTEGER NOT NULL DEFAULT 0
       ) STRICT;
+    `,
+    `
+      ALTER TABLE provider_profiles ADD COLUMN protocol TEXT NOT NULL DEFAULT 'openai' CHECK(protocol IN ('openai', 'anthropic'));
+      ALTER TABLE provider_profiles ADD COLUMN request_json TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE provider_profiles ADD COLUMN headers_secret BLOB;
+      ALTER TABLE knowledge_settings ADD COLUMN headers_secret BLOB;
     `
 ] as const
 
@@ -894,7 +904,7 @@ export class AppDatabase {
   listProviderProfiles(): ProviderProfileRecord[] {
     return this.connection
       .prepare(
-        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility, protocol, request_json, headers_secret
          FROM provider_profiles ORDER BY created_at ASC, id ASC`
       )
       .all() as unknown as ProviderProfileRecord[]
@@ -903,7 +913,7 @@ export class AppDatabase {
   getProviderProfile(id: string): ProviderProfileRecord | null {
     return (this.connection
       .prepare(
-        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility, protocol, request_json, headers_secret
          FROM provider_profiles WHERE id = ?`
       )
       .get(id) as unknown as ProviderProfileRecord | undefined) ?? null
@@ -912,7 +922,7 @@ export class AppDatabase {
   getActiveProviderProfile(): ProviderProfileRecord | null {
     return (this.connection
       .prepare(
-        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility
+        `SELECT id, name, base_url, model, is_active, created_at, updated_at, compatibility, protocol, request_json, headers_secret
          FROM provider_profiles WHERE is_active = 1`
       )
       .get() as unknown as ProviderProfileRecord | undefined) ?? null
@@ -922,8 +932,8 @@ export class AppDatabase {
     this.connection
       .prepare(
         `INSERT INTO provider_profiles(
-           id, name, base_url, model, is_active, created_at, updated_at, compatibility
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+           id, name, base_url, model, is_active, created_at, updated_at, compatibility, protocol, request_json, headers_secret
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         record.id,
@@ -933,18 +943,21 @@ export class AppDatabase {
         record.is_active,
         record.created_at,
         record.updated_at,
-        record.compatibility
+        record.compatibility,
+        record.protocol ?? 'openai',
+        record.request_json ?? '{}',
+        record.headers_secret ?? null
       )
   }
 
-  updateProviderProfile(id: string, name: string, baseUrl: string, model: string, updatedAt: string, compatibility: ProviderCompatibility = 'auto'): boolean {
+  updateProviderProfile(id: string, name: string, baseUrl: string, model: string, updatedAt: string, compatibility: ProviderCompatibility = 'auto', protocol: ProviderProtocol = 'openai', requestJson = '{}', headersSecret: Uint8Array | null = null): boolean {
     const result = this.connection
       .prepare(
         `UPDATE provider_profiles
-         SET name = ?, base_url = ?, model = ?, updated_at = ?, compatibility = ?
+         SET name = ?, base_url = ?, model = ?, updated_at = ?, compatibility = ?, protocol = ?, request_json = ?, headers_secret = ?
          WHERE id = ?`
       )
-      .run(name, baseUrl, model, updatedAt, compatibility, id)
+      .run(name, baseUrl, model, updatedAt, compatibility, protocol, requestJson, headersSecret, id)
     return result.changes > 0
   }
 

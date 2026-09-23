@@ -1,3 +1,4 @@
+import { isPageProcessor } from '@shared/request-settings'
 import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
@@ -258,8 +259,8 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     })
     handle(IPC_CHANNELS.knowledgeTest, dependencies, async (_event, value) => {
       const input = parse(testKnowledgeSettingsSchema, value)
-      const vision = input.target === 'document' && input.document.processor === 'vision'
-      const signal = AbortSignal.timeout(vision ? 90_000 : 20_000)
+      const vision = input.target === 'document' && isPageProcessor(input.document.processor)
+      const signal = AbortSignal.timeout(input[input.target]?.timeoutMs ?? (vision ? 90_000 : 20_000))
       if (input.target === 'embedding') await embed(dependencies.knowledgeHttp!, knowledge.embedding(input.embedding), ['这是用于检查语义检索接口的固定测试文本。'], signal)
       else if (input.target === 'rerank') await rerank(dependencies.knowledgeHttp!, knowledge.rerank(input.rerank), '雨天出门应该带什么？', [
         { id: 'test-a', text: '下雨时出门可以带雨伞。', chapterTitle: '固定测试文本', anchor: 'test:0' },

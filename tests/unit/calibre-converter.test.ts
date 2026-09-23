@@ -59,6 +59,7 @@ describe('CalibreEpubConverter', () => {
 
     const converter = new CalibreEpubConverter({
       executablePath: executable,
+      platform: 'win32',
       temporaryDirectory: workRoot,
       execFileImpl: fakeExecFile
     })
@@ -87,6 +88,7 @@ describe('CalibreEpubConverter', () => {
     })
     const converter = new CalibreEpubConverter({
       executablePath: executable,
+      platform: 'win32',
       temporaryDirectory: workRoot,
       execFileImpl: fakeExecFile
     })
