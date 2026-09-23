@@ -93,6 +93,8 @@ import appIcon from '../../../resources/icon.png'
 import { copy } from '@shared/copy'
 import { AnswerText } from './AnswerText'
 import { BookAnalysisControls } from './BookAnalysisControls'
+import { OcrPageReader } from './OcrPageReader'
+import { pdfPageFromLocator } from '@shared/ocr-reading'
 import { BookOverview } from './BookOverview'
 import { BookNotesView } from './BookNotesView'
 import { bookTabPage, readWorkspaceState, saveWorkspaceState, type BookTabState, type WorkspacePage } from './workspace-state'
@@ -2401,6 +2403,8 @@ export default function App(): ReactNode {
   const [libraryQuery, setLibraryQuery] = useState('')
   const [preparationBookId, setPreparationBookId] = useState<string | null>(null)
   const [pdfDisplayOpen, setPdfDisplayOpen] = useState(false)
+  const [ocrReadingOpen, setOcrReadingOpen] = useState(false)
+  const ocrReadingToggleRef = useRef<HTMLButtonElement>(null)
   const preparationDialogRef = useRef<HTMLElement>(null)
   const preparationReturnRef = useRef<HTMLButtonElement>(null)
   const initialWorkspace = useRef(readWorkspaceState())
@@ -2947,7 +2951,7 @@ export default function App(): ReactNode {
   const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'overview', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
     // landingPage 为 null 表示不再切换页面（后台打开书籍）。
     if (landingPage) setPage(landingPage)
-    setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false)
+    setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false); setOcrReadingOpen(false)
     // 打开即成为顶栏标签；已存在的标签保留原书内页面，除非本次指定了其他书内页面。
     const tabPage = landingPage ? bookTabPage(landingPage) : null
     setBookTabs((current) => {
@@ -3733,6 +3737,7 @@ export default function App(): ReactNode {
   }
 
   const navigateToAnchor = useCallback(async (anchor: string, showSelection = false, chapterTitle?: string): Promise<void> => {
+    setOcrReadingOpen(false)
     setPage('reading')
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const adapter = adapterRef.current
@@ -3767,6 +3772,18 @@ export default function App(): ReactNode {
     setCurrentChapterTitle(result.chapterTitle)
     setCurrentChapterProgress(0)
   }, [navigateToAnchor])
+
+  const navigateOcrPage = useCallback(async (pageNumber: number): Promise<void> => {
+    const adapter = adapterRef.current
+    if (!adapter) return
+    adapter.clearSelection(); setSelection(null)
+    chapterTitleOverrideRef.current = null
+    await adapter.goTo(`pdfpos:${pageNumber}:0`)
+  }, [])
+  const closeOcrReader = useCallback((restoreFocus = true): void => {
+    adapterRef.current?.clearSelection(); setSelection(null); setOcrReadingOpen(false)
+    if (restoreFocus) requestAnimationFrame(() => ocrReadingToggleRef.current?.focus({ preventScroll: true }))
+  }, [])
 
   const openInsight = useCallback(async (insight: InsightArchiveRecord): Promise<void> => {
     const book = activeBookRef.current?.id === insight.bookId ? null : books.find((candidate) => candidate.id === insight.bookId)
@@ -4559,6 +4576,8 @@ export default function App(): ReactNode {
           <button className="reader-rail-button" type="button" data-testid="reader-contents-button" aria-label={copy('reader.contentsButton')} title={copy('reader.contentsButton')} aria-pressed={leftPanelOpen && leftView === 'toc'} onClick={() => toggleLeftPanelView('toc')}><PanelLeftClose size={19} /></button>
           <button className="reader-rail-button" data-testid="highlights-tab" type="button" aria-label={copy('library.tabHighlights')} title={copy('library.tabHighlights')} aria-pressed={leftPanelOpen && leftView === 'highlights'} onClick={() => toggleLeftPanelView('highlights')}><Bookmark size={19} /></button>
           <button className="reader-rail-button" data-testid="reader-search-button" type="button" aria-label={copy('reader.searchOpen')} title={copy('reader.searchOpen')} aria-pressed={leftPanelOpen && leftView === 'search'} onClick={() => toggleLeftPanelView('search')}><Search size={19} /></button>
+          {activeBook.format === 'pdf' && <button ref={ocrReadingToggleRef} className="reader-rail-button" data-testid="ocr-reading-toggle" type="button" aria-label={copy('ocrReading.title')} title={copy('ocrReading.title')} aria-pressed={ocrReadingOpen} disabled={bookState !== 'ready'}
+            onClick={() => { if (ocrReadingOpen) closeOcrReader(); else { adapterRef.current?.clearSelection(); setSelection(null); setOcrReadingOpen(true) } }}><FileText size={19} /></button>}
           <button className="reader-rail-button" data-testid="reader-settings-button" type="button" aria-label={copy(activeBook.format === 'pdf' ? 'reader.displayButton' : 'reader.layoutButton')} title={copy(activeBook.format === 'pdf' ? 'reader.displayButton' : 'reader.layoutButton')} aria-expanded={activeBook.format === 'pdf' ? pdfDisplayOpen : undefined} onClick={(event) => { if (activeBook.format === 'pdf') setPdfDisplayOpen((open) => !open); else openSettings('reading', event.currentTarget) }}><SlidersHorizontal size={19} /></button>
           <button className="reader-rail-button" data-testid="book-details-button" type="button" aria-label={copy('bookDetails.openAria', { title: activeBook.title })} title={copy('bookDetails.openAria', { title: activeBook.title })} onClick={(event) => openBookDetails(activeBook, event.currentTarget)}><Info size={19} /></button>
         </div>
@@ -4567,7 +4586,11 @@ export default function App(): ReactNode {
 
       <main className="reader-column" inert={page !== 'reading'} data-current-chapter-title={currentChapterTitle}>
         <section ref={readerSurfaceRef} className={`reader-surface is-${bookState}`} data-paper-theme={effectivePaperTheme}>
-          <div className="reader-host" data-testid="reader-host" ref={hostRef} aria-label={copy('reader.areaAria')} />
+          <div className="reader-host" data-testid="reader-host" ref={hostRef} inert={ocrReadingOpen && page === 'reading'} aria-hidden={ocrReadingOpen && page === 'reading'} aria-label={copy('reader.areaAria')} />
+          {ocrReadingOpen && page === 'reading' && activeBook?.format === 'pdf' && bookState === 'ready' && <OcrPageReader
+            key={`${activeBook.id}:${pdfPageFromLocator(currentLocator)}:${analysis.states[activeBook.id]?.document?.jobId}:${analysis.states[activeBook.id]?.document?.status}`}
+            bookId={activeBook.id} pageNumber={pdfPageFromLocator(currentLocator)} onSelection={setSelection} onNavigate={navigateOcrPage} onClose={() => closeOcrReader()}
+            onPrepare={() => { closeOcrReader(false); openPreparation(activeBook.id, ocrReadingToggleRef.current ?? undefined) }} />}
 
           {!activeBook && libraryState !== 'loading' && (
             libraryState === 'ready' && books.length === 0 ? (

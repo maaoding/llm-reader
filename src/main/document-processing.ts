@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import JSZip from 'jszip'
 import { z } from 'zod'
-import type { BookPagePreview, BookPagePreviewInput, DocumentSection, NormalizedDocument } from '@shared/contracts'
+import type { BookPagePreview, BookPagePreviewInput, DocumentSection, NormalizedDocument, PreparedOcrPage } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppDatabase } from './database'
 import { AppError } from './errors'
@@ -92,6 +92,7 @@ export class DocumentProcessingService {
   }
   usesVision(): boolean { return isPageProcessor(this.settings.get().document.processor) }
   progress(bookId: string): { completed: number; total: number } | undefined { return this.vision.progress(bookId) }
+  readOcrPage(bookId: string, pageNumber: number): PreparedOcrPage { return this.vision.preparedPage(bookId, pageNumber) }
   identity(): string {
     const config = this.settings.get().document
     const revision = this.database.connection.prepare("SELECT revision FROM knowledge_settings WHERE kind = 'document'").get()?.revision

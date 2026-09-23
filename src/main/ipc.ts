@@ -26,6 +26,7 @@ import {
   bookIdSchema,
   bookDocumentSearchSchema,
   bookPagePreviewSchema,
+  bookOcrPageSchema,
   clipboardTextSchema,
   bookChapterNotesSchema,
   bookImportPathsSchema,
@@ -308,6 +309,10 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     handle(IPC_CHANNELS.analysisCancel, dependencies, (_event, value) => analysis.cancel(parse(bookIdSchema, value)))
   }
   if (dependencies.documents) {
+    handle(IPC_CHANNELS.documentOcrPage, dependencies, (_event, value) => {
+      const input = parse(bookOcrPageSchema, value)
+      return dependencies.documents!.readOcrPage(input.bookId, input.pageNumber)
+    })
     handle(IPC_CHANNELS.documentPreview, dependencies, (_event, value) => dependencies.documents!.previewPage(parse(bookPagePreviewSchema, value)))
     handle(IPC_CHANNELS.documentPreviewCancel, dependencies, (_event, value) => dependencies.documents!.cancelPreview(parse(requestIdSchema, value)))
   }

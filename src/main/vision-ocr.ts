@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import type { DocumentSection, NormalizedDocument } from '@shared/contracts'
+import type { DocumentSection, NormalizedDocument, PreparedOcrPage } from '@shared/contracts'
 import { copy } from '@shared/copy'
-import { documentSections, MAX_DOCUMENT_CACHE_BYTES } from '@shared/document-structure'
+import { documentSections, DOCUMENT_STRUCTURE_VERSION, MAX_DOCUMENT_CACHE_BYTES } from '@shared/document-structure'
 import { OCR_BLANK_PAGE, OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR_MAX_PAGES } from '@shared/vision-ocr'
 import { AppDatabase } from './database'
 import { AppError } from './errors'
@@ -42,6 +42,26 @@ export function normalizeOcrPages(pages: string[]): NormalizedDocument {
 
 export class VisionOcrService {
   constructor(private readonly database: AppDatabase, private readonly settings: KnowledgeSettingsService, private readonly http: KnowledgeHttp) {}
+
+  /** Read the published OCR artifact, never a preview or an in-progress checkpoint. */
+  preparedPage(bookId: string, pageNumber: number): PreparedOcrPage {
+    const book = this.database.getStoredBook(bookId)
+    if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    if (book.format !== 'pdf') return { status: 'unsupported' }
+    const prepared = this.database.connection.prepare('SELECT job_id, status, version FROM book_documents WHERE book_id = ?').get(bookId)
+    if (prepared?.status !== 'ready' || prepared.version !== DOCUMENT_STRUCTURE_VERSION) return { status: 'unprepared' }
+    // Read just this page into JS, keeping large whole-book JSON out of the renderer.
+    const row = this.database.connection.prepare(`SELECT json_extract(raw_json, '$.kind') AS kind,
+      json_extract(raw_json, '$.version') AS version, json_extract(raw_json, '$.pageCount') AS page_count,
+      json_array_length(raw_json, '$.pages') AS completed, json_extract(raw_json, ?) AS text
+      FROM document_jobs WHERE book_id = ? AND structure_json IS NOT NULL AND json_valid(raw_json)`)
+      .get(`$.pages[${pageNumber - 1}]`, bookId)
+    if (row?.kind !== 'vision' || row.version !== 1 || typeof row.page_count !== 'number' ||
+        row.page_count < 1 || row.page_count > OCR_MAX_PAGES || row.completed !== row.page_count) return { status: 'unsupported' }
+    if (pageNumber > row.page_count) throw new AppError('INVALID_INPUT', copy('vision.previewPageRange', { count: row.page_count }))
+    if (typeof row.text !== 'string' || row.text.length > OCR_MAX_PAGE_CHARACTERS) throw new AppError('DOCUMENT_INVALID', copy('knowledge.invalid'))
+    return { status: 'ready', revision: String(prepared.job_id), pageNumber, pageCount: row.page_count, text: row.text }
+  }
 
   private previewPages(bookId: string, pageCount: number, fingerprint: string): Map<number, string> {
     const rows = this.database.connection.prepare('SELECT page_number, text FROM ocr_page_previews WHERE book_id = ? AND page_count = ? AND fingerprint = ?')

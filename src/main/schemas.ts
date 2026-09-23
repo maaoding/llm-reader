@@ -9,6 +9,7 @@ const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
 
 export const clipboardTextSchema = z.string().max(OCR_MAX_PAGE_CHARACTERS)
+export const bookOcrPageSchema = z.object({ bookId: idSchema, pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES) }).strict()
 export const bookIdSchema = idSchema
 export const recentBookSessionSchema = z.object({ bookId: idSchema, conversationId: z.uuid({ version: 'v4' }) }).strict()
 export const deleteBookSessionSchema = z.union([bookIdSchema.transform((bookId) => ({ bookId, conversationId: undefined })), recentBookSessionSchema])

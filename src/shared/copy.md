@@ -520,6 +520,20 @@
 | vision.previewUnsupported | 单页预览支持视觉模型、Mistral OCR 和 Unstructured，请先配置并保存。 |
 | vision.previewBusy | 正在处理文档，请暂停或等待完成后再预览。 |
 | vision.previewPageRange | 请输入 1 至 {count} 之间的 PDF 页码。 |
+| ocrReading.title | 识别文字 |
+| ocrReading.viewPdf | 查看 PDF 原页 |
+| ocrReading.hint | 从本机读取已准备的原文，不会重新识别。划选文字即可解释、联系上下文或提问；可随时回到 PDF 核对。 |
+| ocrReading.loading | 正在读取本页文字… |
+| ocrReading.loadFailed | 无法读取识别文字，请重试。 |
+| ocrReading.unprepared | 请先完成本书的逐页 OCR 原文准备，再查看和划选识别文字。 |
+| ocrReading.unsupported | 本书没有保存逐页 OCR 文字。可使用视觉模型、Mistral OCR 或 Unstructured 重新准备原文。 |
+| ocrReading.prepare | 打开本书准备 |
+| ocrReading.previous | 上一页 |
+| ocrReading.next | 下一页 |
+| ocrReading.go | 跳转 |
+| ocrReading.copy | 复制本页 |
+| ocrReading.blank | 本页未识别到文字，可查看 PDF 原页核对。 |
+| ocrReading.selectionTooLong | 选中文字过长，请缩小到 2 万字以内再提问。 |
 | assistant.recentSessionTurns | {count} 轮对话 |
 | assistant.recentSessionsHint | 每本书保留最近 20 个对话，每个最多 20 轮。点击可恢复选区、回答和草稿。 |
 | assistant.recentSessionsEmpty | 还没有其他对话。 |
@@ -646,7 +660,7 @@
 | reader.pdfRegionCancel | 取消 |
 | reader.pdfRegionConfirm | 使用此选区 |
 | reader.pdfInternalLink | 跳转到 PDF 内部页面 |
-| reader.pdfNoText | 页面没有可选文字，无法直接划词或搜索；准备原文后仍可整本书提问。 |
+| reader.pdfNoText | 页面没有可选文字；完成逐页 OCR 后，可用“识别文字”阅读和划词，也可搜索或整本书提问。 |
 | reader.pdfPageNoText | 本页没有文字层 |
 | reader.pdfSearchUnavailable | 这份 PDF 没有可搜索的文字层。请先在「阅读准备」中识别正文，再搜索。 |
 | reader.pdfInvalidAnchor | 无效的 PDF 定位锚点。 |

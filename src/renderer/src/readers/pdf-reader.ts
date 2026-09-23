@@ -1,5 +1,6 @@
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
 import { copy } from '@shared/copy'
+import { parseOcrTextAnchor } from '@shared/ocr-reading'
 import type {
   PDFDocumentLoadingTask,
   PDFDocumentProxy,
@@ -274,7 +275,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const restored = lastLocator
       ? parsePdfTextAnchor(lastLocator, this.pages.length) ??
         parsePdfRegionAnchor(lastLocator, this.pages.length) ??
-        parsePdfPositionAnchor(lastLocator, this.pages.length)
+        parsePdfPositionAnchor(lastLocator, this.pages.length) ?? parseOcrTextAnchor(lastLocator, this.pages.length)
       : null
     const initialPage = restored?.pageNumber ?? 1
     await this.renderPage(initialPage)
@@ -361,7 +362,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   async selectAnchor(anchor: string): Promise<boolean> {
     // External extraction provides a page position, without a selectable text range.
-    if (parsePdfPositionAnchor(anchor, this.pages.length)) return false
+    if (parsePdfPositionAnchor(anchor, this.pages.length) || parseOcrTextAnchor(anchor, this.pages.length)) return false
     const region = parsePdfRegionAnchor(anchor, this.pages.length)
     if (region) {
       await this.renderPage(region.pageNumber)
@@ -380,7 +381,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   async highlight(anchor: string): Promise<void> {
-    const position = parsePdfPositionAnchor(anchor, this.pages.length)
+    const position = parsePdfPositionAnchor(anchor, this.pages.length) ?? parseOcrTextAnchor(anchor, this.pages.length)
     if (position) {
       await this.renderPage(position.pageNumber)
       this.clearTemporaryHighlight()
@@ -1107,7 +1108,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const textAnchor = parsePdfTextAnchor(anchor, this.pages.length)
     const regionAnchor = parsePdfRegionAnchor(anchor, this.pages.length)
     const positionAnchor = parsePdfPositionAnchor(anchor, this.pages.length)
-    const pageNumber = textAnchor?.pageNumber ?? regionAnchor?.pageNumber ?? positionAnchor?.pageNumber
+    const ocrAnchor = parseOcrTextAnchor(anchor, this.pages.length)
+    const pageNumber = textAnchor?.pageNumber ?? regionAnchor?.pageNumber ?? positionAnchor?.pageNumber ?? ocrAnchor?.pageNumber
     if (!pageNumber) throw new Error(copy('reader.pdfInvalidAnchor'))
     await this.renderPage(pageNumber)
     const page = this.pages[pageNumber - 1]

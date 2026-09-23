@@ -1,6 +1,20 @@
 import copySource from './copy.md?raw'
 
 export const COPY_KEYS = [
+  'ocrReading.title',
+  'ocrReading.viewPdf',
+  'ocrReading.hint',
+  'ocrReading.loading',
+  'ocrReading.loadFailed',
+  'ocrReading.unprepared',
+  'ocrReading.unsupported',
+  'ocrReading.prepare',
+  'ocrReading.previous',
+  'ocrReading.next',
+  'ocrReading.go',
+  'ocrReading.copy',
+  'ocrReading.blank',
+  'ocrReading.selectionTooLong',
   'assistant.promptDetails',
   'vision.previewTitle',
   'vision.previewHint',

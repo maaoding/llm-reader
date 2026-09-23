@@ -2,6 +2,7 @@ import type { ReaderSearchResult } from './reader-search'
 
 export const IPC_CHANNELS = {
   clipboardWriteText: 'clipboard:write-text',
+  documentOcrPage: 'document:ocr-page',
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
   appInfo: 'app:info',
@@ -102,6 +103,10 @@ export interface BookPagePreview {
   processor: DocumentProcessor
   model?: string
 }
+
+export type PreparedOcrPage =
+  | { status: 'unprepared' | 'unsupported' }
+  | { status: 'ready'; revision: string; pageNumber: number; pageCount: number; text: string }
 export type BookSourceFormat = BookFormat | 'mobi' | 'azw3'
 
 export interface AppInfo {
@@ -697,6 +702,7 @@ export interface SaveHighlightInput {
 
 export interface ReaderApi {
   copyText(text: string): Promise<void>
+  getBookOcrPage(input: { bookId: string; pageNumber: number }): Promise<PreparedOcrPage>
   getAppInfo(): Promise<AppInfo>
   getAppUpdatePhase(): Promise<AppUpdatePhase>
   checkForAppUpdate(): Promise<AppUpdatePhase>

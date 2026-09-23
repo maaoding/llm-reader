@@ -120,6 +120,9 @@ for (const processor of ['mistral-ocr', 'unstructured'] as const) {
       await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.getBookAnalysis(id)).document?.status, bookId), { timeout: 20_000 }).toBe('ready')
       const state = await page.evaluate((id) => window.readerApi.getBookAnalysis(id), bookId)
       expect(state.document?.ocrProgress).toEqual({ completed: 1, total: 1 })
+      await page.getByTestId('ocr-reading-toggle').click()
+      await expect(page.getByTestId('ocr-reading-text')).toContainText('独立复核是必要条件')
+      await page.getByTestId('ocr-reading-close').click()
       expect(requests).toHaveLength(2)
       if (processor === 'unstructured') expect(requests.at(-1)?.headers['content-type']).toContain('multipart/form-data; boundary=')
       launched = await restartReader(application, { userData: workspace.userData }); application = launched.application; page = launched.page

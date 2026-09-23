@@ -167,6 +167,7 @@
 .workspace-shell > .right-sidebar { grid-area: workspace; justify-self: end; width: 360px; height: 100%; min-height: 0; display: none; z-index: 20; border-left: 1px solid var(--ui-line); }
 .workspace-shell[data-page="reading"] > .right-sidebar { display: flex; }
 .workspace-shell[data-page="reading"] > .reader-column { margin-right: 360px; }
+.workspace-shell[data-page="reading"][data-left-open="true"] > .reader-column { margin-left: calc(var(--reader-rail-width) + 280px); }
 .workspace-shell .assistant-header { height: 52px; padding: 10px 16px; }
 .workspace-shell .assistant-header h2, .workspace-shell .assistant-header strong { font-size: calc(var(--ui-text-size) * var(--interface-scale)); }
 .assistant-context-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; background: var(--ui-surface); border-bottom: 1px solid var(--ui-line); flex: 0 0 auto; }
@@ -4621,6 +4622,17 @@ button.citation-valid:hover {
 .recent-conversations small { color: var(--ui-muted); font-size: var(--ui-small-size); }
 
 .ocr-preview { border-top: 1px solid var(--ui-line); margin-top: 16px; padding-top: 12px; }
+.ocr-page-reader { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; gap: 12px; padding: 18px 24px; color: var(--reader-ink); background: var(--reader-paper); overflow: auto; }
+.reader-host[aria-hidden="true"] { visibility: hidden; }
+.ocr-reading-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.ocr-reading-header h2 { margin: 0; font-size: 18px; }
+.ocr-reading-hint { margin: 0; color: var(--reader-muted); font-size: 12px; line-height: 1.7; }
+.ocr-reading-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; }
+.ocr-reading-actions input { width: 72px; padding: 6px; color: var(--reader-ink); background: var(--reader-paper); border: 1px solid var(--reader-line); border-radius: 4px; }
+.ocr-reading-message { margin: 0; font-size: 13px; color: var(--reader-ink-soft); }
+.ocr-reading-text { flex: 1; min-height: 120px; margin: 0; padding: 16px 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: inherit; font-size: 18px; line-height: 1.9; }
+.ocr-reading-text::selection { background: rgba(240, 220, 160, .55); }
+.ocr-reading-empty { padding: 16px 0; line-height: 1.8; }
 .ocr-preview h4 { margin: 0 0 8px; }
 .ocr-preview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ocr-preview-actions input { width: 86px; }

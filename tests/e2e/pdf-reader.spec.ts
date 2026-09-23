@@ -309,7 +309,8 @@ test('tracks precise outline sections and keeps fit-width stable through rapid z
     await page.getByTestId('reader-host').evaluate((host) => {
       const pageOne = host.querySelector<HTMLElement>('.pdf-page[data-page-number="1"]')
       if (!pageOne) throw new Error('Expected PDF page 1')
-      host.scrollTop = pageOne.offsetTop + pageOne.offsetHeight * 0.52
+      // The adapter resolves the active section at its reading line, below the viewport top.
+      host.scrollTop = pageOne.offsetTop + pageOne.offsetHeight * 0.52 - Math.min(120, host.clientHeight * 0.25)
       host.dispatchEvent(new Event('scroll'))
     })
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '1.1 同页目录定位')

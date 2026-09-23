@@ -10,7 +10,7 @@ import { KnowledgeHttp } from '../../src/main/knowledge-http'
 import { DocumentProcessingService } from '../../src/main/document-processing'
 import { normalizeOcrPages, VisionOcrService, type PdfPageRenderer } from '../../src/main/vision-ocr'
 import { OCR_TEST_IMAGE } from '../../src/main/vision-ocr-sample'
-import { bookPagePreviewSchema, knowledgeSettingsSchema, pdfOcrPageSchema } from '../../src/main/schemas'
+import { bookOcrPageSchema, bookPagePreviewSchema, knowledgeSettingsSchema, pdfOcrPageSchema } from '../../src/main/schemas'
 import type { SaveKnowledgeSettingsInput } from '../../src/shared/contracts'
 
 const resources: AppDatabase[] = []
@@ -37,6 +37,58 @@ function setup(fetcher = vi.fn<typeof fetch>(async () => response('独立复核�
 }
 
 describe('visual model OCR', () => {
+  it('reads only published OCR pages without requests, preserves blanks and ignores newer previews', async () => {
+    const fixture = setup(vi.fn<typeof fetch>().mockResolvedValueOnce(response('😀 第一页原文')).mockResolvedValueOnce(response('[EMPTY_PAGE]')))
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual({ status: 'unprepared' })
+    await fixture.extract(2)
+    const store = new BookContextStore(fixture.db), revision = randomUUID()
+    store.prepare(fixture.bookId, revision, 'fixture'); store.cacheDocument(fixture.bookId, fixture.service.structure(fixture.bookId)!, 1)
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual({ status: 'unprepared' })
+    fixture.db.connection.exec("UPDATE book_documents SET status = 'ready'")
+    const before = fixture.db.connection.prepare('SELECT * FROM books').get()
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual({ status: 'ready', revision, pageNumber: 1, pageCount: 2, text: '😀 第一页原文' })
+    expect(fixture.service.readOcrPage(fixture.bookId, 2)).toMatchObject({ status: 'ready', text: '' })
+    expect(fixture.fetcher).toHaveBeenCalledTimes(2)
+    expect(fixture.db.connection.prepare('SELECT * FROM books').get()).toEqual(before)
+    expect(() => fixture.service.readOcrPage(fixture.bookId, 3)).toThrow(/1 至 2/u)
+    fixture.fetcher.mockResolvedValueOnce(response('尚未发布的新识别文字'))
+    await fixture.service.previewPage({ bookId: fixture.bookId, pageNumber: 1, pageCount: 2, requestId: randomUUID(), imageDataUrl: OCR_TEST_IMAGE, force: true })
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toMatchObject({ revision, text: '😀 第一页原文' })
+    const nextRevision = randomUUID()
+    fixture.service.rebuild(fixture.bookId); store.prepare(fixture.bookId, nextRevision, 'fixture')
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual({ status: 'unprepared' })
+    await fixture.extract(2)
+    store.cacheDocument(fixture.bookId, fixture.service.structure(fixture.bookId)!, 1)
+    fixture.db.connection.exec("UPDATE book_documents SET status = 'ready'")
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toMatchObject({ revision: nextRevision, text: '尚未发布的新识别文字' })
+    fixture.settings.save({ ...input(), document: { ...input().document, model: 'other-model' } })
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toMatchObject({ revision: nextRevision, text: '尚未发布的新识别文字' })
+    expect(fixture.fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it('rejects unavailable and malformed OCR artifacts, wrong formats and invalid page requests', async () => {
+    const fixture = setup()
+    await fixture.extract()
+    new BookContextStore(fixture.db).prepare(fixture.bookId, randomUUID(), 'fixture')
+    for (const status of ['preparing', 'paused', 'error']) {
+      fixture.db.connection.prepare('UPDATE book_documents SET status = ?').run(status)
+      expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual({ status: 'unprepared' })
+    }
+    fixture.db.connection.exec("UPDATE book_documents SET status = 'ready'")
+    for (const raw of ['invalid-json', '{"kind":"docling"}', JSON.stringify({ kind: 'vision', version: 1, pageCount: 2, pages: ['partial'] })]) {
+      fixture.db.connection.prepare('UPDATE document_jobs SET raw_json = ?').run(raw)
+      expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual({ status: 'unsupported' })
+    }
+    fixture.db.connection.prepare('UPDATE document_jobs SET raw_json = ?').run(JSON.stringify({ kind: 'vision', version: 1, pageCount: 1, pages: ['x'.repeat(40_001)] }))
+    expect(() => fixture.service.readOcrPage(fixture.bookId, 1)).toThrow()
+    fixture.db.connection.exec("UPDATE books SET format = 'txt'")
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual({ status: 'unsupported' })
+    fixture.db.deleteBook(fixture.bookId)
+    expect(() => fixture.service.readOcrPage(fixture.bookId, 1)).toThrowError(expect.objectContaining({ code: 'BOOK_NOT_FOUND' }))
+    for (const pageNumber of [0, -1, 1.5, 601, Number.MAX_SAFE_INTEGER]) expect(bookOcrPageSchema.safeParse({ bookId: fixture.bookId, pageNumber }).success).toBe(false)
+    expect(bookOcrPageSchema.safeParse({ bookId: fixture.bookId, pageNumber: 600 }).success).toBe(true)
+  })
+
   it('previews one page with saved credentials without altering preparation checkpoints', async () => {
     const fixture = setup()
     await fixture.extract(1)
