@@ -78,19 +78,28 @@
                   <nav aria-label="演示全局导航">
                     <button type="button" data-demo-passive aria-disabled="true">书库</button>
                     <button type="button" data-demo-passive aria-disabled="true">回答归档</button>
-                    <button type="button" data-demo-passive aria-disabled="true">设置</button>
                   </nav>
                   <span class="demo-book-tab">理解复杂概念</span>
+                  <button class="demo-workspace-settings" type="button" data-demo-passive aria-disabled="true"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.56V21h-4v-.04A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.04 14H3v-4h.04A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88L4.2 7.06 7.06 4.2l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.04V3h4v.04A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.56 1H21v4h-.04A1.7 1.7 0 0 0 19.4 15Z"/></svg>设置</button>
                 </header>
                 <div class="demo-bookbar">
-                  <strong>理解复杂概念 <small>示例书籍</small></strong>
+                  <div class="demo-book-identity">
+                    <span class="demo-book-back" aria-hidden="true">←</span>
+                    <span class="demo-format-chip">TXT</span>
+                    <strong>理解复杂概念</strong>
+                    <div class="demo-reading-position" aria-label="阅读进度 42%">
+                      <span>第一章 · 定义、条件与边界</span>
+                      <strong>42%</strong>
+                      <div class="demo-title-progress" role="progressbar" aria-label="本章阅读进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42"><i></i></div>
+                    </div>
+                  </div>
                   <nav aria-label="演示本书导航">
                     <button type="button" data-demo-passive aria-disabled="true">概览</button>
                     <button class="is-active" type="button" data-demo-passive aria-disabled="true" aria-current="page">阅读</button>
                     <button type="button" data-demo-passive aria-disabled="true">章节笔记</button>
                     <button type="button" data-demo-passive aria-disabled="true">对话</button>
-                    <button type="button" data-demo-passive aria-disabled="true">本书准备</button>
                   </nav>
+                  <button class="demo-book-prepare" type="button" data-demo-passive aria-disabled="true">本书准备</button>
                 </div>
                 <nav class="demo-reader-rail" aria-label="演示阅读工具">
                   <button type="button" data-demo-passive aria-disabled="true" aria-label="目录" title="目录（演示中不可用）"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg></button>
@@ -101,11 +110,6 @@
                 </nav>
 
                 <section class="demo-reader-column">
-                  <header class="demo-reader-header">
-                    <span>第一章 · 定义、条件与边界</span>
-                    <span>42%</span>
-                    <div class="demo-title-progress" role="progressbar" aria-label="本章阅读进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42"><i></i></div>
-                  </header>
                   <section class="demo-reader-surface" aria-label="演示原文">
                     <article class="demo-reader-paper">
                       <p>理解一个复杂概念，通常需要区分它的定义、成立条件与适用边界。</p>
@@ -151,7 +155,7 @@
                         <blockquote>“成立条件描述一个结论依赖哪些前提；只要其中一个关键前提变化，原来的结论就可能失效。”</blockquote>
                         <button type="button" data-demo-return aria-describedby="demo-citation-status"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>回到原文</button>
                       </details>
-                      <div class="demo-user-message"><small>解释这段</small><p>请用清晰、准确的语言解释这段内容。</p></div>
+                      <div class="demo-user-message"><small>解释这段</small><details class="demo-question-prompt"><summary>查看本次提示词</summary><p>请解释我选中的原文，帮助我读懂它，而不只是换一种说法。先用一两句话说清核心意思，再按理解需要解释关键概念在这里的含义，理清指代、转折或因果；若涉及论证，说明作者的主张、依据与成立条件。简化表达时保留原文的限定、否定和语气，不把可能性说成必然，也不把作者的观点当成公认事实。必要时用一个简短的假设例子辅助理解，并标明是示例。以本次提供的原文为依据，引用关键语句支撑解释，区分明确表述与推断；遇到歧义或信息不足，说明具体不确定之处。用自然、清楚的中文直接回答，篇幅随内容难度调整，不机械套用固定栏目，不复述整段原文或反复总结。</p></details></div>
                       <article class="demo-answer-card">
                         <header><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg></span><strong>示例回答</strong></header>
                         <div class="demo-answer-text">

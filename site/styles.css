@@ -291,7 +291,6 @@ h1 em {
   --demo-ui-panel: #f4f6f7;
   --demo-ui-surface: #fafbfb;
   --demo-reader-frame: #e8edef;
-  --demo-reader-header: #f5f7f7;
   --demo-reader-paper: #fdfcf9;
   --demo-ink: #29383f;
   --demo-ink-soft: #4e616b;
@@ -309,7 +308,7 @@ h1 em {
   height: 100%;
   min-height: 590px;
   grid-template-columns: 52px minmax(430px, 1fr) 350px;
-  grid-template-rows: 42px 44px minmax(0, 1fr);
+  grid-template-rows: 42px 56px minmax(0, 1fr);
   color: var(--demo-ink);
   background: var(--demo-ui-bg);
   font-family: "DengXian", "等线", "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -407,6 +406,18 @@ h1 em {
   font-size: 14px;
 }
 
+.demo-workspace-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 6px 10px;
+  color: var(--demo-ink-soft);
+  background: transparent;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
 .demo-workspace-header nav,
 .demo-bookbar nav,
 .demo-scope {
@@ -440,19 +451,71 @@ h1 em {
 }
 
 .demo-bookbar {
-  justify-content: space-between;
+  gap: 16px;
   background: var(--demo-ui-panel);
 }
 
-.demo-bookbar > strong {
-  font-size: 14px;
+.demo-book-identity {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
 }
 
-.demo-bookbar small {
-  margin-left: 12px;
+.demo-book-identity > strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-book-back {
+  font-size: 19px;
+  line-height: 1;
+}
+
+.demo-format-chip {
+  padding: 3px 5px;
+  color: var(--demo-accent);
+  background: var(--demo-accent-faint);
+  border: 1px solid var(--demo-line);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.demo-reading-position {
+  display: grid;
+  width: 220px;
+  min-width: 150px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
   color: var(--demo-muted);
-  font-size: 12px;
-  font-weight: 400;
+  font-size: 11px;
+}
+
+.demo-reading-position > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-reading-position > strong {
+  color: var(--demo-ink-soft);
+  font-weight: 600;
+}
+
+.demo-bookbar nav {
+  flex-shrink: 0;
+}
+
+.demo-bookbar .demo-book-prepare {
+  background: var(--demo-ui-surface);
+  border: 1px solid var(--demo-line);
 }
 
 .demo-reader-rail {
@@ -506,19 +569,6 @@ h1 em {
   background: var(--demo-reader-frame);
 }
 
-.demo-reader-header {
-  position: relative;
-  display: flex;
-  height: 44px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 0 24px;
-  background: var(--demo-reader-header);
-  border-bottom: 1px solid var(--demo-line-strong);
-}
-
 .demo-expand-button {
   display: grid;
   width: 32px;
@@ -538,12 +588,11 @@ h1 em {
 }
 
 .demo-title-progress {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
   background: var(--demo-accent-soft);
+  border-radius: 2px;
 }
 
 .demo-title-progress i {
@@ -829,6 +878,19 @@ h1 em {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.demo-question-prompt summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.demo-question-prompt[open] summary {
+  margin-bottom: 8px;
+}
+
+.demo-question-prompt p {
+  overflow-wrap: anywhere;
 }
 
 .demo-answer-card {
