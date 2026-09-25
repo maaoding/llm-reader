@@ -172,7 +172,7 @@
 .workspace-shell .assistant-header h2, .workspace-shell .assistant-header strong { font-size: calc(var(--ui-text-size) * var(--interface-scale)); }
 .assistant-context-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; background: var(--ui-surface); border-bottom: 1px solid var(--ui-line); flex: 0 0 auto; }
 .assistant-context-bar small { margin-left: auto; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
-.composer-scope-controls { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.composer-scope-controls { display: flex; min-width: 0; align-items: center; gap: 10px; margin-bottom: 8px; }
 .composer-scope-controls > span { color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .workspace-shell .analysis-scope button { padding: 6px 9px; min-height: 32px; font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .composer-hint { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); line-height: 1.6; }
@@ -297,6 +297,9 @@
 .analysis-scope button, .analysis-actions button { padding: 5px 9px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink); cursor: pointer; }
 .analysis-scope button[aria-pressed="true"] { color: var(--accent-contrast); background: var(--ui-accent); border-color: var(--ui-accent); }
 .analysis-scope small { color: var(--ui-muted); font-size: 12px; }
+.composer-scope-controls .analysis-scope { display: inline-flex; flex-wrap: nowrap; gap: 0; padding: 2px; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-panel); }
+.composer-scope-controls .analysis-scope button { padding: 5px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ui-ink-soft); white-space: nowrap; }
+.composer-scope-controls .analysis-scope button[aria-pressed="true"] { background: var(--ui-accent-soft); color: var(--ui-accent); font-weight: 600; }
 .analysis-details { margin-top: 8px; }
 .analysis-details summary, .answer-sources summary { cursor: pointer; color: var(--ui-ink-soft); }
 .analysis-details p, .analysis-hint, .analysis-error { margin: 8px 0; line-height: 1.6; overflow-wrap: anywhere; }

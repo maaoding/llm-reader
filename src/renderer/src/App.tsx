@@ -4230,14 +4230,8 @@ export default function App(): ReactNode {
     if (tab?.scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready') return copy('assistant.needDocument')
     return ''
   }
-  const conversationStatus = (tab: ConversationTab | undefined): string => {
-    if (!tab) return ''
-    return tab.scope === 'selection'
-      ? copy(tab.selection ? 'assistant.selectionReady' : 'assistant.selectionPending')
-      : copy(`preparation.document.${analysis.states[tab.bookId]?.document?.status ?? 'empty'}`)
-  }
-  const resolveProps = (tab: ConversationTab | undefined, includeReadyStatus = false) => ({
-    blockedReason: blockedReason(tab) || (includeReadyStatus ? conversationStatus(tab) : ''),
+  const resolveProps = (tab: ConversationTab | undefined, showSelectionPending = false) => ({
+    blockedReason: blockedReason(tab) || (showSelectionPending && tab?.scope === 'selection' && !tab.selection ? copy('assistant.selectionPending') : ''),
     ...(!streamingRequestId(tab) && !providerIsConfigured(provider) ? {
       resolveLabel: copy('preparation.configureModel')
     } : !streamingRequestId(tab) && tab?.scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready' ? {
