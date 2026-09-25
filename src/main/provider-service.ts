@@ -31,6 +31,7 @@ import { createProviderProfileSchema, updateProviderProfileSchema, providerConfi
 
 const MAX_PROFILE_COUNT = 10
 const PROVIDER_TIMEOUT_MS = 15_000
+const PROVIDER_TEST_TIMEOUT_MS = 90_000
 const MAX_MODEL_LIST_BYTES = 2 * 1024 * 1024
 const MAX_MODEL_COUNT = 2_000
 const MAX_MODEL_ID_LENGTH = 256
@@ -238,12 +239,12 @@ export class ProviderService {
 
   private async testCredentials(credentials: ProviderCredentials, mode: 'text' | 'stream' = 'text'): Promise<ProviderTestResult> {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), credentials.timeoutMs ?? PROVIDER_TIMEOUT_MS)
+    const timer = setTimeout(() => controller.abort(), credentials.timeoutMs ?? PROVIDER_TEST_TIMEOUT_MS)
     try {
       const response = await abortable(this.transport.send(buildCompletionUrl(credentials.baseUrl, credentials.protocol), credentials, { sessionId: randomUUID() }, {
         method: 'POST',
         accept: mode === 'stream' ? 'text/event-stream' : 'application/json',
-        body: JSON.stringify(completionBody({ ...credentials, extraBody: { max_tokens: 16, ...credentials.extraBody } }, [{ role: 'user', content: '回复 OK' }], mode === 'stream', 16)),
+        body: JSON.stringify(completionBody(credentials, [{ role: 'user', content: '回复 OK' }], mode === 'stream')),
         signal: controller.signal
       }).then((value) => {
         if (controller.signal.aborted) { void value.body?.cancel().catch(() => undefined); controller.signal.throwIfAborted() }

@@ -55,6 +55,20 @@ afterEach(async () => {
 
 describe('provider capability probes', () => {
   const configuration = { baseUrl: 'https://fixture.example/v1', model: 'fixture', apiKey: 'fixture-only' }
+  it('uses normal generation parameters instead of a short probe token limit', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      bodies.push(body)
+      return Response.json({ choices: [{ message: { content: body.max_tokens === 16 ? '' : 'OK' } }] })
+    })
+    const { provider } = makeProvider(makeTemporaryDirectory(), fetcher)
+    expect(await provider.testConfiguration(configuration)).toMatchObject({ ok: true })
+    expect(await provider.testConfiguration({ ...configuration, extraBody: { max_tokens: 256 } })).toMatchObject({ ok: true })
+    expect(bodies[0]).not.toHaveProperty('max_tokens')
+    expect(bodies[1]).toMatchObject({ max_tokens: 256 })
+  })
+
   it.each(['<html>Sign in</html>', '{}', '{"error":{"message":"private upstream error"}}', '{"choices":[{"message":{"content":"   "}}]}'])('rejects a successful HTTP response without usable text: %s', async (body) => {
     const { provider } = makeProvider(makeTemporaryDirectory(), vi.fn<typeof fetch>(async () => new Response(body)))
     const result = await provider.testConfiguration(configuration)

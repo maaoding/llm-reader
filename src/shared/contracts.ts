@@ -458,7 +458,7 @@ export interface RerankRecord {
 export interface ContextSnapshot {
   scope: 'selection' | 'book'
   bookId: string
-  selection: SelectionContext | null
+  selection: ReaderSource | null
   passages: Passage[]
   background: string
   coverage: { covered: number; total: number }
@@ -472,6 +472,22 @@ export interface SelectionContext {
   anchor: string
   chapterTitle: string
   passages: Passage[]
+}
+
+/** Persistent source metadata only. The cropped bitmap never belongs in a session or archive. */
+export interface PdfImageRegionSource {
+  kind: 'pdf-image-region'
+  bookId: string
+  anchor: string
+  pageNumber: number
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+export type ReaderSource = SelectionContext | PdfImageRegionSource
+export function isPdfImageRegion(source: ReaderSource | null | undefined): source is PdfImageRegionSource {
+  return Boolean(source && 'kind' in source && source.kind === 'pdf-image-region')
 }
 
 export type LlmAction = 'explain' | 'context' | 'ask'
@@ -490,7 +506,8 @@ interface LlmRequestBase {
 }
 
 export type LlmRequest = LlmRequestBase & (
-  | { scope?: 'selection'; selection: SelectionContext }
+  | { scope?: 'selection'; selection: SelectionContext; imageDataUrl?: never }
+  | { scope: 'visual'; selection: PdfImageRegionSource; imageDataUrl: string }
   | { scope: 'book'; bookId: string; selection?: never }
 )
 
@@ -582,7 +599,7 @@ export interface SavedInsight {
   id: string
   conversationId: string
   bookId: string
-  selection: SelectionContext | null
+  selection: ReaderSource | null
   context?: ContextSnapshot
   question: string
   answer: string
@@ -612,7 +629,7 @@ export type InsightExportResult = { canceled: true } | { canceled: false; fileNa
 export interface SaveInsightInput {
   bookId: string
   conversationId?: string
-  selection: SelectionContext | null
+  selection: ReaderSource | null
   context?: ContextSnapshot
   question: string
   answer: string
@@ -637,7 +654,7 @@ export interface BookSessionTurn {
   saved?: boolean
   error?: string
   usage?: LlmUsage
-  selection?: SelectionContext | null
+  selection?: ReaderSource | null
   context?: ContextSnapshot | null
 }
 
@@ -646,7 +663,7 @@ export interface BookSessionRecord {
   bookId: string
   conversationId: string
   scope: 'selection' | 'book'
-  selection: SelectionContext | null
+  selection: ReaderSource | null
   draft: string
   turns: BookSessionTurn[]
   updatedAt: string
@@ -656,7 +673,7 @@ export interface SaveBookSessionInput {
   bookId: string
   conversationId: string
   scope: 'selection' | 'book'
-  selection: SelectionContext | null
+  selection: ReaderSource | null
   draft: string
   turns: BookSessionTurn[]
 }

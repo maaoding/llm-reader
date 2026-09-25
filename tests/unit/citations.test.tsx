@@ -3,7 +3,7 @@
 import React from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { SelectionContext } from '../../src/shared/contracts'
+import type { PdfImageRegionSource, SelectionContext } from '../../src/shared/contracts'
 import { AnswerText } from '../../src/renderer/src/AnswerText'
 import { citationExcerpt } from '../../src/renderer/src/citations'
 
@@ -67,5 +67,13 @@ describe('citation presentation', () => {
 
     rerender(<AnswerText text="正在生成 [P2]" selection={selection} onNavigate={() => undefined} />)
     expect(screen.getByTestId('citation-valid').textContent).not.toContain('P2')
+  })
+
+  it('never presents model-invented text citations as valid for an image region', () => {
+    const imageSelection: PdfImageRegionSource = { kind: 'pdf-image-region', bookId: 'book-citations',
+      anchor: 'pdfrect:1:0.1:0.2:0.8:0.9', pageNumber: 1, left: 0.1, top: 0.2, right: 0.8, bottom: 0.9 }
+    render(<AnswerText text="图中是表格 [P1]。" selection={imageSelection} onNavigate={vi.fn()} />)
+    expect(screen.queryByTestId('citation-valid')).toBeNull()
+    expect(screen.getByTestId('citation-unverified').textContent).toContain('未验证引用')
   })
 })

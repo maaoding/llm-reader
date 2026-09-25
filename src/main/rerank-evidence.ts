@@ -7,7 +7,7 @@ export function uniqueEvidence(passages: Passage[]): Passage[] {
   return [...new Map(passages.map((passage) => [evidenceKey(passage), passage])).values()]
 }
 export function rerankQuery(request: LlmRequest, terms: string[]): string {
-  const suffix = [terms.slice(0, 8).map((term) => limitText(term, 80)).join(' '), request.scope === 'book' ? '' : limitText(request.selection.quote, 600)].filter(Boolean).join('\n')
+  const suffix = [terms.slice(0, 8).map((term) => limitText(term, 80)).join(' '), request.scope === 'book' || request.scope === 'visual' ? '' : limitText(request.selection.quote, 600)].filter(Boolean).join('\n')
   return [limitText(actionPrompt(request), 2_000 - characters(suffix) - (suffix ? 1 : 0)), suffix].filter(Boolean).join('\n')
 }
 export function targetChapters(planned: string[], fused: Passage[]): string[] {

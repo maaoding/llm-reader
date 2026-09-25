@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react'
-import type { SelectionContext } from '@shared/contracts'
+import { isPdfImageRegion, type ReaderSource, type SelectionContext } from '@shared/contracts'
 import { parseMarkdown, type AnswerInline, type MarkdownBlock } from './answer-markdown'
 import { citationSegments, withoutIncompleteCitationMarker } from './citations'
 import { MarkedText } from './MarkedText'
@@ -150,7 +150,7 @@ export const AnswerText = memo(function AnswerText({
   context
 }: {
   text: string
-  selection: SelectionContext | null
+  selection: ReaderSource | null
   context?: import('@shared/contracts').ContextSnapshot
   onNavigate?: (anchor: string) => void
   readOnly?: boolean
@@ -158,7 +158,7 @@ export const AnswerText = memo(function AnswerText({
 }): ReactNode {
   const blocks = parseMarkdown(text)
   const navigate = readOnly ? null : (onNavigate ?? null)
-  const source = { passages: context?.passages ?? selection?.passages ?? [] } as SelectionContext
+  const source = { passages: context?.passages ?? (selection && !isPdfImageRegion(selection) ? selection.passages : []) } as SelectionContext
   return (
     <div className="answer-text answer-md">
       {blocks.map((block, index) => (

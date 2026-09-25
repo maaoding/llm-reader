@@ -2237,14 +2237,16 @@ button.citation-valid:hover {
 .answer-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 7px;
+  flex-wrap: wrap;
+  gap: 4px 7px;
   margin-top: 8px;
   padding-top: 7px;
   border-top: 1px solid var(--line);
 }
 
-.answer-footer > span {
+.answer-footer .answer-usage {
+  min-width: 0;
+  flex: 0 0 100%;
   overflow: hidden;
   color: var(--faint);
   font-size: var(--assistant-meta-size);
@@ -2252,9 +2254,16 @@ button.citation-valid:hover {
   white-space: nowrap;
 }
 
+.answer-footer .answer-retry-actions {
+  max-width: 100%;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
 .answer-footer button {
   display: flex;
   height: 24px;
+  flex: 0 0 auto;
   align-items: center;
   gap: 4px;
   padding: 0 6px;
@@ -2262,7 +2271,10 @@ button.citation-valid:hover {
   background: transparent;
   border-radius: 5px;
   font-size: var(--assistant-meta-size);
+  white-space: nowrap;
 }
+
+.answer-footer .answer-save { margin-left: auto; }
 
 .answer-footer button:hover:not(:disabled) {
   color: var(--accent);
@@ -3063,6 +3075,16 @@ button.citation-valid:hover {
   border-color: var(--accent);
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
+}
+
+.pdf-image-region-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 50vh;
+  margin: auto;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
 }
 
 @keyframes fade-in { from { opacity: 0; } }

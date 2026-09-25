@@ -51,7 +51,8 @@ export type {
   ReaderRelocation,
   ReaderRelocationReason,
   ReaderSearchResult,
-  ReaderSelectionDraft
+  ReaderSelectionDraft,
+  ReaderImageRegionDraft
 } from './types'
 export {
   DEFAULT_READING_PREFERENCES,

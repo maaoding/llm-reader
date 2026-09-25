@@ -1,4 +1,4 @@
-import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
+import type { BookFormat, PdfImageRegionSource, ReaderSource, TocItem } from '@shared/contracts'
 
 export interface ReaderMetadata {
   title: string
@@ -33,6 +33,12 @@ export interface ReaderSelectionDraft {
   confirm: (quote: string) => void
   cancel: () => void
 }
+export interface ReaderImageRegionDraft {
+  source: PdfImageRegionSource
+  imageDataUrl: string
+  confirm: () => void
+  cancel: () => void
+}
 
 export interface ReaderNotice {
   message: string
@@ -42,8 +48,9 @@ export interface ReaderNotice {
 export interface ReaderCallbacks {
   bookId: string
   onRelocated?: (relocation: ReaderRelocation) => void
-  onSelectionChanged?: (selection: SelectionContext | null) => void
+  onSelectionChanged?: (selection: ReaderSource | null) => void
   onSelectionDraftChanged?: (draft: ReaderSelectionDraft | null) => void
+  onImageRegionDraftChanged?: (draft: ReaderImageRegionDraft | null) => void
   onNotice?: (notice: ReaderNotice) => void
   onDisplaySettings?: (trigger: HTMLButtonElement) => void
   onInternalNavigation?: () => void
@@ -98,7 +105,8 @@ export interface ReaderAdapter {
   destroy(): void
   search(query: string): Promise<ReadonlyArray<ReaderSearchResult>>
   goTo(anchor: string): Promise<void>
-  getSelection(): SelectionContext | null
+  getSelection(): ReaderSource | null
+  captureImageRegion?(source: PdfImageRegionSource, signal?: AbortSignal): Promise<string>
   clearSelection(): void
   selectAnchor(anchor: string): Promise<boolean>
   highlight(anchor: string): Promise<void>

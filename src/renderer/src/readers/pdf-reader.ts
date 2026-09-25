@@ -1,4 +1,6 @@
-import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
+import type { BookFormat, PdfImageRegionSource, ReaderSource, SelectionContext, TocItem } from '@shared/contracts'
+import { pdfImageRegionAnchor } from '@shared/pdf-image-region'
+import { capturePdfImageRegion } from './pdf-image-crop'
 import { copy } from '@shared/copy'
 import { parseOcrTextAnchor } from '@shared/ocr-reading'
 import type {
@@ -144,14 +146,16 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private outlineLocations: PdfOutlineLocation[] = []
   private programmaticReason: ReaderRelocationReason | null = null
   private programmaticScrollTop: number | null = null
-  private selection: SelectionContext | null = null
+  private selection: ReaderSource | null = null
   private persistentHighlightAnchors: ReaderHighlightAnchor[] = []
   private temporaryHighlightRegistry: HighlightRegistry | null = null
   private persistentHighlightRegistry: HighlightRegistry | null = null
   private temporaryFallbackElements: HTMLElement[] = []
   private persistentFallbackElements: HTMLElement[] = []
   private regionMode = false
+  private imageRegionMode = false
   private regionButton: HTMLButtonElement | null = null
+  private imageRegionButton: HTMLButtonElement | null = null
   private regionDrag: PdfRegionDrag | null = null
   private regionDraftRevision = 0
   private draftRegionElement: HTMLElement | null = null
@@ -347,13 +351,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
     await this.goToWithReason(anchor, 'navigation')
   }
 
-  getSelection(): SelectionContext | null {
+  getSelection(): ReaderSource | null {
     return this.selection
   }
 
   clearSelection(): void {
     this.selectionRevision += 1
     if (this.regionMode) this.setRegionMode(false)
+    if (this.imageRegionMode) this.setImageRegionMode(false)
     this.document.defaultView?.getSelection()?.removeAllRanges()
     this.activeRegionElement?.remove()
     this.activeRegionElement = null
@@ -462,8 +467,13 @@ export class PdfReaderAdapter implements ReaderAdapter {
     regionButton.setAttribute('aria-pressed', 'false')
     regionButton.classList.add('pdf-region-select')
     this.regionButton = regionButton
+    const imageRegionButton = this.toolbarButton(copy('visual.select'), copy('visual.select'), () => this.setImageRegionMode(!this.imageRegionMode))
+    imageRegionButton.dataset.testid = 'pdf-image-region-select'
+    imageRegionButton.setAttribute('aria-pressed', 'false')
+    imageRegionButton.classList.add('pdf-region-select')
+    this.imageRegionButton = imageRegionButton
     const paperButton = this.toolbarButton(copy('settings.paperTheme'), copy('settings.paperTheme'), () => this.callbacks.onDisplaySettings?.(paperButton))
-    toolbar.append(zoomOut, fitWidth, zoomValue, zoomIn, paperButton, regionButton)
+    toolbar.append(zoomOut, fitWidth, zoomValue, zoomIn, paperButton, regionButton, imageRegionButton)
     return toolbar
   }
 
@@ -479,6 +489,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   private setRegionMode(enabled: boolean): void {
     if (this.regionMode === enabled) return
+    if (enabled && this.imageRegionMode) this.setImageRegionMode(false)
     if (enabled) this.clearSelection()
     this.regionMode = enabled
     this.regionButton?.setAttribute('aria-pressed', String(enabled))
@@ -491,12 +502,23 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.cancelRegionDrag()
   }
 
+  private setImageRegionMode(enabled: boolean): void {
+    if (this.imageRegionMode === enabled) return
+    if (enabled) { this.clearSelection(); if (this.regionMode) this.setRegionMode(false) }
+    this.imageRegionMode = enabled
+    this.imageRegionButton?.setAttribute('aria-pressed', String(enabled))
+    this.imageRegionButton?.classList.toggle('is-active', enabled)
+    this.root?.classList.toggle('is-region-selecting', enabled)
+    if (enabled) { this.callbacks.onNotice?.({ message: copy('visual.hint'), tone: 'info' }); return }
+    this.cancelRegionDrag()
+  }
+
   private notice(message: string, tone: 'info' | 'error' = 'error'): void {
     this.callbacks.onNotice?.({ message, tone })
   }
 
   private readonly handleRegionPointerDown = (event: PointerEvent): void => {
-    if (!this.regionMode || event.button !== 0 || this.regionDrag) return
+    if ((!this.regionMode && !this.imageRegionMode) || event.button !== 0 || this.regionDrag) return
     const target = event.target instanceof Element ? event.target : null
     const pageElement = target?.closest<HTMLElement>('.pdf-page[data-page-number]')
     const pageNumber = Number(pageElement?.dataset.pageNumber)
@@ -548,6 +570,12 @@ export class PdfReaderAdapter implements ReaderAdapter {
       return
     }
     const pageRect = drag.page.element.getBoundingClientRect()
+    if (this.imageRegionMode && (event.clientX < pageRect.left || event.clientX > pageRect.right ||
+        event.clientY < pageRect.top || event.clientY > pageRect.bottom)) {
+      drag.overlay.remove()
+      this.notice(copy('visual.crossPage'))
+      return
+    }
     const width = Math.abs(point.x - drag.startX) * pageRect.width
     const height = Math.abs(point.y - drag.startY) * pageRect.height
     if (width < MIN_REGION_DRAG_PIXELS || height < MIN_REGION_DRAG_PIXELS) {
@@ -557,7 +585,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     }
     const region = this.regionFromPoints(drag.page.pageNumber, drag.startX, drag.startY, point.x, point.y)
     this.positionRegionOverlay(drag.overlay, region)
-    void this.completeRegionDraft(drag.page, region, drag.overlay)
+    void (this.imageRegionMode ? this.completeImageRegionDraft(drag.page, region, drag.overlay) : this.completeRegionDraft(drag.page, region, drag.overlay))
     event.preventDefault()
   }
 
@@ -619,7 +647,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handlePanPointerDown = (event: PointerEvent): void => {
-    if (this.regionMode || !this.panable || event.button !== 0 || this.panDrag) return
+    if (this.regionMode || this.imageRegionMode || !this.panable || event.button !== 0 || this.panDrag) return
     const target = event.target instanceof Element ? event.target : null
     if (target?.closest('button, a, input, select, textarea')) return
     this.panDrag = {
@@ -673,6 +701,39 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.draftRegionElement?.remove()
     this.draftRegionElement = null
     if (notify) this.callbacks.onSelectionDraftChanged?.(null)
+    if (notify) this.callbacks.onImageRegionDraftChanged?.(null)
+  }
+
+  async captureImageRegion(source: PdfImageRegionSource, signal?: AbortSignal): Promise<string> {
+    if (!this.pdfDocument || source.bookId !== this.callbacks.bookId || source.pageNumber > this.pages.length ||
+        source.anchor !== pdfImageRegionAnchor(source)) throw new Error(copy('visual.renderFailed'))
+    return capturePdfImageRegion(this.pages[source.pageNumber - 1].page, source, signal)
+  }
+
+  private async completeImageRegionDraft(page: PdfPageState, region: PdfRegionAnchor, overlay: HTMLElement): Promise<void> {
+    this.clearRegionDraft(false)
+    const revision = ++this.regionDraftRevision
+    this.draftRegionElement = overlay
+    const source: PdfImageRegionSource = { kind: 'pdf-image-region', bookId: this.callbacks.bookId,
+      ...region, anchor: pdfImageRegionAnchor(region) }
+    try {
+      const imageDataUrl = await this.captureImageRegion(source)
+      if (revision !== this.regionDraftRevision || !overlay.isConnected || !this.imageRegionMode) return
+      const cancel = (): void => { if (revision === this.regionDraftRevision) { this.clearRegionDraft(); this.setImageRegionMode(false) } }
+      const confirm = (): void => {
+        if (revision !== this.regionDraftRevision) return
+        overlay.classList.remove('is-draft'); overlay.classList.add('is-selection')
+        overlay.dataset.testid = 'pdf-image-region-selection'
+        this.activeRegionElement?.remove(); this.activeRegionElement = overlay
+        this.draftRegionElement = null; this.regionDraftRevision += 1
+        this.callbacks.onImageRegionDraftChanged?.(null)
+        this.setImageRegionMode(false)
+        this.setSelection(source)
+      }
+      this.callbacks.onImageRegionDraftChanged?.({ source, imageDataUrl, confirm, cancel })
+    } catch {
+      if (revision === this.regionDraftRevision) { this.clearRegionDraft(); this.notice(copy('visual.renderFailed')); this.setImageRegionMode(false) }
+    }
   }
 
   private regionItems(page: PdfPageState): PdfRegionTextItem[] {
@@ -1231,7 +1292,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handleSelectionChange = (): void => {
-    if (this.regionMode) return
+    if (this.regionMode || this.imageRegionMode) return
     const nativeSelection = this.document.defaultView?.getSelection()
     if (!nativeSelection || nativeSelection.rangeCount === 0) return
     const range = nativeSelection.getRangeAt(0)
@@ -1445,7 +1506,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.persistentRegionElements = []
   }
 
-  private setSelection(selection: SelectionContext | null): void {
+  private setSelection(selection: ReaderSource | null): void {
     this.selection = selection
     this.callbacks.onSelectionChanged?.(selection)
   }
@@ -1499,7 +1560,9 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.capabilityBanner = null
     this.highlightStyleElement = null
     this.regionMode = false
+    this.imageRegionMode = false
     this.regionButton = null
+    this.imageRegionButton = null
     this.fitWidthButton = null
     this.zoomFactor = 1
     this.zoomMode = 'fit-width'

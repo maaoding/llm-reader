@@ -22,6 +22,7 @@ const complexLayoutPdf = resolve('tests/e2e/fixtures/complex-layout-reader.pdf')
 let mockServer: Server
 let mockEndpoint = ''
 let latestPdfPrompt = ''
+let visualRequests: Array<Record<string, unknown>> = []
 
 test.beforeAll(async () => {
   mockServer = createServer((request, response) => {
@@ -38,7 +39,16 @@ test.beforeAll(async () => {
     request.on('end', () => {
       const body = JSON.parse(rawBody) as {
         stream?: boolean
-        messages?: Array<{ content: string }>
+        messages?: Array<{ content: string | Array<Record<string, unknown>> }>
+      }
+      const visual = Array.isArray(body.messages?.at(-1)?.content)
+      if (visual && body.stream) visualRequests.push(body as Record<string, unknown>)
+      const visualQuestion = visual
+        ? (body.messages?.at(-1)?.content as Array<{ type?: string; text?: string }>).find((block) => block.type === 'text')?.text ?? ''
+        : ''
+      if (visualQuestion.includes('FAIL_VISUAL')) {
+        response.writeHead(415, { 'content-type': 'application/json' }).end('{"error":"image unsupported"}')
+        return
       }
       if (!body.stream) {
         response.writeHead(200, { 'content-type': 'application/json' })
@@ -50,15 +60,20 @@ test.beforeAll(async () => {
         return
       }
 
-      latestPdfPrompt = body.messages?.map((message) => message.content).join('\n') ?? ''
+      latestPdfPrompt = body.messages?.map((message) => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n') ?? ''
       response.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache',
         connection: 'keep-alive'
       })
       response.write(
-        `data: ${JSON.stringify({ id: 'mock-pdf-stream', model: 'mock-pdf-reader', choices: [{ index: 0, delta: { content: '已收到框选后的文字。' } }] })}\n\n`
+        `data: ${JSON.stringify({ id: 'mock-pdf-stream', model: 'mock-pdf-reader', choices: [{ index: 0, delta: { content: visual ? '已收到图片区域。' : '已收到框选后的文字。' } }] })}\n\n`
       )
+      if (visualQuestion.includes('SLOW_VISUAL')) {
+        const timer = setTimeout(() => response.end('data: [DONE]\n\n'), 10_000)
+        response.on('close', () => clearTimeout(timer))
+        return
+      }
       response.end('data: [DONE]\n\n')
     })
   })
@@ -832,6 +847,189 @@ test('browses a scanned PDF but reports that search and selection are unavailabl
     await page.getByTestId('reader-search-input').fill('扫描页')
     await page.keyboard.press('Enter')
     await expect(page.getByText('这份 PDF 没有可搜索的文字层。')).toBeVisible()
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
+test('asks about a scanned PDF image region, resends its crop, and restores its source after restart', async () => {
+  test.setTimeout(180_000)
+  const opened = await openFixture(scannedPdf)
+  let application = opened.application
+  let page = opened.page
+  const { testRoot, userData } = opened
+  try {
+    visualRequests = []
+    await expect(page.getByTestId('pdf-no-text-banner')).toBeVisible({ timeout: 60_000 })
+    await configureMockProvider(page)
+    await expect(page.getByTestId('pdf-region-select')).toBeHidden()
+    await page.getByTestId('pdf-image-region-select').click()
+    await dragPdfRegion(page, { left: 0.12, top: 0.18, right: 0.78, bottom: 0.58 })
+    const preview = page.getByTestId('pdf-image-region-review')
+    await expect(preview).toBeVisible()
+    await expect(preview.locator('img')).toHaveAttribute('src', /^data:image\/jpeg;base64,/u)
+    await page.getByTestId('pdf-image-region-confirm').click()
+    await expect(page.getByTestId('action-visual-explain')).toBeVisible()
+    await page.getByTestId('action-visual-explain').click()
+    await expect(page.getByTestId('answer-current')).toContainText('已收到图片区域。')
+    await expect(page.locator('.source-card')).toContainText('PDF 第 1 页区域')
+    await expect(page.locator('.answer-sources')).toHaveCount(0)
+    await expect.poll(() => visualRequests.length).toBe(1)
+
+    const question = '再看一下图的右侧。'
+    await page.getByTestId('followup-input').fill(question)
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText('已收到图片区域。')
+    await expect.poll(() => visualRequests.length).toBe(2)
+    const messages = visualRequests[1].messages as Array<{ role: string; content: unknown }>
+    expect(messages.at(-1)?.content).toEqual([
+      { type: 'text', text: expect.stringContaining(question) },
+      { type: 'image_url', image_url: { url: expect.stringMatching(/^data:image\/jpeg;base64,/u), detail: 'high' } }
+    ])
+    expect(messages.map((message) => message.role)).toEqual(['system', 'user', 'assistant', 'user'])
+    expect(JSON.stringify(visualRequests[1])).not.toContain('selectedPassageId')
+    await page.getByTestId('answer-regenerate').click()
+    await expect(page.getByTestId('answer-current')).toContainText('已收到图片区域。')
+    await expect.poll(() => visualRequests.length).toBe(3)
+    expect((visualRequests[2].messages as Array<{ content: unknown }>).at(-1)?.content).toEqual(messages.at(-1)?.content)
+
+    await page.getByTestId('answer-save').click()
+    await expect(page.getByTestId('answer-save')).toContainText('已保存')
+    const persisted = await page.evaluate(async () => {
+      const api = (window as unknown as { readerApi: {
+        listBooks(): Promise<Array<{ id: string }>>
+        getBookSession(id: string): Promise<unknown>
+        listInsights(id: string): Promise<unknown>
+      } }).readerApi
+      const [book] = await api.listBooks()
+      return { session: await api.getBookSession(book.id), insights: await api.listInsights(book.id) }
+    })
+    expect(JSON.stringify(persisted)).not.toContain('data:image')
+    expect(JSON.stringify(persisted)).toContain('pdfrect:1:')
+
+    const restarted = await restartReader(application, { userData })
+    application = restarted.application
+    page = restarted.page
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await page.getByTestId('book-item').first().click(); await enterReading(page)
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('.source-card')).toContainText('PDF 第 1 页区域')
+    await page.getByTestId('followup-input').fill('重启后还能看到这个区域吗？')
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText('已收到图片区域。')
+    await expect.poll(() => visualRequests.length).toBe(4)
+
+    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await expect(page.getByTestId('insight-item')).toHaveCount(1)
+    await page.getByTestId('insight-item').locator('.insight-content').click()
+    await expect(page.locator('.assistant-dialog .source-card')).toContainText('PDF 第 1 页区域')
+    await page.locator('.assistant-dialog .source-card button').click()
+    await expect(page.locator('.pdf-region-overlay.is-temporary')).toHaveCount(1)
+  } finally {
+    await closeFixture(application, testRoot)
+  }
+})
+
+test('keeps text-page image crops independent of zoom and handles cancel, small regions, and render errors', async () => {
+  test.setTimeout(120_000)
+  const { application, page, testRoot } = await openFixture(textPdf)
+  try {
+    await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
+    await configureMockProvider(page)
+    const button = page.getByTestId('pdf-image-region-select')
+    const region = { left: 0.12, top: 0.16, right: 0.64, bottom: 0.36 }
+    await button.click()
+    await dragPdfRegion(page, region)
+    const preview = page.getByTestId('pdf-image-region-review')
+    await expect(preview).toBeVisible()
+    const normalCrop = await preview.locator('img').getAttribute('src')
+    expect(normalCrop).toMatch(/^data:image\/jpeg;base64,/u)
+    const normalSize = await preview.locator('img').evaluate((image) => ({ width: (image as HTMLImageElement).naturalWidth, height: (image as HTMLImageElement).naturalHeight }))
+    const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+    if (visualDirectory) {
+      await mkdir(visualDirectory, { recursive: true })
+      await preview.evaluate(async (element) => { await Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => undefined))) })
+      await page.screenshot({ path: join(visualDirectory, 'pdf-image-review-light.png') })
+    }
+    await preview.getByRole('button', { name: '取消' }).last().click()
+    await expect(preview).toHaveCount(0)
+    await expect(page.getByTestId('selection-toolbar')).toHaveCount(0)
+
+    await page.getByRole('button', { name: '放大', exact: true }).click()
+    await page.getByRole('button', { name: '放大', exact: true }).click()
+    await expect(page.getByTestId('pdf-zoom-value')).toHaveText('130%')
+    await button.click()
+    await dragPdfRegion(page, region)
+    await expect(preview).toBeVisible()
+    const zoomedSize = await preview.locator('img').evaluate((image) => ({ width: (image as HTMLImageElement).naturalWidth, height: (image as HTMLImageElement).naturalHeight }))
+    expect(Math.abs(zoomedSize.width - normalSize.width)).toBeLessThanOrEqual(6)
+    expect(Math.abs(zoomedSize.height - normalSize.height)).toBeLessThanOrEqual(6)
+    await preview.getByRole('button', { name: '取消' }).last().click()
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('theme-dark').click()
+    await page.getByTestId('settings-close').click()
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'dark')
+    await button.click()
+    await dragPdfRegion(page, region)
+    await expect(preview).toBeVisible()
+    const bounds = await preview.boundingBox()
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    expect(bounds).not.toBeNull()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.y).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width)
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height)
+    if (visualDirectory) {
+      await preview.evaluate(async (element) => { await Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => undefined))) })
+      await page.screenshot({ path: join(visualDirectory, 'pdf-image-review-dark-narrow.png') })
+    }
+    await page.getByTestId('pdf-image-region-confirm').click()
+    await expect(page.getByTestId('action-visual-ask')).toBeVisible()
+    await page.getByTestId('action-visual-ask').click()
+    await page.getByTestId('followup-input').fill('只说明框选区域里的图形。')
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText('已收到图片区域。')
+    await expect(page.locator('.source-card blockquote')).toHaveCount(0)
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toDataURL
+      ;(window as Window & { restoreCropExport?: () => void }).restoreCropExport = () => { HTMLCanvasElement.prototype.toDataURL = original }
+      HTMLCanvasElement.prototype.toDataURL = () => { throw new Error('fixture render failure') }
+    })
+    await page.getByTestId('answer-regenerate').click()
+    await expect(page.locator('.toast')).toContainText('无法生成所选区域的图片')
+    await expect(page.getByTestId('answer-current')).toContainText('已收到图片区域。')
+    await page.evaluate(() => (window as Window & { restoreCropExport?: () => void }).restoreCropExport?.())
+
+    await page.getByTestId('followup-input').fill('FAIL_VISUAL')
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText('当前问答模型可能不支持图片输入')
+    await page.getByTestId('followup-input').fill('SLOW_VISUAL')
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.getByTestId('cancel-request')).toBeVisible()
+    await page.getByTestId('cancel-request').click()
+    await expect(page.getByTestId('cancel-request')).toHaveCount(0)
+
+    await button.click()
+    await dragPdfRegion(page, { left: 0.2, top: 0.2, right: 0.205, bottom: 0.205 })
+    await expect(page.locator('.toast')).toContainText('框选区域太小')
+    await expect(preview).toHaveCount(0)
+    const pageBounds = await page.locator('.pdf-page').first().boundingBox()
+    if (!pageBounds) throw new Error('Expected a PDF page for outside-page drag')
+    await page.mouse.move(pageBounds.x + pageBounds.width * 0.2, pageBounds.y + pageBounds.height * 0.2)
+    await page.mouse.down()
+    await page.mouse.move(pageBounds.x - 10, pageBounds.y + pageBounds.height * 0.3, { steps: 8 })
+    await page.mouse.up()
+    await expect(page.locator('.toast')).toContainText('请只在同一页内框选图片区域')
+    await page.evaluate(() => {
+      const original = HTMLCanvasElement.prototype.toDataURL
+      ;(window as Window & { restoreCropExport?: () => void }).restoreCropExport = () => { HTMLCanvasElement.prototype.toDataURL = original }
+      HTMLCanvasElement.prototype.toDataURL = () => { throw new Error('fixture render failure') }
+    })
+    await dragPdfRegion(page, region)
+    await expect(page.locator('.toast')).toContainText('无法生成所选区域的图片')
+    await page.evaluate(() => (window as Window & { restoreCropExport?: () => void }).restoreCropExport?.())
   } finally {
     await closeFixture(application, testRoot)
   }

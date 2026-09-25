@@ -4,6 +4,7 @@ import { requestSettingsFields } from '@shared/request-settings'
 import { normalizeReaderSearchQuery } from '@shared/reader-search'
 import { validateDocument } from '@shared/document-structure'
 import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR_MAX_PAGES } from '@shared/vision-ocr'
+import { validPdfImageRegion, PDF_REGION_IMAGE_MAX_DATA_URL, PDF_REGION_IMAGE_PATTERN } from '@shared/pdf-image-region'
 
 const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
@@ -97,7 +98,7 @@ const passageSchema = z.object({
   tableSlice: tableSliceSchema.optional()
 })
 
-export const selectionSchema = z
+const textSelectionSchema = z
   .object({
     bookId: idSchema,
     quote: z.string().min(1).max(20_000),
@@ -115,6 +116,15 @@ export const selectionSchema = z
       context.addIssue({ code: 'custom', message: copy('validation.contextLimit'), path: ['passages'] })
     }
   })
+
+const pdfImageRegionSchema = z.object({
+  kind: z.literal('pdf-image-region'), bookId: idSchema, anchor: z.string().max(128),
+  pageNumber: z.number().int().min(1).max(600),
+  left: z.number().min(0).max(1), top: z.number().min(0).max(1),
+  right: z.number().min(0).max(1), bottom: z.number().min(0).max(1)
+}).strict().refine(validPdfImageRegion, copy('error.invalidInput'))
+
+export const selectionSchema = z.union([textSelectionSchema, pdfImageRegionSchema])
 
 export const contextSnapshotSchema = z.object({
   scope: z.enum(['selection', 'book']),
@@ -305,7 +315,9 @@ const llmRequestBase = {
       .max(30)
   }
 export const llmRequestSchema = z.union([
-  z.object({ ...llmRequestBase, scope: z.literal('selection').optional(), selection: selectionSchema }),
+  z.object({ ...llmRequestBase, scope: z.literal('selection').optional(), selection: textSelectionSchema }),
+  z.object({ ...llmRequestBase, scope: z.literal('visual'), selection: pdfImageRegionSchema,
+    imageDataUrl: z.string().max(PDF_REGION_IMAGE_MAX_DATA_URL).regex(PDF_REGION_IMAGE_PATTERN) }).strict(),
   z.object({ ...llmRequestBase, scope: z.literal('book'), bookId: idSchema })
 ])
   .refine((request) => request.action !== 'ask' || request.question.trim().length > 0, {

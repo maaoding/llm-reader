@@ -1,4 +1,4 @@
-import { showLibrary, enterReading } from './support/workspace'
+import { showLibrary, enterReading, resizeWorkspace } from './support/workspace'
 import {
   expect,
   test,
@@ -110,7 +110,8 @@ test.beforeAll(async () => {
         setTimeout(() => {
           if (response.writableEnded) return
           response.write(
-            `data: ${JSON.stringify({ id: 'mock-assistant-markdown-stream', model: 'mock-assistant-markdown', choices: [{ index: 0, delta: { content } }] })}\n\n`
+            `data: ${JSON.stringify({ id: 'mock-assistant-markdown-stream', model: 'mock-assistant-markdown', choices: [{ index: 0, delta: { content } }],
+              ...(index === chunks.length - 1 ? { usage: { total_tokens: 10_872 } } : {}) })}\n\n`
           )
           if (index === chunks.length - 1) response.end('data: [DONE]\n\n')
         }, index * 600)
@@ -165,7 +166,24 @@ test('renders assistant markdown without breaking citation navigation', async ()
     await expect(answer).not.toContainText('```')
 
     await expect(answer.locator('.answer-footer')).toBeVisible()
+    await expect(answer.locator('.answer-usage')).toContainText('10872')
     await expect(page.getByTestId('answer-save')).toContainText('保存回答')
+    for (const [width, height] of [[1440, 900], [940, 600]] as const) {
+      await resizeWorkspace(launched.application, page, width, height)
+      const footer = answer.locator('.answer-footer')
+      await footer.scrollIntoViewIfNeeded()
+      expect(await footer.evaluate((element) => {
+        const card = element.closest('.answer-card')?.getBoundingClientRect()
+        if (!card) return false
+        return [...element.querySelectorAll('button')].every((button) => {
+          const bounds = button.getBoundingClientRect()
+          return bounds.left >= card.left - 1 && bounds.right <= card.right + 1 &&
+            button.scrollWidth <= button.clientWidth && button.scrollHeight <= button.clientHeight &&
+            getComputedStyle(button).whiteSpace === 'nowrap'
+        })
+      })).toBe(true)
+      await footer.screenshot({ path: test.info().outputPath(`answer-actions-${width}.png`), scale: 'css' })
+    }
     await page.getByTestId('answer-save').click()
     await openInsightsWorkspace(page)
     await expect(page.getByTestId('assistant-dialog-tab-insights')).toContainText('回答归档')

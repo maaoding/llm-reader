@@ -1,6 +1,6 @@
 import { Bookmark, Download, LoaderCircle, Search, SearchX, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { InsightArchiveRecord, InsightExportScope } from '@shared/contracts'
+import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { MarkedText } from './MarkedText'
 import { normalizeNeedle } from './highlight'
@@ -68,8 +68,8 @@ export default function InsightsView({
     return scopeRecords.filter((insight) => [
       insight.book.title,
       insight.book.author ?? '',
-      insight.selection?.chapterTitle ?? copy('analysis.bookSource'),
-      insight.selection?.quote ?? '',
+      isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection?.chapterTitle ?? copy('analysis.bookSource'),
+      insight.selection && !isPdfImageRegion(insight.selection) ? insight.selection.quote : '',
       insight.question,
       insight.answer
     ].some((value) => value.toLocaleLowerCase('zh-CN').includes(needle)))
@@ -186,12 +186,12 @@ export default function InsightsView({
                     <MarkedText value={insight.book.title} needle={needle} />
                     {insight.book.author ? <> · <MarkedText value={insight.book.author} needle={needle} /></> : null}
                   </span>
-                  <span className="insight-quote">{insight.selection ? <>“<MarkedText value={insight.selection.quote} needle={needle} />”</> : copy('analysis.bookSource')}</span>
+                  <span className="insight-quote">{isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection ? <>“<MarkedText value={insight.selection.quote} needle={needle} />”</> : copy('analysis.bookSource')}</span>
                   <strong className="insight-question"><MarkedText value={insight.question} needle={needle} /></strong>
                   <AnswerText text={insight.answer} selection={insight.selection} context={insight.context} readOnly highlight={needle} />
                 </div>
               <footer>
-                <span>{insight.selection?.chapterTitle || (insight.selection ? copy('common.currentChapter') : copy('analysis.bookSource'))} · {formatDate(insight.createdAt)}</span>
+                <span>{isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection?.chapterTitle || (insight.selection ? copy('common.currentChapter') : copy('analysis.bookSource'))} · {formatDate(insight.createdAt)}</span>
                 {pendingDeleteInsightId === insight.id ? (
                   <span className="insight-delete-confirmation">
                     <span>{copy('insights.removeQuestion')}</span>

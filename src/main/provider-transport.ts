@@ -21,13 +21,13 @@ export class ProviderTransport {
     endpoint: string,
     credentials: RequestSettingsInput & { apiKey: string; compatibility?: ProviderCompatibility; protocol?: ProviderProtocol },
     context: ProviderRequestContext,
-    request: { method: 'GET' | 'POST'; body?: string; accept: string; signal: AbortSignal }
+    request: { method: 'GET' | 'POST'; body?: string; accept: string; signal: AbortSignal; sensitiveImage?: boolean }
   ): Promise<Response> {
     if (!/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/iu.test(context.sessionId)) {
       throw new AppError('INVALID_SESSION_ID', copy('error.invalidInput'))
     }
     const go = usesGoCompatibility(endpoint, credentials.compatibility)
-    const manual = go || credentials.protocol === 'anthropic' || Boolean(Object.keys(credentials.customHeaders ?? {}).length)
+    const manual = go || request.sensitiveImage || credentials.protocol === 'anthropic' || Boolean(Object.keys(credentials.customHeaders ?? {}).length)
     const headers = mergeRequestHeaders({
       ...(credentials.protocol === 'anthropic'
         ? { ...(credentials.apiKey ? { 'x-api-key': credentials.apiKey } : {}), 'anthropic-version': '2023-06-01' }

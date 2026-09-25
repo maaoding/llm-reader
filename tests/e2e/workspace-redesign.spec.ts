@@ -110,7 +110,12 @@ test('opens the book overview, keeps live drafts and reader instance across page
     await page.getByTestId('workspace-tab-overview').click()
     await page.getByTestId('workspace-ask').click()
     await expect(page.getByTestId('assistant-dialog').getByRole('button', { name: '选中内容', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('assistant-dialog').getByTestId('followup-input')).toHaveValue('')
+    await page.getByTestId('assistant-dialog').getByTestId('recent-conversations').click()
+    await expect(page.getByTestId('assistant-dialog').getByTestId('recent-conversation')).toHaveCount(1)
+    await page.getByTestId('assistant-dialog').getByTestId('recent-conversation').click()
     await expect(page.getByTestId('assistant-dialog').getByTestId('followup-input')).toHaveValue('未配置服务也可以先写草稿')
+    await expect(page.getByTestId('assistant-dialog').getByRole('button', { name: '整本书', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await page.getByTestId('workspace-tab-notes').click()
     const restarted = await restartReader(application, { userData: workspace.userData }); application = restarted.application
     await expect(restarted.page.getByTestId('notes-view')).toBeVisible()

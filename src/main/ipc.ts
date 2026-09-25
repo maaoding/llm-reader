@@ -318,6 +318,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   }
   handle(IPC_CHANNELS.llmStart, dependencies, (event, value) => {
     const request = parse(llmRequestSchema, value)
+    if (request.scope === 'visual' && !dependencies.library.listBooks().some((book) => book.id === request.selection.bookId && book.format === 'pdf')) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
     const emit = (llmEvent: LlmEvent): void => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.llmEvent, llmEvent)
     }

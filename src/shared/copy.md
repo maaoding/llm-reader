@@ -650,6 +650,16 @@
 | reader.pdfWholeDocument | 全文 |
 | reader.pdfUntitledSection | 未命名小节 |
 | reader.pdfRegionSelect | 框选文字 |
+| visual.select | 框选图片 |
+| visual.hint | 请在 PDF 单页内框选需要模型理解的图片区域。 |
+| visual.reviewTitle | 确认图片区域 |
+| visual.reviewHint | 此区域图片将在每次提问时发送给当前模型服务。 |
+| visual.explain | 解释图片 |
+| visual.ask | 向图片提问 |
+| visual.source | PDF 第 {page} 页区域 |
+| visual.renderFailed | 无法生成所选区域的图片，请重新框选。 |
+| visual.crossPage | 请只在同一页内框选图片区域。 |
+| visual.modelUnsupported | 当前问答模型可能不支持图片输入；请切换到支持视觉能力的模型后重试。 |
 | reader.pdfRegionHint | 请在单页内框选一个段落、单栏或表格区域。 |
 | reader.pdfRegionTooSmall | 框选区域太小，请重新拖动选择。 |
 | reader.pdfRegionEmpty | 框选区域没有可提取的文字。 |

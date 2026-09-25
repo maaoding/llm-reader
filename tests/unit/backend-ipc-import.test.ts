@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { IPC_CHANNELS } from '../../src/shared/contracts'
+import { pdfImageRegionAnchor } from '../../src/shared/pdf-image-region'
 
 type InvokeHandler = (event: unknown, ...values: unknown[]) => Promise<unknown>
 
@@ -33,7 +35,7 @@ function register(bookImporter: {
   isBusy: () => boolean
   importPaths: (paths: ReadonlyArray<string>) => Promise<unknown>
   cancel: () => void
-}): void {
+}, extras: { library?: unknown; llm?: unknown } = {}): void {
   registerIpcHandlers({
     window: {
       webContents: { id: 17 },
@@ -43,10 +45,10 @@ function register(bookImporter: {
       isMaximized: vi.fn(() => false),
       close: vi.fn()
     },
-    library: {},
+    library: extras.library ?? {},
     bookImporter,
     provider: {},
-    llm: {},
+    llm: extras.llm ?? {},
     updater: {},
     allowedRendererOrigins: new Set<string>(),
     completeClose: vi.fn()
@@ -144,5 +146,25 @@ describe('book import IPC', () => {
 
     await expect(handler?.(trustedEvent())).resolves.toBeUndefined()
     expect(bookImporter.cancel).toHaveBeenCalledOnce()
+  })
+
+  it('accepts visual requests only for an existing PDF book after validating the image and rectangle', async () => {
+    const bookId = randomUUID()
+    const bounds = { pageNumber: 1, left: 0.1, top: 0.2, right: 0.7, bottom: 0.8 }
+    const request = { requestId: randomUUID(), conversationId: randomUUID(), scope: 'visual', action: 'ask',
+      question: '这里是什么？', history: [], imageDataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+      selection: { kind: 'pdf-image-region', bookId, ...bounds, anchor: pdfImageRegionAnchor(bounds) } }
+    const start = vi.fn()
+    const listBooks = vi.fn(() => [{ id: bookId, format: 'txt' }])
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined },
+      { library: { listBooks }, llm: { start } })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.llmStart)!
+    await expect(handler(trustedEvent(), request)).rejects.toThrow('[BOOK_NOT_FOUND]')
+    expect(start).not.toHaveBeenCalled()
+    listBooks.mockReturnValue([{ id: bookId, format: 'pdf' }])
+    await expect(handler(trustedEvent(), { ...request, imageDataUrl: 'data:text/plain;base64,QQ==' })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(handler(trustedEvent(), { ...request, selection: { ...request.selection, right: 1.2 } })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(handler(trustedEvent(), request)).resolves.toBeUndefined()
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ scope: 'visual', imageDataUrl: request.imageDataUrl }), expect.any(Function))
   })
 })

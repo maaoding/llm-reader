@@ -224,8 +224,9 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
       await expect(page.getByTestId('rerank-result').last()).toHaveText('排序服务未完成，已使用原有顺序')
       expect((await page.evaluate((id) => window.readerApi.getBookAnalysis(id), bookId)).status).toBe('ready')
       rerankStatus = 200
-      expect(answers.at(-1)?.sessionId).toBe(saved.conversationId)
+      expect(answers.at(-1)?.sessionId).not.toBe(saved.conversationId)
       expect(answers).toHaveLength(2)
+      expect((await page.evaluate(async (id) => (await window.readerApi.listInsights(id))[0].conversationId, bookId))).toBe(saved.conversationId)
       if (format === 'txt') {
         for (const theme of ['light', 'dark'] as const) {
           await page.getByTestId('settings-button').click()

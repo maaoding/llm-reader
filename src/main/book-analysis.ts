@@ -395,6 +395,7 @@ export class BookAnalysisService {
 
   async context(request: LlmRequest, credentials: ProviderCredentials, signal: AbortSignal): Promise<ContextSnapshot> {
     signal.throwIfAborted()
+    if (request.scope === 'visual') return this.llm.localContext(request)
     const rankConfig = this.rerank?.snapshot()
     const bookId = request.scope === 'book' ? request.bookId : request.selection.bookId
     if (!this.store.database.getStoredBook(bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))

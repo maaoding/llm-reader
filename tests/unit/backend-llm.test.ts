@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import type { LlmEvent, LlmRequest } from '../../src/shared/contracts'
+import type { LlmEvent, LlmRequest, SelectionContext } from '../../src/shared/contracts'
 import { copy } from '../../src/shared/copy'
 import { buildChatCompletionsUrl, buildModelsUrl, LlmService, selectContextPassages } from '../../src/main/llm-service'
 
@@ -8,7 +8,7 @@ const credentials = {
   getCredentials: () => ({ baseUrl: 'https://models.example.test', model: 'reader-model', apiKey: 'secret', compatibility: 'auto' as const })
 }
 
-type SelectionRequest = Extract<LlmRequest, { selection: unknown }>
+type SelectionRequest = Extract<LlmRequest, { selection: SelectionContext }>
 function request(overrides: Partial<SelectionRequest> = {}): SelectionRequest {
   return {
     requestId: randomUUID(),

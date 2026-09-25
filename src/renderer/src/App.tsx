@@ -60,6 +60,7 @@ import {
   useRef,
   useState
 } from 'react'
+import { isPdfImageRegion, type ReaderSource } from '@shared/contracts'
 import type {
   BookAnalysisState,
   AppUpdatePhase,
@@ -86,7 +87,6 @@ import type {
   ProviderProfile,
   ProviderTestResult,
   SavedInsight,
-  SelectionContext,
   TocItem
 } from '@shared/contracts'
 import appIcon from '../../../resources/icon.png'
@@ -130,6 +130,7 @@ import {
   type ReaderAdapter,
   type ReaderSearchResult,
   type ReaderSelectionDraft,
+  type ReaderImageRegionDraft,
   type ReadingPreferences,
   type ReadingTextAlign
 } from './readers'
@@ -169,7 +170,7 @@ interface ProviderCheckOutcome extends ProviderTestResult {
 interface ConversationTurn {
   id: string
   requestId: string
-  selection: SelectionContext | null
+  selection: ReaderSource | null
   context?: ContextSnapshot
   action: LlmAction
   actionLabel: string
@@ -191,7 +192,7 @@ interface ConversationTab {
   kind: ConversationTabKind
   bookId: string
   title: string
-  selection: SelectionContext | null
+  selection: ReaderSource | null
   scope: 'selection' | 'book'
   turns: ConversationTurn[]
   draft: string
@@ -261,7 +262,7 @@ function createArchiveTab(insight: InsightArchiveRecord): ConversationTab {
     conversationId: insight.conversationId,
     kind: 'archive',
     bookId: insight.bookId,
-    title: compactTabTitle(insight.question || insight.selection?.quote || '', copy('assistant.insightLabel')),
+    title: compactTabTitle(insight.question || (insight.selection && !isPdfImageRegion(insight.selection) ? insight.selection.quote : '') || '', copy('assistant.insightLabel')),
     selection: latest ? latest.selection : insight.selection,
     scope: latest?.context?.scope ?? insight.context?.scope ?? 'selection',
     turns,
@@ -614,6 +615,23 @@ function PdfSelectionReviewDialog({ draft }: { draft: ReaderSelectionDraft }): R
       </section>
     </div>
   )
+}
+
+function PdfImageRegionReviewDialog({ draft }: { draft: ReaderImageRegionDraft }): ReactNode {
+  const dialogRef = useRef<HTMLElement>(null)
+  const returnRef = useRef<HTMLElement>(null)
+  const close = useCallback(() => draft.cancel(), [draft])
+  useDialogFocus(true, close, dialogRef, returnRef)
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && close()}>
+    <section ref={dialogRef} className="pdf-selection-review-modal" data-testid="pdf-image-region-review" role="dialog" aria-modal="true" aria-labelledby="pdf-image-region-review-title">
+      <header className="modal-header"><h2 id="pdf-image-region-review-title">{copy('visual.reviewTitle')}</h2>
+        <button className="icon-button" type="button" onClick={close} aria-label={copy('reader.pdfRegionCancel')}><X size={16} /></button></header>
+      <div className="pdf-selection-review-body"><p>{copy('visual.reviewHint')}</p>
+        <img className="pdf-image-region-preview" src={draft.imageDataUrl} alt={copy('visual.source', { page: draft.source.pageNumber })} /></div>
+      <footer className="modal-actions"><button ref={returnRef as RefObject<HTMLButtonElement>} className="secondary-button" type="button" onClick={close}>{copy('reader.pdfRegionCancel')}</button>
+        <button className="primary-button" data-testid="pdf-image-region-confirm" type="button" onClick={draft.confirm}>{copy('reader.pdfRegionConfirm')}</button></footer>
+    </section>
+  </div>
 }
 
 function createId(): string {
@@ -1224,7 +1242,7 @@ function ConversationPane({
   onEditQuestion,
   canRegenerate = false
 }: {
-  conversationSelection: SelectionContext | null
+  conversationSelection: ReaderSource | null
   scope?: 'selection' | 'book'
   controls?: ReactNode
   composerControls?: ReactNode
@@ -1249,7 +1267,7 @@ function ConversationPane({
   onSubmit: (event: FormEvent) => void
   onComposerKey: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
 }): ReactNode {
-  const selectedPassageCount = conversationSelection?.passages.length ?? 0
+  const selectedPassageCount = conversationSelection && !isPdfImageRegion(conversationSelection) ? conversationSelection.passages.length : 0
   const assistantScrollRef = useRef<HTMLDivElement | null>(null)
   const assistantFollowRef = useRef(true)
 
@@ -1285,21 +1303,21 @@ function ConversationPane({
         {!conversationSelection && turns.length === 0 && scope === 'book' && <EmptyState icon={<BookOpen size={21} />} title={copy('assistant.bookEmptyTitle')} detail={copy('assistant.bookEmptyHint')} />}
         {conversationSelection && scope !== 'book' && (
           <div className="source-card">
-            <div className="source-card-header"><span>{copy('assistant.sourceTitle')}</span><small>{copy('assistant.sourceSummary', { chapter: conversationSelection.chapterTitle || copy('common.currentChapter'), count: selectedPassageCount })}</small></div>
-            <blockquote>“<MarkedText value={conversationSelection.quote} needle={searchNeedle} />”</blockquote>
-            <button type="button" onClick={() => onNavigate(conversationSelection.anchor, conversationSelection.chapterTitle)}><ArrowLeft size={13} />{copy('assistant.backToSource')}</button>
+            <div className="source-card-header"><span>{copy('assistant.sourceTitle')}</span><small>{isPdfImageRegion(conversationSelection) ? copy('visual.source', { page: conversationSelection.pageNumber }) : copy('assistant.sourceSummary', { chapter: conversationSelection.chapterTitle || copy('common.currentChapter'), count: selectedPassageCount })}</small></div>
+            {isPdfImageRegion(conversationSelection) ? <p>{copy('visual.reviewHint')}</p> : <blockquote>“<MarkedText value={conversationSelection.quote} needle={searchNeedle} />”</blockquote>}
+            <button type="button" onClick={() => onNavigate(conversationSelection.anchor, isPdfImageRegion(conversationSelection) ? undefined : conversationSelection.chapterTitle)}><ArrowLeft size={13} />{copy('assistant.backToSource')}</button>
           </div>
         )}
         <div className="conversation-list" aria-live="polite">
           {turns.map((turn, index) => {
             const isLatest = index === turns.length - 1
-            const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? turn.selection?.chapterTitle)
+            const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
                 <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                  {turn.context && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
+                  {turn.context && !isPdfImageRegion(turn.context.selection) && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
                     {turn.context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', turn.context.coverage)}</p>}
                     {turn.context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(turn.context.rerank.status === 'applied' ? 'rerank.applied' : turn.context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
                     <EvidenceSources passages={turn.context.passages} onNavigate={onNavigate} /></details>}
@@ -1313,7 +1331,7 @@ function ConversationPane({
                   )}
                   {turn.status === 'completed' && (
                     <footer className="answer-footer">
-                      <span>{turn.usage?.totalTokens ? copy('assistant.tokenUsage', { count: turn.usage.totalTokens }) : ''}</span>
+                      {turn.usage?.totalTokens ? <span className="answer-usage">{copy('assistant.tokenUsage', { count: turn.usage.totalTokens })}</span> : null}
                       {isLatest && !activeRequestId && (onRegenerate || onEditQuestion) && (
                         <span className="answer-retry-actions">
                           {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
@@ -1321,7 +1339,7 @@ function ConversationPane({
                         </span>
                       )}
                       {showSave && onSave && (
-                        <button data-testid={isLatest ? 'answer-save' : undefined} className={turn.saved ? 'is-saved' : ''} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
+                        <button data-testid={isLatest ? 'answer-save' : undefined} className={`answer-save${turn.saved ? ' is-saved' : ''}`} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
                           {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
                         </button>
                       )}
@@ -2417,8 +2435,9 @@ export default function App(): ReactNode {
   const [conversationQuery, setConversationQuery] = useState('')
   const [pendingClearSession, setPendingClearSession] = useState(false)
   const [workspaceReady, setWorkspaceReady] = useState(false)
-  const [selection, setSelection] = useState<SelectionContext | null>(null)
+  const [selection, setSelection] = useState<ReaderSource | null>(null)
   const [selectionDraft, setSelectionDraft] = useState<ReaderSelectionDraft | null>(null)
+  const [imageRegionDraft, setImageRegionDraft] = useState<ReaderImageRegionDraft | null>(null)
   const [conversationTabs, setConversationTabs] = useState<ConversationTab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [insights, setInsights] = useState<InsightArchiveRecord[]>([])
@@ -3027,6 +3046,10 @@ export default function App(): ReactNode {
           if (draft) dismissToast()
           setSelectionDraft(draft)
         },
+        onImageRegionDraftChanged: (draft) => {
+          if (draft) dismissToast()
+          setImageRegionDraft(draft)
+        },
         onDisplaySettings: (trigger) => openSettings('reading', trigger),
         onInternalNavigation: () => { chapterTitleOverrideRef.current = null },
         onNotice: ({ message, tone }) => pushToast(message, tone === 'info' ? 'neutral' : 'error')
@@ -3516,7 +3539,7 @@ export default function App(): ReactNode {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [assistantDialogOpen, bookState, detailsBook, openSearchView, settingsOpen])
 
-  const enqueueRequest = async (action: LlmAction, question: string, tabId: string, sourceSelection?: SelectionContext): Promise<void> => {
+  const enqueueRequest = async (action: LlmAction, question: string, tabId: string, sourceSelection?: ReaderSource, replaceTurnId?: string): Promise<void> => {
     const cleanQuestion = question.trim()
     if (!cleanQuestion) return
     let tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
@@ -3525,13 +3548,20 @@ export default function App(): ReactNode {
     const context = scope === 'book' ? null : sourceSelection ?? tab.selection
     if (scope === 'selection' && !context) return
 
+    let imageDataUrl: string | undefined
+    if (isPdfImageRegion(context)) {
+      try {
+        imageDataUrl = await adapterRef.current?.captureImageRegion?.(context)
+        if (!imageDataUrl) throw new Error(copy('visual.renderFailed'))
+      } catch { pushToast(copy('visual.renderFailed'), 'error'); return }
+    }
     const newContext = scope !== tab.scope || (scope === 'selection' && tab.selection?.anchor !== context?.anchor)
     if (newContext) {
       if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '' }))) return
       tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)!
     }
     const conversationId = tab.conversationId
-    const priorTurns = newContext ? [] : tab.turns.filter((turn) => turn.status === 'completed' && turn.answer)
+    const priorTurns = newContext ? [] : tab.turns.filter((turn) => turn.id !== replaceTurnId && turn.status === 'completed' && turn.answer)
     const requestId = createId()
     const turn: ConversationTurn = {
       id: createId(),
@@ -3550,7 +3580,7 @@ export default function App(): ReactNode {
       conversationId,
       selection: context,
       scope,
-      turns: newContext ? [turn] : [...current.turns, turn],
+      turns: newContext ? [turn] : [...current.turns.filter((item) => item.id !== replaceTurnId), turn],
       draft: ''
     }))
     focusConversationTab(tab.id)
@@ -3566,7 +3596,9 @@ export default function App(): ReactNode {
         conversationId,
         action,
         question: cleanQuestion,
-        ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId } : { scope: 'selection' as const, selection: context! }),
+        ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId }
+          : isPdfImageRegion(context) ? { scope: 'visual' as const, selection: context, imageDataUrl: imageDataUrl! }
+            : { scope: 'selection' as const, selection: context! }),
         history: priorTurns.slice(-15).flatMap((item) => [
           { role: 'user' as const, content: item.question },
           { role: 'assistant' as const, content: item.answer.slice(-20_000) }
@@ -3639,7 +3671,7 @@ export default function App(): ReactNode {
       window.setTimeout(() => followupRef.current?.focus(), 0)
       return
     }
-    await enqueueRequest(action, assistantActions[action].prompt, liveTabId, selection)
+    await enqueueRequest(action, isPdfImageRegion(selection) ? '请解释这块 PDF 图片区域。' : assistantActions[action].prompt, liveTabId, selection)
   }
 
   const cancelRequest = async (requestId: string | null): Promise<void> => {
@@ -3699,8 +3731,7 @@ export default function App(): ReactNode {
     const scope = turn.selection ? 'selection' : 'book'
     if (!providerIsConfigured(provider)) return
     if (scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready') return
-    updateConversationTab(tab.id, (current) => ({ ...current, turns: current.turns.filter((item) => item.id !== turnId) }))
-    enqueueRequest(turn.action, turn.question, tab.id, turn.selection ?? undefined)
+    void enqueueRequest(turn.action, turn.question, tab.id, turn.selection ?? undefined, turnId)
   }
   const editTurnQuestion = (tab: ConversationTab, turnId: string): void => {
     const index = lastTurnIndex(tab, turnId)
@@ -3873,7 +3904,7 @@ export default function App(): ReactNode {
   }, [pushToast])
 
   const saveSelectionHighlight = async (): Promise<void> => {
-    if (!selection || !activeBook) return
+    if (!selection || isPdfImageRegion(selection) || !activeBook) return
     const target = selection
     try {
       await window.readerApi.saveHighlight({
@@ -4186,7 +4217,7 @@ export default function App(): ReactNode {
   const conversationNeedle = normalizeNeedle(conversationQuery)
   const conversationMatches = useMemo(() => {
     if (!conversationNeedle) return 0
-    return (activeConversationTab?.turns ?? []).filter((turn) => [turn.question, turn.answer, turn.selection?.quote ?? '']
+    return (activeConversationTab?.turns ?? []).filter((turn) => [turn.question, turn.answer, turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.quote : '']
       .some((value) => value.toLocaleLowerCase('zh-CN').includes(conversationNeedle))).length
   }, [activeConversationTab, conversationNeedle])
   const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && providerIsConfigured(provider) && !streamingRequestId(tab) && (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status === 'ready' : tab.selection))
@@ -4641,10 +4672,15 @@ export default function App(): ReactNode {
               onMouseDown={(event) => event.preventDefault()}
             >
               <span className="selection-spark"><Sparkles size={15} /></span>
-              <button data-testid="action-explain" data-icon={assistantActions.explain.icon} type="button" title={assistantActions.explain.label} onClick={() => handleSelectionAction('explain')}><AssistantActionIconView icon={assistantActions.explain.icon} size={15} />{assistantActions.explain.label}</button>
-              <button data-testid="action-context" data-icon={assistantActions.context.icon} type="button" title={assistantActions.context.label} onClick={() => handleSelectionAction('context')}><AssistantActionIconView icon={assistantActions.context.icon} size={15} />{assistantActions.context.label}</button>
-              <button data-testid="action-ask" data-icon={assistantActions.ask.icon} type="button" title={assistantActions.ask.label} onClick={() => handleSelectionAction('ask')}><AssistantActionIconView icon={assistantActions.ask.icon} size={15} />{assistantActions.ask.label}</button>
-              <button data-testid="action-save-highlight" type="button" onClick={() => void saveSelectionHighlight()}><Bookmark size={15} />{copy('assistant.actionSaveHighlight')}</button>
+              {isPdfImageRegion(selection) ? <>
+                <button data-testid="action-visual-explain" type="button" onClick={() => handleSelectionAction('explain')}><Sparkles size={15} />{copy('visual.explain')}</button>
+                <button data-testid="action-visual-ask" type="button" onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />{copy('visual.ask')}</button>
+              </> : <>
+                <button data-testid="action-explain" data-icon={assistantActions.explain.icon} type="button" title={assistantActions.explain.label} onClick={() => handleSelectionAction('explain')}><AssistantActionIconView icon={assistantActions.explain.icon} size={15} />{assistantActions.explain.label}</button>
+                <button data-testid="action-context" data-icon={assistantActions.context.icon} type="button" title={assistantActions.context.label} onClick={() => handleSelectionAction('context')}><AssistantActionIconView icon={assistantActions.context.icon} size={15} />{assistantActions.context.label}</button>
+                <button data-testid="action-ask" data-icon={assistantActions.ask.icon} type="button" title={assistantActions.ask.label} onClick={() => handleSelectionAction('ask')}><AssistantActionIconView icon={assistantActions.ask.icon} size={15} />{assistantActions.ask.label}</button>
+                <button data-testid="action-save-highlight" type="button" onClick={() => void saveSelectionHighlight()}><Bookmark size={15} />{copy('assistant.actionSaveHighlight')}</button>
+              </>}
               <button className="toolbar-close" type="button" onClick={() => { adapterRef.current?.clearSelection(); setSelection(null) }} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
             </div>
           )}
@@ -4708,6 +4744,7 @@ export default function App(): ReactNode {
         </section>
       </div>}
       {selectionDraft && <PdfSelectionReviewDialog draft={selectionDraft} />}
+      {imageRegionDraft && <PdfImageRegionReviewDialog draft={imageRegionDraft} />}
 
       {assistantDialogOpen && (
         <div className="modal-backdrop assistant-dialog-backdrop" role="presentation">

@@ -1,4 +1,4 @@
-import type { InsightArchiveRecord, InsightExportScope, Passage } from '@shared/contracts'
+import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope, type Passage } from '@shared/contracts'
 import { copy } from '@shared/copy'
 
 function singleLine(value: string): string {
@@ -111,13 +111,13 @@ export function buildInsightExportMarkdown(records: ReadonlyArray<InsightArchive
     insights.forEach((insight, insightIndex) => {
       lines.push(`### ${copy('export.entryHeading', { index: `${bookIndex}.${insightIndex + 1}` })}`)
       lines.push('')
-      lines.push(`- ${copy('export.chapterLabel')}：${singleLine(insight.selection?.chapterTitle || (insight.selection ? copy('common.currentChapter') : copy('analysis.bookSource')))}`)
+      lines.push(`- ${copy('export.chapterLabel')}：${singleLine(isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection?.chapterTitle || (insight.selection ? copy('common.currentChapter') : copy('analysis.bookSource')))}`)
       lines.push(`- ${copy('export.dateLabel')}：${formatDateTime(insight.createdAt)}`)
       lines.push(`- ${copy('export.modelLabel')}：${singleLine(insight.model)}`)
       lines.push('')
       lines.push(`**${copy('export.quoteLabel')}**`)
       lines.push('')
-      lines.push(blockquote(insight.selection?.quote || copy('analysis.bookSource')))
+      lines.push(blockquote(isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection?.quote || copy('analysis.bookSource')))
       lines.push('')
       lines.push(`**${copy('export.questionLabel')}**`)
       lines.push('')

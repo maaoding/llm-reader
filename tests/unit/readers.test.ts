@@ -486,7 +486,8 @@ describe('EPUB adapter safety utilities', () => {
         chapterTitle: '第一章'
       })
     )
-    expect(adapter.getSelection()?.passages.map((passage) => passage.id)).toEqual(['P1', 'P2'])
+    const selected = adapter.getSelection()
+    expect(selected && !('kind' in selected) ? selected.passages.map((passage) => passage.id) : []).toEqual(['P1', 'P2'])
 
     handlers.get('relocated')?.({
       start: { cfi: 'epubcfi(/6/2!/4/1:0)', percentage: 0.25, index: 0 }
