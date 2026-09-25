@@ -555,6 +555,18 @@ test('persists reading, conversation and insight deletion after restart', async 
     await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('configured-alias')
     await expect(page.getByTestId('answer-current')).toContainText('这段文字提醒我们')
     await expect(page.getByTestId('answer-current')).toContainText('适用边界')
+    const sourceMetrics = await page.locator('.right-sidebar .source-card').evaluate((card) => {
+      const label = card.querySelector<HTMLElement>('.source-card-header > span')!
+      const quote = card.querySelector<HTMLElement>('blockquote')!
+      return {
+        labelHeight: label.getBoundingClientRect().height,
+        labelFontSize: Number.parseFloat(getComputedStyle(label).fontSize),
+        quoteHeight: quote.getBoundingClientRect().height,
+        quoteLineHeight: Number.parseFloat(getComputedStyle(quote).lineHeight)
+      }
+    })
+    expect(sourceMetrics.labelHeight).toBeLessThan(sourceMetrics.labelFontSize * 1.8)
+    expect(sourceMetrics.quoteHeight).toBeLessThanOrEqual(sourceMetrics.quoteLineHeight * 2 + 2)
     const answerText = page.getByTestId('answer-current').locator('.answer-text')
     const validCitation = answerText.getByTestId('citation-valid')
     const unverifiedCitation = answerText.getByTestId('citation-unverified')
@@ -598,6 +610,9 @@ test('persists reading, conversation and insight deletion after restart', async 
       await page.screenshot({ path: join(visualDirectory, 'assistant-dark-1536x864.png') })
       await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 960))
       await page.screenshot({ path: join(visualDirectory, 'assistant-dark-1440x960.png') })
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
+      await page.locator('.right-sidebar .assistant-scroll').evaluate((element) => { element.scrollTop = 0 })
+      await page.screenshot({ path: join(visualDirectory, 'assistant-dark-940x600.png') })
       await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1536, 864))
     }
     const expandButton = page.getByTestId('assistant-expand-button')
@@ -630,6 +645,10 @@ test('persists reading, conversation and insight deletion after restart', async 
       await page.screenshot({ path: join(visualDirectory, 'reading-settings-light-1536x864.png') })
       await page.getByTestId('settings-close').click()
       await page.screenshot({ path: join(visualDirectory, 'assistant-light-1536x864.png') })
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
+      await page.locator('.right-sidebar .assistant-scroll').evaluate((element) => { element.scrollTop = 0 })
+      await page.screenshot({ path: join(visualDirectory, 'assistant-light-940x600.png') })
+      await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1536, 864))
       await settingsButton.click()
       await darkTheme.click()
       await page.getByTestId('settings-close').click()

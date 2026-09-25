@@ -1918,13 +1918,21 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.source-card-header > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .source-card-header small {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--muted);
   font-size: var(--assistant-meta-size);
   font-weight: 500;
   letter-spacing: 0;
   text-overflow: ellipsis;
+  text-align: right;
   text-transform: none;
   white-space: nowrap;
 }
@@ -1940,6 +1948,10 @@ button:disabled {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   user-select: text;
+}
+
+.right-sidebar .source-card blockquote {
+  -webkit-line-clamp: 2;
 }
 
 .source-card > button {
