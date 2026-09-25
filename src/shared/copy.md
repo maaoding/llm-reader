@@ -41,6 +41,9 @@
 | preparation.basic | 全书提问的基础 |
 | preparation.local | 在本机提取文字与章节结构，无需模型服务。 |
 | preparation.pdf | 将整份 PDF 发送到所选文档服务，提取文字与结构。 |
+| preparation.pdfGuide | 复杂论文、表格和公式优先使用 MinerU 或 Docling；逐页 OCR 建议先识别一页并对照原 PDF。 |
+| preparation.pageOcr | 使用专门 OCR 服务逐页识别 PDF 文字。当前接入按页保存文字，不保留完整表格结构。 |
+| preparation.pageOcrDisclosure | 准备时逐页发送图片至所选 OCR 服务，可能消耗额度。完成页保存在本机，暂停后可继续；识别结果和复杂版式仍需对照原 PDF 核验。 |
 | preparation.documentProgress | 已处理 {completed}/{total} 项 |
 | preparation.notesHint | 整理书中的观点、概念和适用条件，帮助理解章节之间的联系。 |
 | preparation.semanticHint | 帮助找到意思相近、用词不同的原文。 |
@@ -105,7 +108,7 @@
 | assistant.bookEmptyHint | 询问书中的观点、概念或章节联系，回答会附上本次参考的原文。 |
 | reader.contentsButton | 目录 |
 | reader.layoutButton | 排版 |
-| reader.displayButton | 显示 |
+| reader.displayButton | PDF 工具 |
 | reader.toolsAria | 阅读工具 |
 | sources.wholeTable | 此处只能定位到整张表所在的页面。 |
 
@@ -145,6 +148,7 @@
 | knowledge.mineruCloud | MinerU 云服务 |
 | knowledge.docling | Docling Serve |
 | knowledge.documentHint | Docling Serve 和 MinerU 本地服务填写服务根地址；MinerU 云服务填写 https://mineru.net。需要自行部署本地服务，应用不会自动安装。 |
+| knowledge.processorGuide | 复杂论文、表格和公式优先选 MinerU 或 Docling；扫描页只需文字可选 Mistral OCR 或 Unstructured；已有兼容模型时可用视觉模型 OCR，并先试一页。 |
 | knowledge.ocr | 启用 OCR |
 | knowledge.language | 识别语言 |
 | knowledge.ch | 中文 |
@@ -153,8 +157,8 @@
 | knowledge.testDocument | 检查处理服务 |
 | vision.title | 视觉模型 OCR |
 | vision.model | 视觉模型名称 |
-| vision.hint | 使用支持图片输入的 OpenAI 兼容或 Anthropic 接口识别 PDF，可与提问模型分开配置。先用固定样图测试图片识别；测试可能消耗额度，不会发送书籍。 |
-| vision.preparation | 把 PDF 页面转为图片交给视觉模型，识别的文字可用于全书提问和章节笔记。 |
+| vision.hint | 使用支持图片输入的 OpenAI 兼容或 Anthropic 接口逐页识别 PDF 文字，可与提问模型分开配置。先用固定样图测试，再试本书一页；测试可能消耗额度。 |
+| vision.preparation | 使用兼容的视觉模型逐页识别 PDF 文字，结果可用于全书提问和章节笔记；复杂表格与章节结构需核对。 |
 | vision.disclosure | 点击准备后，会逐页发送图片至所配置的模型服务，可能产生费用。已完成页保存在本机，暂停、失败或退出后可手动继续；未完成页可能重复计费。原 PDF 保留，引用可返回页面核对。识别结果可能有误，暂不生成可选择的文字层，也不保证复杂表格与章节结构。 |
 | vision.progress | 已识别 {completed}/{total} 页 |
 | vision.test | 测试图片识别 |
@@ -495,6 +499,7 @@
 | settings.apiKeyPlaceholderEmpty | 输入 API 密钥 |
 | settings.apiKeyHint | 密钥只交给主进程加密保存，不写入书库数据库。 |
 | assistant.recentSessions | 最近对话 |
+| assistant.recentSessionsLoading | 正在读取最近对话… |
 | assistant.promptDetails | 查看本次提示词 |
 | vision.previewTitle | 先识别一页 |
 | vision.previewHint | 优先使用相同书籍和配置下的识别结果；没有结果时仅发送所选页图片。正式准备会复用已识别页。 |
@@ -865,7 +870,9 @@
 | request.incomplete | 模型输出未完整结束，请增加 max_tokens 或调整模型参数后重试。 |
 | request.mistral | Mistral OCR |
 | request.unstructured | Unstructured Partition |
-| request.pageHint | 逐页发送 PDF 页面图片进行识别，完成页会缓存；暂停后可继续。结果用于检索和问答，引用页码取自原 PDF。 |
+| request.ocrModel | OCR 模型名称 |
+| request.testOcr | 测试 OCR |
+| request.pageHint | 使用专门 OCR 服务逐页识别 PDF 文字，完成页会缓存，暂停后可继续。当前应用按页保存文字，复杂表格结构需核对；建议先试本书一页。 |
 | request.partitionHint | 填写 Unstructured Partition 接口地址或本机兼容服务地址；不适用于 Workflow 接口。 |
 | request.preset | 常用服务 |
 | request.custom | 自定义地址 |

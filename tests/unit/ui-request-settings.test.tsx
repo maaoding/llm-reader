@@ -29,6 +29,9 @@ function setup() {
 it('applies the Mistral preset, tests unsaved headers and parameters, then clears secret inputs after save', async () => {
   const view = setup()
   fireEvent.change(await view.findByTestId('document-processor'), { target: { value: 'mistral-ocr' } })
+  expect(view.getByText(/复杂论文、表格和公式优先选 MinerU 或 Docling/u)).toBeTruthy()
+  expect(view.getByLabelText('OCR 模型名称')).toBe(view.getByTestId('document-model'))
+  expect(view.getByText(/当前应用按页保存文字/u)).toBeTruthy()
   expect((view.getByTestId('document-url') as HTMLInputElement).value).toBe('https://api.mistral.ai/v1')
   expect((view.getByTestId('document-model') as HTMLInputElement).value).toBe('mistral-ocr-latest')
   fireEvent.change(view.getByTestId('document-headers'), { target: { value: '{"X-Token":"draft-secret"}' } })
@@ -68,6 +71,8 @@ it('blocks malformed and reserved JSON, reports dirty edits, and recovers when s
 it('selects Claude for vision OCR and clears header drafts after endpoint or protocol changes', async () => {
   const view = setup()
   fireEvent.change(await view.findByTestId('document-processor'), { target: { value: 'vision' } })
+  expect(view.getByLabelText('视觉模型名称')).toBe(view.getByTestId('document-model'))
+  expect(view.getByText(/兼容或 Anthropic 接口逐页识别 PDF 文字/u)).toBeTruthy()
   fireEvent.change(view.getByTestId('document-url'), { target: { value: 'https://api.anthropic.com' } })
   fireEvent.change(view.getByTestId('document-model'), { target: { value: 'claude-fixture' } })
   fireEvent.change(view.getByTestId('document-headers'), { target: { value: '{"Authorization":"secret"}' } })

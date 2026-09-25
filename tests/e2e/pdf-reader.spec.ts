@@ -166,7 +166,13 @@ test('reads, searches, disables native selection, zooms and follows only interna
       (canvas as HTMLCanvasElement).width
     ))).toBeGreaterThan(0)
     await expect.poll(() => page.locator('.pdf-text-layer span').count()).toBeGreaterThan(0)
+    await expect(page.getByTestId('reader-settings-button')).toHaveAccessibleName('PDF 工具')
+    await expect(page.getByTestId('reader-settings-button')).toHaveAttribute('aria-expanded', 'true')
+    await page.getByTestId('reader-settings-button').click()
+    await expect(page.getByTestId('pdf-toolbar')).toBeHidden()
+    await page.getByTestId('reader-settings-button').click()
     await expect(page.getByTestId('pdf-region-select')).toBeVisible()
+    await expect(page.getByTestId('pdf-image-region-select')).toBeVisible()
     await expect(page.locator('.pdf-text-layer').first()).toHaveCSS('user-select', 'none')
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第一章')
     await expect(page.getByTestId('toc-item')).toHaveCount(5)
@@ -175,7 +181,10 @@ test('reads, searches, disables native selection, zooms and follows only interna
     if (visualDirectory) {
       await mkdir(visualDirectory, { recursive: true })
       await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 900))
+      await page.getByTestId('recent-conversations').click()
+      await expect(page.locator('.right-sidebar .recent-conversations-popover')).toBeVisible()
       await page.screenshot({ path: join(visualDirectory, 'pdf-reader-light-1440x900.png') })
+      await page.keyboard.press('Escape')
       await page.getByTestId('settings-button').click()
       await page.getByTestId('theme-dark').click()
       await page.getByTestId('scale-125').click()
@@ -183,7 +192,10 @@ test('reads, searches, disables native selection, zooms and follows only interna
       await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
       await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'dark')
       await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', '125')
+      await page.getByTestId('recent-conversations').click()
+      await expect(page.locator('.right-sidebar .recent-conversations-popover')).toBeVisible()
       await page.screenshot({ path: join(visualDirectory, 'pdf-reader-dark-940x600-125.png') })
+      await page.keyboard.press('Escape')
       await page.getByTestId('settings-button').click()
       await page.getByTestId('theme-light').click()
       await page.getByTestId('scale-100').click()
@@ -837,6 +849,7 @@ test('browses a scanned PDF but reports that search and selection are unavailabl
     await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await expect(page.getByTestId('pdf-no-text-banner')).toBeVisible({ timeout: 60_000 })
     await expect(page.getByTestId('pdf-region-select')).toBeHidden()
+    await expect(page.getByTestId('pdf-image-region-select')).toBeVisible()
     await expect.poll(() => page.locator('.pdf-page-canvas').first().evaluate((canvas) => (
       (canvas as HTMLCanvasElement).width
     ))).toBeGreaterThan(0)

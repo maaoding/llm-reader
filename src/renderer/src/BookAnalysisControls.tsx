@@ -21,7 +21,8 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
   const documentReady = state?.document?.status === 'ready'
   const busy = preparing || state?.status === 'analyzing' || previewing
   const supported = book.format !== 'pdf' || Boolean(state?.documentProcessor && state.documentProcessor !== 'none')
-  const vision = book.format === 'pdf' && isPageProcessor(state?.documentProcessor ?? 'none')
+  const pageOcr = book.format === 'pdf' && isPageProcessor(state?.documentProcessor ?? 'none')
+  const vision = book.format === 'pdf' && state?.documentProcessor === 'vision'
   const canStart = !starting && profiles.profiles.some((profile) => profile.id === profileId && providerIsConfigured(profile))
   const start = async (rebuild: boolean) => {
     if (rebuild && !window.confirm(copy('preparation.notesRebuildConfirm'))) return
@@ -40,9 +41,10 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
     <section className="preparation-card" data-testid="analysis-details">
       <header><h3>{copy('preparation.original')}</h3><span className="status-tag">{copy('preparation.basic')}</span></header>
       <p data-testid="document-status" role="status">{copy(`preparation.document.${state?.document?.status ?? 'empty'}`)}</p>
-      <p className="field-hint">{copy(vision ? 'vision.preparation' : book.format === 'pdf' ? 'preparation.pdf' : 'preparation.local')}</p>
+      {book.format === 'pdf' && <p className="field-hint">{copy('preparation.pdfGuide')}</p>}
+      <p className="field-hint">{copy(vision ? 'vision.preparation' : pageOcr ? 'preparation.pageOcr' : book.format === 'pdf' ? 'preparation.pdf' : 'preparation.local')}</p>
       {book.format === 'pdf' && supported && <small>{copy(processorCopy[state?.documentProcessor ?? 'none'])}</small>}
-      {vision && state?.document?.ocrProgress && <p data-testid="ocr-progress" role="status">{copy('vision.progress', state.document.ocrProgress)}</p>}
+      {pageOcr && state?.document?.ocrProgress && <p data-testid="ocr-progress" role="status">{copy('vision.progress', state.document.ocrProgress)}</p>}
       {state?.document && state.document.total > 0 && <p>{copy('preparation.documentProgress', { completed: state.document.completed, total: state.document.total })}</p>}
       {error?.document && <p className="analysis-error" role="status">{error.document}</p>}
       {state?.document?.message && <p className="analysis-error" role="status">{state.document.message}</p>}
@@ -52,8 +54,8 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
           : <>{!documentReady && <button className="primary-button" data-testid="document-prepare" disabled={busy || starting} onClick={() => void prepare(false)}>{copy(state?.document?.status === 'paused' ? 'preparation.resume' : state?.document?.status === 'error' ? 'preparation.retry' : 'preparation.prepare')}</button>}
             {state?.document && state.document.status !== 'empty' && <button className="secondary-button" data-testid="document-rebuild" disabled={busy || starting} onClick={() => void prepare(true)}>{copy('preparation.rebuild')}</button>}</>}
       </div>
-      {book.format === 'pdf' && <p className="field-hint">{copy(vision ? 'vision.disclosure' : 'knowledge.pdfDisclosure')}</p>}
-      {vision && <BookOcrPreview key={`${book.id}:${state?.documentProcessor}:${suspended}`} bookId={book.id} documentReady={documentReady} suspended={suspended} disabled={preparing || state?.status === 'analyzing' || starting} onBusyChange={setPreviewing} />}
+      {book.format === 'pdf' && <p className="field-hint">{copy(vision ? 'vision.disclosure' : pageOcr ? 'preparation.pageOcrDisclosure' : 'knowledge.pdfDisclosure')}</p>}
+      {pageOcr && <BookOcrPreview key={`${book.id}:${state?.documentProcessor}:${suspended}`} bookId={book.id} documentReady={documentReady} suspended={suspended} disabled={preparing || state?.status === 'analyzing' || starting} onBusyChange={setPreviewing} />}
       {!!state?.document?.diagnostics.length && <details data-testid="document-check" className="analysis-failures">
         <summary>{copy('preparation.check', { count: state.document.diagnostics.length })}</summary><p>{copy('preparation.checkHint')}</p>
         <ol>{state.document.diagnostics.slice(0, 100).map((item, index) => <li key={index}>{item.page ? copy('preparation.pageDiagnostic', { page: item.page, message: copy(diagnosticKeys[item.code]) }) : copy(diagnosticKeys[item.code])}</li>)}</ol>

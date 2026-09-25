@@ -4636,12 +4636,17 @@ button.citation-valid:hover {
 .request-settings textarea { width: 100%; box-sizing: border-box; padding: 10px; font: 12px/1.6 ui-monospace, monospace; resize: vertical; color: inherit; background: transparent; border: 1px solid var(--ui-line); border-radius: 6px; }
 .request-settings textarea[aria-invalid="true"] { border-color: #c05050; }
 
-.recent-conversations { padding: 8px 16px; border-bottom: 1px solid var(--ui-line); flex: 0 0 auto; min-width: 0; }
-.recent-conversations > button { font-size: var(--ui-small-size); }
-.recent-conversations-list { display: grid; gap: 6px; max-height: 240px; overflow-y: auto; margin-top: 8px; }
-.recent-conversations-list > button { display: grid; gap: 4px; min-width: 0; padding: 8px; text-align: left; background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: 6px; }
+.recent-conversations { position: relative; z-index: 50; flex: 0 0 auto; -webkit-app-region: no-drag; }
+.recent-conversations > button[aria-expanded="true"] { color: var(--ui-accent); background: var(--ui-accent-soft); }
+.recent-conversations-popover { position: absolute; top: calc(100% + 8px); right: 0; display: grid; gap: 8px; width: min(320px, calc(100vw - 32px)); max-height: min(360px, calc(100vh - 120px)); overflow-y: auto; padding: 14px; color: var(--ui-ink); background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--radius-md); box-shadow: var(--ui-shadow-md); }
+.assistant-header-actions .recent-conversations-popover { right: -48px; }
+.recent-conversations-popover > strong { font-size: var(--ui-label-size); }
+.recent-conversations-popover > p { margin: 0; font-size: var(--ui-small-size); }
+.recent-conversations-list { display: grid; gap: 6px; min-width: 0; }
+.recent-conversations-list > button { display: grid; gap: 4px; min-width: 0; padding: 8px; text-align: left; background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--radius-md); }
+.recent-conversations-list > button:hover:not(:disabled), .recent-conversations-list > button:focus-visible { background: var(--ui-accent-soft); }
 .recent-conversations-list > button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.recent-conversations small { color: var(--ui-muted); font-size: var(--ui-small-size); }
+.recent-conversations small { color: var(--ui-muted); font-size: var(--ui-small-size); line-height: 1.5; }
 
 .ocr-preview { border-top: 1px solid var(--ui-line); margin-top: 16px; padding-top: 12px; }
 .ocr-page-reader { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; gap: 12px; padding: 18px 24px; color: var(--reader-ink); background: var(--reader-paper); overflow: auto; }

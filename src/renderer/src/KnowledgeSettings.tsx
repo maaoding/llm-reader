@@ -137,6 +137,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
           }}>
           {(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured'] as const).map((value) => <option key={value} value={value}>{copy(processorCopy[value])}</option>)}
         </select>
+        <p className="field-hint">{copy('knowledge.processorGuide')}</p>
         <p className="field-hint">{copy(draft.document.processor === 'vision' ? 'vision.hint' : isPageProcessor(draft.document.processor) ? 'request.pageHint' : 'knowledge.documentHint')}</p>
         {draft.document.processor === 'unstructured' && <p className="field-hint">{copy('request.partitionHint')}</p>}
         {draft.document.processor !== 'none' && <>
@@ -144,7 +145,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
           <input id="document-url" type="url" pattern="https?://[^?#]+" data-testid="document-url" value={draft.document.baseUrl} spellCheck={false} required
             onChange={(event) => update({ ...draft, document: { ...draft.document, baseUrl: event.target.value, apiKey: undefined, customHeaders: undefined } })} />
           {['vision', 'mistral-ocr'].includes(draft.document.processor) && <>
-            <label className="field-label" htmlFor="document-model">{copy('vision.model')}</label>
+            <label className="field-label" htmlFor="document-model">{copy(draft.document.processor === 'vision' ? 'vision.model' : 'request.ocrModel')}</label>
             <input id="document-model" data-testid="document-model" value={draft.document.model ?? ''} maxLength={256} spellCheck={false} required
               onChange={(event) => update({ ...draft, document: { ...draft.document, model: event.target.value } })} />
           </>}
@@ -171,7 +172,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
           <select id="document-language" value={draft.document.language} onChange={(event) => update({ ...draft, document: { ...draft.document, language: event.target.value as 'ch' | 'en' } })}>
             <option value="ch">{copy('knowledge.ch')}</option><option value="en">{copy('knowledge.en')}</option>
           </select>
-          <button className="secondary-button" type="button" data-testid="document-test" disabled={invalidSettings.document || !draft.document.baseUrl || (['vision', 'mistral-ocr'].includes(draft.document.processor) && !draft.document.model?.trim())} onClick={() => void run('document')}>{copy(isPageProcessor(draft.document.processor) ? 'vision.test' : 'knowledge.testDocument')}</button>
+          <button className="secondary-button" type="button" data-testid="document-test" disabled={invalidSettings.document || !draft.document.baseUrl || (['vision', 'mistral-ocr'].includes(draft.document.processor) && !draft.document.model?.trim())} onClick={() => void run('document')}>{copy(draft.document.processor === 'vision' ? 'vision.test' : isPageProcessor(draft.document.processor) ? 'request.testOcr' : 'knowledge.testDocument')}</button>
         </>}
         <RequestSettingsEditor key={editorRevision + '-document-' + draft.document.baseUrl + draft.document.processor + draft.document.protocol} id="document" value={draft.document}
           savedHeaders={saved?.document.hasCustomHeaders && draft.document.baseUrl === saved.document.baseUrl && draft.document.processor === saved.document.processor && draft.document.protocol === saved.document.protocol}
