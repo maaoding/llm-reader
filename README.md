@@ -12,9 +12,9 @@
   <a href="https://llm-reader.maaoding.icu/">项目主页</a>
 </p>
 
-## v0.6.0 发布准备
+## v0.6.0
 
-v0.6.0 的源码和发布说明正在验收，GitHub 上公开的最新版本仍是 v0.5.0。本次候选版加入 PDF 逐页 OCR、单页图片区域提问、Anthropic 协议与更多文档服务，并改进会话恢复和 PDF 工具入口。见 [v0.6.0 更新说明草稿](docs/releases/v0.6.0.md)。
+这一版加入 PDF 逐页 OCR、单页图片区域提问、Anthropic 协议与更多文档服务，并改进会话恢复和 PDF 工具入口。查看[完整更新说明](docs/releases/v0.6.0.md)。
 
 ## v0.5.0
 

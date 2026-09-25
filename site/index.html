@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="LLM Reader v0.5.0：本地优先的 Windows 阅读器。阅读 EPUB、TXT 与 PDF，围绕选中内容或整本书提问，浏览章节笔记，让每次理解都能回到原文。"
+      content="LLM Reader v0.6.0：本地优先的 Windows 阅读器。阅读 EPUB、TXT 与 PDF，围绕选中内容、PDF 图片区域或整本书提问，让每次理解都能回到原文。"
     />
     <meta name="theme-color" content="#f7f8f6" />
     <meta property="og:type" content="website" />
@@ -13,7 +13,7 @@
     <meta property="og:title" content="LLM Reader — 读懂复杂内容，始终锚定原文" />
     <meta
       property="og:description"
-      content="从一句原文到整本书：书籍工作台、章节笔记、可恢复的阅读对话，以及按需配置的 PDF 与检索增强。"
+      content="从一句原文到整本书：可恢复的阅读对话、PDF 图片区域提问、逐页 OCR，以及按需配置的文档与检索增强。"
     />
     <meta property="og:url" content="https://llm-reader.maaoding.icu/" />
     <title>LLM Reader — 读懂复杂内容，始终锚定原文</title>
@@ -23,7 +23,7 @@
     <link rel="icon" type="image/png" sizes="128x128" href="./icon-128.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="./icon-256.png" />
     <link rel="apple-touch-icon" sizes="256x256" href="./icon-256.png" />
-    <link rel="stylesheet" href="./styles.css?v=0.5.0" />
+    <link rel="stylesheet" href="./styles.css?v=0.6.0" />
   </head>
   <body>
     <header class="site-header" id="top">
@@ -46,14 +46,14 @@
     <main>
       <section class="hero shell" aria-labelledby="page-title">
         <div class="hero-copy reveal">
-          <p class="eyebrow"><span aria-hidden="true"></span>v0.5.0 · Windows · 本地优先</p>
+          <p class="eyebrow"><span aria-hidden="true"></span>v0.6.0 · Windows · 本地优先</p>
           <h1 id="page-title">读懂复杂内容，<br /><em>始终锚定原文。</em></h1>
           <p class="hero-lead">
             从难懂的一段，到整本书的观点。把阅读、章节笔记与对话放进同一个工作台，用原文核对每次理解，下次打开接着读。
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/maaoding/llm-reader/releases/latest">
-              下载 v0.5.0 · Windows x64
+              下载 v0.6.0 · Windows x64
               <span aria-hidden="true">↓</span>
             </a>
             <a class="button button-secondary" href="#capabilities">
@@ -71,7 +71,7 @@
                 id="reader-demo-panel"
                 data-reader-demo
                 data-demo-state="selected"
-                aria-label="LLM Reader v0.5.0 工作台交互示意，使用预设原文与回答"
+                aria-label="LLM Reader 工作台交互示意，使用预设原文与回答"
               >
                 <header class="demo-workspace-header">
                   <strong><img src="./icon-32.png" width="22" height="22" alt="" />LLM Reader</strong>
@@ -171,7 +171,7 @@
               </div>
             </div>
           </div>
-          <figcaption class="demo-caption">v0.5.0 工作台交互示意 · 点击“解释这段”和回答引用体验流程，原文与回答均为预设内容，不调用模型。<noscript>启用 JavaScript 后可体验交互。</noscript></figcaption>
+          <figcaption class="demo-caption">工作台交互示意 · 点击“解释这段”和回答引用体验流程，原文与回答均为预设内容，不调用模型。<noscript>启用 JavaScript 后可体验交互。</noscript></figcaption>
         </figure>
       </section>
 
@@ -260,7 +260,7 @@
             <span class="capability-number">05</span>
             <div class="capability-copy">
               <h3>阅读增强，按需准备</h3>
-              <p>原文就绪即可提问。章节笔记、按含义查找和原文排序都可选，分别配置与管理，缺少增强服务也能使用原文问答。</p>
+              <p>原文就绪即可提问。扫描 PDF 可主动逐页 OCR，也能框选单页图片向支持视觉的问答模型提问；章节笔记与检索增强按需开启。</p>
             </div>
           </article>
         </div>
@@ -283,14 +283,14 @@
           </article>
           <article>
             <strong>PDF</strong>
-            <span>固定页面 · 缩放 · 有文本层时搜索与框选</span>
+            <span>固定页面 · 缩放 · 框选文字或图片区域</span>
           </article>
           <article>
             <strong>MOBI / AZW3</strong>
             <span>通过本机 Calibre 转换无 DRM 文件</span>
           </article>
         </div>
-        <p class="format-note">扫描 PDF 可直接浏览；配置 MinerU 或 Docling 文档服务后，可主动发送整份 PDF 进行原文准备与 OCR，用于提问和笔记。识别结果不替换原 PDF 页面，不增加扫描页划词。应用不内置这些服务，不处理 DRM 内容。</p>
+        <p class="format-note">扫描 PDF 可直接浏览，也能框选单页图片区域提问。整书原文准备可选 MinerU、Docling 或逐页 OCR；处理由你主动启动，识别结果不替换原 PDF 页面。应用不内置这些服务，不处理 DRM 内容。</p>
       </section>
 
       <section class="section shell local-section" aria-labelledby="local-title">
@@ -312,7 +312,7 @@
       <section class="final-cta shell" aria-labelledby="cta-title">
         <p class="section-kicker">LLM READER</p>
         <h2 id="cta-title">让每次理解，都能回到原文。</h2>
-        <p>v0.5.0 · Windows x64 · GPL-3.0-or-later 开源。安装包未签名，已有版本可在“设置 → 关于”检查更新。</p>
+        <p>v0.6.0 · Windows x64 · GPL-3.0-or-later 开源。安装包未签名，已有版本可在“设置 → 关于”检查更新。</p>
         <a class="button button-primary" href="https://github.com/maaoding/llm-reader/releases/latest">
           下载最新版本
           <span aria-hidden="true">↓</span>
@@ -332,6 +332,6 @@
       </div>
       <p class="footer-copy">© 2026 LLM Reader</p>
     </footer>
-    <script src="./script.js?v=0.5.0" defer></script>
+    <script src="./script.js?v=0.6.0" defer></script>
   </body>
 </html>
