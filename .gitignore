@@ -2,6 +2,7 @@ node_modules/
 out/
 release/
 coverage/
+dist/
 playwright-report/
 test-results/
 *.log
@@ -22,4 +23,14 @@ api-key.bin.*.tmp
 /library/
 /.llm-reader-user-data/
 *.tsbuildinfo
+# Local scratch: verification output, temp scripts/logs, agent plans
+/output/
+/tmp/
+/.zcode/
 AGENTS.md
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
