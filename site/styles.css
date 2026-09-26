@@ -418,6 +418,33 @@ h1 em {
   white-space: nowrap;
 }
 
+.demo-window-controls {
+  display: flex;
+  align-self: stretch;
+  margin-right: -16px;
+  border-left: 1px solid var(--demo-line);
+}
+
+.demo-workspace-header .demo-window-controls button {
+  display: grid;
+  width: 38px;
+  padding: 0;
+  place-items: center;
+  color: var(--demo-muted);
+  background: transparent;
+  border-radius: 0;
+}
+
+.demo-window-controls button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.demo-window-controls button:nth-child(2) svg {
+  width: 10px;
+  height: 10px;
+}
+
 .demo-workspace-header nav,
 .demo-bookbar nav,
 .demo-scope {
