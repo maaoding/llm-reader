@@ -27,9 +27,26 @@ describe('workspace state', () => {
     })
   })
 
-  it('keeps a non-book page as an overview tab when migrating', () => {
+  it('keeps a non-book page as a reading tab when migrating', () => {
     write({ bookId: 'book-1', page: 'library' })
-    expect(readWorkspaceState().tabs).toEqual([{ bookId: 'book-1', page: 'overview' }])
+    expect(readWorkspaceState().tabs).toEqual([{ bookId: 'book-1', page: 'reading' }])
+  })
+
+  it('migrates a saved overview page and book tabs to reading', () => {
+    write({
+      bookId: 'book-1', page: 'overview', tabs: [
+        { bookId: 'book-1', page: 'overview' },
+        { bookId: 'book-2', page: 'notes' }
+      ]
+    })
+    expect(readWorkspaceState()).toEqual({
+      bookId: 'book-1', page: 'reading', tabs: [
+        { bookId: 'book-1', page: 'reading' },
+        { bookId: 'book-2', page: 'notes' }
+      ]
+    })
+    write({ bookId: 'book-1', page: 'overview' })
+    expect(readWorkspaceState()).toEqual({ bookId: 'book-1', page: 'reading', tabs: [{ bookId: 'book-1', page: 'reading' }] })
   })
 
   it('keeps an explicitly empty tab list instead of restoring the active book', () => {

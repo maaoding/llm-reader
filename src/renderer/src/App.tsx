@@ -96,7 +96,6 @@ import { AnswerText } from './AnswerText'
 import { BookAnalysisControls } from './BookAnalysisControls'
 import { OcrPageReader } from './OcrPageReader'
 import { pdfPageFromLocator } from '@shared/ocr-reading'
-import { BookOverview } from './BookOverview'
 import { BookNotesView } from './BookNotesView'
 import { bookTabPage, readWorkspaceState, saveWorkspaceState, type BookTabState, type WorkspacePage } from './workspace-state'
 import { KnowledgeSettings } from './KnowledgeSettings'
@@ -2450,7 +2449,6 @@ export default function App(): ReactNode {
   const [deletingBookId, setDeletingBookId] = useState<string | null>(null)
   const [currentLocator, setCurrentLocator] = useState<string | null>(null)
   const [naturalLocator, setNaturalLocator] = useState<string | null>(null)
-  const [naturalProgress, setNaturalProgress] = useState(0)
   const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
   const [currentChapterTitle, setCurrentChapterTitle] = useState('')
   const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
@@ -2968,7 +2966,7 @@ export default function App(): ReactNode {
     return () => window.clearTimeout(timer)
   }, [conversationTabs, persistLiveSession, pushToast])
 
-  const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'overview', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
+  const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'reading', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
     // landingPage 为 null 表示不再切换页面（后台打开书籍）。
     if (landingPage) setPage(landingPage)
     setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false); setOcrReadingOpen(false)
@@ -2976,7 +2974,7 @@ export default function App(): ReactNode {
     const tabPage = landingPage ? bookTabPage(landingPage) : null
     setBookTabs((current) => {
       const index = current.findIndex((tab) => tab.bookId === book.id)
-      if (index < 0) return [...current, { bookId: book.id, page: tabPage ?? 'overview' }]
+      if (index < 0) return [...current, { bookId: book.id, page: tabPage ?? 'reading' }]
       if (!tabPage || current[index].page === tabPage) return current
       return current.map((tab, position) => position === index ? { ...tab, page: tabPage } : tab)
     })
@@ -3000,7 +2998,6 @@ export default function App(): ReactNode {
     setPendingDeleteHighlightId(null)
     setCurrentLocator(book.lastLocator)
     setNaturalLocator(book.lastLocator)
-    setNaturalProgress(book.progress)
     naturalChapterRef.current = null
     setCurrentChapterProgress(0)
     setCurrentChapterTitle('')
@@ -3034,12 +3031,10 @@ export default function App(): ReactNode {
           if (reason === 'natural') {
             naturalPositionRef.current = { locator, progress }
             setNaturalLocator(locator)
-            setNaturalProgress(progress)
             scheduleProgress(book.id, locator, progress)
           } else if (reason === 'restore' && naturalPositionRef.current.locator === null) {
             naturalPositionRef.current = { locator, progress }
             setNaturalLocator(locator)
-            setNaturalProgress(progress)
           }
         },
         onSelectionChanged: setSelection,
@@ -4386,7 +4381,7 @@ export default function App(): ReactNode {
       </header>
       {activeBook && !['library', 'archives'].includes(page) && <header className="workspace-bookbar">
         <div className="workspace-book-title"><button className="icon-button" type="button" aria-label={copy('workspace.backLibrary')} title={copy('workspace.backLibrary')} onClick={() => setPage('library')}><ArrowLeft size={17} /></button><span className="format-chip">{activeBook.sourceFormat.toUpperCase()}</span><div className="workspace-book-identity"><h1 title={activeBook.title}>{activeBook.title}</h1>{page === 'reading' && <div className="workspace-reading-position reader-heading" data-testid="workspace-reading-position" aria-label={copy('reader.progressAria', { percent: Math.round(currentChapterProgress * 100) })}><span title={currentChapterTitle}>{currentChapterTitle || copy('common.currentChapter')}</span><strong>{Math.round(currentChapterProgress * 100)}%</strong><div className="workspace-reading-progress" data-testid="workspace-reading-progress" aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, currentChapterProgress * 100))}%` }} /></div></div>}</div></div>
-        <nav aria-label={copy('workspace.tabs')}>{(['overview', 'reading', 'notes', 'conversation'] as const).map((item) => <button type="button" key={item} data-testid={'workspace-tab-' + item} aria-current={page === item ? 'page' : undefined} onClick={() => setPage(item)}>{copy(('workspace.' + item) as 'workspace.overview' | 'workspace.reading' | 'workspace.notes' | 'workspace.conversation')}</button>)}</nav>
+        <nav aria-label={copy('workspace.tabs')}>{(['reading', 'notes', 'conversation'] as const).map((item) => <button type="button" key={item} data-testid={'workspace-tab-' + item} aria-current={page === item ? 'page' : undefined} onClick={() => setPage(item)}>{copy(('workspace.' + item) as 'workspace.reading' | 'workspace.notes' | 'workspace.conversation')}</button>)}</nav>
         <div className="workspace-book-actions"><button className="secondary-button" type="button" data-testid="workspace-prepare" onClick={(event) => openPreparation(activeBook.id, event.currentTarget)}>{copy('workspace.prepare')}</button></div>
       </header>}
       <aside className="left-sidebar" inert={page !== 'library' && (page !== 'reading' || !leftPanelOpen)}>
@@ -4727,9 +4722,6 @@ export default function App(): ReactNode {
         )}
       </aside>
 
-      {activeBook && page === 'overview' && <BookOverview key={activeBook.id} book={{ ...activeBook, progress: naturalProgress }} state={analysis.states[activeBook.id]} insights={insights}
-        onRead={() => setPage('reading')} onAsk={() => { if (sidebarTab) focusConversationTab(sidebarTab.id); setPage('conversation') }}
-        onPrepare={() => openPreparation(activeBook.id)} onNotes={() => setPage('notes')} onInsight={(insight) => void openInsight(insight)} onArchives={() => setPage('archives')} />}
       {activeBook && page === 'notes' && <BookNotesView key={activeBook.id} book={activeBook} state={analysis.states[activeBook.id]} onNavigate={(anchor, title) => void navigateToAnchor(anchor, false, title)} onPrepare={() => openPreparation(activeBook.id)} />}
       {preparationBook && <div className="modal-backdrop preparation-backdrop" hidden={settingsOpen} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreparation() }}>
         <section ref={preparationDialogRef} className="preparation-dialog" data-testid="book-preparation-dialog" role="dialog" aria-modal="true" aria-labelledby="preparation-title">
@@ -4915,7 +4907,7 @@ export default function App(): ReactNode {
 
       {detailsBook && (
         <BookDetailsModal
-          key={detailsBook.id}
+          key={`details:${detailsBook.id}`}
           book={detailsBook}
           returnFocusRef={detailsReturnFocusRef}
           deleting={deletingBookId === detailsBook.id}

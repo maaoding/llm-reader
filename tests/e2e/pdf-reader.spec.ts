@@ -691,8 +691,8 @@ test('clears a PDF region draft when switching books or destroying the reader', 
       )) as unknown as typeof dialog.showOpenDialog
     }, textPdf)
     await page.getByTestId('import-book').click()
-    await expect(page.getByTestId('book-overview')).toBeVisible()
     await expect(page.locator('.workspace-book-title h1')).toHaveText('PDF 阅读测试')
+    await expect(page.getByTestId('pdf-reader')).toBeVisible({ timeout: 60_000 })
     await showLibrary(page)
     await expect(page.getByTestId('book-item')).toHaveCount(2)
     const textBookId = (await page.getByTestId('book-item').evaluateAll((buttons) => (

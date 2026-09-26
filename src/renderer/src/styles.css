@@ -190,26 +190,10 @@
 .workspace-shell .assistant-dialog .assistant-composer { padding: 12px max(24px, calc((100% - 980px) / 2)); }
 .workspace-shell[data-page="archives"] .assistant-workspace-nav { display: none; }
 .workspace-shell .insights-workspace { padding: 20px max(24px, calc((100% - 1120px) / 2)); }
-.book-workspace-overview, .notes-view { grid-area: workspace; z-index: 10; background: var(--ui-bg); min-height: 0; min-width: 0; }
-.book-workspace-overview { overflow-y: auto; padding: 32px max(32px, calc((100% - 1040px) / 2)); }
-.workspace-eyebrow { color: var(--ui-accent); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
-.workspace-welcome h2 { margin: 12px 0 8px; font-size: clamp(24px, 2.4vw, 32px); line-height: 1.4; overflow-wrap: anywhere; }
-.workspace-welcome p { color: var(--ui-muted); margin: 8px 0; }
-.workspace-primary-actions { display: flex; gap: 12px; margin: 22px 0 28px; }
-.workspace-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 28px; }
-.workspace-status-card { padding: 20px; border: 1px solid var(--ui-line); border-radius: var(--radius-lg); background: var(--ui-surface); }
-.workspace-status-card > svg { color: var(--ui-accent); }
-.workspace-status-card h3 { font-size: 16px; margin: 12px 0 8px; }
-.workspace-status-card p { color: var(--ui-muted); line-height: 1.6; }
-.workspace-status-card .text-button, .workspace-recent .text-button { display: inline-flex; gap: 6px; align-items: center; }
-.workspace-recent h2, .workspace-summary h2 { font-size: 18px; }
-.workspace-recent > header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.workspace-recent-item { position: relative; display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 18px 40px 18px 18px; margin: 10px 0; text-align: left; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-surface); color: var(--ui-ink); }
-.workspace-recent-item span { color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-recent-item > svg { position: absolute; right: 16px; top: 20px; color: var(--ui-accent); }
+.notes-view { grid-area: workspace; z-index: 10; background: var(--ui-bg); min-height: 0; min-width: 0; }
 .workspace-empty { padding: 28px 20px; text-align: center; color: var(--ui-muted); line-height: 1.7; }
 .workspace-empty h2, .workspace-empty h3 { color: var(--ui-ink); font-weight: 500; }
-.workspace-summary, .book-overview-note { margin: 20px 0; padding: 20px; border: 1px solid var(--ui-line); border-radius: var(--radius-lg); background: var(--ui-paper); }
+.book-overview-note { margin: 20px 0; padding: 20px; border: 1px solid var(--ui-line); border-radius: var(--radius-lg); background: var(--ui-paper); }
 .markdown-text { min-width: 0; color: var(--ui-ink-soft); line-height: 1.75; overflow-wrap: anywhere; }
 .markdown-text > :first-child { margin-top: 0; }
 .markdown-text > :last-child { margin-bottom: 0; }
@@ -279,8 +263,6 @@
   .workspace-bookbar { gap: 12px; padding: 8px 16px; }
   .workspace-bookbar nav button { padding: 6px 8px; }
   .workspace-shell[data-page="library"] .library-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .workspace-status-grid { gap: 12px; }
-  .workspace-status-card { padding: 16px; }
   .notes-layout { grid-template-columns: 190px minmax(0, 1fr); gap: 16px; }
   .notes-view { padding: 20px 24px; }
   .workspace-reading-position { max-width: min(220px, 25vw); }
@@ -288,7 +270,6 @@
 @media (max-height: 650px) {
   .app-shell.workspace-shell { grid-template-rows: 48px 56px minmax(0, 1fr); }
   .workspace-shell[data-page="library"], .workspace-shell[data-page="archives"] { grid-template-rows: 48px 0 minmax(0, 1fr); }
-  .book-workspace-overview { padding-top: 22px; }
 }
 
 /* ===================== 全书上下文与引用来源 ===================== */

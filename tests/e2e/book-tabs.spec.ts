@@ -53,7 +53,8 @@ test('opens one topbar tab per book, remembers each book page and closes back to
       await expect.poll(async () => ({
         page: await page.locator('.workspace-shell').getAttribute('data-page'),
         titles: await page.locator('.workspace-book-title h1').evaluateAll((elements) => elements.map((element) => element.textContent))
-      })).toEqual({ page: 'overview', titles: [TITLES[index]] })
+      })).toEqual({ page: 'reading', titles: [TITLES[index]] })
+      await expect(page.locator('.reader-document--txt')).toBeVisible()
     }
 
     await openFromLibrary(0)
@@ -61,15 +62,12 @@ test('opens one topbar tab per book, remembers each book page and closes back to
     await expect(tabs.first()).toContainText(TITLES[0])
     await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
 
-    // 进入阅读页后，标签记住这本书停在阅读页。
-    await page.getByTestId('workspace-tab-reading').click()
-    await expect(page.locator('.reader-document--txt')).toBeVisible()
-
     await openFromLibrary(1)
     await expect(tabs).toHaveCount(2)
     await expect(tabs.first()).toHaveAttribute('aria-selected', 'false')
+    await page.getByTestId('workspace-tab-notes').click()
 
-    // 点击第一个标签回到它自己上次所在的阅读页，而不是概览。
+    // 每个标签保留自己的阅读或章节笔记页面。
     await tabs.first().click()
     await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
     await expect(page.locator('.workspace-book-title h1')).toHaveText(TITLES[0])
@@ -81,7 +79,7 @@ test('opens one topbar tab per book, remembers each book page and closes back to
     await closeTab(0).click()
     await expect(tabs).toHaveCount(2)
     await expect(page.locator('.workspace-book-title h1')).toHaveText(TITLES[2])
-    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'overview')
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
 
     // 关闭活动标签回到书库，其余标签保留。
     await closeTab(1).click()
@@ -101,10 +99,10 @@ test('opens one topbar tab per book, remembers each book page and closes back to
     await expect(page.getByTestId('book-tab')).toHaveCount(1)
     await expect(page.locator('.workspace-bookbar')).toHaveCount(0)
 
-    // 从标签重新打开，落在它上次所在的概览页。
+    // 从标签重新打开，落在它上次所在的章节笔记页。
     await page.getByTestId('book-tab').first().click()
     await expect(page.locator('.workspace-book-title h1')).toHaveText(TITLES[1])
-    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'overview')
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'notes')
 
     // 窄窗口下标签条溢出时，新激活的标签会被带回可见范围。
     for (let index = 2; index < TITLES.length; index += 1) await openFromLibrary(index)

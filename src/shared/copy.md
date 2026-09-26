@@ -5,7 +5,6 @@
 | key | text |
 | --- | --- |
 | workspace.navigation | 主导航 |
-| workspace.overview | 概览 |
 | workspace.reading | 阅读 |
 | workspace.notes | 章节笔记 |
 | workspace.conversation | 对话 |
@@ -13,16 +12,9 @@
 | workspace.library | 书库 |
 | workspace.archives | 回答归档 |
 | workspace.continue | 继续阅读 |
-| workspace.startReading | 开始阅读 |
-| workspace.ask | 开始提问 |
 | workspace.backLibrary | 返回书库 |
-| workspace.recent | 最近保存的回答 |
-| workspace.allArchives | 查看全部归档 |
-| workspace.recentEmpty | 还没有保存回答 |
-| workspace.recentHint | 在助手回答下方点击“保存回答”，以后可以继续追问。 |
 | workspace.readingProgress | 已读 {percent}% |
 | workspace.noteCount | 已完成 {completed}/{total} 条笔记 |
-| workspace.openNotes | 阅读笔记 |
 | workspace.tabs | 本书页面 |
 | workspace.bookTabs | 打开的书籍 |
 | workspace.closeBookTab | 关闭《{title}》 |
@@ -31,9 +23,6 @@
 | workspace.libraryNoResults | 没有找到这本书 |
 | workspace.libraryNoResultsHint | 换一个书名或作者试试。 |
 | workspace.optional | 可选 |
-| workspace.manage | 管理 |
-| workspace.noteEmpty | 尚未生成笔记 |
-| workspace.semanticEmpty | 尚未启用含义查找 |
 | preparation.title | 本书准备 |
 | preparation.close | 关闭本书准备 |
 | preparation.intro | 准备好原文就能全书提问。章节笔记和按含义查找可按需开启。 |

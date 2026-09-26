@@ -106,7 +106,7 @@ test.afterAll(async () => {
   })
 })
 
-test('keeps a running answer while switching book tabs and renders its markdown preview on the overview', async () => {
+test('keeps a running answer while switching book tabs and renders the saved answer in archives', async () => {
   test.setTimeout(120_000)
   const workspace = await createE2eWorkspace('llm-reader-stream-retention-')
   let application: ElectronApplication | undefined
@@ -159,16 +159,16 @@ test('keeps a running answer while switching book tabs and renders its markdown 
     await expect(restored.locator('.turn-error')).toHaveCount(0)
     await expect(page.getByTestId('cancel-request')).toHaveCount(0)
 
-    // 保存回答后，概览的最近回答预览按 Markdown 渲染且不显示原始标记
+    // 保存内容可在归档查看，且保持 Markdown 渲染。
     await page.getByTestId('answer-save').click()
     await expect(page.getByTestId('answer-save')).toContainText('已保存')
-    await page.getByTestId('workspace-tab-overview').click()
-    const recent = page.locator('.workspace-recent-item').first()
-    await expect(recent).toContainText('这段')
-    await expect(recent.locator('.workspace-recent-answer strong')).toHaveText('关键')
-    await expect(recent.locator('.workspace-recent-answer .answer-code-inline')).toHaveText('术语')
-    await expect(recent.locator('.workspace-recent-answer')).not.toContainText('**')
-    await expect(recent.locator('.workspace-recent-answer h3')).toHaveCount(0)
+    await page.getByTestId('nav-archives').click()
+    const archived = page.getByTestId('insight-item').first()
+    await expect(archived).toContainText('这段')
+    await expect(archived.locator('.answer-text strong')).toHaveText('关键')
+    await expect(archived.locator('.answer-code-inline')).toHaveText('术语')
+    await expect(archived.locator('.answer-text')).not.toContainText('**')
+    await page.getByTestId('book-tab').first().click()
 
     // 阅读页的助手区常驻：窄窗口也不收起，阅读正文始终为其留位、不被覆盖。
     await page.getByTestId('workspace-tab-reading').click()

@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
 import { resizeWorkspace } from './support/workspace'
+import { createCoveredEpubFixture } from './fixtures/covered-epub'
+import { IPC_CHANNELS, type BookDocumentState } from '../../src/shared/contracts'
 import type {} from '../../src/renderer/src/global'
 
 async function assertFits(page: Page) {
@@ -12,7 +14,7 @@ async function assertFits(page: Page) {
   for (const testId of ['nav-library', 'nav-archives', 'settings-button']) await expect(page.getByTestId(testId)).toBeInViewport()
 }
 
-test('opens the book overview, keeps live drafts and reader instance across pages, and restores the last workspace', async () => {
+test('opens books directly in reading, keeps live drafts across pages, and restores the last workspace', async () => {
   const workspace = await createE2eWorkspace('llm-reader-workspace-')
   let application: ElectronApplication | undefined
   try {
@@ -30,12 +32,21 @@ test('opens the book overview, keeps live drafts and reader instance across page
     await expect(page.getByTestId('assistant-dialog-close')).toHaveCount(0)
     await page.getByTestId('nav-library').click()
     await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'library')
+    await expect(page.getByTestId('book-item').getByTestId('book-cover')).toHaveAttribute('data-has-cover', 'false')
     await page.getByTestId('book-item').click()
-    await expect(page.getByTestId('book-overview')).toBeVisible()
-    await expect(page.getByTestId('book-overview')).toContainText('尚未准备原文')
-    await page.screenshot({ path: test.info().outputPath('book-overview.png'), animations: 'disabled' })
-    await page.getByTestId('workspace-read').click()
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
+    await expect(page.getByTestId('workspace-tab-overview')).toHaveCount(0)
     await expect(page.locator('.reader-document--txt')).toBeVisible()
+    const detailsButton = page.getByTestId('book-details-button')
+    await detailsButton.click()
+    await expect(page.getByTestId('book-details-modal')).toBeVisible()
+    await page.getByTestId('book-details-close').click()
+    await expect(detailsButton).toBeFocused()
+    await detailsButton.click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('book-details-modal')).toHaveCount(0)
+    await expect(detailsButton).toBeFocused()
+    await page.screenshot({ path: test.info().outputPath('direct-reading.png'), animations: 'disabled' })
     await expect(page.locator('.reader-header')).toHaveCount(0)
     await expect(page.getByRole('navigation', { name: '阅读工具' })).toBeVisible()
     await expect(page.getByTestId('workspace-reading-position').locator('span')).not.toBeEmpty()
@@ -62,7 +73,7 @@ test('opens the book overview, keeps live drafts and reader instance across page
     const sidebar = page.locator('.right-sidebar')
     await sidebar.getByTestId('followup-input').fill('未配置服务也可以先写草稿')
     await expect(sidebar.locator('button[type=submit]')).toBeDisabled()
-    for (const tab of ['overview', 'notes', 'conversation'] as const) await page.getByTestId(`workspace-tab-${tab}`).click()
+    for (const tab of ['notes', 'conversation'] as const) await page.getByTestId(`workspace-tab-${tab}`).click()
     const conversation = page.getByTestId('assistant-dialog')
     await expect(conversation.getByTestId('followup-input')).toHaveValue('未配置服务也可以先写草稿')
     await expect(conversation.locator('.assistant-context-bar')).toHaveCount(0)
@@ -107,8 +118,7 @@ test('opens the book overview, keeps live drafts and reader instance across page
     await sidebar.getByRole('button', { name: '选中内容', exact: true }).click()
     await expect(sidebar).not.toContainText('先在阅读页选中原文，也可以切换到“整本书”。')
     await expect(sidebar).not.toContainText('前往阅读')
-    await page.getByTestId('workspace-tab-overview').click()
-    await page.getByTestId('workspace-ask').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(page.getByTestId('assistant-dialog').getByRole('button', { name: '选中内容', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('assistant-dialog').getByTestId('followup-input')).toHaveValue('')
     await page.getByTestId('assistant-dialog').getByTestId('recent-conversations').click()
@@ -122,6 +132,16 @@ test('opens the book overview, keeps live drafts and reader instance across page
     await expect(restarted.page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
     await restarted.page.getByTestId('workspace-prepare').click()
     await expect(restarted.page.getByTestId('document-status')).toHaveText('原文已就绪')
+    const bookId = (await restarted.page.evaluate(() => window.readerApi.listBooks()))[0].id
+    await restarted.page.evaluate((id) => {
+      localStorage.setItem('llm-reader.workspace', JSON.stringify({ bookId: id, page: 'overview', tabs: [{ bookId: id, page: 'overview' }] }))
+    }, bookId)
+    const upgraded = await restartReader(application, { userData: workspace.userData }); application = upgraded.application
+    await expect(upgraded.page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    await expect(upgraded.page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
+    await expect(upgraded.page.locator('.reader-document--txt')).toBeVisible()
+    await expect(upgraded.page.getByTestId('workspace-tab-overview')).toHaveCount(0)
+    expect(await upgraded.page.evaluate(() => JSON.parse(localStorage.getItem('llm-reader.workspace') ?? '{}').tabs[0].page)).toBe('reading')
   } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
 
@@ -156,11 +176,11 @@ test('browses partial chapter notes in pages and jumps valid originals while kee
     await expect(page.locator('.note-summary .answer-code-block')).toContainText('一段很长但可滚动的代码内容')
     await expect(page.locator('.chapter-note').first().getByRole('heading', { name: '单条概述' })).toBeVisible()
     await expect(page.locator('.chapter-note').first().locator('[data-testid^="citation-"]')).toHaveCount(0)
-    await page.getByTestId('workspace-tab-overview').click()
-    await expect(page.locator('.workspace-summary').getByRole('heading', { name: '全书主旨' })).toBeVisible()
-    await expect(page.locator('.workspace-summary')).toContainText('[P1] 普通编号')
-    await expect(page.locator('.workspace-summary [data-testid^="citation-"]')).toHaveCount(0)
-    await page.getByTestId('workspace-tab-notes').click()
+    const overviewNote = page.locator('.book-overview-note')
+    await overviewNote.locator('summary').click()
+    await expect(overviewNote.getByRole('heading', { name: '全书主旨' })).toBeVisible()
+    await expect(overviewNote).toContainText('[P1] 普通编号')
+    await expect(overviewNote.locator('[data-testid^="citation-"]')).toHaveCount(0)
     await expect(page.getByTestId('note-source-unavailable').first()).not.toHaveRole('button')
     await page.getByTestId('notes-load-more').click()
     await expect(page.getByTestId('chapter-note')).toHaveCount(12)
@@ -178,13 +198,58 @@ test('browses partial chapter notes in pages and jumps valid originals while kee
   } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
 
+test('keeps document preparation states in the preparation panel and restores reading progress', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-preparation-status-')
+  let application: ElectronApplication | undefined
+  try {
+    const fixture = join(workspace.root, '阅读进度.txt')
+    await writeFile(fixture, '第一章 阅读进度\n\n' + '准备状态不应阻止正常阅读。\n\n'.repeat(180))
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture }); application = launched.application
+    const page = launched.page
+    await page.getByTestId('book-item').click()
+    await expect(page.locator('.reader-document--txt')).toBeVisible()
+    await page.getByTestId('workspace-prepare').click()
+    const bookId = (await page.evaluate(() => window.readerApi.listBooks()))[0].id
+    const state = await page.evaluate((id) => window.readerApi.getBookAnalysis(id), bookId)
+    // 用共享事件注入不同准备阶段，验证面板状态；不调用真实模型服务。
+    const statuses: [BookDocumentState['status'], string][] = [
+      ['empty', '尚未准备原文'], ['preparing', '正在准备原文'], ['paused', '原文准备已暂停'],
+      ['error', '原文准备未完成'], ['ready', '原文已就绪']
+    ]
+    for (const [status, label] of statuses) {
+      await application.evaluate(({ BrowserWindow }, { channel, nextState }) => {
+        BrowserWindow.getAllWindows()[0].webContents.send(channel, nextState)
+      }, { channel: IPC_CHANNELS.analysisEvent, nextState: { ...state, document: {
+        status, jobId: 'preparation-fixture', version: 2, characters: 0, completed: 0, total: 1, diagnostics: []
+      } } })
+      await expect(page.getByTestId('document-status')).toHaveText(label)
+      await expect(page.locator('.reader-document--txt')).toBeVisible()
+    }
+    await page.getByTestId('preparation-close').click()
+    await page.getByTestId('workspace-tab-conversation').click()
+    await expect(page.getByTestId('assistant-dialog').locator('.composer-hint')).toContainText('先设置模型服务')
+    await page.getByTestId('workspace-tab-reading').click()
+    await expect(page.locator('.reader-document--txt')).toBeVisible()
+    await page.getByTestId('reader-host').hover()
+    await page.mouse.wheel(0, 3000)
+    await expect.poll(async () => (await page.evaluate(() => window.readerApi.listBooks()))[0].progress).toBeGreaterThan(0.1)
+    const progress = (await page.evaluate(() => window.readerApi.listBooks()))[0].progress
+    const restarted = await restartReader(application, { userData: workspace.userData }); application = restarted.application
+    await expect(restarted.page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
+    await expect(restarted.page.locator('.reader-document--txt')).toBeVisible()
+    await expect.poll(async () => (await restarted.page.evaluate(() => window.readerApi.listBooks()))[0].progress).toBeCloseTo(progress, 2)
+    await expect.poll(() => restarted.page.getByTestId('reader-host').evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
+})
+
 test('adapts the workspace, drawers and preparation to every supported scale in light and dark windows', async () => {
   test.setTimeout(240_000)
   const workspace = await createE2eWorkspace('llm-reader-workspace-matrix-')
   let application: ElectronApplication | undefined
   try {
-    const fixture = join(workspace.root, '适配.txt')
-    await writeFile(fixture, '第一章 窗口适配\n\n'+ '正文空间应优先保留，所有操作都可以访问。\n\n'.repeat(60))
+    const fixture = join(workspace.root, '适配.epub')
+    const longTitle = '理解复杂世界：一本用于检验长书名、封面与阅读入口在不同窗口和字号下仍然清晰可用的书'
+    await createCoveredEpubFixture(fixture, { title: longTitle })
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture }); application = launched.application
     const page = launched.page
     await page.getByTestId('book-item').click()
@@ -192,6 +257,7 @@ test('adapts the workspace, drawers and preparation to every supported scale in 
       await resizeWorkspace(application, page, width, height)
       for (const theme of ['light', 'dark']) for (const scale of [90, 100, 110, 125]) {
         const label = `${width}-${height}-${theme}-${scale}`
+        await page.getByTestId('nav-library').click()
         await page.getByTestId('settings-button').click()
         await page.getByTestId('settings-nav-appearance').click()
         await page.getByTestId(`theme-${theme}`).click()
@@ -199,9 +265,17 @@ test('adapts the workspace, drawers and preparation to every supported scale in 
         await assertFits(page)
         await page.screenshot({ path: test.info().outputPath(`settings-${label}.png`), scale: 'css', animations: 'disabled' })
         await page.getByTestId('settings-close').click()
-        await page.getByTestId('workspace-tab-overview').click()
         await assertFits(page)
-        await page.getByTestId('workspace-read').click()
+        const bookItem = page.getByTestId('book-item')
+        await expect(bookItem.locator('strong[title]')).toHaveAttribute('title', longTitle)
+        await expect(bookItem.getByTestId('book-cover')).toHaveAttribute('data-has-cover', 'true')
+        await expect.poll(() => bookItem.getByTestId('book-cover').locator('img').evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+        expect(await bookItem.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+        await page.screenshot({ path: test.info().outputPath(`library-${label}.png`), scale: 'css', animations: 'disabled' })
+        await bookItem.click()
+        await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
+        await expect(page.locator('.workspace-book-title h1')).toHaveAttribute('title', longTitle)
+        await expect(page.locator('.workspace-book-title h1')).toBeInViewport()
         await expect(page.locator('.reader-header')).toHaveCount(0)
         await expect(page.getByRole('navigation', { name: '阅读工具' })).toBeInViewport()
         await expect(page.getByTestId('workspace-reading-position')).toBeInViewport()

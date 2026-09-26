@@ -60,7 +60,7 @@ describe('static product website', () => {
     expect(demo?.querySelector('.demo-reader-rail')).not.toBeNull()
     expect(demo?.querySelector('.demo-reader-column')).not.toBeNull()
     expect(demo?.querySelector('.demo-right-sidebar')).not.toBeNull()
-    expect(Array.from(demo?.querySelectorAll('.demo-bookbar nav button') ?? []).map((button) => button.textContent?.trim())).toEqual(['概览', '阅读', '章节笔记', '对话'])
+    expect(Array.from(demo?.querySelectorAll('.demo-bookbar nav button') ?? []).map((button) => button.textContent?.trim())).toEqual(['阅读', '章节笔记', '对话'])
     expect(demo?.querySelector('.demo-bookbar > .demo-book-prepare')?.textContent).toBe('本书准备')
     expect(passiveControls.length).toBeGreaterThan(10)
     expect(passiveControls.every((control) => control.getAttribute('aria-disabled') === 'true')).toBe(true)
