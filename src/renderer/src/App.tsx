@@ -4722,7 +4722,7 @@ export default function App(): ReactNode {
         )}
       </aside>
 
-      {activeBook && page === 'notes' && <BookNotesView key={activeBook.id} book={activeBook} state={analysis.states[activeBook.id]} onNavigate={(anchor, title) => void navigateToAnchor(anchor, false, title)} onPrepare={() => openPreparation(activeBook.id)} />}
+      {activeBook && page === 'notes' && <BookNotesView key={activeBook.id} book={activeBook} state={analysis.states[activeBook.id]} onNavigate={(anchor, title) => void navigateToAnchor(anchor, false, title)} />}
       {preparationBook && <div className="modal-backdrop preparation-backdrop" hidden={settingsOpen} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreparation() }}>
         <section ref={preparationDialogRef} className="preparation-dialog" data-testid="book-preparation-dialog" role="dialog" aria-modal="true" aria-labelledby="preparation-title">
           <header className="modal-header"><div><h2 id="preparation-title">{copy('preparation.title')}</h2><p title={preparationBook.title}>{preparationBook.title}</p></div><button className="icon-button" type="button" data-testid="preparation-close" aria-label={copy('preparation.close')} onClick={closePreparation}><X size={18} /></button></header>

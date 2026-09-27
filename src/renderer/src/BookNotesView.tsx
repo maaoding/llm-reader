@@ -58,15 +58,15 @@ function ChapterNotes({ bookId, chapterId, revision, completed, onNavigate }: {
   </div>
 }
 
-export function BookNotesView({ book, state, onNavigate, onPrepare }: {
-  book: BookRecord; state?: BookAnalysisState; onNavigate: (anchor: string, title?: string) => void; onPrepare: () => void
+export function BookNotesView({ book, state, onNavigate }: {
+  book: BookRecord; state?: BookAnalysisState; onNavigate: (anchor: string, title?: string) => void
 }) {
   const { index, error, retry } = useBookNotesIndex(book.id, state)
   const [chosen, setChosen] = useState<string>()
   const chapterId = index?.chapters.some((chapter) => chapter.id === chosen) ? chosen : index?.chapters.find((chapter) => chapter.completed)?.id ?? index?.chapters[0]?.id
   const chapter = index?.chapters.find((item) => item.id === chapterId)
   return <section className="notes-view" data-testid="notes-view">
-    <header className="workspace-section-heading"><div><h2>{copy('notes.title')}</h2><p>{copy('notes.hint')}</p></div><button className="secondary-button" onClick={onPrepare}>{copy('workspace.prepare')}</button></header>
+    <header className="workspace-section-heading"><div><h2>{copy('notes.title')}</h2><p>{copy('notes.hint')}</p></div></header>
     {error && <p role="status">{error} <button onClick={retry}>{copy('common.retry')}</button></p>}
     {!index && !error && <p role="status">{copy('notes.loading')}</p>}
     {index?.overview && <details className="book-overview-note"><summary>{copy('notes.overview')}</summary><MarkdownText text={index.overview} /></details>}
