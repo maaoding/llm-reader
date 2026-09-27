@@ -138,6 +138,7 @@ export const contextSnapshotSchema = z.object({
   passages: z.array(passageSchema).max(200),
   background: z.string().max(30_000),
   coverage: z.object({ covered: z.number().int().min(0).max(10_000), total: z.number().int().min(0).max(10_000) }),
+  historySummary: z.object({ includedMessages: z.number().int().min(0).max(30), truncated: z.boolean() }).strict().optional(),
   rerank: z.object({
     status: z.enum(['applied', 'skipped', 'fallback']), model: z.string().max(256),
     candidateCount: z.number().int().min(0).max(60), elapsedMs: z.number().int().nonnegative().max(90_000),
@@ -317,6 +318,8 @@ const llmRequestBase = {
     action: z.enum(['explain', 'context', 'ask']),
     question: z.string().max(20_000),
     persona: z.string().trim().min(1).max(3_000).optional(),
+    historyCandidateMessages: z.number().int().nonnegative().max(1_000_000).optional(),
+    historyCandidateTruncated: z.boolean().optional(),
     history: z
       .array(
         z.object({

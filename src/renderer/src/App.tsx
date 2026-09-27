@@ -1188,12 +1188,26 @@ function AssistantContextControls({ tab, state, busy, onScope }: { tab?: Convers
 }
 
 function AssistantScopeControls({ tab, busy, onScope }: { tab: ConversationTab; busy: boolean; onScope: (scope: 'selection' | 'book') => void }) {
+  const lastTurn = tab.turns.at(-1)
+  const context = lastTurn?.status === 'completed' ? lastTurn.context : undefined
+  const history = context?.historySummary
+  const source = context?.selection && isPdfImageRegion(context.selection)
+    ? copy('visual.source', { page: context.selection.pageNumber })
+    : context ? copy(context.scope === 'book' ? 'analysis.book' : 'analysis.selection') : ''
+  const hint = context && history ? [
+    copy('assistant.contextHintTitle'),
+    source,
+    ...(context.selection && isPdfImageRegion(context.selection) ? [] : [copy('assistant.contextPassages', { count: context.passages.length })]),
+    copy('assistant.contextHistory', { count: history.includedMessages }),
+    ...(history.truncated ? [copy('assistant.contextTruncated')] : [])
+  ].join(' · ') : ''
   return <div className="composer-scope-controls">
     <span>{copy('analysis.scopeLabel')}</span>
     <div className="analysis-scope" role="group" aria-label={copy('analysis.scopeLabel')}>
       <button type="button" aria-pressed={tab.scope === 'selection'} disabled={busy} onClick={() => onScope('selection')}>{copy('analysis.selection')}</button>
       <button type="button" data-testid="scope-book" aria-pressed={tab.scope === 'book'} disabled={busy} onClick={() => onScope('book')}>{copy('analysis.book')}</button>
     </div>
+    {hint && <span className="assistant-context-hint" data-testid="assistant-context-hint" title={hint} aria-label={hint}>{hint}</span>}
   </div>
 }
 
@@ -3678,6 +3692,8 @@ export default function App(): ReactNode {
         ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId }
           : isPdfImageRegion(context) ? { scope: 'visual' as const, selection: context, imageDataUrl: imageDataUrl! }
             : { scope: 'selection' as const, selection: context! }),
+        historyCandidateMessages: Math.min(priorTurns.length * 2, 1_000_000),
+        historyCandidateTruncated: priorTurns.slice(-15).some((item) => item.answer.length > 20_000),
         history: priorTurns.slice(-15).flatMap((item) => [
           { role: 'user' as const, content: item.question },
           { role: 'assistant' as const, content: item.answer.slice(-20_000) }

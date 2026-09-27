@@ -135,6 +135,21 @@ function trimHistory(history: ChatMessage[], characterBudget: number): ChatMessa
   return result.reverse()
 }
 
+function summarizeHistory(request: LlmRequest, included: ChatMessage[]): NonNullable<ContextSnapshot['historySummary']> {
+  const candidates = request.history.map((message) => ({
+    role: message.role,
+    content: request.scope === 'visual' ? message.content : message.content.replace(/\[P\d+\]/gu, '')
+  }))
+  const retainedCandidates = candidates.slice(candidates.length - included.length)
+  return {
+    includedMessages: included.length,
+    truncated: Boolean(request.historyCandidateTruncated) ||
+      (request.historyCandidateMessages ?? candidates.length) > candidates.length ||
+      included.length !== candidates.length ||
+      included.some((message, index) => message.role !== retainedCandidates[index]?.role || message.content !== retainedCandidates[index]?.content)
+  }
+}
+
 export function boundContext(request: LlmRequest, source: ContextSnapshot, contextLimit: number): { context: ContextSnapshot; history: ChatMessage[] } {
   if (source.passages.some((passage) => passage.unitId) || source.rerank && source.rerank.reason !== 'not-ready') return boundRerankedContext(request, source, contextLimit)
   const selection = textSelection(source)
@@ -575,7 +590,7 @@ export class LlmService {
       const source = request.scope === 'visual' ? this.localContext(request) : this.contextProvider ? await this.contextProvider(request, credentials, active.controller.signal) : this.localContext(request)
       let model: string
       if (request.scope === 'visual') {
-        emit({ type: 'context', context: source })
+        emit({ type: 'context', context: { ...source, historySummary: summarizeHistory(request, request.history) } })
         model = await this.performCompletion(credentials, buildVisualPayload(request, credentials.model), { sessionId: request.conversationId }, active.controller.signal, emit)
       } else {
         try {
@@ -614,9 +629,10 @@ export class LlmService {
   ): Promise<string> {
     signal.throwIfAborted()
     const bounded = boundContext(request, source, contextLimit)
-    emit({ type: 'context', context: bounded.context })
+    const context = { ...bounded.context, historySummary: summarizeHistory(request, bounded.history) }
+    emit({ type: 'context', context })
     if (source.planningUsage) emit({ type: 'usage', usage: source.planningUsage })
-    return this.performCompletion(credentials, buildPayload(request, credentials.model, bounded.context, bounded.history, true), { sessionId: request.conversationId }, signal,
+    return this.performCompletion(credentials, buildPayload(request, credentials.model, context, bounded.history, true), { sessionId: request.conversationId }, signal,
       (event) => emit(event.type === 'usage' ? { ...event, usage: addUsage(source.planningUsage, event.usage)! } : event))
   }
 

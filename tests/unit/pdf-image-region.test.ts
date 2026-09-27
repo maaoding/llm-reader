@@ -107,9 +107,23 @@ describe('PDF image region', () => {
     const service = new LlmService({ getCredentials: () => ({ baseUrl: 'https://example.test/v1',
       model: 'vision-model', apiKey: 'secret', protocol, compatibility: 'auto' }) }, fetcher)
     const events = await run(service, visualRequest())
-    expect(events.find((event) => event.type === 'context')).toMatchObject({ context: { passages: [], background: '', selection } })
+    expect(events.find((event) => event.type === 'context')).toMatchObject({ context: { passages: [], background: '', selection,
+      historySummary: { includedMessages: 2, truncated: false } } })
     expect(events.at(-1)).toMatchObject({ type: 'completed', model: 'vision-model' })
     expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks omitted older history without claiming PDF image passages', async () => {
+    const service = new LlmService({ getCredentials: () => ({ baseUrl: 'https://example.test/v1',
+      model: 'vision-model', apiKey: 'secret', compatibility: 'auto' }) }, async () =>
+      Response.json({ choices: [{ message: { content: '一幅图' } }] }))
+    const value = { ...visualRequest(), historyCandidateMessages: 4 }
+    expect(llmRequestSchema.safeParse(value).success).toBe(true)
+    expect(llmRequestSchema.safeParse({ ...value, historyCandidateMessages: -1 }).success).toBe(false)
+    const events = await run(service, value)
+    expect(events.find((event) => event.type === 'context')).toMatchObject({ context: {
+      passages: [], historySummary: { includedMessages: 2, truncated: true }
+    } })
   })
 
   it('reports image capability rejection without switching models', async () => {

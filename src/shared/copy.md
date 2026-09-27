@@ -365,6 +365,10 @@
 | assistant.generatingAria | 正在生成 |
 | assistant.modelUnavailable | 未知模型 |
 | assistant.tokenUsage | 用量 {count} tokens |
+| assistant.contextHintTitle | 上轮上下文 |
+| assistant.contextPassages | 原文 {count} 处 |
+| assistant.contextHistory | 历史消息 {count} 条 |
+| assistant.contextTruncated | 历史已裁剪 |
 | assistant.generationDuration | 耗时 {duration} |
 | assistant.save | 归档回答 |
 | assistant.saved | 已归档 |

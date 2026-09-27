@@ -300,6 +300,7 @@
 .composer-scope-controls .analysis-scope { display: inline-flex; flex-wrap: nowrap; gap: 0; padding: 2px; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-panel); }
 .composer-scope-controls .analysis-scope button { padding: 5px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ui-ink-soft); white-space: nowrap; }
 .composer-scope-controls .analysis-scope button[aria-pressed="true"] { background: var(--ui-accent-soft); color: var(--ui-accent); font-weight: 600; }
+.composer-scope-controls .assistant-context-hint { display: block; min-width: 0; max-width: 60%; margin-left: auto; overflow: hidden; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .analysis-details { margin-top: 8px; }
 .analysis-details summary, .answer-sources summary { cursor: pointer; color: var(--ui-ink-soft); }
 .analysis-details p, .analysis-hint, .analysis-error { margin: 8px 0; line-height: 1.6; overflow-wrap: anywhere; }

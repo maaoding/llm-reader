@@ -417,7 +417,8 @@ describe('book preparation and retrieval', () => {
     })
     const snapshots = events.filter((event) => event.type === 'context')
     expect(snapshots).toHaveLength(2)
-    expect(snapshots[1].context).toEqual(small.context)
+    expect(snapshots[1].context).toEqual({ ...small.context,
+      historySummary: { includedMessages: small.history.length, truncated: true } })
     expect(events.at(-1)?.type).toBe('completed')
     for (const [index, payload] of payloads.entries()) {
       expect(Array.from(payload.messages.map((message) => message.content).join('')).length).toBeLessThan(index ? 12000 : 24000)

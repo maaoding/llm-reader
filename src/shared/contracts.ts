@@ -468,6 +468,8 @@ export interface ContextSnapshot {
   passages: Passage[]
   background: string
   coverage: { covered: number; total: number }
+  /** Actual history sent with this request; absent in older saved conversations. */
+  historySummary?: { includedMessages: number; truncated: boolean }
   planningUsage?: LlmUsage
   rerank?: RerankRecord
 }
@@ -510,6 +512,10 @@ interface LlmRequestBase {
   question: string
   history: ChatMessage[]
   persona?: string
+  /** Eligible messages before the recent-turn cap; metadata only, no older content. */
+  historyCandidateMessages?: number
+  /** Whether the renderer shortened any candidate message before sending. */
+  historyCandidateTruncated?: boolean
 }
 
 export type LlmRequest = LlmRequestBase & (
