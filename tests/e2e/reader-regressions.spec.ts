@@ -71,6 +71,57 @@ async function writeEpubFixture(path: string, chapters: Array<{ file: string; la
   await writeFile(path, bytes)
 }
 
+test('keeps the reader width stable while opening and switching workspace pages', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-opening-width-')
+  const fixture = join(workspace.root, 'opening-width.epub')
+  await writeEpubFixture(fixture, [{ file: 'c1', label: '第一章' }])
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    const readerWidth = () => page.getByTestId('reader-host').evaluate((host) => host.getBoundingClientRect().width)
+
+    await showLibrary(page)
+    await expect(page.getByTestId('book-item').first()).toBeVisible()
+    const libraryWidth = await readerWidth()
+    await page.getByTestId('book-item').first().click()
+    await enterReading(page)
+    await expect(page.getByTestId('reader-host').locator('iframe').first()).toBeVisible()
+    const readingWidth = await readerWidth()
+    expect(Math.abs(libraryWidth - readingWidth)).toBeLessThanOrEqual(1)
+
+    const bounds = await page.getByTestId('reader-host').evaluate((host) => {
+      const frame = host.querySelector('iframe')
+      const sidebar = document.querySelector('.right-sidebar')
+      return {
+        hostRight: host.getBoundingClientRect().right,
+        frameRight: frame?.getBoundingClientRect().right ?? Infinity,
+        assistantLeft: sidebar?.getBoundingClientRect().left ?? -Infinity
+      }
+    })
+    expect(bounds.hostRight).toBeLessThanOrEqual(bounds.assistantLeft + 1)
+    expect(bounds.frameRight).toBeLessThanOrEqual(bounds.hostRight + 2)
+    await page.screenshot({ path: test.info().outputPath('reading-width.png'), animations: 'disabled' })
+
+    for (const tab of ['notes', 'conversation', 'reading'] as const) {
+      await page.getByTestId(`workspace-tab-${tab}`).click()
+      expect(Math.abs(await readerWidth() - readingWidth)).toBeLessThanOrEqual(1)
+    }
+    await page.getByTestId('reader-contents-button').click()
+    const drawerWidth = await readerWidth()
+    await page.getByTestId('workspace-tab-notes').click()
+    expect(Math.abs(await readerWidth() - drawerWidth)).toBeLessThanOrEqual(1)
+    await page.getByTestId('workspace-tab-reading').click()
+    expect(Math.abs(await readerWidth() - drawerWidth)).toBeLessThanOrEqual(1)
+    await showLibrary(page)
+    expect(Math.abs(await readerWidth() - drawerWidth)).toBeLessThanOrEqual(1)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
 test('expands reflowable chapters whose CSS constrains html and body height', async () => {
   test.setTimeout(90_000)
   const workspace = await createE2eWorkspace('llm-reader-chapter-height-')

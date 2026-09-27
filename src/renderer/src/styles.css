@@ -156,7 +156,8 @@
 .workspace-shell[data-page="reading"][data-left-open="true"] > .left-sidebar { display: flex; position: absolute; inset: 0 auto 0 var(--reader-rail-width); width: 280px; border-right: 1px solid var(--ui-line); box-shadow: var(--ui-shadow-md); }
 .workspace-shell[data-page="reading"] .sidebar-content { border-top: 0; }
 .workspace-shell .toc-item, .workspace-shell .highlight-item { font-size: calc(var(--ui-label-size) * var(--interface-scale)); }
-.workspace-shell > .reader-column { grid-area: workspace; display: flex; min-height: 0; min-width: 0; width: auto; height: 100%; margin-left: var(--reader-rail-width); margin-right: 0; }
+/* EPUB 会在隐藏页面中测量容器；跨页面保持同一宽度，避免切回阅读时先按全宽排版。 */
+.workspace-shell > .reader-column { grid-area: workspace; display: flex; min-height: 0; min-width: 0; width: auto; height: 100%; margin-left: var(--reader-rail-width); margin-right: 360px; }
 .workspace-shell:not([data-page="reading"]) > .reader-column { visibility: hidden; pointer-events: none; }
 .reader-rail { grid-area: workspace; z-index: 40; display: flex; width: var(--reader-rail-width); min-height: 0; flex-direction: column; align-items: center; justify-self: start; padding: 10px 0; background: var(--ui-panel); border-right: 1px solid var(--ui-line); }
 .reader-rail-tools { display: flex; flex-direction: column; align-items: center; gap: 6px; }
@@ -166,8 +167,7 @@
 .reader-rail-button[hidden] { display: none; }
 .workspace-shell > .right-sidebar { grid-area: workspace; justify-self: end; width: 360px; height: 100%; min-height: 0; display: none; z-index: 20; border-left: 1px solid var(--ui-line); }
 .workspace-shell[data-page="reading"] > .right-sidebar { display: flex; }
-.workspace-shell[data-page="reading"] > .reader-column { margin-right: 360px; }
-.workspace-shell[data-page="reading"][data-left-open="true"] > .reader-column { margin-left: calc(var(--reader-rail-width) + 280px); }
+.workspace-shell[data-left-open="true"] > .reader-column { margin-left: calc(var(--reader-rail-width) + 280px); }
 .workspace-shell .assistant-header { height: 52px; padding: 10px 16px; }
 .workspace-shell .assistant-header h2, .workspace-shell .assistant-header strong { font-size: calc(var(--ui-text-size) * var(--interface-scale)); }
 .assistant-context-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; background: var(--ui-surface); border-bottom: 1px solid var(--ui-line); flex: 0 0 auto; }
