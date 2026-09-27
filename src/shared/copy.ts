@@ -160,8 +160,6 @@ export const COPY_KEYS = [
   'preparation.configureSemantic',
   'preparation.details',
   'preparation.stopFailed',
-  'notes.title',
-  'notes.hint',
   'notes.empty',
   'notes.emptyHint',
   'notes.partial',

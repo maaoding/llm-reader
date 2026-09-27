@@ -63,8 +63,6 @@
 | preparation.configureSemantic | 设置含义查找服务 |
 | preparation.details | 处理说明 |
 | preparation.stopFailed | 无法暂停原文准备，请重试。 |
-| notes.title | 章节笔记 |
-| notes.hint | 以下内容由模型整理。查看引用原文，核对观点和适用范围。 |
 | notes.empty | 还没有可阅读的笔记 |
 | notes.emptyHint | 准备好原文后，可在“本书准备”中生成章节笔记。 |
 | notes.partial | 已完成的笔记可以先读，后续结果会继续补充。 |
