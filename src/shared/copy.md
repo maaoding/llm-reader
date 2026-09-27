@@ -6,7 +6,7 @@
 | --- | --- |
 | workspace.navigation | 主导航 |
 | workspace.reading | 阅读 |
-| workspace.notes | 章节笔记 |
+| workspace.notes | 笔记 |
 | workspace.conversation | 对话 |
 | workspace.prepare | 本书准备 |
 | workspace.library | 书库 |
@@ -34,6 +34,7 @@
 | preparation.pageOcr | 使用专门 OCR 服务逐页识别 PDF 文字。当前接入按页保存文字，不保留完整表格结构。 |
 | preparation.pageOcrDisclosure | 准备时逐页发送图片至所选 OCR 服务，可能消耗额度。完成页保存在本机，暂停后可继续；识别结果和复杂版式仍需对照原 PDF 核验。 |
 | preparation.documentProgress | 已处理 {completed}/{total} 项 |
+| preparation.notes | 章节笔记 |
 | preparation.notesHint | 整理书中的观点、概念和适用条件，帮助理解章节之间的联系。 |
 | preparation.semanticHint | 帮助找到意思相近、用词不同的原文。 |
 | preparation.prepare | 准备原文 |

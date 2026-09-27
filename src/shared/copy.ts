@@ -131,6 +131,7 @@ export const COPY_KEYS = [
   'preparation.pageOcr',
   'preparation.pageOcrDisclosure',
   'preparation.documentProgress',
+  'preparation.notes',
   'preparation.notesHint',
   'preparation.semanticHint',
   'preparation.prepare',

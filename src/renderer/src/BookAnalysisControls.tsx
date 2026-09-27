@@ -63,7 +63,7 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
       </details>}
     </section>
     <section className="preparation-card">
-      <header><h3>{copy('workspace.notes')}</h3><span className="status-tag">{copy('workspace.optional')}</span></header>
+      <header><h3>{copy('preparation.notes')}</h3><span className="status-tag">{copy('workspace.optional')}</span></header>
       <p className="field-hint">{copy('preparation.notesHint')}</p>
       <p data-testid="notes-status">{copy(`analysis.status.${state?.status ?? 'empty'}`)}{state?.sections ? ` · ${copy('workspace.noteCount', { completed: state.completedSections, total: state.sections })}` : ''}</p>
       {error?.notes && <p className="analysis-error" role="status">{error.notes}</p>}
