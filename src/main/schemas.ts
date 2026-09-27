@@ -217,7 +217,8 @@ const sessionTurnSchema = z.object({
   }).strict().optional(),
   selection: selectionSchema.nullable().optional(),
   context: contextSnapshotSchema.nullable().optional(),
-  persona: personaSelectionSchema.nullable().optional()
+  persona: personaSelectionSchema.nullable().optional(),
+  durationMs: z.number().int().nonnegative().max(86_400_000).optional()
 }).strict()
 
 export const bookSessionSchema = z.object({

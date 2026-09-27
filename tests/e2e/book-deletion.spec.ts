@@ -43,7 +43,7 @@ test('deletes an unopened book from its details modal and keeps it gone after re
     await deleteButton.click()
     await expect(confirmation).toBeVisible()
     await expect(confirmation).toContainText('删除')
-    await expect(confirmation).toContainText('摘录与归档')
+    await expect(confirmation).toContainText('摘录与问答集')
     await page.getByTestId('book-details-delete-cancel').click()
     await expect(confirmation).toHaveCount(0)
     await expect(modal).toBeVisible()

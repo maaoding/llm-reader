@@ -907,7 +907,7 @@ test('asks about a scanned PDF image region, resends its crop, and restores its 
     expect((visualRequests[2].messages as Array<{ content: unknown }>).at(-1)?.content).toEqual(messages.at(-1)?.content)
 
     await page.getByTestId('answer-save').click()
-    await expect(page.getByTestId('answer-save')).toContainText('已保存')
+    await expect(page.getByTestId('answer-save')).toContainText('已归档')
     const persisted = await page.evaluate(async () => {
       const api = (window as unknown as { readerApi: {
         listBooks(): Promise<Array<{ id: string }>>

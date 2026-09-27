@@ -184,6 +184,9 @@ interface ConversationTurn {
   model: string
   status: TurnStatus
   usage?: LlmUsage
+  /** 真正开始生成的时刻，仅用于测耗时，不落库。 */
+  startedAt?: number
+  durationMs?: number
   error?: string
   saved?: boolean
   persona?: PersonaSelection | null
@@ -804,6 +807,7 @@ function persistableTurns(turns: ConversationTurn[]): BookSessionTurn[] {
       ...(turn.saved ? { saved: true } : {}),
       ...(turn.error ? { error: turn.error.slice(0, 2_000) } : {}),
       ...(turn.usage ? { usage: turn.usage } : {}),
+      ...(turn.durationMs === undefined ? {} : { durationMs: Math.round(turn.durationMs) }),
       selection: turn.selection,
       context: turn.context ?? null,
       ...(turn.persona ? { persona: turn.persona } : {})
@@ -822,6 +826,13 @@ function formatFullDate(iso: string): string {
   } catch {
     return iso
   }
+}
+
+// 生成耗时：满一分钟改按“分 秒”显示，避免出现“73.4 秒”这类读数。
+function formatGenerationDuration(durationMs: number): string {
+  const seconds = Math.max(0, Math.round(durationMs / 1000))
+  if (seconds < 60) return `${(Math.max(0, durationMs) / 1000).toFixed(1)} 秒`
+  return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
 }
 
 function BookDetailRow({
@@ -1281,6 +1292,7 @@ function ConversationPane({
         <div className="conversation-list" aria-live="polite">
           {turns.map((turn, index) => {
             const isLatest = index === turns.length - 1
+            const durationLabel = turn.durationMs === undefined ? '' : formatGenerationDuration(turn.durationMs)
             const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
@@ -1301,7 +1313,12 @@ function ConversationPane({
                   )}
                   {turn.status === 'completed' && (
                     <footer className="answer-footer">
-                      {turn.usage?.totalTokens ? <span className="answer-usage">{copy('assistant.tokenUsage', { count: turn.usage.totalTokens })}</span> : null}
+                      {turn.usage?.totalTokens || durationLabel ? (
+                        <div className="answer-meta">
+                          {turn.usage?.totalTokens ? <span className="answer-usage">{copy('assistant.tokenUsage', { count: turn.usage.totalTokens })}</span> : null}
+                          {durationLabel ? <span className="answer-duration">{copy('assistant.generationDuration', { duration: durationLabel })}</span> : null}
+                        </div>
+                      ) : null}
                       {isLatest && !activeRequestId && (onRegenerate || onEditQuestion) && (
                         <span className="answer-retry-actions">
                           {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
@@ -3210,7 +3227,7 @@ export default function App(): ReactNode {
       requestProviderRevisionRef.current.set(next.requestId, next.providerRevision)
       updateConversationTab(next.tabId, (current) => ({
         ...current,
-        turns: current.turns.map((turn) => turn.requestId === next.requestId ? { ...turn, status: 'streaming' } : turn)
+        turns: current.turns.map((turn) => turn.requestId === next.requestId ? { ...turn, status: 'streaming', startedAt: Date.now() } : turn)
       }))
       void window.readerApi.startLlm(next.request).catch((error: unknown) => {
         const message = readableError(error, copy('error.requestStartFailed'))
@@ -3270,7 +3287,12 @@ export default function App(): ReactNode {
         if (event.type === 'context') return { ...turn, context: event.context }
         if (event.type === 'delta') return { ...turn, answer: turn.answer + event.delta }
         if (event.type === 'usage') return { ...turn, usage: event.usage }
-        if (event.type === 'completed') return { ...turn, model: event.model, status: 'completed' }
+        if (event.type === 'completed') return {
+          ...turn,
+          model: event.model,
+          status: 'completed',
+          ...(turn.startedAt === undefined ? {} : { durationMs: Math.max(0, Date.now() - turn.startedAt) })
+        }
         return { ...turn, status: 'error', error: event.message }
       })
       if (tab) {

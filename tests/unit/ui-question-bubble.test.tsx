@@ -21,7 +21,7 @@ it('shows free questions directly and recognizes exact default prompts in older 
   const { container, rerender } = render(<QuestionBubble action="ask" label="自由提问" question={question} />)
   expect(container.querySelector('details')).toBeNull()
   expect(container.querySelector('p')?.textContent).toBe(question)
-  rerender(<QuestionBubble action="ask" label="已保存的回答" question={copy('assistant.questionExplain')} />)
+  rerender(<QuestionBubble action="ask" label="已归档的回答" question={copy('assistant.questionExplain')} />)
   expect(container.querySelector('details')?.open).toBe(false)
 })
 

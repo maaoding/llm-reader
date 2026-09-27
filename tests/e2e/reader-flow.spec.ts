@@ -587,6 +587,7 @@ test('persists reading, conversation and insight deletion after restart', async 
       .toBe(true)
     await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('mock-reader')
     await expect(page.getByTestId('answer-current').locator('.answer-footer')).toContainText('32 tokens')
+    await expect(page.getByTestId('answer-current').locator('.answer-duration')).toContainText('耗时')
     await expect(page.getByTestId('answer-current').locator('.answer-footer')).not.toContainText('mock-reader')
     const assistantFontSizes = await page.evaluate(() => ({
       title: getComputedStyle(document.querySelector('.assistant-title')!).fontSize,
@@ -594,7 +595,8 @@ test('persists reading, conversation and insight deletion after restart', async 
       answer: getComputedStyle(document.querySelector('.answer-text')!).fontSize,
       input: getComputedStyle(document.querySelector('.assistant-composer textarea')!).fontSize,
       model: getComputedStyle(document.querySelector('.answer-model')!).fontSize,
-      tokens: getComputedStyle(document.querySelector('.answer-footer > span')!).fontSize,
+      tokens: getComputedStyle(document.querySelector('.answer-footer .answer-usage')!).fontSize,
+      duration: getComputedStyle(document.querySelector('.answer-footer .answer-duration')!).fontSize,
       source: getComputedStyle(document.querySelector('.source-card-header small')!).fontSize
     }))
     expect(assistantFontSizes).toEqual({
@@ -604,6 +606,7 @@ test('persists reading, conversation and insight deletion after restart', async 
       input: '17.5px',
       model: '15px',
       tokens: '15px',
+      duration: '15px',
       source: '15px'
     })
     if (visualDirectory) {
@@ -656,7 +659,7 @@ test('persists reading, conversation and insight deletion after restart', async 
     await page.getByTestId('answer-save').click()
     await page.getByTestId('assistant-expand-button').click()
     const insightsTab = page.getByTestId('assistant-dialog-tab-insights')
-    await expect(insightsTab).toContainText('回答归档')
+    await expect(insightsTab).toContainText('问答集')
     await expect.poll(() => insightsTab.locator('span').evaluate((element) => getComputedStyle(element).fontSize)).toBe('15px')
     await insightsTab.click()
     const insight = page.getByTestId('insight-item')

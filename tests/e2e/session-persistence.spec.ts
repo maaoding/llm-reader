@@ -130,7 +130,7 @@ test('restores open archive tabs with their drafts and the active tab', async ()
       await page.getByTestId('action-explain').click()
       await expect(page.getByTestId('answer-current')).toContainText('临时会话里的回答，重启后应当仍在。')
       await page.getByTestId('answer-save').click()
-      await expect(page.getByTestId('answer-save')).toContainText('已保存')
+      await expect(page.getByTestId('answer-save')).toContainText('已归档')
     }
 
     await page.getByTestId('assistant-expand-button').click()
@@ -194,6 +194,8 @@ test('keeps the last temporary session per book across restarts and clears it on
     await enterReading(page)
     await expect(page.locator('.right-sidebar .conversation-turn')).toHaveCount(1)
     await expect(page.locator('.right-sidebar .conversation-turn')).toContainText('临时会话里的回答，重启后应当仍在。')
+    // 生成耗时随会话落库，重启后仍显示。
+    await expect(page.locator('.right-sidebar .answer-duration')).toContainText('耗时')
     await expect(page.locator(draft)).toHaveValue('重启后应保留的草稿')
 
     // 清空会话后连库里的记录一起消失，重启也不会回来。

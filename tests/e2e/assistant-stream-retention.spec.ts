@@ -161,7 +161,7 @@ test('keeps a running answer while switching book tabs and renders the saved ans
 
     // 保存内容可在归档查看，且保持 Markdown 渲染。
     await page.getByTestId('answer-save').click()
-    await expect(page.getByTestId('answer-save')).toContainText('已保存')
+    await expect(page.getByTestId('answer-save')).toContainText('已归档')
     await page.getByTestId('nav-archives').click()
     const archived = page.getByTestId('insight-item').first()
     await expect(archived).toContainText('这段')

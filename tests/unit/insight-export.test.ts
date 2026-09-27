@@ -67,7 +67,7 @@ describe('insight markdown export', () => {
   })
   it('groups records by book and preserves answers, questions and follow-ups', () => {
     const markdown = buildInsightExportMarkdown(records)
-    expect(markdown).toContain('# LLM Reader 回答归档')
+    expect(markdown).toContain('# LLM Reader 问答集')
     expect(markdown).toContain('## 复杂系统')
     expect(markdown).toContain('## 设计模式')
     expect(markdown).toContain('复杂系统如何理解？')
@@ -85,9 +85,9 @@ describe('insight markdown export', () => {
 
   it('builds a book-specific default name when only one book is exported', () => {
     const name = buildInsightExportDefaultName([records[1]])
-    expect(name).toMatch(/^LLM-Reader-复杂系统-归档-\d{8}-\d{4}\.md$/u)
-    expect(buildInsightExportDefaultName([])).toMatch(/^LLM-Reader-全部归档-\d{8}-\d{4}\.md$/u)
-    expect(buildInsightExportDefaultName([], '复杂系统')).toMatch(/^LLM-Reader-复杂系统-归档-\d{8}-\d{4}\.md$/u)
+    expect(name).toMatch(/^LLM-Reader-复杂系统-问答集-\d{8}-\d{4}\.md$/u)
+    expect(buildInsightExportDefaultName([])).toMatch(/^LLM-Reader-全部问答集-\d{8}-\d{4}\.md$/u)
+    expect(buildInsightExportDefaultName([], '复杂系统')).toMatch(/^LLM-Reader-复杂系统-问答集-\d{8}-\d{4}\.md$/u)
   })
 
   it('sanitizes illegal Windows filename characters', () => {

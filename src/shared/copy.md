@@ -10,7 +10,7 @@
 | workspace.conversation | 对话 |
 | workspace.prepare | 本书准备 |
 | workspace.library | 书库 |
-| workspace.archives | 回答归档 |
+| workspace.archives | 问答集 |
 | workspace.continue | 继续阅读 |
 | workspace.backLibrary | 返回书库 |
 | workspace.readingProgress | 已读 {percent}% |
@@ -42,9 +42,9 @@
 | preparation.resume | 继续准备 |
 | preparation.retry | 重试准备 |
 | preparation.rebuild | 重新准备原文 |
-| preparation.rebuildConfirm | 重新准备原文？这会重建章节结构，已有章节笔记和含义查找索引需要重新建立。回答归档会保留。 |
-| preparation.notesRebuildConfirm | 重新生成章节笔记？已有笔记将被替换，原文、含义查找索引与回答归档保留。 |
-| preparation.semanticRebuildConfirm | 重建含义查找索引？已有索引将被替换，原文、章节笔记和回答归档保留。 |
+| preparation.rebuildConfirm | 重新准备原文？这会重建章节结构，已有章节笔记和含义查找索引需要重新建立。问答集会保留。 |
+| preparation.notesRebuildConfirm | 重新生成章节笔记？已有笔记将被替换，原文、含义查找索引与问答集保留。 |
+| preparation.semanticRebuildConfirm | 重建含义查找索引？已有索引将被替换，原文、章节笔记和问答集保留。 |
 | preparation.document.empty | 尚未准备原文 |
 | preparation.document.preparing | 正在准备原文 |
 | preparation.document.paused | 原文准备已暂停 |
@@ -246,7 +246,7 @@
 | knowledge.tooLarge | 处理内容超出本机限制，请使用较小的文档或较低维度的 Embedding 模型。 |
 | knowledge.documentFailed | PDF 原文准备未完成。可以重试读取已有任务；任务失败或过期时，请重新准备原文。 |
 | knowledge.cloudKey | MinerU 云服务需要 API Token。 |
-| knowledge.documentChanged | PDF 服务设置已变化，请重新准备原文。回答归档会保留。 |
+| knowledge.documentChanged | PDF 服务设置已变化，请重新准备原文。问答集会保留。 |
 | settings.compatibilityLabel | 请求适配 |
 | settings.compatibilityAuto | 自动（默认） |
 | settings.compatibilityGo | OpenCode Go |
@@ -279,7 +279,7 @@
 | analysis.stageProgress | {stage}：{completed}/{total} |
 | analysis.retrying | 正在重试当前步骤（{attempt}/3），已完成结果会继续复用。 |
 | analysis.recentFailures | 最近失败记录 |
-| analysis.disclosureRetry | 临时错误时每步最多尝试 3 次，重试可能消耗额度。重新生成只替换笔记，原文、含义查找索引与回答归档保留。 |
+| analysis.disclosureRetry | 临时错误时每步最多尝试 3 次，重试可能消耗额度。重新生成只替换笔记，原文、含义查找索引与问答集保留。 |
 | analysis.busy | 另一本书正在准备原文或生成笔记，请先暂停该任务。 |
 | analysis.changed | 笔记所用配置已变化，请重新生成章节笔记。 |
 | analysis.tooLarge | 本书内容超出分析限制，请使用较小的分册。 |
@@ -353,7 +353,7 @@
 | --- | --- |
 | assistant.title | 阅读助手 |
 | assistant.viewsAria | 阅读助手视图 |
-| assistant.tabInsights | 回答归档 |
+| assistant.tabInsights | 问答集 |
 | assistant.tabCurrent | 当前对话 |
 | assistant.closeTab | 关闭会话标签 |
 | assistant.emptyTitle | 选中原文，开始理解 |
@@ -365,13 +365,14 @@
 | assistant.generatingAria | 正在生成 |
 | assistant.modelUnavailable | 未知模型 |
 | assistant.tokenUsage | 用量 {count} tokens |
-| assistant.save | 保存回答 |
-| assistant.saved | 已保存 |
+| assistant.generationDuration | 耗时 {duration} |
+| assistant.save | 归档回答 |
+| assistant.saved | 已归档 |
 | assistant.regenerate | 重新生成 |
 | assistant.editQuestion | 编辑问题 |
 | assistant.searchConversation | 搜索当前会话 |
 | assistant.searchTurns | {count} 轮匹配 |
-| assistant.insightLabel | 已保存的回答 |
+| assistant.insightLabel | 已归档的回答 |
 | assistant.insightFollowupLabel | 追问 |
 | assistant.stop | 停止生成 |
 | assistant.placeholderFollowup | 继续追问这段原文… |
@@ -399,33 +400,33 @@
 
 | key | text |
 | --- | --- |
-| insights.loading | 正在读取归档 |
+| insights.loading | 正在读取问答集 |
 | insights.noBookTitle | 还没有打开书籍 |
-| insights.noBookDetail | 打开一本书后，这里会显示与它相关的归档。 |
-| insights.emptyTitle | 还没有保存的回答 |
-| insights.emptyDetail | 在助手回答下方点击“保存回答”，即可保留答案与原文位置。 |
-| insights.removeQuestion | 删除这条回答归档？ |
-| insights.removeAria | 删除回答归档 |
-| insights.removed | 已删除回答归档。 |
-| insights.alreadyRemoved | 这条归档已不存在。 |
-| insights.removeFailed | 无法删除回答归档，请重试。 |
-| insights.savedToast | 已保存回答和原文位置。 |
-| insights.saveFailed | 保存回答失败。 |
-| insights.readFailed | 无法读取归档。 |
+| insights.noBookDetail | 打开一本书后，这里会显示与它相关的问答。 |
+| insights.emptyTitle | 还没有归档的回答 |
+| insights.emptyDetail | 在助手回答下方点击“归档回答”，即可保留答案与原文位置。 |
+| insights.removeQuestion | 删除这条问答？ |
+| insights.removeAria | 删除问答 |
+| insights.removed | 已删除问答。 |
+| insights.alreadyRemoved | 这条问答已不存在。 |
+| insights.removeFailed | 无法删除问答，请重试。 |
+| insights.savedToast | 已归档回答和原文位置。 |
+| insights.saveFailed | 归档回答失败。 |
+| insights.readFailed | 无法读取问答集。 |
 | insights.scopeAll | 全部 |
 | insights.scopeBook | 本书 |
-| insights.scopeAria | 归档范围 |
+| insights.scopeAria | 问答集范围 |
 | insights.searchPlaceholder | 搜索书名、作者、引用或回答… |
-| insights.searchAria | 搜索归档 |
-| insights.noSearchResultsTitle | 没有匹配的归档 |
+| insights.searchAria | 搜索问答集 |
+| insights.noSearchResultsTitle | 没有匹配的问答 |
 | insights.noSearchResultsDetail | 换一个关键词再试试。 |
 | insights.exportAll | 导出全部 |
 | insights.exportBook | 导出本书 |
-| insights.exportOneAria | 导出这条归档 |
+| insights.exportOneAria | 导出这条问答 |
 | insights.exportedToast | 已导出 {fileName} |
-| insights.exportFailed | 导出归档失败。 |
-| insights.exportEmpty | 没有可导出的归档。 |
-| insights.bookMissing | 这本书已不在书库中，无法打开归档。 |
+| insights.exportFailed | 导出问答集失败。 |
+| insights.exportEmpty | 没有可导出的问答。 |
+| insights.bookMissing | 这本书已不在书库中，无法打开问答集。 |
 
 ## 摘录
 
@@ -651,7 +652,7 @@
 | library.readFailed | 无法读取本地书库。 |
 | library.deleteBook | 删除这本书 |
 | library.deleteQuestion | 删除《{title}》？ |
-| library.deleteDetail | 这本书的摘录与归档会一并删除，且无法恢复。 |
+| library.deleteDetail | 这本书的摘录与问答集会一并删除，且无法恢复。 |
 | library.deletedToast | 已删除《{title}》。 |
 | library.alreadyRemoved | 这本书已不在书库中。 |
 | library.deleteFailed | 删除书籍失败。 |
@@ -752,7 +753,7 @@
 | error.untrustedSender | 已拒绝非可信页面的请求。 |
 | dialog.importTitle | 导入书籍 |
 | dialog.importFilter | EPUB、UTF-8 TXT、PDF、MOBI 或 AZW3 |
-| dialog.exportTitle | 导出归档 |
+| dialog.exportTitle | 导出问答集 |
 | dialog.exportFilter | Markdown 文件 |
 | error.epubUnsafePath | EPUB 包含不安全的内部路径。 |
 | error.epubIncomplete | EPUB 结构不完整。 |
@@ -797,29 +798,29 @@
 | reader.txtInvalidHighlight | 无效的 TXT 高亮锚点 |
 | reader.txtFullText | 全文 |
 
-## 归档导出
+## 问答集导出
 
 | key | text |
 | --- | --- |
-| export.title | LLM Reader 回答归档 |
+| export.title | LLM Reader 问答集 |
 | export.generatedAt | 导出时间：{datetime} |
-| export.summary | {books} 本书 · {insights} 条归档 |
+| export.summary | {books} 本书 · {insights} 条问答 |
 | export.bookHeading | {title} |
-| export.entryHeading | 归档 {index} |
+| export.entryHeading | 问答 {index} |
 | export.chapterLabel | 章节 |
 | export.quoteLabel | 原文 |
 | export.questionLabel | 问题 |
 | export.answerLabel | 回答 |
 | export.modelLabel | 模型 |
-| export.dateLabel | 保存时间 |
+| export.dateLabel | 归档时间 |
 | export.followupsLabel | 追问 |
 | export.followupLabel | 追问 {index} |
 | export.userLabel | 问 |
 | export.assistantLabel | 答 |
 | export.citationsNote | 回答中的 [passage-id] 为阅读器内部引用。 |
 | export.untitledBook | 未命名书籍 |
-| export.fileNameAll | LLM-Reader-全部归档 |
-| export.fileNameBook | LLM-Reader-{title}-归档 |
+| export.fileNameAll | LLM-Reader-全部问答集 |
+| export.fileNameBook | LLM-Reader-{title}-问答集 |
 
 ## 模型服务错误
 
@@ -876,8 +877,8 @@
 | validation.contextLimit | 上下文过大 |
 | validation.contextMismatch | 上下文来源不匹配 |
 | validation.contextSource | 上下文来源无效 |
-| validation.archiveSelection | 归档与选区必须属于同一本书 |
-| validation.archiveHistory | 归档历史必须属于同一本书 |
+| validation.archiveSelection | 问答与选区必须属于同一本书 |
+| validation.archiveHistory | 问答历史必须属于同一本书 |
 | validation.httpUrl | 接口地址必须是 HTTP(S) 地址 |
 | validation.question | 自由提问不能为空 |
 | validation.endpoint | 接口地址不能包含查询参数或片段 |

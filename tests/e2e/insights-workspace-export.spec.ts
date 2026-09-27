@@ -229,7 +229,7 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     await firstInsight.locator('.insight-content').click()
     await expect(page.locator('.assistant-session-tab.is-active [role="tab"]')).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByTestId('answer-current')).toContainText('这是第一本书的归档回答。')
-    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已保存的回答')
+    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已归档的回答')
     // 点击归档条目时先进入对话页，目标书籍在后台打开，不经过书籍页面。
     expect(await readPageTimeline(page)).toEqual(['archives', 'conversation'])
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')

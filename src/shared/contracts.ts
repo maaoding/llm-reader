@@ -670,6 +670,8 @@ export interface BookSessionTurn {
   saved?: boolean
   error?: string
   usage?: LlmUsage
+  /** 生成耗时（毫秒）；旧数据可能缺失。 */
+  durationMs?: number
   selection?: ReaderSource | null
   context?: ContextSnapshot | null
   persona?: PersonaSelection | null

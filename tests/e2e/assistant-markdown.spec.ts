@@ -7,7 +7,8 @@ import {
   type Page
 } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
-import { resolve } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import {
   cleanupE2eWorkspace,
   createE2eWorkspace,
@@ -136,6 +137,7 @@ test.afterAll(async () => {
 
 test('renders assistant markdown without breaking citation navigation', async () => {
   const workspace = await createE2eWorkspace('assistant-markdown-e2e-')
+  const visualDirectory = process.env.LLM_READER_VISUAL_DIR
   let application: ElectronApplication | undefined
 
   try {
@@ -167,7 +169,7 @@ test('renders assistant markdown without breaking citation navigation', async ()
 
     await expect(answer.locator('.answer-footer')).toBeVisible()
     await expect(answer.locator('.answer-usage')).toContainText('10872')
-    await expect(page.getByTestId('answer-save')).toContainText('保存回答')
+    await expect(page.getByTestId('answer-save')).toContainText('归档回答')
     for (const [width, height] of [[1440, 900], [940, 600]] as const) {
       await resizeWorkspace(launched.application, page, width, height)
       const footer = answer.locator('.answer-footer')
@@ -175,6 +177,13 @@ test('renders assistant markdown without breaking citation navigation', async ()
       expect(await footer.evaluate((element) => {
         const card = element.closest('.answer-card')?.getBoundingClientRect()
         if (!card) return false
+        const meta = element.querySelector('.answer-meta')?.getBoundingClientRect()
+        if (!meta || meta.left < card.left - 1 || meta.right > card.right + 1) return false
+        // 用量与生成时间必须同排，且时间贴在整行右端。
+        const usage = element.querySelector('.answer-usage')?.getBoundingClientRect()
+        const duration = element.querySelector('.answer-duration')?.getBoundingClientRect()
+        if (!usage || !duration || Math.abs(usage.top - duration.top) > 1) return false
+        if (Math.abs(meta.right - duration.right) > 1) return false
         return [...element.querySelectorAll('button')].every((button) => {
           const bounds = button.getBoundingClientRect()
           return bounds.left >= card.left - 1 && bounds.right <= card.right + 1 &&
@@ -182,11 +191,15 @@ test('renders assistant markdown without breaking citation navigation', async ()
             getComputedStyle(button).whiteSpace === 'nowrap'
         })
       })).toBe(true)
+      if (visualDirectory) {
+        mkdirSync(visualDirectory, { recursive: true })
+        await footer.screenshot({ path: join(visualDirectory, `answer-footer-${width}.png`), scale: 'css' })
+      }
       await footer.screenshot({ path: test.info().outputPath(`answer-actions-${width}.png`), scale: 'css' })
     }
     await page.getByTestId('answer-save').click()
     await openInsightsWorkspace(page)
-    await expect(page.getByTestId('assistant-dialog-tab-insights')).toContainText('回答归档')
+    await expect(page.getByTestId('assistant-dialog-tab-insights')).toContainText('问答集')
 
     const insight = page.getByTestId('insight-item')
     await expect(insight.locator('.answer-text h3')).toHaveText('解释')
@@ -218,7 +231,7 @@ test('renders assistant markdown without breaking citation navigation', async ()
     await page.getByTestId('conversation-search-input').fill('')
     await expect(page.getByTestId('question-prompt')).not.toHaveAttribute('open')
     await expect(page.getByTestId('answer-current').locator('.answer-save')).toHaveCount(0)
-    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已保存的回答')
+    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已归档的回答')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }
