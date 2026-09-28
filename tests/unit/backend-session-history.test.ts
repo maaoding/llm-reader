@@ -52,10 +52,33 @@ it('migrates the existing current conversation without losing its draft, answers
     const bookId = addBook(database)
     const record = { ...session(bookId, 1), turns: [{ id: randomUUID(), action: 'ask' as const, actionLabel: '提问', question: '旧问题', answer: '旧回答', model: 'fixture', status: 'completed' as const }] }
     database.upsertBookSession(record)
-    database.connection.exec('DROP TABLE book_session_history; DROP TABLE ocr_page_previews; DELETE FROM schema_migrations WHERE version >= 18')
+    database.connection.exec('DROP TABLE book_session_history; DROP TABLE ocr_page_previews; ALTER TABLE book_sessions DROP COLUMN persona_json; ALTER TABLE insights DROP COLUMN persona_json; DELETE FROM schema_migrations WHERE version >= 18')
     database.close(); database = new AppDatabase(join(root, 'reader.sqlite'))
     expect(database.getBookSession(bookId)).toEqual(record)
     expect(database.getRecentBookSession(bookId, record.conversationId)).toEqual(record)
     expect(database.listRecentBookSessions(bookId)).toEqual([{ conversationId: record.conversationId, scope: 'book', title: '旧问题', turnCount: 1, updatedAt: record.updatedAt }])
+  } finally { database.close(); rmSync(root, { recursive: true, force: true }) }
+})
+
+it('keeps session and archived-answer persona snapshots after preset changes and restart', () => {
+  const root = mkdtempSync(join(tmpdir(), 'reader-persona-history-'))
+  let database = new AppDatabase(join(root, 'reader.sqlite'))
+  try {
+    const bookId = addBook(database)
+    const first = { presetId: randomUUID(), name: '社科导师', prompt: '先解释概念。' }
+    const second = { presetId: first.presetId, name: '社科导师', prompt: '先解释论证。' }
+    const old = { ...session(bookId, 1), persona: first, turns: [{ id: randomUUID(), action: 'ask' as const, actionLabel: '提问', question: '问题', answer: '回答', model: 'fixture', status: 'completed' as const, persona: first }] }
+    database.upsertBookSession(old)
+    const current = { ...old, persona: second, updatedAt: session(bookId, 2).updatedAt }
+    database.upsertBookSession(current)
+    const archived = database.insertInsight(randomUUID(), { bookId, selection: null, question: '问题', answer: '回答', model: 'fixture', persona: first }, new Date().toISOString())
+    database.close(); database = new AppDatabase(join(root, 'reader.sqlite'))
+    expect(database.getBookSession(bookId)?.persona).toEqual(second)
+    expect(database.getRecentBookSession(bookId, old.conversationId)?.turns[0].persona).toEqual(first)
+    expect(database.listInsights(bookId)[0]).toMatchObject({ id: archived.id, persona: first, history: [{ role: 'user' }, { role: 'assistant', persona: first }] })
+    const history = database.listInsights(bookId)[0].history
+    const updated = database.updateInsightHistory(archived.id, { bookId, id: archived.id, history, persona: second })
+    expect(updated?.persona).toEqual(second)
+    expect(updated?.history[1].persona).toEqual(first)
   } finally { database.close(); rmSync(root, { recursive: true, force: true }) }
 })

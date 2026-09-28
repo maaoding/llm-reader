@@ -173,6 +173,17 @@
 .assistant-context-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; background: var(--ui-surface); border-bottom: 1px solid var(--ui-line); flex: 0 0 auto; }
 .assistant-context-bar small { margin-left: auto; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .composer-scope-controls { display: flex; min-width: 0; align-items: center; gap: 10px; margin-bottom: 8px; }
+.persona-session { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 8px; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
+.persona-session > select { min-width: 0; max-width: 190px; padding: 5px 8px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink); }
+.persona-session .text-button { padding: 4px 0; }
+.persona-session-editor { display: grid; flex-basis: 100%; gap: 6px; padding: 9px; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-panel); }
+.persona-session-editor :is(input, textarea) { width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-surface); color: var(--ui-ink); resize: vertical; }
+.persona-session-editor button { justify-self: start; }
+.persona-settings, .persona-form { display: grid; gap: 10px; }
+.persona-settings > select, .persona-form > :is(input, textarea) { min-width: 0; width: 100%; padding: 8px 10px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink); }
+.persona-form > textarea { resize: vertical; line-height: 1.5; }
+.persona-form > button { justify-self: start; }
+.persona-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .composer-scope-controls > span { color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .workspace-shell .analysis-scope button { padding: 6px 9px; min-height: 32px; font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .composer-hint { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); line-height: 1.6; }

@@ -84,6 +84,27 @@
 | notes.navigation | 笔记章节 |
 | notes.aliases | 也称：{names} |
 | assistant.needModel | 先设置模型服务，才能发送问题。 |
+| persona.title | 助手设定 |
+| persona.hint | 为阅读问答设置角色和表达方式。每个新会话复制当时的默认设定，已有会话可单独切换。 |
+| persona.default | 新会话默认设定 |
+| persona.none | 不使用自定义设定 |
+| persona.new | 新建人设 |
+| persona.duplicate | 复制人设 |
+| persona.delete | 删除人设 |
+| persona.confirmDelete | 删除这套人设？已使用它的会话仍保留原有设定。 |
+| persona.name | 人设名称 |
+| persona.prompt | 提示词正文 |
+| persona.promptHint | 最多 3000 字；仅影响阅读问答，原文依据和引用规则始终生效。 |
+| persona.save | 保存人设 |
+| persona.edit | 修改本会话设定 |
+| persona.saveAs | 另存为人设 |
+| persona.custom | 本会话自定义 |
+| persona.select | 当前助手设定 |
+| persona.sessionHint | 修改从下一次提问或主动重新生成开始生效。 |
+| persona.saveFailed | 保存失败，请检查可用空间后重试。 |
+| persona.saved | 已保存助手设定。 |
+| persona.limit | 最多保存 20 套人设。 |
+| persona.discardChanges | 有尚未保存的修改，确定要放弃吗？ |
 | assistant.needDocument | 先准备原文，才能从整本书查找答案。 |
 | assistant.selectionReady | 已选中原文 |
 | assistant.selectionPending | 尚未选中原文 |
@@ -556,6 +577,7 @@
 | assistant.recentSessionsHint | 每本书保留最近 20 个对话，每个最多 20 轮。点击可恢复选区、回答和草稿。 |
 | assistant.recentSessionsEmpty | 还没有其他对话。 |
 | assistant.sessionRestoreFailed | 无法读取或恢复对话，请重试。 |
+| assistant.sessionLoading | 正在恢复对话… |
 | assistant.sessionSaveFailed | 对话保存失败。请检查可用空间后重试，切换前需成功保存当前对话。 |
 | settings.testConnection | 测试文本回复 |
 | settings.testStream | 测试流式回复 |

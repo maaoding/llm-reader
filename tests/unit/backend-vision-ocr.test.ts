@@ -230,7 +230,7 @@ describe('visual model OCR', () => {
     const fixture = setup(undefined, path)
     await fixture.extract(1)
     const previous = fixture.db.connection.prepare('SELECT * FROM document_jobs').get()
-    fixture.db.connection.exec('DROP TABLE ocr_page_previews; DELETE FROM schema_migrations WHERE version = 19')
+    fixture.db.connection.exec('DROP TABLE ocr_page_previews; ALTER TABLE book_sessions DROP COLUMN persona_json; ALTER TABLE book_session_history DROP COLUMN persona_json; ALTER TABLE insights DROP COLUMN persona_json; DELETE FROM schema_migrations WHERE version >= 19')
     resources.pop()!.close()
     let db = new AppDatabase(path); resources.push(db)
     expect(db.connection.prepare('SELECT * FROM document_jobs').get()).toEqual(previous)

@@ -509,6 +509,7 @@ interface LlmRequestBase {
   action: LlmAction
   question: string
   history: ChatMessage[]
+  persona?: string
 }
 
 export type LlmRequest = LlmRequestBase & (
@@ -599,7 +600,13 @@ export interface ArchivedChatMessage {
   content: string
   model?: string
   context?: ContextSnapshot
+  persona?: PersonaSelection | null
 }
+
+export interface AssistantPersona { id: string; name: string; prompt: string }
+/** A copy of a preset, so edits or deletion never rewrite earlier conversations. */
+export interface PersonaSelection { presetId: string | null; name: string; prompt: string }
+export interface PersonaSettings { presets: AssistantPersona[]; defaultId: string | null }
 
 export interface SavedInsight {
   id: string
@@ -612,6 +619,7 @@ export interface SavedInsight {
   model: string
   createdAt: string
   history: ArchivedChatMessage[]
+  persona?: PersonaSelection | null
 }
 
 export interface InsightBookRef {
@@ -640,12 +648,14 @@ export interface SaveInsightInput {
   question: string
   answer: string
   model: string
+  persona?: PersonaSelection | null
 }
 
 export interface UpdateInsightHistoryInput {
   bookId: string
   id: string
   history: ArchivedChatMessage[]
+  persona?: PersonaSelection | null
 }
 
 /** 临时会话中可持久化的一轮：流式中的轮次不入库，状态只保留已结束的两种。 */
@@ -662,6 +672,7 @@ export interface BookSessionTurn {
   usage?: LlmUsage
   selection?: ReaderSource | null
   context?: ContextSnapshot | null
+  persona?: PersonaSelection | null
 }
 
 /** 当前会话；最近的不同会话另行保留，切换选区不会覆盖它们。 */
@@ -672,6 +683,7 @@ export interface BookSessionRecord {
   selection: ReaderSource | null
   draft: string
   turns: BookSessionTurn[]
+  persona?: PersonaSelection | null
   updatedAt: string
 }
 
@@ -682,6 +694,7 @@ export interface SaveBookSessionInput {
   selection: ReaderSource | null
   draft: string
   turns: BookSessionTurn[]
+  persona?: PersonaSelection | null
 }
 
 export interface BookSessionSummary {
