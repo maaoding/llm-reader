@@ -8,6 +8,11 @@ import { validPdfImageRegion, PDF_REGION_IMAGE_MAX_DATA_URL, PDF_REGION_IMAGE_PA
 
 const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
+const personaSelectionSchema = z.object({
+  presetId: z.string().min(1).max(128).regex(/^[\w-]+$/u).nullable(),
+  name: shortText(60),
+  prompt: shortText(3_000)
+}).strict()
 
 export const clipboardTextSchema = z.string().max(OCR_MAX_PAGE_CHARACTERS)
 export const bookOcrPageSchema = z.object({ bookId: idSchema, pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES) }).strict()
@@ -162,7 +167,8 @@ export const insightSchema = z
     context: contextSnapshotSchema.optional(),
     question: z.string().max(20_000),
     answer: z.string().min(1).max(2_000_000),
-    model: shortText(256)
+    model: shortText(256),
+    persona: personaSelectionSchema.nullable().optional()
   })
     .refine((insight) => (insight.selection ? insight.bookId === insight.selection.bookId : insight.context?.scope === 'book') &&
       (!insight.context || insight.context.bookId === insight.bookId), {
@@ -174,13 +180,15 @@ export const archivedMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
   content: z.string().min(1).max(2_000_000),
   model: shortText(256).optional(),
-  context: contextSnapshotSchema.optional()
+  context: contextSnapshotSchema.optional(),
+  persona: personaSelectionSchema.nullable().optional()
 })
 
 export const insightHistorySchema = z.object({
   bookId: idSchema,
   id: idSchema,
-  history: z.array(archivedMessageSchema).min(2).max(200)
+  history: z.array(archivedMessageSchema).min(2).max(200),
+  persona: personaSelectionSchema.nullable().optional()
 }).refine((input) => input.history.every((message) => !message.context || message.context.bookId === input.bookId), {
   message: copy('validation.archiveHistory'), path: ['history']
 })
@@ -208,7 +216,8 @@ const sessionTurnSchema = z.object({
     totalTokens: z.number().int().nonnegative().optional()
   }).strict().optional(),
   selection: selectionSchema.nullable().optional(),
-  context: contextSnapshotSchema.nullable().optional()
+  context: contextSnapshotSchema.nullable().optional(),
+  persona: personaSelectionSchema.nullable().optional()
 }).strict()
 
 export const bookSessionSchema = z.object({
@@ -217,7 +226,8 @@ export const bookSessionSchema = z.object({
   scope: z.enum(['selection', 'book']),
   selection: selectionSchema.nullable(),
   draft: z.string().max(2_000),
-  turns: z.array(sessionTurnSchema).max(20)
+  turns: z.array(sessionTurnSchema).max(20),
+  persona: personaSelectionSchema.nullable().optional()
 }).strict().refine((session) => (
   (session.scope === 'selection') === Boolean(session.selection)
   && (!session.selection || session.selection.bookId === session.bookId)
@@ -305,6 +315,7 @@ const llmRequestBase = {
     requestId: z.string().min(1).max(128).regex(/^[\w.-]+$/u),
     action: z.enum(['explain', 'context', 'ask']),
     question: z.string().max(20_000),
+    persona: z.string().trim().min(1).max(3_000).optional(),
     history: z
       .array(
         z.object({

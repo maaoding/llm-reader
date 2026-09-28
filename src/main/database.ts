@@ -17,6 +17,7 @@ import type {
   SaveHighlightInput,
   ProviderCompatibility,
   ProviderProtocol,
+  PersonaSelection,
   SaveInsightInput,
   SelectionContext,
   SessionTabRecord,
@@ -50,6 +51,7 @@ interface InsightRow {
   created_at: string
   history_json: string
   context_json: string | null
+  persona_json?: string | null
 }
 
 interface InsightArchiveRow extends InsightRow {
@@ -65,6 +67,7 @@ interface BookSessionRow {
   selection_json: string | null
   draft: string
   turns_json: string
+  persona_json?: string | null
   updated_at: string
 }
 
@@ -456,6 +459,11 @@ const migrations = [
         text TEXT NOT NULL CHECK(length(text) <= 40000),
         PRIMARY KEY (book_id, page_number)
       ) STRICT;
+    `,
+    `
+      ALTER TABLE book_sessions ADD COLUMN persona_json TEXT;
+      ALTER TABLE book_session_history ADD COLUMN persona_json TEXT;
+      ALTER TABLE insights ADD COLUMN persona_json TEXT;
     `
 ] as const
 
@@ -513,11 +521,17 @@ function parseInsightHistory(value: string | null | undefined): ArchivedChatMess
   }
 }
 
-function insightHistory(question: string, answer: string, model: string): ArchivedChatMessage[] {
+function insightHistory(question: string, answer: string, model: string, persona?: PersonaSelection | null): ArchivedChatMessage[] {
   return [
     { role: 'user', content: question },
-    { role: 'assistant', content: answer, model }
+    { role: 'assistant', content: answer, model, ...(persona ? { persona } : {}) }
   ]
+}
+
+function parsePersona(value: string | null | undefined): PersonaSelection | null {
+  if (!value) return null
+  try { return JSON.parse(value) as PersonaSelection }
+  catch { return null }
 }
 
 function parseSessionSelection(value: string | null): SelectionContext | null {
@@ -560,6 +574,7 @@ function mapBookSession(row: BookSessionRow): BookSessionRecord {
     selection: parseSessionSelection(row.selection_json),
     draft: row.draft,
     turns: parseSessionTurns(row.turns_json),
+    ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {}),
     updatedAt: row.updated_at
   }
 }
@@ -720,7 +735,8 @@ export class AppDatabase {
       answer: row.answer,
       model: row.model,
       createdAt: row.created_at,
-      history: parseInsightHistory(row.history_json)
+      history: parseInsightHistory(row.history_json),
+      ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
     }))
   }
 
@@ -752,20 +768,21 @@ export class AppDatabase {
         answer: row.answer,
         model: row.model,
         createdAt: row.created_at,
-        history: parseInsightHistory(row.history_json)
+        history: parseInsightHistory(row.history_json),
+        ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
       }
     })
   }
 
   insertInsight(id: string, input: SaveInsightInput, createdAt: string): SavedInsight {
     const conversationId = input.conversationId ?? randomUUID()
-    const history = insightHistory(input.question, input.answer, input.model)
+    const history = insightHistory(input.question, input.answer, input.model, input.persona)
     if (input.context) history[1].context = input.context
     this.connection
       .prepare(
         `INSERT INTO insights(
-          id, book_id, selection_json, question, answer, model, created_at, history_json, context_json, conversation_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          id, book_id, selection_json, question, answer, model, created_at, history_json, context_json, conversation_id, persona_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -777,7 +794,8 @@ export class AppDatabase {
         createdAt,
         JSON.stringify(history),
         input.context ? JSON.stringify(input.context) : null,
-        conversationId
+        conversationId,
+        input.persona ? JSON.stringify(input.persona) : null
       )
 
     return { id, ...input, conversationId, createdAt, history }
@@ -785,8 +803,8 @@ export class AppDatabase {
 
   updateInsightHistory(id: string, input: UpdateInsightHistoryInput): SavedInsight | null {
     const result = this.connection
-      .prepare('UPDATE insights SET history_json = ? WHERE id = ? AND book_id = ?')
-      .run(JSON.stringify(input.history), id, input.bookId)
+      .prepare('UPDATE insights SET history_json = ?, persona_json = CASE WHEN ? = 1 THEN ? ELSE persona_json END WHERE id = ? AND book_id = ?')
+      .run(JSON.stringify(input.history), input.persona === undefined ? 0 : 1, input.persona ? JSON.stringify(input.persona) : null, id, input.bookId)
     if (result.changes === 0) return null
     const row = this.connection
       .prepare('SELECT * FROM insights WHERE id = ?')
@@ -802,7 +820,8 @@ export class AppDatabase {
       answer: row.answer,
       model: row.model,
       createdAt: row.created_at,
-      history: parseInsightHistory(row.history_json)
+      history: parseInsightHistory(row.history_json),
+      ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
     }
   }
 
@@ -837,15 +856,16 @@ export class AppDatabase {
     try {
       this.connection
       .prepare(
-        `INSERT INTO book_sessions(book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO book_sessions(book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at, persona_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(book_id) DO UPDATE SET
            conversation_id = excluded.conversation_id,
            scope = excluded.scope,
            selection_json = excluded.selection_json,
            draft = excluded.draft,
            turns_json = excluded.turns_json,
-           updated_at = excluded.updated_at`
+           updated_at = excluded.updated_at,
+           persona_json = excluded.persona_json`
       )
       .run(
         record.bookId,
@@ -854,11 +874,13 @@ export class AppDatabase {
         record.selection ? JSON.stringify(record.selection) : null,
         record.draft,
         JSON.stringify(record.turns),
-        record.updatedAt
+        record.updatedAt,
+        record.persona ? JSON.stringify(record.persona) : null
       )
       this.connection.prepare(`INSERT INTO book_session_history SELECT * FROM book_sessions WHERE book_id = ?
         ON CONFLICT(book_id, conversation_id) DO UPDATE SET scope = excluded.scope, selection_json = excluded.selection_json,
-          draft = excluded.draft, turns_json = excluded.turns_json, updated_at = excluded.updated_at`).run(record.bookId)
+          draft = excluded.draft, turns_json = excluded.turns_json, updated_at = excluded.updated_at,
+          persona_json = excluded.persona_json`).run(record.bookId)
       this.connection.prepare(`DELETE FROM book_session_history WHERE book_id = ? AND conversation_id != ? AND rowid NOT IN (
         SELECT rowid FROM book_session_history WHERE book_id = ? AND conversation_id != ? ORDER BY updated_at DESC, rowid DESC LIMIT ?
       )`).run(record.bookId, record.conversationId, record.bookId, record.conversationId, RECENT_BOOK_SESSION_LIMIT - 1)
