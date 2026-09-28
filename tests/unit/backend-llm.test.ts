@@ -38,6 +38,31 @@ function run(service: LlmService, value: LlmRequest): Promise<LlmEvent[]> {
 }
 
 describe('LlmService', () => {
+  it.each(['openai', 'anthropic'] as const)('includes a per-request persona in text and PDF image answers over %s', async (protocol) => {
+    const bodies: Array<Record<string, unknown>> = []
+    const service = new LlmService({ getCredentials: () => ({ ...credentials.getCredentials(), protocol }) }, async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return Response.json(protocol === 'anthropic'
+        ? { type: 'message', model: 'reader-model', content: [{ type: 'text', text: 'OK' }], stop_reason: 'end_turn' }
+        : { model: 'reader-model', choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }] })
+    })
+    const textRequest = request({ persona: '用简短的社会学例子解释。' })
+    await run(service, textRequest)
+    await run(service, { requestId: randomUUID(), conversationId: textRequest.conversationId, action: 'ask', question: '这张图的观点是什么？', history: [],
+      persona: '像历史教师一样解释。', scope: 'visual',
+      selection: { kind: 'pdf-image-region', bookId: textRequest.selection.bookId, anchor: 'pdf:1', pageNumber: 1, left: 0, top: 0, right: 1, bottom: 1 },
+      imageDataUrl: 'data:image/png;base64,aGVsbG8=' })
+    await run(service, request())
+    const system = (body: Record<string, unknown>): string => protocol === 'anthropic'
+      ? String(body.system)
+      : String((body.messages as Array<{ role: string; content: string }>).find((message) => message.role === 'system')?.content)
+    expect(system(bodies[0])).toContain('用简短的社会学例子解释。')
+    expect(system(bodies[1])).toContain('像历史教师一样解释。')
+    expect(system(bodies[1])).toContain('不得编造原文引文')
+    expect(system(bodies[2])).not.toContain('像历史教师一样解释。')
+    expect(system(bodies[2])).toContain('不得编造 id')
+  })
+
   it.each(['explain', 'context'] as const)('sends the shared default for %s while preserving custom requests', async (action) => {
     const prompts: string[] = []
     const service = new LlmService(credentials, async (_url, init) => {
