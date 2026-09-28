@@ -552,6 +552,7 @@
 | assistant.recentSessionsHint | 每本书保留最近 20 个对话，每个最多 20 轮。点击可恢复选区、回答和草稿。 |
 | assistant.recentSessionsEmpty | 还没有其他对话。 |
 | assistant.sessionRestoreFailed | 无法读取或恢复对话，请重试。 |
+| assistant.sessionLoading | 正在恢复对话… |
 | assistant.sessionSaveFailed | 对话保存失败。请检查可用空间后重试，切换前需成功保存当前对话。 |
 | settings.testConnection | 测试文本回复 |
 | settings.testStream | 测试流式回复 |

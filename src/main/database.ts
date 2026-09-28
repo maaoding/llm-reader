@@ -103,7 +103,8 @@ export interface ProviderProfileRecord {
   headers_secret?: Uint8Array | null
 }
 
-const migrations = [
+/** SQL history is exported for upgrade fixtures; production always applies the full sequence. */
+export const migrations = [
   `
     CREATE TABLE books (
       id TEXT PRIMARY KEY,
@@ -448,7 +449,8 @@ const migrations = [
         PRIMARY KEY (book_id, conversation_id)
       ) STRICT;
       CREATE INDEX book_session_history_recent ON book_session_history(book_id, updated_at DESC);
-      INSERT INTO book_session_history SELECT * FROM book_sessions;
+      INSERT INTO book_session_history(book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at)
+        SELECT book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at FROM book_sessions;
     `,
     `
       CREATE TABLE ocr_page_previews (

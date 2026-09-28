@@ -2917,30 +2917,34 @@ export default function App(): ReactNode {
   // 打开书籍时恢复该书的最后一个临时会话（草稿 + 未归档轮次），并复用原会话标识。
   const restoredSessionsRef = useRef(new Set<string>())
   const loadedSessionsRef = useRef(new Set<string>())
+  const [failedSessionLoads, setFailedSessionLoads] = useState<string[]>([])
   useEffect(() => {
-    const bookId = activeBook?.id
-    if (!bookId || restoredSessionsRef.current.has(bookId)) return
-    restoredSessionsRef.current.add(bookId)
-    void window.readerApi.getBookSession(bookId).then((record) => {
-      loadedSessionsRef.current.add(bookId)
-      if (!record) {
-        const newTab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
-        if (newTab) updateConversationTab(newTab.id, (current) => ({ ...current }))
-        return
-      }
-      const tab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
-      if (!tab || tab.turns.length > 0 || tab.draft || tab.selection || sessionTransitionsRef.current.has(tab.id)) return
-      updateConversationTab(tab.id, (current) => ({
-        ...current,
-        conversationId: record.conversationId,
-        persona: record.persona ?? null,
-        scope: record.scope,
-        selection: record.selection,
-        draft: record.draft,
-        turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined }))
-      }))
-    }).catch(() => pushToast(copy('assistant.sessionRestoreFailed'), 'error'))
-  }, [activeBook?.id, pushToast, updateConversationTab])
+    const selectedTab = conversationTabs.find((tab) => tab.id === activeTabId && tab.kind === 'live')
+    for (const bookId of new Set([activeBook?.id, selectedTab?.bookId])) {
+      if (!bookId || restoredSessionsRef.current.has(bookId) || failedSessionLoads.includes(bookId)) continue
+      restoredSessionsRef.current.add(bookId)
+      void window.readerApi.getBookSession(bookId).then((record) => {
+        loadedSessionsRef.current.add(bookId)
+        const tab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
+        if (!tab) return
+        if (!record) { updateConversationTab(tab.id, (current) => ({ ...current })); return }
+        if (tab.turns.length > 0 || tab.selection || sessionTransitionsRef.current.has(tab.id)) return
+        updateConversationTab(tab.id, (current) => ({
+          ...current,
+          conversationId: record.conversationId,
+          persona: record.persona ?? null,
+          scope: record.scope,
+          selection: record.selection,
+          draft: current.draft || record.draft,
+          turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined }))
+        }))
+      }).catch(() => {
+        restoredSessionsRef.current.delete(bookId)
+        setFailedSessionLoads((current) => current.includes(bookId) ? current : [...current, bookId])
+        pushToast(copy('assistant.sessionRestoreFailed'), 'error')
+      })
+    }
+  }, [activeBook?.id, activeTabId, conversationTabs, failedSessionLoads, pushToast, updateConversationTab])
 
   // 会话落库载荷：scope 与 selection 必须自洽（整本书不带选区、选中内容必须有选区），
   // 否则主进程校验会整条拒收，草稿就再也存不进去。
@@ -4239,7 +4243,7 @@ export default function App(): ReactNode {
       const activeEntry = restored.find((entry) => entry.index === state.activeIndex)
       if (activeEntry) focusConversationTab(activeEntry.id ?? activeEntry.tab!.id)
     })()
-  }, [books, commitConversationTabs, focusConversationTab, libraryState, workspaceReady])
+  }, [books, commitConversationTabs, focusConversationTab, libraryState, personaSettings, workspaceReady])
 
   // 去抖保存标签列表；未恢复完成前不写，避免把持久化内容冲掉。
   useEffect(() => {
@@ -4268,7 +4272,7 @@ export default function App(): ReactNode {
   }
   const recentConversations = (tab: ConversationTab | undefined): ReactNode => tab?.kind === 'live' && <RecentConversations
     key={`${tab.id}:${tab.conversationId}`} currentId={tab.conversationId}
-    disabled={Boolean(streamingRequestId(tab)) || changingSessions.includes(tab.id)}
+    disabled={!loadedSessionsRef.current.has(tab.bookId) || Boolean(streamingRequestId(tab)) || changingSessions.includes(tab.id)}
     onList={async () => {
       const current = conversationTabsRef.current.find((item) => item.id === tab.id)
       if (current) await persistLiveSession(current)
@@ -4291,10 +4295,12 @@ export default function App(): ReactNode {
     return (activeConversationTab?.turns ?? []).filter((turn) => [turn.question, turn.answer, turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.quote : '']
       .some((value) => value.toLocaleLowerCase('zh-CN').includes(conversationNeedle))).length
   }, [activeConversationTab, conversationNeedle])
-  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && providerIsConfigured(provider) && !streamingRequestId(tab) && (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status === 'ready' : tab.selection))
+  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && (tab.kind !== 'live' || loadedSessionsRef.current.has(tab.bookId)) &&
+    providerIsConfigured(provider) && !streamingRequestId(tab) && (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status === 'ready' : tab.selection))
   const canAskSidebar = canAskTab(sidebarTab)
   const canAskWorkbench = canAskTab(activeConversationTab)
   const blockedReason = (tab: ConversationTab | undefined): string => {
+    if (tab?.kind === 'live' && !loadedSessionsRef.current.has(tab.bookId)) return copy(failedSessionLoads.includes(tab.bookId) ? 'assistant.sessionRestoreFailed' : 'assistant.sessionLoading')
     if (streamingRequestId(tab)) return copy('assistant.busyHint')
     if (!providerIsConfigured(provider)) return copy('assistant.needModel')
     if (tab?.scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready') return copy('assistant.needDocument')
@@ -4302,13 +4308,19 @@ export default function App(): ReactNode {
   }
   const resolveProps = (tab: ConversationTab | undefined, showSelectionPending = false) => ({
     blockedReason: blockedReason(tab) || (showSelectionPending && tab?.scope === 'selection' && !tab.selection ? copy('assistant.selectionPending') : ''),
-    ...(!streamingRequestId(tab) && !providerIsConfigured(provider) ? {
+    ...(tab?.kind === 'live' && !loadedSessionsRef.current.has(tab.bookId) ?
+      failedSessionLoads.includes(tab.bookId) ? { resolveLabel: copy('common.retry') } : {} :
+      !streamingRequestId(tab) && !providerIsConfigured(provider) ? {
       resolveLabel: copy('preparation.configureModel')
     } : !streamingRequestId(tab) && tab?.scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready' ? {
       resolveLabel: copy('workspace.prepare')
     } : {})
   })
   const resolveBlocker = (tab: ConversationTab | undefined, trigger: HTMLButtonElement): void => {
+    if (tab?.kind === 'live' && failedSessionLoads.includes(tab.bookId)) {
+      setFailedSessionLoads((current) => current.filter((bookId) => bookId !== tab.bookId))
+      return
+    }
     if (streamingRequestId(tab)) return
     if (!providerIsConfigured(provider)) openSettings('model', trigger)
     else if (tab?.scope === 'book') openPreparation(tab.bookId, trigger)
@@ -4770,7 +4782,7 @@ export default function App(): ReactNode {
           <ConversationPane
             scope={sidebarTab?.scope}
             controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />}
-            composerControls={sidebarTab && <PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
+            composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessionsRef.current.has(sidebarTab.bookId)) && <PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
               onChange={(persona) => changeSessionPersona(sidebarTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(sidebarTab, persona)} />}
             conversationSelection={sidebarTab?.selection ?? null}
             turns={sidebarTab?.turns ?? []}
@@ -4929,8 +4941,8 @@ export default function App(): ReactNode {
                 <ConversationPane
                   scope={activeConversationTab.scope}
                   composerControls={<><AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />
-                    <PersonaSessionControl key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} persona={activeConversationTab.persona} settings={personaSettings}
-                      onChange={(persona) => changeSessionPersona(activeConversationTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(activeConversationTab, persona)} /></>}
+                    {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && <PersonaSessionControl key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} persona={activeConversationTab.persona} settings={personaSettings}
+                      onChange={(persona) => changeSessionPersona(activeConversationTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(activeConversationTab, persona)} />}</>}
                   conversationSelection={activeConversationTab.selection}
                   turns={activeConversationTab.turns}
                   provider={provider}

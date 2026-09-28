@@ -67,6 +67,7 @@ export const COPY_KEYS = [
   'assistant.recentSessionsHint',
   'assistant.recentSessionsEmpty',
   'assistant.sessionRestoreFailed',
+  'assistant.sessionLoading',
   'assistant.sessionSaveFailed',
   'request.keyScope',
   'request.advanced',
