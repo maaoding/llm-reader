@@ -65,6 +65,29 @@ function prepare(state: ReturnType<typeof setup>, document = fixture()) {
 }
 
 describe('independent preparation, notes and semantic lifecycle', () => {
+  it('pauses an active PDF preparation when disabled and can resume with the same configuration', () => {
+    const state = setup('pdf')
+    const embedding = { enabled: false, baseUrl: '', model: '' }
+    const document = { processor: 'docling' as const, baseUrl: credentials.baseUrl, ocr: true, language: 'ch' as const }
+    state.settings.save({ embedding, document })
+    state.service.documents = new DocumentProcessingService(state.db, state.settings, new KnowledgeHttp())
+    state.service.knowledge = state.settings
+    const identity = state.service.documents.identity()
+    state.service.prepare({ bookId: state.bookId })
+    expect(state.service.state(state.bookId).document?.status).toBe('preparing')
+    state.settings.save({ embedding, document: { ...document, enabled: false }, target: 'document' })
+    state.service.knowledgeChanged()
+    expect(state.service.state(state.bookId).document?.status).toBe('paused')
+    expect(state.service.state(state.bookId).document?.message).toContain('重新开启后可手动继续')
+    expect(state.service.state(state.bookId).documentProcessor).toBe('none')
+    expect(state.service.documents.identity()).toBe(identity)
+    state.settings.save({ embedding, document: { ...document, enabled: true }, target: 'document' })
+    state.service.knowledgeChanged()
+    expect(state.service.state(state.bookId).document?.status).toBe('paused')
+    state.service.prepare({ bookId: state.bookId })
+    expect(state.service.state(state.bookId).document?.status).toBe('preparing')
+  })
+
   it.each(
     (['book', 'selection'] as const).flatMap((scope) => [false, true].map((rerank) => ({ scope, rerank })))
   )('keeps direct hits ahead of optional linked notes for $scope with rerank=$rerank', async ({ scope, rerank }) => {

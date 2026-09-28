@@ -107,10 +107,24 @@
 | key | text |
 | --- | --- |
 | knowledge.title | 阅读增强 |
-| knowledge.description | 按需配置 PDF 解析、含义查找和原文排序服务，各项设置独立保存。 |
+| knowledge.description | 三项服务可分别配置和保存。开关使用已保存的配置立即生效；测试不会保存，也不会开始处理书籍。 |
+| knowledge.configureBeforeEnable | 首次使用请填写下方配置，再点击“保存并启用”。 |
+| knowledge.unconfigured | 未配置 |
+| knowledge.active | 已启用 |
+| knowledge.inactive | 已关闭 |
+| knowledge.pending | 有未保存的修改 |
+| knowledge.details | 配置详情 |
+| knowledge.saveService | 保存配置 |
+| knowledge.saveAndEnable | 保存并启用 |
+| knowledge.savedAndEnabled | 配置已保存并启用。 |
+| knowledge.enabledNow | 已启用，使用已保存的配置。 |
+| knowledge.disabledNow | 已关闭，配置与已完成的进度保留。 |
+| knowledge.testOutdated | 配置已修改，请重新测试。 |
+| knowledge.undoClear | 撤销移除 |
+| knowledge.clearPending | 保存当前配置后移除密钥；保存前可撤销。 |
 | rerank.title | 原文排序（Rerank） |
 | rerank.enabled | 启用原文排序 |
-| rerank.hint | 提问时对候选原文重新排序。问题和候选原文会发送到所选服务，最多额外等待 5 秒；失败时继续使用原有顺序。使用兼容 /rerank 的服务地址，模型和密钥独立配置。 |
+| rerank.hint | 开启后从下一次提问开始，对候选原文重新排序。问题和候选原文会发送到所选服务，最多额外等待 5 秒；失败时继续使用原有顺序。使用兼容 /rerank 的服务地址。 |
 | rerank.model | 重排模型 |
 | rerank.test | 测试排序服务 |
 | rerank.testOk | 重排接口检查通过。 |
@@ -121,23 +135,31 @@
 | rerank.skipped | 本次沿用原文检索顺序 |
 | knowledge.embeddingTitle | 按含义查找（Embedding） |
 | knowledge.embeddingEnabled | 启用按含义查找 |
-| knowledge.embeddingHint | 填写兼容 /v1/embeddings 的服务地址和模型。本机服务可不填密钥。保存后，在“本书准备”中建立索引。 |
+| knowledge.embeddingHint | 填写兼容 /v1/embeddings 的服务地址和模型。本机服务可不填密钥。开启后仍需在每本书的“本书准备”中建立索引。 |
 | knowledge.baseUrl | 接口地址 |
 | knowledge.model | Embedding 模型 |
 | knowledge.apiKey | API Key（可选） |
 | knowledge.keySaved | 已保存密钥；留空保留 |
 | knowledge.keyEmpty | 未保存密钥 |
-| knowledge.clearKey | 清除已存密钥 |
+| knowledge.clearKey | 移除已存密钥 |
 | knowledge.endpointHint | 更换接口地址或文档服务时，请重新填写密钥。 |
 | knowledge.documentTitle | PDF 解析 |
+| knowledge.documentEnabled | 在准备原文时使用所选 PDF 解析服务 |
+| knowledge.documentStartHint | 开启后只允许在“本书准备”中处理 PDF；点击“准备原文”才会发送文件并开始处理。关闭后配置和已有原文保留，进行中的准备会暂停。 |
 | knowledge.processor | 处理服务 |
-| knowledge.none | 未启用 |
+| knowledge.none | 请选择处理服务 |
 | knowledge.mineruLocal | MinerU 本地服务 |
 | knowledge.mineruCloud | MinerU 云服务 |
 | knowledge.docling | Docling Serve |
 | knowledge.documentHint | Docling Serve 和 MinerU 本地服务填写服务根地址；MinerU 云服务填写 https://mineru.net。需要自行部署本地服务，应用不会自动安装。 |
 | knowledge.processorGuide | 复杂论文、表格和公式优先选 MinerU 或 Docling；扫描页只需文字可选 Mistral OCR 或 Unstructured；已有兼容模型时可用视觉模型 OCR，并先试一页。 |
 | knowledge.ocr | 启用 OCR |
+| knowledge.extractionMethod | 文字提取方式 |
+| knowledge.extractText | 直接提取 PDF 中已有的文字 |
+| knowledge.extractOcr | 通过 OCR 识别扫描内容 |
+| knowledge.doclingOcr | 识别扫描页中的文字 |
+| knowledge.extractionHint | 更改此项需要重新准备原文。无论选择哪种方式，准备时都会调用上方选择的服务。 |
+| knowledge.pageOcrOnly | 此服务始终逐页识别 PDF 文字。 |
 | knowledge.language | 识别语言 |
 | knowledge.ch | 中文 |
 | knowledge.en | 英文 |
@@ -161,7 +183,7 @@
 | knowledge.testOk | 接口检查通过。 |
 | knowledge.documentTestOk | 服务接口可用。实际文档处理需在书籍中验证。 |
 | knowledge.save | 保存设置 |
-| knowledge.saved | 已保存阅读增强设置。 |
+| knowledge.saved | 此项配置已保存。 |
 | knowledge.testing | 正在检查… |
 | knowledge.indexTitle | 按含义查找 |
 | knowledge.indexStart | 建立含义查找索引 |
@@ -171,6 +193,7 @@
 | knowledge.indexDisclosure | 将本书原文分批发送至 Embedding 服务，可能消耗额度。索引保存在本机；提问时也会向该服务发送问题以查找相关原文。暂停或退出后不会自动继续。 |
 | knowledge.pdfDisclosure | 准备 PDF 会发送整份文件至文档处理服务。暂停只停止本机等待，远端任务可能继续运行；续跑优先读取同一任务。识别文字可能有误，引用可返回 PDF 页面核对。 |
 | knowledge.pdfRequired | 先到“设置 → 阅读增强”配置 PDF 解析服务。 |
+| knowledge.pdfPausedByDisable | PDF 解析服务已关闭，原文准备暂停。重新开启后可手动继续。 |
 | knowledge.pdfPage | 第 {page} 页 |
 | knowledge.indexProgress | 已建立索引 {completed}/{total} 段 |
 | knowledge.status.disabled | 尚未启用 |
@@ -414,7 +437,9 @@
 | settings.scaleHint | 不影响书籍正文字号 |
 | settings.scaleGroupAria | 界面缩放 |
 | settings.assistantTitle | 划词操作 |
-| settings.assistantHint | 自定义划词按钮的名称和发送给模型的固定提示词；选区与当前章节上下文仍会一并发送。 |
+| settings.assistantHint | 自定义划词按钮的名称和固定提示词，修改后立即保存，从下一次划词操作开始使用。选区与当前章节上下文仍会一并发送。 |
+| settings.immediateHint | 修改后立即保存并生效。 |
+| settings.modelSaveHint | 修改接口或模型后请保存。保存当前使用的配置会影响后续请求；测试当前输入不会保存或切换配置。 |
 | settings.assistantExplainName | “解释”按钮名称 |
 | settings.assistantExplainPrompt | “解释”按钮提示词 |
 | settings.assistantContextName | “联系上下文”按钮名称 |
@@ -847,7 +872,9 @@
 | request.headersExample | 例如：{example} |
 | request.headersHint | 请求头加密保存。可覆盖 Authorization、x-api-key、User-Agent 等；名称不区分大小写。更换地址或协议后请重新填写。 |
 | request.headersInvalid | 请输入 JSON 对象，所有值需为字符串。名称不能重复，也不能设置 Host、Content-Type、Content-Length 等传输请求头。 |
-| request.clearHeaders | 清除已保存的自定义请求头 |
+| request.clearHeaders | 移除已保存的自定义请求头 |
+| request.clearDraftHeaders | 清空尚未保存的请求头 |
+| request.clearPending | 保存当前配置后移除请求头；保存前可撤销。 |
 | request.body | 额外请求参数（JSON） |
 | request.bodyExample | 例如：{example} |
 | request.bodyHint | 可填写服务支持的选项，例如模型的 max_tokens、temperature，文档服务的 strategy、ocr_engine。文件、消息、模型及返回格式由阅读器填写。密钥请放在请求头中。 |

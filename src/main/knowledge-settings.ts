@@ -15,7 +15,7 @@ export type DocumentCredentials = DocumentSettings & { customHeaders?: Record<st
 const defaults: KnowledgeSettings = {
   embedding: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
   rerank: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
-  document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch', hasApiKey: false }
+  document: { enabled: false, processor: 'none', baseUrl: '', ocr: true, language: 'ch', hasApiKey: false }
 }
 
 export class KnowledgeSettingsService {
@@ -29,7 +29,11 @@ export class KnowledgeSettingsService {
     const result = structuredClone(defaults)
     for (const kind of ['embedding', 'rerank', 'document'] as const) {
       const row = this.row(kind)
-      if (row) Object.assign(result[kind], JSON.parse(row.config_json), { hasApiKey: Boolean(row.secret), ...(row.headers_secret ? { hasCustomHeaders: true } : {}) })
+      if (row) {
+        const config = JSON.parse(row.config_json) as Record<string, unknown>
+        Object.assign(result[kind], config, { hasApiKey: Boolean(row.secret), ...(row.headers_secret ? { hasCustomHeaders: true } : {}) })
+        if (kind === 'document' && config.enabled === undefined) result.document.enabled = result.document.processor !== 'none'
+      }
     }
     return result
   }
@@ -61,7 +65,7 @@ export class KnowledgeSettingsService {
   }
   document(draft?: SaveKnowledgeSettingsInput['document']): DocumentCredentials {
     const value = draft ?? this.get().document
-    return { ...this.requestSettings('document', value), processor: value.processor, baseUrl: normalizeUrl(value.baseUrl), ocr: value.ocr, language: value.language,
+    return { ...this.requestSettings('document', value), enabled: value.enabled ?? value.processor !== 'none', processor: value.processor, baseUrl: normalizeUrl(value.baseUrl), ocr: value.ocr, language: value.language,
       ...(value.processor === 'vision' ? { model: value.model ?? '', compatibility: value.compatibility ?? 'auto', ...(value.protocol ? { protocol: value.protocol } : {}) } : {}),
       ...(value.processor === 'mistral-ocr' ? { model: value.model ?? 'mistral-ocr-latest' } : {}),
       apiKey: this.secret('document', value), revision: this.row('document')?.revision ?? '' }
@@ -73,11 +77,10 @@ export class KnowledgeSettingsService {
   }
   save(raw: SaveKnowledgeSettingsInput): KnowledgeSettings {
     const input = knowledgeSettingsSchema.parse(raw)
-    const values = { embedding: this.embedding(input.embedding), document: this.document(input.document),
-      rerank: input.rerank ? this.rerank(input.rerank) : undefined }
-    const kinds: Kind[] = input.rerank ? ['embedding', 'rerank', 'document'] : ['embedding', 'document']
+    const kinds: Kind[] = input.target ? [input.target] : input.rerank ? ['embedding', 'rerank', 'document'] : ['embedding', 'document']
     const rows = kinds.map((kind) => {
-      const { apiKey, customHeaders = {}, revision: previousRevision, ...config } = values[kind]!
+      const value = kind === 'document' ? this.document(input.document) : kind === 'rerank' ? this.rerank(input.rerank) : this.embedding(input.embedding)
+      const { apiKey, customHeaders = {}, revision: previousRevision, ...config } = value
       const oldRow = this.row(kind)
       const previous = oldRow ? JSON.parse(oldRow.config_json) as Record<string, unknown> : {}
       let oldKey: string | undefined

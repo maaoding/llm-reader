@@ -63,7 +63,7 @@ export class BookAnalysisService {
     const state = this.store.state(bookId)
     if (state.status === 'unsupported' && this.documents?.enabled()) state.status = 'empty'
     if (this.semantic) state.semantic = this.semantic.state(bookId)
-    if (this.knowledge) state.documentProcessor = this.knowledge.get().document.processor
+    if (this.knowledge) { const config = this.knowledge.get().document; state.documentProcessor = config.enabled ? config.processor : 'none' }
     if (state.document && this.documents?.usesVision()) state.document.ocrProgress = this.documents.progress(bookId)
     return state
   }
@@ -71,7 +71,10 @@ export class BookAnalysisService {
   knowledgeChanged(): void {
     if (this.preparing && this.store.database.getStoredBook(this.preparing.bookId)?.format === 'pdf') {
       const record = this.store.document(this.preparing.bookId)
-      if (record && record.fingerprint !== this.documentFingerprint(record.book_id)) this.cancelPreparation(record.book_id, copy('knowledge.documentChanged'))
+      if (record) {
+        if (!this.documents?.enabled()) this.cancelPreparation(record.book_id, copy('knowledge.pdfPausedByDisable'))
+        else if (record.fingerprint !== this.documentFingerprint(record.book_id)) this.cancelPreparation(record.book_id, copy('knowledge.documentChanged'))
+      }
     }
     for (const row of this.store.db.prepare('SELECT id FROM books').all()) this.emit(String(row.id))
   }

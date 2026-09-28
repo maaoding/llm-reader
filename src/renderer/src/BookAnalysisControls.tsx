@@ -20,7 +20,7 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
   const preparing = state?.document?.status === 'preparing'
   const documentReady = state?.document?.status === 'ready'
   const busy = preparing || state?.status === 'analyzing' || previewing
-  const supported = book.format !== 'pdf' || Boolean(state?.documentProcessor && state.documentProcessor !== 'none')
+  const canPreparePdf = Boolean(state?.documentProcessor && state.documentProcessor !== 'none')
   const pageOcr = book.format === 'pdf' && isPageProcessor(state?.documentProcessor ?? 'none')
   const vision = book.format === 'pdf' && state?.documentProcessor === 'vision'
   const canStart = !starting && profiles.profiles.some((profile) => profile.id === profileId && providerIsConfigured(profile))
@@ -43,16 +43,16 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
       <p data-testid="document-status" role="status">{copy(`preparation.document.${state?.document?.status ?? 'empty'}`)}</p>
       {book.format === 'pdf' && <p className="field-hint">{copy('preparation.pdfGuide')}</p>}
       <p className="field-hint">{copy(vision ? 'vision.preparation' : pageOcr ? 'preparation.pageOcr' : book.format === 'pdf' ? 'preparation.pdf' : 'preparation.local')}</p>
-      {book.format === 'pdf' && supported && <small>{copy(processorCopy[state?.documentProcessor ?? 'none'])}</small>}
+      {book.format === 'pdf' && state?.documentProcessor && state.documentProcessor !== 'none' && <small>{copy(processorCopy[state.documentProcessor])}</small>}
       {pageOcr && state?.document?.ocrProgress && <p data-testid="ocr-progress" role="status">{copy('vision.progress', state.document.ocrProgress)}</p>}
       {state?.document && state.document.total > 0 && <p>{copy('preparation.documentProgress', { completed: state.document.completed, total: state.document.total })}</p>}
       {error?.document && <p className="analysis-error" role="status">{error.document}</p>}
-      {state?.document?.message && <p className="analysis-error" role="status">{state.document.message}</p>}
+      {state?.document?.message && <p className={state.document.status === 'paused' ? 'field-hint' : 'analysis-error'} role="status">{state.document.message}</p>}
       <div className="analysis-actions">
-        {!supported ? <button className="primary-button" type="button" onClick={(event) => onConfigure('knowledge', event.currentTarget, 'document')}>{copy('preparation.configureDocument')}</button>
+        {book.format === 'pdf' && !documentReady && !canPreparePdf ? <button className="primary-button" type="button" onClick={(event) => onConfigure('knowledge', event.currentTarget, 'document')}>{copy('preparation.configureDocument')}</button>
           : preparing ? <button className="secondary-button" data-testid="document-cancel" onClick={onCancelPreparation}>{copy('preparation.pause')}</button>
           : <>{!documentReady && <button className="primary-button" data-testid="document-prepare" disabled={busy || starting} onClick={() => void prepare(false)}>{copy(state?.document?.status === 'paused' ? 'preparation.resume' : state?.document?.status === 'error' ? 'preparation.retry' : 'preparation.prepare')}</button>}
-            {state?.document && state.document.status !== 'empty' && <button className="secondary-button" data-testid="document-rebuild" disabled={busy || starting} onClick={() => void prepare(true)}>{copy('preparation.rebuild')}</button>}</>}
+            {state?.document && state.document.status !== 'empty' && (book.format !== 'pdf' || canPreparePdf) && <button className="secondary-button" data-testid="document-rebuild" disabled={busy || starting} onClick={() => void prepare(true)}>{copy('preparation.rebuild')}</button>}</>}
       </div>
       {book.format === 'pdf' && <p className="field-hint">{copy(vision ? 'vision.disclosure' : pageOcr ? 'preparation.pageOcrDisclosure' : 'knowledge.pdfDisclosure')}</p>}
       {pageOcr && <BookOcrPreview key={`${book.id}:${state?.documentProcessor}:${suspended}`} bookId={book.id} documentReady={documentReady} suspended={suspended} disabled={preparing || state?.status === 'analyzing' || starting} onBusyChange={setPreviewing} />}

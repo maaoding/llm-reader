@@ -53,6 +53,24 @@ const doclingDocument = () => ({ pages: { '1': { size: { width: 600, height: 800
     { text: '第一章：定义', label: 'section_header', prov: [{ page_no: 1, bbox: { t: 600, coord_origin: 'BOTTOMLEFT' } }] }] })
 
 describe('knowledge settings and local vectors', () => {
+  it('keeps PDF configuration and encrypted credentials when the service is turned off', () => {
+    const { settings, db } = setup()
+    const input = settingsInput()
+    settings.save({ ...input, document: { enabled: true, processor: 'docling', baseUrl: 'http://127.0.0.1:5001', ocr: true, language: 'ch', apiKey: 'document-secret' } })
+    const revision = settings.documentRevision()
+    const { hasApiKey: _storedKey, ...configured } = settings.get().document
+    void _storedKey
+    settings.save({ ...input, document: { ...configured, enabled: false }, target: 'document' })
+    expect(settings.get().document).toMatchObject({ enabled: false, processor: 'docling', baseUrl: 'http://127.0.0.1:5001', hasApiKey: true })
+    expect(settings.documentRevision()).toBe(revision)
+    settings.save({ ...input, document: { ...configured, enabled: true }, target: 'document' })
+    expect(settings.get().document.enabled).toBe(true)
+    expect(settings.document().apiKey).toBe('document-secret')
+    expect(settings.documentRevision()).toBe(revision)
+    db.connection.prepare("UPDATE knowledge_settings SET config_json = json_remove(config_json, '$.enabled') WHERE kind = 'document'").run()
+    expect(settings.get().document.enabled).toBe(true)
+  })
+
   it('keeps keys out of public settings and clears endpoint-crossing credentials', () => {
     const { settings, db } = setup()
     expect(settings.get().embedding).toMatchObject({ hasApiKey: true })

@@ -29,11 +29,12 @@ export function RequestSettingsEditor({ id, value, savedHeaders, onChange, onInv
       onChange={(event) => edit('headers', event.target.value)} />
     {errors.headers && <p role="alert" className="field-hint is-error-text">{copy('request.headersInvalid')}</p>}
     <p className="field-hint">{copy('request.headersHint')}</p>
-    <label className="knowledge-checkbox"><input data-testid={`${id}-clear-headers`} type="checkbox" checked={value.customHeaders === null}
-      onChange={(event) => {
+    {(savedHeaders || headers || value.customHeaders === null) && <button className="text-button" data-testid={`${id}-clear-headers`} type="button"
+      onClick={() => {
         setHeaders(''); setErrors({ ...errors, headers: false }); onInvalidChange(errors.body)
-        onChange({ ...value, customHeaders: event.target.checked ? null : undefined })
-      }} />{copy('request.clearHeaders')}</label>
+        onChange({ ...value, customHeaders: value.customHeaders === null ? undefined : savedHeaders ? null : undefined })
+      }}>{copy(value.customHeaders === null ? 'knowledge.undoClear' : savedHeaders ? 'request.clearHeaders' : 'request.clearDraftHeaders')}</button>}
+    {value.customHeaders === null && <p className="field-hint">{copy('request.clearPending')}</p>}
     <label className="field-label" htmlFor={`${id}-body`}>{copy('request.body')}</label>
     <textarea id={`${id}-body`} data-testid={`${id}-body`} rows={4} spellCheck={false} value={body} aria-invalid={errors.body}
       placeholder={copy('request.bodyExample', { example: JSON.stringify({ max_tokens: 4096 }) })} onChange={(event) => edit('body', event.target.value)} />

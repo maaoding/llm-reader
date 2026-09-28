@@ -259,7 +259,7 @@ describe('visual model OCR', () => {
     settings.save({ ...input(), document: { ...input().document, model: 'another-model' } })
     expect(settings.documentRevision()).not.toBe(revision)
     settings.save({ ...input(), document: legacy })
-    expect(settings.get().document).toEqual({ ...legacy, hasApiKey: false })
+    expect(settings.get().document).toEqual({ ...legacy, enabled: true, hasApiKey: false })
   })
 
   it('tests unsaved credentials using an image and the existing provider routing rules', async () => {
