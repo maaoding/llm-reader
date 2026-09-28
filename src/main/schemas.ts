@@ -344,19 +344,27 @@ const knowledgeUrl = z.union([z.literal(''), providerBaseUrlSchema]).refine((val
   return !url.search && !url.hash
 }, copy('validation.endpoint'))
 const knowledgeKey = z.string().trim().min(1).max(10_000).regex(/^[^\r\n]+$/u).nullable().optional()
-export const knowledgeSettingsSchema = z.object({
-  rerank: z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
-    .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.rerank')).optional(),
-  embedding: z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
-    .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.embedding')),
-  document: z.object({ ...requestSettingsFields, protocol: z.enum(['openai', 'anthropic']).optional(), processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured']), baseUrl: knowledgeUrl,
+const rerankSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
+  .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.rerank'))
+const embeddingSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
+  .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.embedding'))
+const documentSettingsSchema = z.object({ ...requestSettingsFields, protocol: z.enum(['openai', 'anthropic']).optional(), enabled: z.boolean().optional(), processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured']), baseUrl: knowledgeUrl,
     model: z.string().trim().max(256).optional(), compatibility: z.enum(['auto', 'opencode-go']).optional(),
     ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
-    .refine((value) => value.processor === 'none' || Boolean(value.baseUrl), copy('validation.documentUrl'))
-    .refine((value) => !['vision', 'mistral-ocr'].includes(value.processor) || Boolean(value.model), copy('vision.configRequired'))
-}).strict()
-export const testKnowledgeSettingsSchema = knowledgeSettingsSchema.extend({ target: z.enum(['embedding', 'rerank', 'document']) })
-  .refine((value) => value.target !== 'rerank' || Boolean(value.rerank?.baseUrl && value.rerank.model), copy('validation.rerank'))
+    .refine((value) => !(value.enabled ?? value.processor !== 'none') || value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl'))
+    .refine((value) => !(value.enabled ?? value.processor !== 'none') || !['vision', 'mistral-ocr'].includes(value.processor) || Boolean(value.model), copy('vision.configRequired'))
+export const knowledgeSettingsSchema = z.object({
+  target: z.enum(['embedding', 'rerank', 'document']).optional(),
+  rerank: rerankSettingsSchema.optional(),
+  embedding: embeddingSettingsSchema,
+  document: documentSettingsSchema
+}).strict().refine((value) => value.target !== 'rerank' || Boolean(value.rerank), copy('validation.rerank'))
+// Accept old clients' extra fields, but pass only the tested service to the handler.
+export const testKnowledgeSettingsSchema = z.discriminatedUnion('target', [
+  z.object({ target: z.literal('embedding'), embedding: embeddingSettingsSchema }),
+  z.object({ target: z.literal('rerank'), rerank: rerankSettingsSchema.refine((value) => Boolean(value.baseUrl && value.model), copy('validation.rerank')) }),
+  z.object({ target: z.literal('document'), document: documentSettingsSchema.refine((value) => value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl')) })
+])
 export const startSemanticIndexSchema = z.object({ bookId: idSchema, rebuild: z.boolean().optional() }).strict()
 export const prepareBookDocumentSchema = startSemanticIndexSchema
 

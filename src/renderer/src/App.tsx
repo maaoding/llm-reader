@@ -2035,6 +2035,8 @@ function SettingsModal({
                 }}
               >
                 {section.icon}{section.label}
+                {(section.id === 'knowledge' && knowledgeDirty || section.id === 'model' && dirty) &&
+                  <span className="settings-nav-pending" aria-label={copy('knowledge.pending')} title={copy('knowledge.pending')}>•</span>}
               </button>
             ))}
           </nav>
@@ -2042,6 +2044,7 @@ function SettingsModal({
             {activeSection === 'appearance' && (
               <section className="settings-section" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
                 <h3 id="appearance-settings-title">{copy('settings.appearanceTitle')}</h3>
+                <p className="field-hint">{copy('settings.immediateHint')}</p>
             <div className="settings-row">
               <div><strong>{copy('settings.themeLabel')}</strong><small>{copy('settings.themeHint')}</small></div>
               <div className="theme-control" data-testid="theme-switcher" role="group" aria-label={copy('settings.themeGroupAria')}>
@@ -2082,10 +2085,11 @@ function SettingsModal({
 
             {activeSection === 'reading' && (
               <section className="settings-section" id="settings-panel-reading" role="tabpanel" aria-labelledby="settings-tab-reading">
-                <div className="settings-section-heading">
-                  <h3 id="reading-settings-title">{copy('settings.readingTitle')}</h3>
+            <div className="settings-section-heading">
+              <h3 id="reading-settings-title">{copy('settings.readingTitle')}</h3>
               <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onPaperThemePreferenceChange('default'); onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }) }}>{copy('settings.restoreDefaults')}</button>
             </div>
+            <p className="field-hint">{copy('settings.immediateHint')}</p>
             <label className="settings-range" htmlFor="reading-font-scale">
               <span><strong>{copy('settings.fontLabel')}</strong><output>{readingPreferences.fontScale}%</output></span>
               <input
@@ -2205,6 +2209,7 @@ function SettingsModal({
               hidden={activeSection !== 'model'}
             >
                 <h3 id="model-settings-title">{copy('settings.modelTitle')}</h3>
+                <p className="field-hint">{copy('settings.modelSaveHint')}</p>
                 <form onSubmit={handleSave}>
                   <div className="provider-profile-toolbar">
                     <div className="provider-profile-select">
@@ -2330,7 +2335,7 @@ function SettingsModal({
                     data-testid="provider-model"
                     list="provider-model-options"
                     value={model}
-                    onChange={(event) => setModel(event.target.value)}
+                    onChange={(event) => { setModel(event.target.value); setStatus(null) }}
                     disabled={busy !== null}
                     placeholder={copy('settings.modelPlaceholder')}
                     spellCheck={false}
@@ -2358,6 +2363,7 @@ function SettingsModal({
                     disabled={busy !== null}
                     onChange={() => {
                       setKeyDirty(true)
+                      setStatus(null)
                       modelCacheRef.current.delete(cacheKey(selectedProfileId))
                       setModelOptions([])
                       setModelStatus(null)

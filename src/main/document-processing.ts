@@ -90,7 +90,7 @@ export class DocumentProcessingService {
     private readonly http: KnowledgeHttp, private readonly pollMs = 2_000, private readonly foregroundBusy: () => boolean = () => false) {
     this.vision = new VisionOcrService(database, settings, http)
   }
-  usesVision(): boolean { return isPageProcessor(this.settings.get().document.processor) }
+  usesVision(): boolean { return this.enabled() && isPageProcessor(this.settings.get().document.processor) }
   progress(bookId: string): { completed: number; total: number } | undefined { return this.vision.progress(bookId) }
   readOcrPage(bookId: string, pageNumber: number): PreparedOcrPage { return this.vision.preparedPage(bookId, pageNumber) }
   identity(): string {
@@ -101,7 +101,7 @@ export class DocumentProcessingService {
   private fingerprint(bookId: string): string {
     return createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
   }
-  enabled(): boolean { return this.settings.get().document.processor !== 'none' }
+  enabled(): boolean { const config = this.settings.get().document; return config.enabled && config.processor !== 'none' }
   cancelPreview(requestId?: string): void {
     if (!this.previewJob || (requestId && this.previewJob.requestId !== requestId)) return
     this.previewJob.controller.abort()
@@ -116,7 +116,7 @@ export class DocumentProcessingService {
     const book = this.database.getStoredBook(input.bookId)
     if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     const config = this.settings.document()
-    if (book.format !== 'pdf' || !isPageProcessor(config.processor)) throw new AppError('OCR_CONFIG', copy('vision.previewUnsupported'))
+    if (book.format !== 'pdf' || !config.enabled || !isPageProcessor(config.processor)) throw new AppError('OCR_CONFIG', copy('vision.previewUnsupported'))
     const preparing = this.database.connection.prepare("SELECT book_id FROM book_documents WHERE status = 'preparing' LIMIT 1").get()
     if (this.previewJob || preparing) throw new AppError('ANALYSIS_BUSY', copy('vision.previewBusy'))
     const fingerprint = this.fingerprint(input.bookId)

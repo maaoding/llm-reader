@@ -93,6 +93,8 @@ describe('rerank configuration and archives', () => {
       expect(knowledgeSettingsSchema.safeParse({ ...input(), rerank: { ...input().rerank, baseUrl } }).success).toBe(false)
     }
     expect(testKnowledgeSettingsSchema.safeParse({ ...input(), rerank: undefined, target: 'rerank' }).success).toBe(false)
+    expect(testKnowledgeSettingsSchema.safeParse({ ...input(), target: 'rerank', document: { ...input().document, baseUrl: 'file:///unrelated' } }).success).toBe(true)
+    expect(testKnowledgeSettingsSchema.parse({ ...input(), target: 'rerank' })).toEqual({ target: 'rerank', rerank: input().rerank })
     const snapshot: ContextSnapshot = { scope: 'book', bookId: randomUUID(), selection: null, passages, background: '', coverage: { covered: 4, total: 4 } }
     expect(contextSnapshotSchema.safeParse(snapshot).success).toBe(true)
     expect(contextSnapshotSchema.safeParse({ ...snapshot, rerank: { status: 'fallback', model: 'ranker', candidateCount: 4, elapsedMs: 5, reason: 'REMOTE SECRET' } }).success).toBe(false)

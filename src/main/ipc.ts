@@ -261,18 +261,21 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     handle(IPC_CHANNELS.knowledgeSave, dependencies, (_event, value) => {
       const previousRevision = knowledge.embeddingRevision()
       const previousDocumentRevision = knowledge.documentRevision()
+      const previousDocumentEnabled = knowledge.get().document.enabled
       const previousEnabled = knowledge.get().embedding.enabled
       const saved = knowledge.save(parse(knowledgeSettingsSchema, value))
       const embeddingChanged = previousRevision !== knowledge.embeddingRevision() || previousEnabled !== saved.embedding.enabled
       if (embeddingChanged) dependencies.semantic?.dispose()
-      if (previousDocumentRevision !== knowledge.documentRevision()) dependencies.documents?.cancelPreview()
-      if (embeddingChanged || previousDocumentRevision !== knowledge.documentRevision()) dependencies.analysis?.knowledgeChanged()
+      if (previousDocumentRevision !== knowledge.documentRevision() || previousDocumentEnabled && !saved.document.enabled) dependencies.documents?.cancelPreview()
+      if (embeddingChanged || previousDocumentRevision !== knowledge.documentRevision() || previousDocumentEnabled !== saved.document.enabled) dependencies.analysis?.knowledgeChanged()
       return saved
     })
     handle(IPC_CHANNELS.knowledgeTest, dependencies, async (_event, value) => {
       const input = parse(testKnowledgeSettingsSchema, value)
       const vision = input.target === 'document' && isPageProcessor(input.document.processor)
-      const signal = AbortSignal.timeout(input[input.target]?.timeoutMs ?? (vision ? 90_000 : 20_000))
+      const timeoutMs = input.target === 'embedding' ? input.embedding.timeoutMs :
+        input.target === 'rerank' ? input.rerank.timeoutMs : input.document.timeoutMs
+      const signal = AbortSignal.timeout(timeoutMs ?? (vision ? 90_000 : 20_000))
       if (input.target === 'embedding') await embed(dependencies.knowledgeHttp!, knowledge.embedding(input.embedding), ['这是用于检查语义检索接口的固定测试文本。'], signal)
       else if (input.target === 'rerank') await rerank(dependencies.knowledgeHttp!, knowledge.rerank(input.rerank), '雨天出门应该带什么？', [
         { id: 'test-a', text: '下雨时出门可以带雨伞。', chapterTitle: '固定测试文本', anchor: 'test:0' },

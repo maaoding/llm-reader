@@ -393,7 +393,7 @@ export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docl
 export interface EmbeddingSettings extends RequestSettings { enabled: boolean; baseUrl: string; model: string }
 export interface RerankSettings extends RequestSettings { enabled: boolean; baseUrl: string; model: string }
 export interface DocumentSettings extends RequestSettings {
-  processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en'
+  enabled: boolean; processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en'
   model?: string; compatibility?: ProviderCompatibility; protocol?: ProviderProtocol
 }
 export interface KnowledgeSettings {
@@ -403,12 +403,18 @@ export interface KnowledgeSettings {
 }
 /** Omitted keys preserve the saved secret only when the endpoint is unchanged; null removes it. */
 export interface SaveKnowledgeSettingsInput {
+  /** Persist one service without writing unrelated settings; absent for older clients. */
+  target?: 'embedding' | 'rerank' | 'document'
   embedding: EmbeddingSettings & RequestSettingsInput & { apiKey?: string | null }
   /** Older clients omit this field; preserve the existing configuration in that case. */
   rerank?: RerankSettings & RequestSettingsInput & { apiKey?: string | null }
-  document: DocumentSettings & RequestSettingsInput & { apiKey?: string | null }
+  /** Older clients omit enabled; infer it from the selected processor. */
+  document: Omit<DocumentSettings, 'enabled'> & { enabled?: boolean } & RequestSettingsInput & { apiKey?: string | null }
 }
-export interface TestKnowledgeSettingsInput extends SaveKnowledgeSettingsInput { target: 'embedding' | 'rerank' | 'document' }
+export type TestKnowledgeSettingsInput =
+  | { target: 'embedding'; embedding: SaveKnowledgeSettingsInput['embedding'] }
+  | { target: 'rerank'; rerank: NonNullable<SaveKnowledgeSettingsInput['rerank']> }
+  | { target: 'document'; document: SaveKnowledgeSettingsInput['document'] }
 export interface SemanticIndexState {
   status: 'disabled' | 'empty' | 'indexing' | 'paused' | 'ready' | 'error' | 'stale'
   completed: number
