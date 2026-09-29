@@ -163,6 +163,47 @@
 | rerank.applied | 已优化原文顺序 |
 | rerank.fallback | 排序服务未完成，已使用原有顺序 |
 | rerank.skipped | 本次沿用原文检索顺序 |
+| webSearch.title | 联网搜索（Tavily） |
+| webSearch.summary | 允许后由当前问答模型判断是否需要外部资料，结合网页摘录回答。 |
+| webSearch.enabled | 允许问答时联网搜索 |
+| webSearch.hint | 使用兼容 Tavily POST /search 的服务地址，默认 https://api.tavily.com。开启后，模型按需发送一条简短检索词，其中可能包含问题或选区中的关键词；不上传书籍全文。搜索失败或无结果时继续书内回答。 |
+| webSearch.test | 测试搜索服务 |
+| webSearch.testOk | 搜索接口检查通过。 |
+| webSearch.required | 请填写搜索服务地址。 |
+| webSearch.invalid | 搜索服务返回的结果结构无效。 |
+| webSearch.modeLabel | 联网 |
+| webSearch.modeAuto | 联网：自动 |
+| webSearch.modeOff | 联网：关闭 |
+| webSearch.modeHint | 自动模式下由模型判断是否需要联网；选择随会话保存。 |
+| webSearch.deciding | 判断是否需要联网… |
+| webSearch.searching | 正在搜索资料… |
+| webSearch.searched | 已联网搜索 · {count} 条网页来源 |
+| webSearch.notNeeded | 本轮判断不需要联网 |
+| webSearch.planningFailed | 联网判断未完成，本轮仅按书内资料回答 |
+| webSearch.empty | 未找到可用的网页资料，已继续书内回答 |
+| webSearch.budgetEmpty | 已搜索，但输入空间不足，未提供网页摘录 |
+| webSearch.failed | 联网搜索未完成，已继续书内回答 |
+| webSearch.failedReason | 联网搜索未完成（{reason}），已继续书内回答 |
+| webSearch.sourcesTitle | 网页资料 |
+| webSearch.bookSourcesTitle | 书内原文 |
+| webSearch.openInBrowser | 在浏览器打开 |
+| webSearch.openFailed | 无法打开该网页来源。 |
+| webSearch.searchedAt | 搜索于 {time} |
+| webSearch.queryLabel | 检索词：{query} |
+| webSearch.reason.timeout | 搜索超时 |
+| webSearch.reason.rateLimit | 搜索请求过于频繁 |
+| webSearch.reason.authentication | 搜索密钥无效 |
+| webSearch.reason.server | 搜索服务异常 |
+| webSearch.reason.network | 网络连接中断 |
+| webSearch.reason.configuration | 搜索配置不可用 |
+| webSearch.reason.redirect | 搜索地址发生跳转 |
+| webSearch.reason.tooLarge | 搜索响应过大 |
+| webSearch.reason.invalidResponse | 搜索响应无效 |
+| webSearch.reason.http | 搜索服务返回错误 |
+| webSearch.openDenied | 该地址不属于已记录的网页来源。 |
+| webSearch.unavailable | 请先在阅读增强中启用搜索服务；本轮仅按书内资料回答。 |
+| webSearch.exportTitle | 网页资料与搜索记录 |
+| webSearch.close | 关闭 |
 | knowledge.embeddingTitle | 按含义查找（Embedding） |
 | knowledge.embeddingEnabled | 启用按含义查找 |
 | knowledge.embeddingHint | 填写兼容 /v1/embeddings 的服务地址和模型。本机服务可不填密钥。开启后仍需在每本书的“本书准备”中建立索引。 |

@@ -5,6 +5,7 @@ import { copy } from '@shared/copy'
 import { MarkedText } from './MarkedText'
 import { normalizeNeedle } from './highlight'
 import { AnswerText } from './AnswerText'
+import { WebSources } from './WebSources'
 
 type InsightScope = 'all' | 'book'
 
@@ -174,9 +175,9 @@ export default function InsightsView({
                   className="insight-content"
                   role="button"
                   tabIndex={0}
-                  onClick={() => onOpenInsight(insight)}
+                  onClick={(event) => { if (!(event.target as HTMLElement).closest('button, details')) onOpenInsight(insight) }}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
+                    if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
                       event.preventDefault()
                       onOpenInsight(insight)
                     }
@@ -189,6 +190,7 @@ export default function InsightsView({
                   <span className="insight-quote">{isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection ? <>“<MarkedText value={insight.selection.quote} needle={needle} />”</> : copy('analysis.bookSource')}</span>
                   <strong className="insight-question"><MarkedText value={insight.question} needle={needle} /></strong>
                   <AnswerText text={insight.answer} selection={insight.selection} context={insight.context} readOnly highlight={needle} />
+                  {insight.context?.webSearch && <WebSources context={insight.context} />}
                 </div>
               <footer>
                 <span>{isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection?.chapterTitle || (insight.selection ? copy('common.currentChapter') : copy('analysis.bookSource'))} · {formatDate(insight.createdAt)}</span>

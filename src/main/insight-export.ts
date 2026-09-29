@@ -1,5 +1,6 @@
-import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope, type Passage } from '@shared/contracts'
+import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope, type Passage, type ContextSnapshot } from '@shared/contracts'
 import { copy } from '@shared/copy'
+import { webSearchStatus } from '@shared/web-search'
 
 function singleLine(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
@@ -16,6 +17,20 @@ function blockquote(value: string): string {
     .split(/\r?\n/u)
     .map((line) => `> ${line}`)
     .join('\n')
+}
+
+function webEvidence(context: ContextSnapshot | undefined): string[] {
+  const record = context?.webSearch
+  if (!record) return []
+  const lines = ['', `**${copy('webSearch.exportTitle')}**`, '', `- ${webSearchStatus(record)}`]
+  if (record.query) lines.push(`- ${copy('webSearch.queryLabel', { query: singleLine(record.query) })}`)
+  if (record.searchedAt) lines.push(`- ${copy('webSearch.searchedAt', { time: record.searchedAt })}`)
+  for (const source of record.sources) {
+    const title = singleLine(source.title).replace(/[\\[\]`*_<>]/gu, '\\$&')
+    const url = source.url.replace(/[<>\s]/gu, (character) => encodeURIComponent(character))
+    lines.push('', `- [${source.id}] [${title}](<${url}>)`, '', blockquote(source.excerpt))
+  }
+  return lines
 }
 
 function formatDateTime(iso: string): string {
@@ -127,6 +142,7 @@ export function buildInsightExportMarkdown(records: ReadonlyArray<InsightArchive
       lines.push('')
       lines.push(insight.answer)
       if (insight.context) for (const passage of insight.context.passages) lines.push(`\n- ${evidenceLine(passage)}`)
+      lines.push(...webEvidence(insight.context))
       lines.push('')
 
       const followups = insight.history.slice(2)
@@ -145,6 +161,7 @@ export function buildInsightExportMarkdown(records: ReadonlyArray<InsightArchive
           if (answer?.role === 'assistant') {
             lines.push(`- ${copy('export.assistantLabel')}：${answer.content}`)
             if (answer.context) for (const passage of answer.context.passages) lines.push(`  - ${evidenceLine(passage)}`)
+            lines.push(...webEvidence(answer.context))
           }
           lines.push('')
         }

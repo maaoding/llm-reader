@@ -79,7 +79,7 @@ describe('rerank configuration and archives', () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const db = new AppDatabase(path)
       expect(db.connection.prepare("SELECT kind, config_json, secret, revision FROM knowledge_settings WHERE kind <> 'rerank' ORDER BY kind").all()).toEqual(previous)
-      expect(db.connection.prepare('SELECT MAX(version) AS n FROM schema_migrations').get()?.n).toBe(20)
+      expect(db.connection.prepare('SELECT MAX(version) AS n FROM schema_migrations').get()?.n).toBe(migrations.length)
       const settings = new KnowledgeSettingsService(db, protector)
       if (attempt === 0) db.connection.prepare('INSERT INTO knowledge_settings(kind, config_json, secret, revision) VALUES (?, ?, ?, ?)')
         .run('rerank', JSON.stringify({ enabled: true, baseUrl: config.baseUrl, model: config.model }), protector.encrypt('rerank-only'), 'rerank-revision')

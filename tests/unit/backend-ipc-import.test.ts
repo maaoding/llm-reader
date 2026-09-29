@@ -10,12 +10,14 @@ const electronMocks = vi.hoisted(() => ({
   removeHandler: vi.fn(),
   showOpenDialog: vi.fn(),
   writeText: vi.fn(),
+  openExternal: vi.fn(),
   getVersion: vi.fn(() => '0.3.0')
 }))
 
 vi.mock('electron', () => ({
   app: { getVersion: electronMocks.getVersion },
   clipboard: { writeText: electronMocks.writeText },
+  shell: { openExternal: electronMocks.openExternal },
   dialog: { showOpenDialog: electronMocks.showOpenDialog, showSaveDialog: vi.fn() },
   ipcMain: {
     removeHandler: electronMocks.removeHandler,
@@ -56,6 +58,23 @@ function register(bookImporter: {
 }
 
 describe('book import IPC', () => {
+  it('opens only recorded HTTP(S) web sources for the requested book and trusted main frame', async () => {
+    const bookId = randomUUID(), otherBookId = randomUUID(), url = 'https://evidence.example/recorded'
+    const recorded = vi.fn((id: string, value: string) => id === bookId && value === url)
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined }, { library: { hasRecordedWebSource: recorded } })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.webSourceOpen)!
+    electronMocks.openExternal.mockReset()
+    await expect(handler(trustedEvent(), { bookId, url })).resolves.toBe(true)
+    expect(electronMocks.openExternal).toHaveBeenCalledExactlyOnceWith(url)
+    for (const bad of ['javascript:alert(1)', 'file:///C:/secret', 'data:text/html,script', 'https://user:password@example.com']) {
+      await expect(handler(trustedEvent(), { bookId, url: bad })).rejects.toThrow('[INVALID_INPUT]')
+    }
+    await expect(handler(trustedEvent(), { bookId: otherBookId, url })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(handler(trustedEvent(), { bookId, url: 'https://unrecorded.example' })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(handler({ sender: { id: 99 }, senderFrame: null }, { bookId, url })).rejects.toThrow('[UNTRUSTED_SENDER]')
+    expect(electronMocks.openExternal).toHaveBeenCalledOnce()
+  })
+
   beforeEach(() => {
     electronMocks.handlers.clear()
     electronMocks.removeHandler.mockClear()

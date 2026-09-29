@@ -319,6 +319,19 @@
 .answer-source-pages small { flex-basis: 100%; color: var(--ink-soft); }
 .answer-source-pages button { width: auto; margin-top: 2px; }
 
+/* 联网问答：沿用来源、纸张与外层界面的主题 token。 */
+.web-search-control select { max-width: 136px; padding: 5px 8px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink-soft); font-size: 12px; }
+.web-sources { margin: 6px 0; }
+.web-source-content { padding: 10px 0; overflow-wrap: anywhere; line-height: 1.6; }
+.web-source-content + .web-source-content { border-top: 1px solid var(--line); }
+.web-source-content strong, .web-source-url { display: block; }
+.web-source-url { color: var(--muted); }
+.web-source-content p { margin: 6px 0; white-space: pre-wrap; }
+.web-source-dialog { width: min(560px, calc(100vw - 40px)); max-height: calc(100vh - 60px); overflow: auto; padding: 20px; border: 1px solid var(--ui-line); border-radius: var(--radius-lg); background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-shadow-md); }
+.web-source-dialog header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.web-source-dialog h3 { margin: 0; }
+.web-source-dialog .web-source-url { color: var(--ui-muted); }
+
 /* ===================== 基础重置与全局控件 ===================== */
 
 * {

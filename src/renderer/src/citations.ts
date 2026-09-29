@@ -1,14 +1,15 @@
-import type { Passage } from '@shared/contracts'
+import type { Passage, WebSearchSource } from '@shared/contracts'
 import { copy } from '@shared/copy'
 
 const CITATION_TOKEN = /(\[[\w.:/-]{1,128}\])/gu
 const CITATION_ID = /^\[([\w.:/-]{1,128})\]$/u
-const INTERNAL_PASSAGE_ID = /^P\d+$/u
+const INTERNAL_PASSAGE_ID = /^(?:P|W)\d+$/u
 const CITATION_EXCERPT_LENGTH = 24
 
 export type CitationSegment =
   | { type: 'text'; text: string }
   | { type: 'valid'; label: string; title: string; anchor: string }
+  | { type: 'web'; source: WebSearchSource }
   | { type: 'unverified'; label: string; title: string }
 
 export function citationExcerpt(text: string): string {
@@ -21,14 +22,16 @@ export function citationExcerpt(text: string): string {
 }
 
 export function withoutIncompleteCitationMarker(text: string): string {
-  return text.replace(/\[P\d*$/u, '')
+  return text.replace(/\[(?:P|W)\d*$/u, '')
 }
 
-export function citationSegments(text: string, passages: Passage[]): CitationSegment[] {
+export function citationSegments(text: string, passages: Passage[], webSources: WebSearchSource[] = []): CitationSegment[] {
   const passageMap = new Map(passages.map((passage) => [passage.id, passage]))
   return text.split(CITATION_TOKEN).map((part) => {
     const match = CITATION_ID.exec(part)
     if (!match) return { type: 'text', text: part }
+    const web = /^W\d+$/u.test(match[1]) ? webSources.find((source) => source.id === match[1]) : undefined
+    if (web) return { type: 'web', source: web }
     const passage = passageMap.get(match[1])
     if (passage) {
       const excerpt = citationExcerpt(passage.text)

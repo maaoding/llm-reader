@@ -88,6 +88,7 @@ export const readerApi: ReaderApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.analysisEvent, handler)
   },
   cancelLlm: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.llmCancel, requestId),
+  openWebSource: (input) => ipcRenderer.invoke(IPC_CHANNELS.webSourceOpen, input),
   onLlmEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => listener(value as LlmEvent)
     ipcRenderer.on(IPC_CHANNELS.llmEvent, handler)

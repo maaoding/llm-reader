@@ -106,6 +106,7 @@ import { KnowledgeSettings } from './KnowledgeSettings'
 import { useBookAnalysis } from './use-book-analysis'
 import { FOCUSABLE, useDialogFocus } from './use-dialog-focus'
 import { EvidenceSources } from './EvidenceSources'
+import { WebSources } from './WebSources'
 import { BookCoverCache, observeBookCoverVisibility } from './book-cover-cache'
 import InsightsView from './InsightsView'
 import { readableError } from './readable-error'
@@ -190,6 +191,7 @@ interface ConversationTurn {
   error?: string
   saved?: boolean
   persona?: PersonaSelection | null
+  webSearchPhase?: 'deciding' | 'searching'
 }
 
 type AssistantDialogView = 'conversation' | 'insights'
@@ -206,6 +208,7 @@ interface ConversationTab {
   turns: ConversationTurn[]
   draft: string
   persona: PersonaSelection | null
+  webSearch: import('@shared/contracts').WebSearchMode
   insightId?: string
 }
 
@@ -251,7 +254,7 @@ function compactTabTitle(value: string, fallback: string): string {
   return compact || fallback
 }
 
-function createLiveTab(book: BookRecord, persona: PersonaSelection | null): ConversationTab {
+function createLiveTab(book: BookRecord, persona: PersonaSelection | null, webSearch: import('@shared/contracts').WebSearchMode = 'off'): ConversationTab {
   return {
     id: `live-${book.id}`,
     conversationId: crypto.randomUUID(),
@@ -262,7 +265,8 @@ function createLiveTab(book: BookRecord, persona: PersonaSelection | null): Conv
     scope: 'book',
     turns: [],
     draft: '',
-    persona
+    persona,
+    webSearch
   }
 }
 
@@ -280,6 +284,7 @@ function createArchiveTab(insight: InsightArchiveRecord): ConversationTab {
     turns,
     draft: '',
     persona: insight.persona ?? null,
+    webSearch: insight.webSearch ?? 'off',
     insightId: insight.id
   }
 }
@@ -1314,10 +1319,12 @@ function ConversationPane({
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
                   <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
                   {turn.context && !isPdfImageRegion(turn.context.selection) && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
+                    {turn.context.webSearch && <strong>{copy('webSearch.bookSourcesTitle')}</strong>}
                     {turn.context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', turn.context.coverage)}</p>}
                     {turn.context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(turn.context.rerank.status === 'applied' ? 'rerank.applied' : turn.context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
                     <EvidenceSources passages={turn.context.passages} onNavigate={onNavigate} /></details>}
-                  {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={searchNeedle} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy('assistant.thinking')}</span></div> : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
+                  {turn.context?.webSearch && <WebSources context={turn.context} />}
+                  {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={searchNeedle} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy(turn.webSearchPhase === 'deciding' ? 'webSearch.deciding' : turn.webSearchPhase === 'searching' ? 'webSearch.searching' : 'assistant.thinking')}</span></div> : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
                   {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
                   {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
                   {turn.status === 'error' && isLatest && !activeRequestId && onRegenerate && (
@@ -1662,6 +1669,7 @@ export function SettingsModal({
   onPaperThemePreferenceChange,
   onAssistantActionsChange,
   onPersonaSettingsChange,
+  onWebSearchChange,
   pushToast
 }: {
   initialOverview: ProviderOverview
@@ -1682,6 +1690,7 @@ export function SettingsModal({
   onPaperThemePreferenceChange: (preference: PaperThemePreference) => void
   onAssistantActionsChange: (settings: AssistantActionSettings) => void
   onPersonaSettingsChange: (settings: PersonaSettings) => boolean
+  onWebSearchChange?: (enabled: boolean) => void
   pushToast: (message: string, tone?: ToastState['tone']) => void
 }): ReactNode {
   const initiallySelected = initialOverview.profiles.find((profile) => profile.id === initialOverview.activeProfileId)
@@ -2204,7 +2213,7 @@ export function SettingsModal({
               </section>
 
             {activeSection === 'about' && <AboutPanel />}
-            <KnowledgeSettings hidden={activeSection !== 'knowledge'} onDirty={setKnowledgeDirty} initialService={initialService} />
+            <KnowledgeSettings hidden={activeSection !== 'knowledge'} onDirty={setKnowledgeDirty} initialService={initialService} onWebSearchChange={onWebSearchChange} />
 
             <section
               className="settings-section"
@@ -2446,6 +2455,12 @@ export default function App(): ReactNode {
   const [paperThemePreference, setPaperThemePreference] = useState<PaperThemePreference>(readPaperThemePreference)
   const [assistantActions, setAssistantActions] = useState<AssistantActionSettings>(readAssistantActionSettings)
   const [personaSettings, setPersonaSettings] = useState<PersonaSettings>(readPersonaSettings)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void window.readerApi.getKnowledgeSettings().then((settings) => { if (alive) setWebSearchEnabled(settings.webSearch.enabled) }).catch(() => undefined)
+    return () => { alive = false }
+  }, [])
   const [books, setBooks] = useState<BookRecord[]>([])
   const analysis = useBookAnalysis()
   const refreshAnalysis = analysis.refresh
@@ -2854,10 +2869,10 @@ export default function App(): ReactNode {
   const ensureLiveTab = useCallback((book: BookRecord): string => {
     const existing = conversationTabsRef.current.find((tab) => tab.kind === 'live' && tab.bookId === book.id)
     if (existing) return existing.id
-    const tab = createLiveTab(book, defaultPersona(personaSettings))
+    const tab = createLiveTab(book, defaultPersona(personaSettings), webSearchEnabled ? 'auto' : 'off')
     commitConversationTabs((current) => [...current, tab])
     return tab.id
-  }, [commitConversationTabs, personaSettings])
+  }, [commitConversationTabs, personaSettings, webSearchEnabled])
 
   const focusConversationTab = useCallback((tabId: string): void => {
     activeTabIdRef.current = tabId
@@ -2898,7 +2913,8 @@ export default function App(): ReactNode {
         kind: tab.kind,
         bookId: tab.bookId,
         insightId: tab.kind === 'archive' ? tab.insightId ?? null : null,
-        draft: tab.kind === 'archive' ? tab.draft.slice(0, 2_000) : ''
+        draft: tab.kind === 'archive' ? tab.draft.slice(0, 2_000) : '',
+        webSearch: tab.webSearch
       }))
     }
   }, [activeTabId, visibleSessionTabs])
@@ -2936,16 +2952,18 @@ export default function App(): ReactNode {
     for (const bookId of new Set([activeBook?.id, selectedTab?.bookId])) {
       if (!bookId || restoredSessionsRef.current.has(bookId) || failedSessionLoads.includes(bookId)) continue
       restoredSessionsRef.current.add(bookId)
-      void window.readerApi.getBookSession(bookId).then((record) => {
+      void window.readerApi.getBookSession(bookId).then(async (record) => {
+        const freshMode = !record ? (await window.readerApi.getKnowledgeSettings()).webSearch.enabled ? 'auto' as const : 'off' as const : undefined
         loadedSessionsRef.current.add(bookId)
         const tab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
         if (!tab) return
-        if (!record) { updateConversationTab(tab.id, (current) => ({ ...current })); return }
+        if (!record) { updateConversationTab(tab.id, (current) => ({ ...current, webSearch: freshMode ?? 'off' })); return }
         if (tab.turns.length > 0 || tab.selection || sessionTransitionsRef.current.has(tab.id)) return
         updateConversationTab(tab.id, (current) => ({
           ...current,
           conversationId: record.conversationId,
           persona: record.persona ?? null,
+          webSearch: record.webSearch ?? 'off',
           scope: record.scope,
           selection: record.selection,
           draft: current.draft || record.draft,
@@ -2970,18 +2988,19 @@ export default function App(): ReactNode {
       selection,
       draft: tab.draft,
       turns: persistableTurns(tab.turns),
+      webSearch: tab.webSearch,
       ...(tab.persona ? { persona: tab.persona } : {})
     }
   }, [])
 
-  // 去抖保存所有有内容的 live 会话：后台完成的回答也必须落库，不能只保存当前书籍。
+  // 去抖保存 live 会话，包括空会话的模式与角色，以及后台完成的回答。
   const savedSessionsRef = useRef(new Map<string, string>())
   const sessionWritesRef = useRef(new Map<string, Promise<unknown>>())
   const sessionTransitionsRef = useRef(new Set<string>())
   const [changingSessions, setChangingSessions] = useState<string[]>([])
   const persistLiveSession = useCallback(async (tab: ConversationTab): Promise<void> => {
     if (!loadedSessionsRef.current.has(tab.bookId)) return
-    if (tab.kind !== 'live' || (!tab.draft && !tab.selection && tab.turns.length === 0 && !tab.persona)) return
+    if (tab.kind !== 'live') return
     const payload = sessionPayload(tab)
     const snapshot = JSON.stringify(payload)
     if (savedSessionsRef.current.get(tab.bookId) === snapshot) {
@@ -3198,14 +3217,14 @@ export default function App(): ReactNode {
   }, [books, libraryState, openBook])
 
   const archiveWritesRef = useRef(new Map<string, Promise<void>>())
-  const persistArchiveHistory = useCallback(async (bookId: string, insightId: string, sessionTurns: ConversationTurn[], persona: PersonaSelection | null): Promise<void> => {
+  const persistArchiveHistory = useCallback(async (bookId: string, insightId: string, sessionTurns: ConversationTurn[], persona: PersonaSelection | null, webSearch?: 'off' | 'auto'): Promise<void> => {
     const history = historyFromTurns(sessionTurns)
     if (history.length < 2) return
     const previous = archiveWritesRef.current.get(insightId) ?? Promise.resolve()
     const pending = previous.catch(() => undefined).then(async () => {
       try {
-        const updated = await window.readerApi.updateInsightHistory({ bookId, id: insightId, history, persona })
-        setInsights((current) => current.map((insight) => insight.id === updated.id ? { ...insight, history: updated.history, persona: updated.persona } : insight))
+        const updated = await window.readerApi.updateInsightHistory({ bookId, id: insightId, history, persona, ...(webSearch ? { webSearch } : {}) })
+        setInsights((current) => current.map((insight) => insight.id === updated.id ? { ...insight, history: updated.history, persona: updated.persona, webSearch: updated.webSearch } : insight))
       } catch (error) {
         pushToast(readableError(error, copy('insights.saveFailed')), 'error')
       }
@@ -3280,6 +3299,7 @@ export default function App(): ReactNode {
       conversationId: crypto.randomUUID(),
       scope: 'book',
       persona: defaultPersona(personaSettings),
+      webSearch: webSearchEnabled ? 'auto' : 'off',
       selection: null,
       draft: '',
       turns: []
@@ -3297,7 +3317,8 @@ export default function App(): ReactNode {
       const tab = tabId ? conversationTabsRef.current.find((candidate) => candidate.id === tabId) : undefined
       const applyUpdate = (current: ConversationTurn[]): ConversationTurn[] => current.map((turn) => {
         if (turn.requestId !== event.requestId) return turn
-        if (event.type === 'context') return { ...turn, context: event.context }
+        if (event.type === 'context') return { ...turn, context: event.context, webSearchPhase: undefined }
+        if (event.type === 'webSearch') return { ...turn, webSearchPhase: event.phase }
         if (event.type === 'delta') return { ...turn, answer: turn.answer + event.delta }
         if (event.type === 'usage') return { ...turn, usage: event.usage }
         if (event.type === 'completed') return {
@@ -3312,7 +3333,7 @@ export default function App(): ReactNode {
         const turns = applyUpdate(tab.turns)
         updateConversationTab(tab.id, (current) => ({ ...current, turns }))
         if (event.type === 'completed' && tab.kind === 'archive' && tab.insightId) {
-          void persistArchiveHistory(tab.bookId, tab.insightId, turns, tab.persona)
+          void persistArchiveHistory(tab.bookId, tab.insightId, turns, tab.persona, tab.webSearch)
         }
       }
 
@@ -3349,9 +3370,9 @@ export default function App(): ReactNode {
         progressTimerRef.current = null
       }
       await flushProgress()
-      // 退出前补写去抖中的会话与标签列表：所有有内容的 live 会话都写，含后台完成的回答。
+      // 退出前补写去抖中的会话与标签列表，也保存空会话的角色和联网模式。
       const flushTabs = conversationTabsRef.current.filter((candidate) => (
-        candidate.kind === 'live' && loadedSessionsRef.current.has(candidate.bookId) && (candidate.draft || candidate.selection || candidate.turns.length > 0 || candidate.persona)
+        candidate.kind === 'live' && loadedSessionsRef.current.has(candidate.bookId)
       ))
       for (const tab of flushTabs) {
         await window.readerApi.saveBookSession(sessionPayload(tab)).catch(() => undefined)
@@ -3647,7 +3668,7 @@ export default function App(): ReactNode {
     }
     const newContext = scope !== tab.scope || (scope === 'selection' && tab.selection?.anchor !== context?.anchor)
     if (newContext) {
-      if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings) }))) return
+      if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) return
       tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)!
     }
     const conversationId = tab.conversationId
@@ -3688,6 +3709,7 @@ export default function App(): ReactNode {
         action,
         question: cleanQuestion,
         ...(tab.persona ? { persona: tab.persona.prompt } : {}),
+        webSearch: isPdfImageRegion(context) ? 'off' : tab.webSearch,
         ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId }
           : isPdfImageRegion(context) ? { scope: 'visual' as const, selection: context, imageDataUrl: imageDataUrl! }
             : { scope: 'selection' as const, selection: context! }),
@@ -3758,7 +3780,7 @@ export default function App(): ReactNode {
       const liveTab = conversationTabsRef.current.find((tab) => tab.id === liveTabId)
       if (!liveTab || tabHasActiveRequest(liveTab.id)) return
       const isNew = liveTab.scope !== 'selection' || liveTab.selection?.anchor !== selection.anchor
-      if (isNew && !await replaceSession(liveTab, async () => ({ conversationId: crypto.randomUUID(), selection, scope: 'selection', turns: [], draft: '', persona: defaultPersona(personaSettings) }))) return
+      if (isNew && !await replaceSession(liveTab, async () => ({ conversationId: crypto.randomUUID(), selection, scope: 'selection', turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) return
       focusConversationTab(liveTabId)
       adapterRef.current?.clearSelection()
       setSelection(null)
@@ -4207,6 +4229,7 @@ export default function App(): ReactNode {
         question: turn.question,
         answer: turn.answer,
         model: turn.model || provider.model,
+        webSearch: tab.webSearch,
         ...(turn.persona ? { persona: turn.persona } : {})
       })
       updateConversationTab(tabId, (current) => ({
@@ -4252,11 +4275,11 @@ export default function App(): ReactNode {
         if (!book) return []
         if (record.kind === 'live') {
           const existing = conversationTabsRef.current.find((tab) => tab.kind === 'live' && tab.bookId === book.id)
-          return [{ index, id: existing?.id ?? null, tab: existing ? null : createLiveTab(book, defaultPersona(personaSettings)) }]
+          return [{ index, id: existing?.id ?? null, tab: existing ? null : createLiveTab(book, defaultPersona(personaSettings), record.webSearch ?? 'off') }]
         }
         const insight = allInsights.find((candidate) => candidate.id === record.insightId)
         if (!insight) return []
-        return [{ index, id: null, tab: { ...createArchiveTab(insight), draft: record.draft } }]
+        return [{ index, id: null, tab: { ...createArchiveTab(insight), draft: record.draft, webSearch: record.webSearch ?? 'off' } }]
       })
       const createdTabs = restored.flatMap((entry) => entry.tab ? [entry.tab] : [])
       if (createdTabs.length > 0) commitConversationTabs((current) => [...current, ...createdTabs])
@@ -4280,6 +4303,17 @@ export default function App(): ReactNode {
   // 进行中或排队中的请求：用于禁用发送、显示停止按钮与阻止重复入队。
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
+  const webSearchControl = (tab: ConversationTab): ReactNode => <label className="web-search-control" title={copy(webSearchEnabled ? 'webSearch.modeHint' : 'webSearch.unavailable')}>
+    <select data-testid="web-search-mode" aria-label={copy('webSearch.modeLabel')} value={tab.webSearch}
+      disabled={Boolean(streamingRequestId(tab)) || isPdfImageRegion(tab.selection) || changingSessions.includes(tab.id)}
+      onChange={(event) => {
+        const webSearch = event.target.value as 'off' | 'auto'
+        updateConversationTab(tab.id, (current) => ({ ...current, webSearch }))
+        if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, tab.persona, webSearch)
+      }}>
+      <option value="off">{copy('webSearch.modeOff')}</option><option value="auto" disabled={!webSearchEnabled}>{copy('webSearch.modeAuto')}</option>
+    </select>
+  </label>
   const changeConversationScope = async (tab: ConversationTab, scope: 'selection' | 'book'): Promise<void> => {
     if (scope === tab.scope || tabHasActiveRequest(tab.id)) return
     // A new scope from an archived insight starts a live conversation, preserving the archive.
@@ -4288,7 +4322,7 @@ export default function App(): ReactNode {
       ? conversationTabsRef.current.find((item) => item.id === ensureLiveTab(book))!
       : tab
     const context = scope === 'selection' ? (selection?.bookId === tab.bookId ? selection : tab.selection) : null
-    if (await replaceSession(target, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings) }))) focusConversationTab(target.id)
+    if (await replaceSession(target, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) focusConversationTab(target.id)
   }
   const recentConversations = (tab: ConversationTab | undefined): ReactNode => tab?.kind === 'live' && <RecentConversations
     key={`${tab.id}:${tab.conversationId}`} currentId={tab.conversationId}
@@ -4302,7 +4336,7 @@ export default function App(): ReactNode {
       const restored = await replaceSession(tab, async () => {
         const record = await window.readerApi.getRecentBookSession({ bookId: tab.bookId, conversationId })
         if (!record) throw new Error(copy('assistant.sessionRestoreFailed'))
-        return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft, persona: record.persona ?? null,
+        return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft, persona: record.persona ?? null, webSearch: record.webSearch ?? 'off',
           turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })) }
       })
       if (!restored) throw new Error(copy('assistant.sessionRestoreFailed'))
@@ -4801,8 +4835,8 @@ export default function App(): ReactNode {
           <ConversationPane
             scope={sidebarTab?.scope}
             controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />}
-            composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessionsRef.current.has(sidebarTab.bookId)) && <PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
-              onChange={(persona) => changeSessionPersona(sidebarTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(sidebarTab, persona)} />}
+            composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessionsRef.current.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
+              onChange={(persona) => changeSessionPersona(sidebarTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(sidebarTab, persona)} /></>}
             conversationSelection={sidebarTab?.selection ?? null}
             turns={sidebarTab?.turns ?? []}
             provider={provider}
@@ -4950,6 +4984,7 @@ export default function App(): ReactNode {
                 <ConversationPane
                   scope={activeConversationTab.scope}
                   composerControls={<><AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />
+                    {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && webSearchControl(activeConversationTab)}
                     {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && <PersonaSessionControl key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} persona={activeConversationTab.persona} settings={personaSettings}
                       onChange={(persona) => changeSessionPersona(activeConversationTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(activeConversationTab, persona)} />}</>}
                   conversationSelection={activeConversationTab.selection}
@@ -4994,6 +5029,7 @@ export default function App(): ReactNode {
           paperThemePreference={paperThemePreference}
           assistantActions={assistantActions}
           personaSettings={personaSettings}
+          onWebSearchChange={setWebSearchEnabled}
           returnFocusRef={settingsReturnFocusRef}
           onClose={closeSettings}
           onOverviewChange={handleProviderOverviewChange}

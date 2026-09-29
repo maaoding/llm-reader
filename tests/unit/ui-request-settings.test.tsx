@@ -8,6 +8,7 @@ import type { KnowledgeSettings as Settings, ReaderApi, SaveKnowledgeSettingsInp
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 function setup(initialEmbedding?: Settings['embedding']) {
   let settings: Settings = {
+    webSearch: { enabled: false, baseUrl: 'https://api.tavily.com', hasApiKey: false },
     embedding: initialEmbedding ?? { enabled: false, baseUrl: '', model: '', hasApiKey: false },
     rerank: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
     document: { enabled: false, processor: 'none', baseUrl: '', ocr: true, language: 'ch', hasApiKey: false }
@@ -180,8 +181,8 @@ it('labels an in-progress save separately from a connection test', async () => {
 it('starts with compact cards ordered by preparation, while switches stay available outside the details', async () => {
   const view = setup({ enabled: true, baseUrl: 'https://example.com/v1', model: 'vectors', hasApiKey: false })
   await view.findByTestId('embedding-enabled')
-  expect(Array.from(view.container.querySelectorAll('[data-service]'), (card) => card.getAttribute('data-service'))).toEqual(['document', 'embedding', 'rerank'])
-  for (const kind of ['document', 'embedding', 'rerank']) {
+  expect(Array.from(view.container.querySelectorAll('[data-service]'), (card) => card.getAttribute('data-service'))).toEqual(['document', 'embedding', 'rerank', 'webSearch'])
+  for (const kind of ['document', 'embedding', 'rerank', 'webSearch']) {
     expect((view.getByTestId(`${kind}-config`) as HTMLDetailsElement).open).toBe(false)
     expect(view.getByTestId(`${kind}-enabled`).closest('details')).toBeNull()
   }

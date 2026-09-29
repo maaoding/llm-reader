@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppDatabase } from '../../src/main/database'
+import { removeWebSearchSchema } from './support/legacy-web-search'
 import { BookContextStore } from '../../src/main/book-context-store'
 import { KnowledgeSettingsService } from '../../src/main/knowledge-settings'
 import { KnowledgeHttp } from '../../src/main/knowledge-http'
@@ -230,6 +231,7 @@ describe('visual model OCR', () => {
     const fixture = setup(undefined, path)
     await fixture.extract(1)
     const previous = fixture.db.connection.prepare('SELECT * FROM document_jobs').get()
+    removeWebSearchSchema(fixture.db)
     fixture.db.connection.exec('DROP TABLE ocr_page_previews; ALTER TABLE book_sessions DROP COLUMN persona_json; ALTER TABLE book_session_history DROP COLUMN persona_json; ALTER TABLE insights DROP COLUMN persona_json; DELETE FROM schema_migrations WHERE version >= 19')
     resources.pop()!.close()
     let db = new AppDatabase(path); resources.push(db)

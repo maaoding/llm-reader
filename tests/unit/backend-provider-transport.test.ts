@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { LlmEvent, LlmRequest } from '../../src/shared/contracts'
 import { AppDatabase } from '../../src/main/database'
+import { removeWebSearchSchema } from './support/legacy-web-search'
 import { BookContextStore } from '../../src/main/book-context-store'
 import { buildChatCompletionsUrl, buildModelsUrl, LlmService, type CompletionPayload, type ProviderCredentials } from '../../src/main/llm-service'
 import { ProviderTransport } from '../../src/main/provider-transport'
@@ -197,6 +198,7 @@ it('migrates old archives and analysis IDs once, preserving timestamps, notes an
     store.reset(bookId, jobId, 'legacy', 'fixture', 'unchanged-fingerprint')
     store.saveSummary(bookId, 'book', '旧全书笔记')
     store.status(bookId, 'ready')
+    removeWebSearchSchema(database)
     database.connection.exec(`ALTER TABLE provider_profiles DROP COLUMN compatibility;
       ALTER TABLE insights DROP COLUMN conversation_id; ALTER TABLE book_analysis DROP COLUMN session_id;
       ALTER TABLE book_analysis DROP COLUMN progress_json; DROP TABLE book_analysis_failures;
@@ -233,6 +235,7 @@ it('upgrades a version-10 analysis cache without changing its identity and persi
     store.saveSummary(bookId, 'book-0-0', '已保存的中间笔记')
     store.status(bookId, 'error', '旧提示')
     const previous = store.record(bookId)!
+    removeWebSearchSchema(database)
     database.connection.exec('ALTER TABLE book_analysis DROP COLUMN progress_json; DROP TABLE book_analysis_failures; DROP TABLE book_vectors; DROP TABLE semantic_indexes; DROP TABLE knowledge_settings; DROP TABLE document_jobs; ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; DROP TABLE book_session_history; DROP TABLE ocr_page_previews; ALTER TABLE book_sessions DROP COLUMN persona_json; ALTER TABLE insights DROP COLUMN persona_json; DELETE FROM schema_migrations WHERE version >= 11;')
     database.close()
     database = new AppDatabase(path)

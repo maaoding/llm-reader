@@ -6,19 +6,20 @@ import { processorCopy } from '@shared/knowledge'
 import { isPageProcessor } from '@shared/request-settings'
 import { RequestSettingsEditor } from './RequestSettingsEditor'
 
-type KnowledgeDraft = SaveKnowledgeSettingsInput & { rerank: NonNullable<SaveKnowledgeSettingsInput['rerank']> }
-type Kind = 'embedding' | 'rerank' | 'document'
+type KnowledgeDraft = SaveKnowledgeSettingsInput & { rerank: NonNullable<SaveKnowledgeSettingsInput['rerank']>; webSearch: NonNullable<SaveKnowledgeSettingsInput['webSearch']> }
+type Kind = 'embedding' | 'rerank' | 'document' | 'webSearch'
 type Feedback = { source: 'test' | 'save' | 'toggle'; tone: 'success' | 'error' | 'neutral'; message: string }
-const kinds: Kind[] = ['embedding', 'rerank', 'document']
+const kinds: Kind[] = ['embedding', 'rerank', 'document', 'webSearch']
 function draftOf(settings: Settings): KnowledgeDraft {
   const { hasApiKey: embeddingKey, ...embedding } = settings.embedding
   const { hasApiKey: documentKey, ...document } = settings.document
   const { hasApiKey: rerankKey, ...rerank } = settings.rerank
-  void embeddingKey; void documentKey; void rerankKey
-  return { embedding, rerank, document }
+  const { hasApiKey: webKey, ...webSearch } = settings.webSearch
+  void embeddingKey; void documentKey; void rerankKey; void webKey
+  return { embedding, rerank, document, webSearch }
 }
 
-export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden: boolean; onDirty: (dirty: boolean) => void; initialService?: 'document' | 'embedding' }) {
+export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearchChange }: { hidden: boolean; onDirty: (dirty: boolean) => void; initialService?: 'document' | 'embedding'; onWebSearchChange?: (enabled: boolean) => void }) {
   const sectionRef = useRef<HTMLElement>(null)
   const [saved, setSaved] = useState<Settings>()
   const [draft, setDraft] = useState<KnowledgeDraft>()
@@ -26,7 +27,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
   const [status, setStatus] = useState<Partial<Record<Kind, Feedback>>>({})
   const [loadError, setLoadError] = useState('')
   const [invalidSettings, setInvalidSettings] = useState<Partial<Record<Kind, boolean>>>({})
-  const [editorRevision, setEditorRevision] = useState<Record<Kind, number>>({ embedding: 0, rerank: 0, document: 0 })
+  const [editorRevision, setEditorRevision] = useState<Record<Kind, number>>({ embedding: 0, rerank: 0, document: 0, webSearch: 0 })
   const loaded = Boolean(draft)
   useEffect(() => {
     if (!hidden && loaded && initialService) {
@@ -45,7 +46,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
   const changed = (kind: Kind): boolean => Boolean(saved && draft && JSON.stringify(draft[kind]) !== JSON.stringify(draftOf(saved)[kind]))
   const configured = (kind: Kind): boolean => Boolean(saved && (kind === 'document'
     ? saved.document.processor !== 'none' && saved.document.baseUrl && (!['vision', 'mistral-ocr'].includes(saved.document.processor) || saved.document.model)
-    : saved[kind].baseUrl && saved[kind].model))
+    : kind === 'webSearch' ? saved.webSearch.baseUrl && saved.webSearch.hasApiKey : saved[kind].baseUrl && saved[kind].model))
   const dirty = Object.values(invalidSettings).some(Boolean) || kinds.some(changed)
   const documentEndpointMatches = Boolean(saved && draft && draft.document.baseUrl === saved.document.baseUrl &&
     draft.document.processor === saved.document.processor && (draft.document.protocol ?? 'openai') === (saved.document.protocol ?? 'openai'))
@@ -88,6 +89,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
       const input = { ...draftOf(saved), [target]: { ...draft[target], enabled: activate || draft[target].enabled }, target }
       const value = await window.readerApi.saveKnowledgeSettings(input)
       setSaved(value)
+      onWebSearchChange?.(value.webSearch.enabled)
       setDraft((current) => current ? { ...current, [target]: draftOf(value)[target] } : current)
       setEditorRevision((current) => ({ ...current, [target]: current[target] + 1 }))
       setInvalidSettings((current) => ({ ...current, [target]: false }))
@@ -104,6 +106,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
       const previous = draftOf(saved)
       const value = await window.readerApi.saveKnowledgeSettings({ ...previous, [target]: { ...previous[target], enabled }, target })
       setSaved(value)
+      onWebSearchChange?.(value.webSearch.enabled)
       setDraft((current) => current ? { ...current, [target]: { ...current[target], enabled } } : current)
       setStatus((current) => ({ ...current, [target]: { source: 'toggle', tone: 'success', message: copy(enabled ? 'knowledge.enabledNow' : 'knowledge.disabledNow') } }))
     } catch (error) {
@@ -116,7 +119,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
     setBusy(`test-${target}`); setStatus((current) => ({ ...current, [target]: undefined }))
     try {
       const input: TestKnowledgeSettingsInput = target === 'embedding' ? { target, embedding: draft.embedding } :
-        target === 'rerank' ? { target, rerank: draft.rerank } : { target, document: draft.document }
+        target === 'rerank' ? { target, rerank: draft.rerank } : target === 'webSearch' ? { target, webSearch: draft.webSearch } : { target, document: draft.document }
       const result = await window.readerApi.testKnowledgeSettings(input)
       setStatus((current) => ({ ...current, [target]: { source: 'test', tone: result.ok ? 'success' : 'error', message: result.message } }))
     } catch (error) {
@@ -289,6 +292,30 @@ export function KnowledgeSettings({ hidden, onDirty, initialService }: { hidden:
           {saveButton('rerank')}
         </div>
         </details>{feedback('rerank')}</section>
+        <section className="knowledge-service-card" data-service="webSearch" aria-labelledby="knowledge-webSearch-title">{heading('webSearch', copy('webSearch.title'), copy('webSearch.summary'))}
+        <label className="knowledge-checkbox"><input data-testid="webSearch-enabled" type="checkbox" role="switch" checked={saved.webSearch.enabled}
+          disabled={!saved.webSearch.enabled && !configured('webSearch')}
+          onChange={(event) => void toggle('webSearch', event.target.checked)} />{copy('webSearch.enabled')}</label>
+        {!configured('webSearch') && <p className="field-hint">{copy('knowledge.configureBeforeEnable')}</p>}
+        <details className="knowledge-service-details" data-testid="webSearch-config"><summary>{copy('knowledge.details')}</summary>
+          <p className="field-hint">{copy('webSearch.hint')}</p>
+          <label className="field-label" htmlFor="webSearch-url">{copy('knowledge.baseUrl')}</label>
+          <input id="webSearch-url" type="url" pattern="https?://[^?#]+" data-testid="webSearch-url" value={draft.webSearch.baseUrl} spellCheck={false} required
+            onChange={(event) => update({ ...draft, webSearch: { ...draft.webSearch, baseUrl: event.target.value, apiKey: undefined, customHeaders: undefined } })} />
+          <label className="field-label" htmlFor="webSearch-key">{copy('knowledge.apiKey')}</label>
+          <input id="webSearch-key" data-testid="webSearch-key" type="password" autoComplete="off" value={draft.webSearch.apiKey ?? ''}
+            placeholder={copy(saved.webSearch.hasApiKey && saved.webSearch.baseUrl === draft.webSearch.baseUrl ? 'knowledge.keySaved' : 'knowledge.keyEmpty')}
+            onChange={(event) => update({ ...draft, webSearch: { ...draft.webSearch, apiKey: event.target.value || undefined } })} />
+          {(saved.webSearch.hasApiKey && saved.webSearch.baseUrl === draft.webSearch.baseUrl || draft.webSearch.apiKey === null) && <button className="text-button" type="button" data-testid="webSearch-clear-key"
+            onClick={() => update({ ...draft, webSearch: { ...draft.webSearch, apiKey: draft.webSearch.apiKey === null ? undefined : null } })}>
+            {copy(draft.webSearch.apiKey === null ? 'knowledge.undoClear' : 'knowledge.clearKey')}</button>}
+          {draft.webSearch.apiKey === null && <p className="field-hint">{copy('knowledge.clearPending')}</p>}
+          <label className="field-label" htmlFor="webSearch-timeout">{copy('request.timeout')}</label>
+          <input id="webSearch-timeout" data-testid="webSearch-timeout" type="number" min={1} max={600} step={1} placeholder="10"
+            value={draft.webSearch.timeoutMs === undefined ? '' : draft.webSearch.timeoutMs / 1_000}
+            onChange={(event) => update({ ...draft, webSearch: { ...draft.webSearch, timeoutMs: event.target.value ? Number(event.target.value) * 1_000 : undefined } })} />
+          <div className="knowledge-service-actions"><button className="secondary-button" data-testid="webSearch-test" type="button" disabled={!draft.webSearch.baseUrl} onClick={() => void test('webSearch')}>{copy('webSearch.test')}</button>{saveButton('webSearch')}</div>
+        </details>{feedback('webSearch')}</section>
         <p className="field-hint">{copy('knowledge.endpointHint')} {copy('knowledge.testHint')}</p>
       </fieldset>
     </div>}

@@ -52,6 +52,7 @@ interface InsightRow {
   history_json: string
   context_json: string | null
   persona_json?: string | null
+  web_search?: string | null
 }
 
 interface InsightArchiveRow extends InsightRow {
@@ -68,6 +69,7 @@ interface BookSessionRow {
   draft: string
   turns_json: string
   persona_json?: string | null
+  web_search?: string | null
   updated_at: string
 }
 
@@ -77,6 +79,7 @@ interface SessionTabRow {
   book_id: string
   insight_id: string | null
   draft: string
+  web_search?: string | null
   is_active: number
 }
 
@@ -466,6 +469,25 @@ export const migrations = [
       ALTER TABLE book_sessions ADD COLUMN persona_json TEXT;
       ALTER TABLE book_session_history ADD COLUMN persona_json TEXT;
       ALTER TABLE insights ADD COLUMN persona_json TEXT;
+    `,
+    `
+      ALTER TABLE book_sessions ADD COLUMN web_search TEXT;
+      ALTER TABLE book_session_history ADD COLUMN web_search TEXT;
+      ALTER TABLE session_tabs ADD COLUMN web_search TEXT;
+      ALTER TABLE insights ADD COLUMN web_search TEXT;
+      CREATE TABLE knowledge_settings_web (
+        kind TEXT PRIMARY KEY CHECK(kind IN ('embedding', 'document', 'rerank', 'webSearch')),
+        config_json TEXT NOT NULL, secret BLOB, revision TEXT NOT NULL, headers_secret BLOB
+      ) STRICT;
+      INSERT INTO knowledge_settings_web(kind, config_json, secret, revision, headers_secret)
+        SELECT kind, config_json, secret, revision, headers_secret FROM knowledge_settings;
+      DROP TABLE knowledge_settings;
+      ALTER TABLE knowledge_settings_web RENAME TO knowledge_settings;
+      CREATE TABLE web_source_records (
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        PRIMARY KEY(book_id, url)
+      ) STRICT;
     `
 ] as const
 
@@ -577,6 +599,7 @@ function mapBookSession(row: BookSessionRow): BookSessionRecord {
     draft: row.draft,
     turns: parseSessionTurns(row.turns_json),
     ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {}),
+    ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {}),
     updatedAt: row.updated_at
   }
 }
@@ -586,7 +609,8 @@ function mapSessionTab(row: SessionTabRow): SessionTabRecord {
     kind: row.kind,
     bookId: row.book_id,
     insightId: row.insight_id,
-    draft: row.draft
+    draft: row.draft,
+    ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {})
   }
 }
 
@@ -596,6 +620,16 @@ export interface StoredBook extends BookRecord {
 }
 
 export class AppDatabase {
+  /** Only sources emitted by the main-process answer pipeline can grant browser access. */
+  recordWebSources(bookId: string, urls: string[]): void {
+    if (!this.getStoredBook(bookId)) return
+    const insert = this.connection.prepare('INSERT OR IGNORE INTO web_source_records(book_id, url) VALUES (?, ?)')
+    for (const url of urls) insert.run(bookId, url)
+  }
+
+  hasRecordedWebSource(bookId: string, url: string): boolean {
+    return Boolean(this.connection.prepare('SELECT 1 FROM web_source_records WHERE book_id = ? AND url = ?').get(bookId, url))
+  }
   readonly connection: DatabaseSync
 
   constructor(path: string) {
@@ -738,6 +772,7 @@ export class AppDatabase {
       model: row.model,
       createdAt: row.created_at,
       history: parseInsightHistory(row.history_json),
+      ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {}),
       ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
     }))
   }
@@ -771,6 +806,7 @@ export class AppDatabase {
         model: row.model,
         createdAt: row.created_at,
         history: parseInsightHistory(row.history_json),
+        ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {}),
         ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
       }
     })
@@ -783,8 +819,8 @@ export class AppDatabase {
     this.connection
       .prepare(
         `INSERT INTO insights(
-          id, book_id, selection_json, question, answer, model, created_at, history_json, context_json, conversation_id, persona_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          id, book_id, selection_json, question, answer, model, created_at, history_json, context_json, conversation_id, persona_json, web_search
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -797,7 +833,8 @@ export class AppDatabase {
         JSON.stringify(history),
         input.context ? JSON.stringify(input.context) : null,
         conversationId,
-        input.persona ? JSON.stringify(input.persona) : null
+        input.persona ? JSON.stringify(input.persona) : null,
+        input.webSearch ?? null
       )
 
     return { id, ...input, conversationId, createdAt, history }
@@ -805,8 +842,8 @@ export class AppDatabase {
 
   updateInsightHistory(id: string, input: UpdateInsightHistoryInput): SavedInsight | null {
     const result = this.connection
-      .prepare('UPDATE insights SET history_json = ?, persona_json = CASE WHEN ? = 1 THEN ? ELSE persona_json END WHERE id = ? AND book_id = ?')
-      .run(JSON.stringify(input.history), input.persona === undefined ? 0 : 1, input.persona ? JSON.stringify(input.persona) : null, id, input.bookId)
+      .prepare('UPDATE insights SET history_json = ?, persona_json = CASE WHEN ? = 1 THEN ? ELSE persona_json END, web_search = COALESCE(?, web_search) WHERE id = ? AND book_id = ?')
+      .run(JSON.stringify(input.history), input.persona === undefined ? 0 : 1, input.persona ? JSON.stringify(input.persona) : null, input.webSearch ?? null, id, input.bookId)
     if (result.changes === 0) return null
     const row = this.connection
       .prepare('SELECT * FROM insights WHERE id = ?')
@@ -823,6 +860,7 @@ export class AppDatabase {
       model: row.model,
       createdAt: row.created_at,
       history: parseInsightHistory(row.history_json),
+      ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {}),
       ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
     }
   }
@@ -858,8 +896,8 @@ export class AppDatabase {
     try {
       this.connection
       .prepare(
-        `INSERT INTO book_sessions(book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at, persona_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO book_sessions(book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at, persona_json, web_search)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(book_id) DO UPDATE SET
            conversation_id = excluded.conversation_id,
            scope = excluded.scope,
@@ -867,7 +905,8 @@ export class AppDatabase {
            draft = excluded.draft,
            turns_json = excluded.turns_json,
            updated_at = excluded.updated_at,
-           persona_json = excluded.persona_json`
+           persona_json = excluded.persona_json,
+           web_search = excluded.web_search`
       )
       .run(
         record.bookId,
@@ -877,15 +916,21 @@ export class AppDatabase {
         record.draft,
         JSON.stringify(record.turns),
         record.updatedAt,
-        record.persona ? JSON.stringify(record.persona) : null
+        record.persona ? JSON.stringify(record.persona) : null,
+        record.webSearch ?? null
       )
-      this.connection.prepare(`INSERT INTO book_session_history SELECT * FROM book_sessions WHERE book_id = ?
-        ON CONFLICT(book_id, conversation_id) DO UPDATE SET scope = excluded.scope, selection_json = excluded.selection_json,
-          draft = excluded.draft, turns_json = excluded.turns_json, updated_at = excluded.updated_at,
-          persona_json = excluded.persona_json`).run(record.bookId)
+      // Empty sessions retain their mode in book_sessions without appearing as blank recent conversations.
+      const hasContent = Boolean(record.selection || record.draft.trim() || record.turns.length)
+      if (hasContent) {
+        this.connection.prepare(`INSERT INTO book_session_history(book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at, persona_json, web_search)
+          SELECT book_id, conversation_id, scope, selection_json, draft, turns_json, updated_at, persona_json, web_search FROM book_sessions WHERE book_id = ?
+          ON CONFLICT(book_id, conversation_id) DO UPDATE SET scope = excluded.scope, selection_json = excluded.selection_json,
+            draft = excluded.draft, turns_json = excluded.turns_json, updated_at = excluded.updated_at,
+            persona_json = excluded.persona_json, web_search = excluded.web_search`).run(record.bookId)
+      } else this.connection.prepare('DELETE FROM book_session_history WHERE book_id = ? AND conversation_id = ?').run(record.bookId, record.conversationId)
       this.connection.prepare(`DELETE FROM book_session_history WHERE book_id = ? AND conversation_id != ? AND rowid NOT IN (
         SELECT rowid FROM book_session_history WHERE book_id = ? AND conversation_id != ? ORDER BY updated_at DESC, rowid DESC LIMIT ?
-      )`).run(record.bookId, record.conversationId, record.bookId, record.conversationId, RECENT_BOOK_SESSION_LIMIT - 1)
+      )`).run(record.bookId, record.conversationId, record.bookId, record.conversationId, RECENT_BOOK_SESSION_LIMIT - Number(hasContent))
       this.connection.exec('COMMIT')
     } catch (error) { this.connection.exec('ROLLBACK'); throw error }
     return record
@@ -916,13 +961,13 @@ export class AppDatabase {
   /** 打开的标签整体替换：数组顺序即 position，最多一个激活项。 */
   replaceSessionTabs(state: SessionTabsState): SessionTabsState {
     const insert = this.connection.prepare(
-      'INSERT INTO session_tabs(position, kind, book_id, insight_id, draft, is_active) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO session_tabs(position, kind, book_id, insight_id, draft, web_search, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)'
     )
     this.connection.exec('BEGIN IMMEDIATE')
     try {
       this.connection.prepare('DELETE FROM session_tabs').run()
       state.tabs.forEach((tab, index) => {
-        insert.run(index, tab.kind, tab.bookId, tab.insightId, tab.draft, index === state.activeIndex ? 1 : 0)
+        insert.run(index, tab.kind, tab.bookId, tab.insightId, tab.draft, tab.webSearch ?? null, index === state.activeIndex ? 1 : 0)
       })
       this.connection.exec('COMMIT')
     } catch (error) {

@@ -77,7 +77,8 @@ export const IPC_CHANNELS = {
   analysisEvent: 'analysis:event',
   llmStart: 'llm:start',
   llmCancel: 'llm:cancel',
-  llmEvent: 'llm:event'
+  llmEvent: 'llm:event',
+  webSourceOpen: 'web-source:open'
 } as const
 
 export type BookFormat = 'epub' | 'txt' | 'pdf'
@@ -396,25 +397,31 @@ export interface DocumentSettings extends RequestSettings {
   enabled: boolean; processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en'
   model?: string; compatibility?: ProviderCompatibility; protocol?: ProviderProtocol
 }
+/** Tavily-compatible single-round web search; the service only receives the planned query. */
+export interface WebSearchSettings extends RequestSettings { enabled: boolean; baseUrl: string }
 export interface KnowledgeSettings {
   embedding: EmbeddingSettings & { hasApiKey: boolean }
   rerank: RerankSettings & { hasApiKey: boolean }
   document: DocumentSettings & { hasApiKey: boolean }
+  webSearch: WebSearchSettings & { hasApiKey: boolean }
 }
 /** Omitted keys preserve the saved secret only when the endpoint is unchanged; null removes it. */
 export interface SaveKnowledgeSettingsInput {
   /** Persist one service without writing unrelated settings; absent for older clients. */
-  target?: 'embedding' | 'rerank' | 'document'
+  target?: 'embedding' | 'rerank' | 'document' | 'webSearch'
   embedding: EmbeddingSettings & RequestSettingsInput & { apiKey?: string | null }
   /** Older clients omit this field; preserve the existing configuration in that case. */
   rerank?: RerankSettings & RequestSettingsInput & { apiKey?: string | null }
   /** Older clients omit enabled; infer it from the selected processor. */
   document: Omit<DocumentSettings, 'enabled'> & { enabled?: boolean } & RequestSettingsInput & { apiKey?: string | null }
+  /** Older clients omit this field; preserve the existing configuration in that case. */
+  webSearch?: WebSearchSettings & RequestSettingsInput & { apiKey?: string | null }
 }
 export type TestKnowledgeSettingsInput =
   | { target: 'embedding'; embedding: SaveKnowledgeSettingsInput['embedding'] }
   | { target: 'rerank'; rerank: NonNullable<SaveKnowledgeSettingsInput['rerank']> }
   | { target: 'document'; document: SaveKnowledgeSettingsInput['document'] }
+  | { target: 'webSearch'; webSearch: NonNullable<SaveKnowledgeSettingsInput['webSearch']> }
 export interface SemanticIndexState {
   status: 'disabled' | 'empty' | 'indexing' | 'paused' | 'ready' | 'error' | 'stale'
   completed: number
@@ -461,6 +468,31 @@ export interface RerankRecord {
   reason: RerankReason
 }
 
+/** Per-conversation web search choice; sessions saved before this feature read as 'off'. */
+export type WebSearchMode = 'off' | 'auto'
+
+/** One web source exactly as sent to the model; internal citations use the [Wn] id. */
+export interface WebSearchSource {
+  id: string
+  title: string
+  url: string
+  excerpt: string
+}
+export type WebSearchReason =
+  | 'searched' | 'not-needed' | 'planning-failed' | 'budget'
+  | 'configuration' | 'timeout' | 'rate-limit' | 'authentication' | 'server' | 'http' | 'redirect' | 'too-large' | 'invalid-response' | 'network'
+export interface WebSearchRecord {
+  status: 'searched' | 'skipped' | 'failed' | 'empty'
+  /** The single planned query sent to the search service; absent when planning failed or search was not needed. */
+  query?: string
+  /** ISO time of the actual search request; absent when no request was made. */
+  searchedAt?: string
+  elapsedMs?: number
+  reason: WebSearchReason
+  /** Sources as actually sent to the model this round; empty unless status is 'searched'. */
+  sources: WebSearchSource[]
+}
+
 export interface ContextSnapshot {
   scope: 'selection' | 'book'
   bookId: string
@@ -472,6 +504,7 @@ export interface ContextSnapshot {
   historySummary?: { includedMessages: number; truncated: boolean }
   planningUsage?: LlmUsage
   rerank?: RerankRecord
+  webSearch?: WebSearchRecord
 }
 
 export interface SelectionContext {
@@ -512,6 +545,8 @@ interface LlmRequestBase {
   question: string
   history: ChatMessage[]
   persona?: string
+  /** Web search choice for this round; omitted reads as 'off'. */
+  webSearch?: WebSearchMode
   /** Eligible messages before the recent-turn cap; metadata only, no older content. */
   historyCandidateMessages?: number
   /** Whether the renderer shortened any candidate message before sending. */
@@ -534,6 +569,7 @@ export type LlmEvent =
   | { requestId: string; type: 'context'; context: ContextSnapshot }
   | { requestId: string; type: 'delta'; delta: string }
   | { requestId: string; type: 'usage'; usage: LlmUsage }
+  | { requestId: string; type: 'webSearch'; phase: 'deciding' | 'searching' }
   | { requestId: string; type: 'completed'; model: string }
   | { requestId: string; type: 'error'; code: string; message: string; retryable: boolean }
 
@@ -626,6 +662,7 @@ export interface SavedInsight {
   createdAt: string
   history: ArchivedChatMessage[]
   persona?: PersonaSelection | null
+  webSearch?: WebSearchMode
 }
 
 export interface InsightBookRef {
@@ -655,6 +692,7 @@ export interface SaveInsightInput {
   answer: string
   model: string
   persona?: PersonaSelection | null
+  webSearch?: WebSearchMode
 }
 
 export interface UpdateInsightHistoryInput {
@@ -662,6 +700,7 @@ export interface UpdateInsightHistoryInput {
   id: string
   history: ArchivedChatMessage[]
   persona?: PersonaSelection | null
+  webSearch?: WebSearchMode
 }
 
 /** 临时会话中可持久化的一轮：流式中的轮次不入库，状态只保留已结束的两种。 */
@@ -692,6 +731,8 @@ export interface BookSessionRecord {
   draft: string
   turns: BookSessionTurn[]
   persona?: PersonaSelection | null
+  /** Absent in sessions saved before web search; read as 'off'. */
+  webSearch?: WebSearchMode
   updatedAt: string
 }
 
@@ -703,6 +744,7 @@ export interface SaveBookSessionInput {
   draft: string
   turns: BookSessionTurn[]
   persona?: PersonaSelection | null
+  webSearch?: WebSearchMode
 }
 
 export interface BookSessionSummary {
@@ -721,6 +763,8 @@ export interface SessionTabRecord {
   bookId: string
   insightId: string | null
   draft: string
+  /** Absent in tab lists saved before web search; read as 'off'. */
+  webSearch?: WebSearchMode
 }
 
 export interface SessionTabsState {
@@ -807,6 +851,8 @@ export interface ReaderApi {
   onBookAnalysisEvent(listener: (state: BookAnalysisState) => void): () => void
   startLlm(request: LlmRequest): Promise<void>
   cancelLlm(requestId: string): Promise<void>
+  /** Opens a recorded web source in the system browser; the main process re-checks the URL. */
+  openWebSource(input: { bookId: string; url: string }): Promise<boolean>
   onLlmEvent(listener: (event: LlmEvent) => void): () => void
   onBeforeClose(listener: () => void | Promise<void>): () => void
   minimizeWindow(): Promise<void>

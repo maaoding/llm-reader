@@ -131,6 +131,24 @@ const pdfImageRegionSchema = z.object({
 
 export const selectionSchema = z.union([textSelectionSchema, pdfImageRegionSchema])
 
+export const webSearchRecordSchema = z.object({
+  status: z.enum(['searched', 'skipped', 'failed', 'empty']),
+  query: z.string().max(400).optional(),
+  searchedAt: z.string().max(40).optional(),
+  elapsedMs: z.number().int().nonnegative().max(3_600_000).optional(),
+  reason: z.enum(['searched', 'not-needed', 'planning-failed', 'budget', 'configuration', 'timeout',
+    'rate-limit', 'authentication', 'server', 'http', 'redirect', 'too-large', 'invalid-response', 'network']),
+  sources: z.array(z.object({
+    id: z.string().regex(/^W\d+$/u),
+    title: z.string().max(500),
+    url: z.string().max(2_048),
+    excerpt: z.string().max(5_000)
+  }).strict()).max(5)
+}).strict().refine((record) => (record.status === 'searched' || record.sources.length === 0) &&
+  new Set(record.sources.map((source) => source.id)).size === record.sources.length &&
+  record.sources.every((source) => webSourceUrlSchema.safeParse(source.url).success) &&
+  record.sources.reduce((sum, source) => sum + Array.from(source.excerpt).length, 0) <= 5_000, copy('error.invalidInput'))
+
 export const contextSnapshotSchema = z.object({
   scope: z.enum(['selection', 'book']),
   bookId: idSchema,
@@ -145,6 +163,7 @@ export const contextSnapshotSchema = z.object({
     reason: z.enum(['ranked', 'disabled', 'not-ready', 'insufficient-candidates', 'configuration', 'timeout',
       'rate-limit', 'authentication', 'server', 'http', 'redirect', 'too-large', 'invalid-response', 'network'])
   }).strict().optional(),
+  webSearch: webSearchRecordSchema.optional(),
   planningUsage: z.object({
     promptTokens: z.number().int().nonnegative().optional(),
     completionTokens: z.number().int().nonnegative().optional(),
@@ -169,7 +188,8 @@ export const insightSchema = z
     question: z.string().max(20_000),
     answer: z.string().min(1).max(2_000_000),
     model: shortText(256),
-    persona: personaSelectionSchema.nullable().optional()
+    persona: personaSelectionSchema.nullable().optional(),
+    webSearch: z.enum(['off', 'auto']).optional()
   })
     .refine((insight) => (insight.selection ? insight.bookId === insight.selection.bookId : insight.context?.scope === 'book') &&
       (!insight.context || insight.context.bookId === insight.bookId), {
@@ -189,7 +209,8 @@ export const insightHistorySchema = z.object({
   bookId: idSchema,
   id: idSchema,
   history: z.array(archivedMessageSchema).min(2).max(200),
-  persona: personaSelectionSchema.nullable().optional()
+  persona: personaSelectionSchema.nullable().optional(),
+  webSearch: z.enum(['off', 'auto']).optional()
 }).refine((input) => input.history.every((message) => !message.context || message.context.bookId === input.bookId), {
   message: copy('validation.archiveHistory'), path: ['history']
 })
@@ -229,7 +250,8 @@ export const bookSessionSchema = z.object({
   selection: selectionSchema.nullable(),
   draft: z.string().max(2_000),
   turns: z.array(sessionTurnSchema).max(20),
-  persona: personaSelectionSchema.nullable().optional()
+  persona: personaSelectionSchema.nullable().optional(),
+  webSearch: z.enum(['off', 'auto']).optional()
 }).strict().refine((session) => (
   (session.scope === 'selection') === Boolean(session.selection)
   && (!session.selection || session.selection.bookId === session.bookId)
@@ -241,7 +263,8 @@ const sessionTabSchema = z.object({
   kind: z.enum(['live', 'archive']),
   bookId: idSchema,
   insightId: idSchema.nullable(),
-  draft: z.string().max(2_000)
+  draft: z.string().max(2_000),
+  webSearch: z.enum(['off', 'auto']).optional()
 }).strict()
 
 export const sessionTabsSchema = z.object({
@@ -318,6 +341,7 @@ const llmRequestBase = {
     action: z.enum(['explain', 'context', 'ask']),
     question: z.string().max(20_000),
     persona: z.string().trim().min(1).max(3_000).optional(),
+    webSearch: z.enum(['off', 'auto']).optional(),
     historyCandidateMessages: z.number().int().nonnegative().max(1_000_000).optional(),
     historyCandidateTruncated: z.boolean().optional(),
     history: z
@@ -342,10 +366,26 @@ export const llmRequestSchema = z.union([
 
 export const requestIdSchema = z.string().min(1).max(128).regex(/^[\w.-]+$/u)
 
+/** Only plain HTTP(S) addresses can be opened externally; the main process also re-checks recorded sources. */
+export const webSourceUrlSchema = z.string().trim().min(1).max(2_048).refine((value) => {
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+  } catch {
+    return false
+  }
+}, copy('error.invalidInput'))
+
+export const webSourceOpenSchema = z.object({ bookId: idSchema, url: webSourceUrlSchema }).strict()
+
 const knowledgeUrl = z.union([z.literal(''), providerBaseUrlSchema]).refine((value) => {
   if (!value) return true
-  const url = new URL(value)
-  return !url.search && !url.hash
+  try {
+    const url = new URL(value)
+    return !url.search && !url.hash
+  } catch {
+    return false
+  }
 }, copy('validation.endpoint'))
 const knowledgeKey = z.string().trim().min(1).max(10_000).regex(/^[^\r\n]+$/u).nullable().optional()
 const rerankSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
@@ -357,17 +397,23 @@ const documentSettingsSchema = z.object({ ...requestSettingsFields, protocol: z.
     ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
     .refine((value) => !(value.enabled ?? value.processor !== 'none') || value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl'))
     .refine((value) => !(value.enabled ?? value.processor !== 'none') || !['vision', 'mistral-ocr'].includes(value.processor) || Boolean(value.model), copy('vision.configRequired'))
+const webSearchSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl.refine((value) => !value || new URL(value).protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(new URL(value).hostname), copy('webSearch.required')), apiKey: knowledgeKey }).strict()
+  .refine((value) => !value.enabled || Boolean(value.baseUrl), copy('webSearch.required'))
 export const knowledgeSettingsSchema = z.object({
-  target: z.enum(['embedding', 'rerank', 'document']).optional(),
+  target: z.enum(['embedding', 'rerank', 'document', 'webSearch']).optional(),
   rerank: rerankSettingsSchema.optional(),
   embedding: embeddingSettingsSchema,
-  document: documentSettingsSchema
-}).strict().refine((value) => value.target !== 'rerank' || Boolean(value.rerank), copy('validation.rerank'))
+  document: documentSettingsSchema,
+  webSearch: webSearchSettingsSchema.optional()
+}).strict()
+  .refine((value) => value.target !== 'rerank' || Boolean(value.rerank), copy('validation.rerank'))
+  .refine((value) => value.target !== 'webSearch' || Boolean(value.webSearch), copy('webSearch.required'))
 // Accept old clients' extra fields, but pass only the tested service to the handler.
 export const testKnowledgeSettingsSchema = z.discriminatedUnion('target', [
   z.object({ target: z.literal('embedding'), embedding: embeddingSettingsSchema }),
   z.object({ target: z.literal('rerank'), rerank: rerankSettingsSchema.refine((value) => Boolean(value.baseUrl && value.model), copy('validation.rerank')) }),
-  z.object({ target: z.literal('document'), document: documentSettingsSchema.refine((value) => value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl')) })
+  z.object({ target: z.literal('document'), document: documentSettingsSchema.refine((value) => value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl')) }),
+  z.object({ target: z.literal('webSearch'), webSearch: webSearchSettingsSchema.refine((value) => Boolean(value.baseUrl), copy('webSearch.required')) })
 ])
 export const startSemanticIndexSchema = z.object({ bookId: idSchema, rebuild: z.boolean().optional() }).strict()
 export const prepareBookDocumentSchema = startSemanticIndexSchema

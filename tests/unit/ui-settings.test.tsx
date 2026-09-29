@@ -24,6 +24,7 @@ afterEach(() => { cleanup(); document.body.replaceChildren(); vi.restoreAllMocks
 const profile: ProviderProfile = { id: 'first', name: 'Reading', baseUrl: 'https://example.com/v1', model: 'model-1',
   hasApiKey: true, compatibility: 'auto', protocol: 'openai', isActive: false, createdAt: '1', updatedAt: '1' }
 const knowledge: KnowledgeSettings = {
+  webSearch: { enabled: false, baseUrl: 'https://api.tavily.com', hasApiKey: false },
   embedding: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
   rerank: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
   document: { enabled: false, processor: 'none', baseUrl: '', ocr: true, language: 'ch', hasApiKey: false }

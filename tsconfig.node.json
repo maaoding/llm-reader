@@ -26,6 +26,7 @@
     "scripts/document-structure-*.ts",
     "scripts/knowledge-hard-*.ts",
     "tests/e2e/**/*.ts",
-    "tests/unit/backend*.test.ts"
+    "tests/unit/backend*.test.ts",
+    "tests/unit/support/**/*.ts"
   ]
 }

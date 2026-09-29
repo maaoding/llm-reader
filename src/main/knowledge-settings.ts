@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { DocumentSettings, EmbeddingSettings, RerankSettings, KnowledgeSettings, SaveKnowledgeSettingsInput, RequestSettingsInput } from '@shared/contracts'
+import type { DocumentSettings, EmbeddingSettings, RerankSettings, KnowledgeSettings, SaveKnowledgeSettingsInput, RequestSettingsInput, WebSearchSettings } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { customHeadersSchema, publicRequestSettings } from '@shared/request-settings'
 import { AppDatabase } from './database'
@@ -7,15 +7,18 @@ import { AppError } from './errors'
 import type { KeyProtector } from './provider-service'
 import { knowledgeSettingsSchema } from './schemas'
 
-type Kind = 'embedding' | 'rerank' | 'document'
+type Kind = 'embedding' | 'rerank' | 'document' | 'webSearch'
 interface SettingRow { config_json: string; secret: Uint8Array | null; headers_secret: Uint8Array | null; revision: string }
 export type EmbeddingCredentials = EmbeddingSettings & { customHeaders?: Record<string, string>; apiKey: string; revision: string }
 export type RerankCredentials = RerankSettings & { customHeaders?: Record<string, string>; apiKey: string; revision: string }
 export type DocumentCredentials = DocumentSettings & { customHeaders?: Record<string, string>; apiKey: string; revision: string }
+export type WebSearchCredentials = WebSearchSettings & { customHeaders?: Record<string, string>; apiKey: string; revision: string }
+export const WEB_SEARCH_DEFAULT_BASE_URL = 'https://api.tavily.com'
 const defaults: KnowledgeSettings = {
   embedding: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
   rerank: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
-  document: { enabled: false, processor: 'none', baseUrl: '', ocr: true, language: 'ch', hasApiKey: false }
+  document: { enabled: false, processor: 'none', baseUrl: '', ocr: true, language: 'ch', hasApiKey: false },
+  webSearch: { enabled: false, baseUrl: WEB_SEARCH_DEFAULT_BASE_URL, hasApiKey: false }
 }
 
 export class KnowledgeSettingsService {
@@ -27,7 +30,7 @@ export class KnowledgeSettingsService {
   documentRevision(): string { return this.row('document')?.revision ?? '' }
   get(): KnowledgeSettings {
     const result = structuredClone(defaults)
-    for (const kind of ['embedding', 'rerank', 'document'] as const) {
+    for (const kind of ['embedding', 'rerank', 'document', 'webSearch'] as const) {
       const row = this.row(kind)
       if (row) {
         const config = JSON.parse(row.config_json) as Record<string, unknown>
@@ -75,11 +78,17 @@ export class KnowledgeSettingsService {
     return { ...this.requestSettings('rerank', value), enabled: value.enabled, baseUrl: normalizeUrl(value.baseUrl), model: value.model,
       apiKey: this.secret('rerank', value), revision: this.row('rerank')?.revision ?? '' }
   }
+  webSearch(draft?: NonNullable<SaveKnowledgeSettingsInput['webSearch']>): WebSearchCredentials {
+    const value = draft ?? this.get().webSearch
+    return { ...this.requestSettings('webSearch', value), enabled: value.enabled, baseUrl: normalizeUrl(value.baseUrl),
+      apiKey: this.secret('webSearch', value), revision: this.row('webSearch')?.revision ?? '' }
+  }
   save(raw: SaveKnowledgeSettingsInput): KnowledgeSettings {
     const input = knowledgeSettingsSchema.parse(raw)
-    const kinds: Kind[] = input.target ? [input.target] : input.rerank ? ['embedding', 'rerank', 'document'] : ['embedding', 'document']
+    const kinds: Kind[] = input.target ? [input.target] : ['embedding', 'document', ...(input.rerank ? ['rerank' as const] : []), ...(input.webSearch ? ['webSearch' as const] : [])]
     const rows = kinds.map((kind) => {
-      const value = kind === 'document' ? this.document(input.document) : kind === 'rerank' ? this.rerank(input.rerank) : this.embedding(input.embedding)
+      const value = kind === 'document' ? this.document(input.document) : kind === 'rerank' ? this.rerank(input.rerank)
+        : kind === 'webSearch' ? this.webSearch(input.webSearch!) : this.embedding(input.embedding)
       const { apiKey, customHeaders = {}, revision: previousRevision, ...config } = value
       const oldRow = this.row(kind)
       const previous = oldRow ? JSON.parse(oldRow.config_json) as Record<string, unknown> : {}

@@ -481,6 +481,14 @@ export class LibraryService {
     return this.database.listBooks()
   }
 
+  recordWebSources(bookId: string, urls: string[]): void {
+    this.database.recordWebSources(bookId, urls)
+  }
+
+  hasRecordedWebSource(bookId: string, url: string): boolean {
+    return this.database.hasRecordedWebSource(bookId, url)
+  }
+
   async deleteBook(bookId: string): Promise<boolean> {
     const stored = this.database.getStoredBook(bookId)
     if (!stored) return false

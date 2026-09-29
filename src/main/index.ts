@@ -18,6 +18,7 @@ import { UpdaterService } from './updater-service'
 import { createMainWindow, loadMainWindow } from './window'
 import { KnowledgeSettingsService } from './knowledge-settings'
 import { KnowledgeHttp } from './knowledge-http'
+import { WebSearchService } from './web-search-service'
 import { RerankService } from './rerank-service'
 import { SemanticIndexService } from './semantic-index'
 import { DocumentProcessingService } from './document-processing'
@@ -124,6 +125,7 @@ async function initialize(): Promise<void> {
   knowledge = new KnowledgeSettingsService(database, new ElectronKeyProtector())
   knowledgeHttp = new KnowledgeHttp(fetch, app.getVersion())
   analysis.rerank = new RerankService(knowledge, knowledgeHttp)
+  analysis.webSearch = new WebSearchService(knowledge, knowledgeHttp)
   semantic = new SemanticIndexService(analysis.store, knowledge, knowledgeHttp, () => llm?.isBusy ?? false)
   documents = new DocumentProcessingService(database, knowledge, knowledgeHttp, 2_000, () => llm?.isBusy ?? false)
   analysis.semantic = semantic
@@ -131,7 +133,7 @@ async function initialize(): Promise<void> {
   analysis.knowledge = knowledge
   semantic.onChange = (bookId) => analysis?.emit(bookId)
   extractor = new BookExtractionRunner(library, analysis)
-  llm.contextProvider = (request, credentials, signal) => analysis!.context(request, credentials, signal)
+  llm.contextProvider = (request, credentials, signal, progress) => analysis!.context(request, credentials, signal, progress)
 
   await installAppProtocol(join(__dirname, '../renderer'))
   const e2eImportPath = process.env.LLM_READER_E2E_IMPORT

@@ -3,6 +3,9 @@ import { isPdfImageRegion, type ReaderSource, type SelectionContext } from '@sha
 import { parseMarkdown, type AnswerInline, type MarkdownBlock } from './answer-markdown'
 import { citationSegments, withoutIncompleteCitationMarker } from './citations'
 import { MarkedText } from './MarkedText'
+import { WebCitation } from './WebSources'
+
+type CitationContext = Pick<SelectionContext, 'passages'> & { bookId: string; webSources: import('@shared/contracts').WebSearchSource[] }
 
 function TextContent({
   text,
@@ -11,11 +14,11 @@ function TextContent({
   highlight
 }: {
   text: string
-  selection: SelectionContext
+  selection: CitationContext
   onNavigate: ((anchor: string) => void) | null
   highlight: string
 }): ReactNode {
-  const segments = citationSegments(withoutIncompleteCitationMarker(text), selection.passages)
+  const segments = citationSegments(withoutIncompleteCitationMarker(text), selection.passages, selection.webSources)
   return segments.map((segment, index) => {
     if (segment.type === 'text') {
       return (
@@ -36,6 +39,7 @@ function TextContent({
         </span>
       )
     }
+    if (segment.type === 'web') return <WebCitation key={index} source={segment.source} bookId={selection.bookId} />
     if (onNavigate) {
       return (
         <button
@@ -70,7 +74,7 @@ function InlineContent({
   highlight
 }: {
   nodes: AnswerInline[]
-  selection: SelectionContext
+  selection: CitationContext
   onNavigate: ((anchor: string) => void) | null
   highlight: string
 }): ReactNode {
@@ -93,7 +97,7 @@ function BlockContent({
   highlight
 }: {
   block: MarkdownBlock
-  selection: SelectionContext
+  selection: CitationContext
   onNavigate: ((anchor: string) => void) | null
   highlight: string
 }): ReactNode {
@@ -158,7 +162,7 @@ export const AnswerText = memo(function AnswerText({
 }): ReactNode {
   const blocks = parseMarkdown(text)
   const navigate = readOnly ? null : (onNavigate ?? null)
-  const source = { passages: context?.passages ?? (selection && !isPdfImageRegion(selection) ? selection.passages : []) } as SelectionContext
+  const source: CitationContext = { passages: context?.passages ?? (selection && !isPdfImageRegion(selection) ? selection.passages : []), bookId: context?.bookId ?? selection?.bookId ?? '', webSources: context?.webSearch?.sources ?? [] }
   return (
     <div className="answer-text answer-md">
       {blocks.map((block, index) => (

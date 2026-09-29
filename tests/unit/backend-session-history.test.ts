@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { AppDatabase } from '../../src/main/database'
+import { removeWebSearchSchema } from './support/legacy-web-search'
 import type { BookSessionRecord } from '../../src/shared/contracts'
 
 function addBook(database: AppDatabase): string {
@@ -52,6 +53,7 @@ it('migrates the existing current conversation without losing its draft, answers
     const bookId = addBook(database)
     const record = { ...session(bookId, 1), turns: [{ id: randomUUID(), action: 'ask' as const, actionLabel: '提问', question: '旧问题', answer: '旧回答', model: 'fixture', status: 'completed' as const }] }
     database.upsertBookSession(record)
+    removeWebSearchSchema(database)
     database.connection.exec('DROP TABLE book_session_history; DROP TABLE ocr_page_previews; ALTER TABLE book_sessions DROP COLUMN persona_json; ALTER TABLE insights DROP COLUMN persona_json; DELETE FROM schema_migrations WHERE version >= 18')
     database.close(); database = new AppDatabase(join(root, 'reader.sqlite'))
     expect(database.getBookSession(bookId)).toEqual(record)

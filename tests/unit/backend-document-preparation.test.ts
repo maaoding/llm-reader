@@ -269,6 +269,7 @@ function downgradeDocumentTables(db: AppDatabase): void {
     CREATE TRIGGER book_blocks_delete AFTER DELETE ON book_blocks BEGIN DELETE FROM book_fts WHERE rowid = old.id; END;
     DROP TABLE book_documents;
     ALTER TABLE document_jobs DROP COLUMN raw_json; ALTER TABLE document_jobs DROP COLUMN structure_json;
+    DROP TABLE web_source_records; ALTER TABLE book_sessions DROP COLUMN web_search; ALTER TABLE book_session_history DROP COLUMN web_search; ALTER TABLE session_tabs DROP COLUMN web_search; ALTER TABLE insights DROP COLUMN web_search;
     ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; ALTER TABLE knowledge_settings DROP COLUMN headers_secret; DROP TABLE book_session_history; DROP TABLE ocr_page_previews; ALTER TABLE book_sessions DROP COLUMN persona_json; ALTER TABLE insights DROP COLUMN persona_json; DELETE FROM schema_migrations WHERE version >= 14;
   `)
 }

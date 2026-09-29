@@ -1,5 +1,5 @@
 import { isPageProcessor } from '@shared/request-settings'
-import { app, clipboard, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -15,6 +15,7 @@ import { UpdaterService } from './updater-service'
 import type { KnowledgeSettingsService } from './knowledge-settings'
 import type { KnowledgeHttp } from './knowledge-http'
 import { rerank } from './rerank-service'
+import { tavilySearch, WEB_SEARCH_TIMEOUT_MS } from './web-search-service'
 import { embed, type SemanticIndexService } from './semantic-index'
 import type { DocumentProcessingService } from './document-processing'
 import {
@@ -48,6 +49,7 @@ import {
   providerModelListSchema,
   providerProfileIdSchema,
   requestIdSchema,
+  webSourceOpenSchema,
   updateProviderProfileSchema
 } from './schemas'
 
@@ -122,6 +124,12 @@ function handle(
 }
 
 export function registerIpcHandlers(dependencies: IpcDependencies): void {
+  handle(IPC_CHANNELS.webSourceOpen, dependencies, async (_event, value) => {
+    const input = parse(webSourceOpenSchema, value)
+    if (!dependencies.library.hasRecordedWebSource(input.bookId, input.url)) throw new AppError('INVALID_INPUT', copy('webSearch.openDenied'))
+    await shell.openExternal(input.url)
+    return true
+  })
   handle(IPC_CHANNELS.clipboardWriteText, dependencies, (_event, value) => clipboard.writeText(parse(clipboardTextSchema, value)))
   handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
   handle(IPC_CHANNELS.appUpdatePhase, dependencies, () => dependencies.updater.getPhase())
@@ -274,15 +282,16 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
       const input = parse(testKnowledgeSettingsSchema, value)
       const vision = input.target === 'document' && isPageProcessor(input.document.processor)
       const timeoutMs = input.target === 'embedding' ? input.embedding.timeoutMs :
-        input.target === 'rerank' ? input.rerank.timeoutMs : input.document.timeoutMs
-      const signal = AbortSignal.timeout(timeoutMs ?? (vision ? 90_000 : 20_000))
+        input.target === 'rerank' ? input.rerank.timeoutMs : input.target === 'webSearch' ? input.webSearch.timeoutMs : input.document.timeoutMs
+      const signal = AbortSignal.timeout(timeoutMs ?? (input.target === 'webSearch' ? WEB_SEARCH_TIMEOUT_MS : vision ? 90_000 : 20_000))
       if (input.target === 'embedding') await embed(dependencies.knowledgeHttp!, knowledge.embedding(input.embedding), ['这是用于检查语义检索接口的固定测试文本。'], signal)
       else if (input.target === 'rerank') await rerank(dependencies.knowledgeHttp!, knowledge.rerank(input.rerank), '雨天出门应该带什么？', [
         { id: 'test-a', text: '下雨时出门可以带雨伞。', chapterTitle: '固定测试文本', anchor: 'test:0' },
         { id: 'test-b', text: '晴天可以观察蓝色的天空。', chapterTitle: '固定测试文本', anchor: 'test:1' }
       ], signal)
+      else if (input.target === 'webSearch') await tavilySearch(dependencies.knowledgeHttp!, knowledge.webSearch(input.webSearch), 'Tavily search API', signal)
       else await dependencies.documents!.test(knowledge.document(input.document), signal)
-      return { ok: true, message: copy(vision ? 'vision.testOk' : input.target === 'embedding' ? 'knowledge.testOk' : input.target === 'rerank' ? 'rerank.testOk' : 'knowledge.documentTestOk') }
+      return { ok: true, message: copy(vision ? 'vision.testOk' : input.target === 'embedding' ? 'knowledge.testOk' : input.target === 'rerank' ? 'rerank.testOk' : input.target === 'webSearch' ? 'webSearch.testOk' : 'knowledge.documentTestOk') }
     })
     handle(IPC_CHANNELS.semanticStart, dependencies, (_event, value) => {
       const input = parse(startSemanticIndexSchema, value)
@@ -325,6 +334,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
       throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     }
     const emit = (llmEvent: LlmEvent): void => {
+      if (llmEvent.type === 'context' && llmEvent.context.webSearch?.sources.length) {
+        dependencies.library.recordWebSources(llmEvent.context.bookId, llmEvent.context.webSearch.sources.map((source) => source.url))
+      }
       if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.llmEvent, llmEvent)
     }
     dependencies.llm.start(request, emit)
