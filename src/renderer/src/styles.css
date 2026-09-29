@@ -260,7 +260,7 @@
 .workspace-shell .settings-section h4 { font-size: 17px; }
 .workspace-shell .settings-section input:not([type="checkbox"]):not([type="range"]), .workspace-shell .settings-section select { font-size: calc(var(--ui-text-size) * var(--interface-scale)); min-height: 38px; }
 .workspace-shell :is(.field-hint, .settings-section small, .provider-hint, .empty-state p, .answer-footer, .source-card-header, .question-bubble > span, .toast, .insight-meta, .analysis-failures small, .about-info-row, .book-detail-row dt) { font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
-.workspace-shell :is(.field-label, .settings-nav button, .settings-section label, .secondary-button, .primary-button, .text-button, .assistant-session-tab-select, .assistant-insights-toggle, .insights-toolbar button, .insights-search input) { font-size: calc(var(--ui-label-size) * var(--interface-scale)); }
+.workspace-shell :is(.field-label, .settings-nav button, .settings-section label, .secondary-button, .primary-button, .text-button, .assistant-session-tab-select, .insights-toolbar button, .insights-search input) { font-size: calc(var(--ui-label-size) * var(--interface-scale)); }
 .workspace-shell .primary-button, .workspace-shell .analysis-actions .primary-button { min-height: 36px; padding: 8px 14px; background: var(--ui-accent); color: var(--accent-contrast); border: 1px solid var(--ui-accent); border-radius: var(--radius-md); display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .workspace-shell .secondary-button { min-height: 36px; padding: 8px 12px; border-radius: var(--radius-md); display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
 .workspace-shell .format-chip { font-size: 12px; border-radius: var(--radius-sm); }
@@ -3769,46 +3769,6 @@ button.citation-valid:hover {
 .assistant-session-tab-close:hover {
   color: var(--ink);
   background: var(--accent-soft);
-}
-
-.assistant-insights-toggle {
-  display: inline-flex;
-  min-height: calc(29px * var(--interface-scale));
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  padding: 0 11px;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  font-size: var(--assistant-meta-size);
-  font-weight: 650;
-}
-
-.assistant-insights-toggle:hover {
-  color: var(--ink-soft);
-  background: var(--accent-soft);
-}
-
-.assistant-insights-toggle[aria-selected="true"] {
-  color: var(--ink);
-  background: var(--panel-solid);
-  border-color: var(--line);
-  box-shadow: var(--shadow-sm);
-}
-
-.assistant-insights-toggle span {
-  display: grid;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  place-items: center;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 8px;
-  font-size: var(--assistant-aux-size);
 }
 
 .assistant-dialog-empty {

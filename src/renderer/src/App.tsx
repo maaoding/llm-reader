@@ -2508,7 +2508,6 @@ export default function App(): ReactNode {
   const assistantDialogOpen = page === 'conversation' || page === 'archives'
   const assistantDialogView: AssistantDialogView = page === 'archives' ? 'insights' : 'conversation'
   const setAssistantDialogOpen = useCallback((open: boolean) => setPage(open ? 'conversation' : 'reading'), [])
-  const setAssistantDialogView = useCallback((view: AssistantDialogView) => setPage(view === 'insights' ? 'archives' : 'conversation'), [])
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [providerOverview, setProviderOverview] = useState<ProviderOverview>(EMPTY_PROVIDER_OVERVIEW)
@@ -4793,7 +4792,6 @@ export default function App(): ReactNode {
             <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => {
               if (sidebarTab) focusConversationTab(sidebarTab.id)
               else if (activeBook) focusConversationTab(ensureLiveTab(activeBook))
-              setAssistantDialogView('conversation')
               setAssistantDialogOpen(true)
             }}><Maximize2 size={17} /></button>
           </div>
@@ -4933,16 +4931,6 @@ export default function App(): ReactNode {
                   <button className="assistant-session-clear" data-testid="conversation-clear" type="button" onClick={() => setPendingClearSession(true)}>{copy('assistant.clearSession')}</button>
                 )
               )}
-              <button
-                className="assistant-insights-toggle"
-                data-testid="assistant-dialog-tab-insights"
-                type="button"
-                role="tab"
-                aria-selected={assistantDialogView === 'insights'}
-                onClick={() => setAssistantDialogView('insights')}
-              >
-                {copy('assistant.tabInsights')}{insights.length > 0 && <span>{insights.length}</span>}
-              </button>
             </nav>
             <div className="assistant-dialog-body">
               {assistantDialogView === 'insights' ? (

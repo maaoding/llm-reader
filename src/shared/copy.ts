@@ -436,7 +436,6 @@ export const COPY_KEYS = [
   'about.updateDownloadedHint',
   'assistant.title',
   'assistant.viewsAria',
-  'assistant.tabInsights',
   'assistant.tabCurrent',
   'assistant.closeTab',
   'assistant.emptyTitle',

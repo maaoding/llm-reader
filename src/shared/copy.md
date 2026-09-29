@@ -353,7 +353,6 @@
 | --- | --- |
 | assistant.title | 阅读助手 |
 | assistant.viewsAria | 阅读助手视图 |
-| assistant.tabInsights | 问答集 |
 | assistant.tabCurrent | 当前对话 |
 | assistant.closeTab | 关闭会话标签 |
 | assistant.emptyTitle | 选中原文，开始理解 |

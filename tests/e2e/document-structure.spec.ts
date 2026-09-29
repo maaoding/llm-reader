@@ -169,7 +169,7 @@ test('PDF source ranges navigate both pages, return and survive archived followu
     await expect(page.getByTestId('document-status')).toHaveText('原文已就绪')
     await hidePreparation(page); await showAssistant(page)
     await page.getByTestId('assistant-expand-button').click()
-    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await page.getByTestId('nav-archives').click()
     const exportPath = join(workspace.root, '跨页来源归档.md')
     await application.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, exportPath)
     await page.getByTestId('insight-export').click()

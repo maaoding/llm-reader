@@ -169,7 +169,7 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     const bookOneTab = page.locator('.assistant-session-tab-select').filter({ hasText: '理解一个复杂概念' })
     await expect(bookOneTab).toHaveCount(1)
     await expect(page.locator('.assistant-session-tab-select').filter({ hasText: 'complex-reading' })).toHaveCount(0)
-    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await page.getByTestId('nav-archives').click()
     await expect(page.getByTestId('insight-item')).toHaveCount(2)
     const firstInsight = page.getByTestId('insight-item').filter({ hasText: '这是第一本书的归档回答。' })
     const secondInsight = page.getByTestId('insight-item').filter({ hasText: '这是第二本书的归档回答。' })
@@ -274,7 +274,7 @@ test('keeps two archive tabs independent and closes the active one back to curre
     await page.getByTestId('answer-save').click()
 
     await page.getByTestId('assistant-expand-button').click()
-    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await page.getByTestId('nav-archives').click()
     await expect(page.getByTestId('insight-item')).toHaveCount(2)
 
     const firstInsight = page.getByTestId('insight-item').filter({ hasText: '这是第一本书的归档回答。' })
@@ -295,7 +295,7 @@ test('keeps two archive tabs independent and closes the active one back to curre
     await expect(followup).toHaveValue('阅读页继续输入')
     await followup.fill('第一份未发送草稿')
 
-    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await page.getByTestId('nav-archives').click()
     await secondInsight.locator('.insight-content').click()
     await expect(followup).toHaveValue('')
     await followup.fill('第二份未发送草稿')

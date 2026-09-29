@@ -67,7 +67,8 @@ async function configureAndAsk(page: Page): Promise<string> {
 async function openInsightsWorkspace(page: Page): Promise<void> {
   await page.getByTestId('assistant-expand-button').click()
   await expect(page.getByTestId('assistant-dialog')).toBeVisible()
-  await page.getByTestId('assistant-dialog-tab-insights').click()
+  await expect(page.getByTestId('assistant-dialog-tab-insights')).toHaveCount(0)
+  await page.getByTestId('nav-archives').click()
 }
 
 test.beforeEach(() => {
@@ -199,7 +200,7 @@ test('renders assistant markdown without breaking citation navigation', async ()
     }
     await page.getByTestId('answer-save').click()
     await openInsightsWorkspace(page)
-    await expect(page.getByTestId('assistant-dialog-tab-insights')).toContainText('问答集')
+    await expect(page.getByTestId('nav-archives')).toContainText('问答集')
 
     const insight = page.getByTestId('insight-item')
     await expect(insight.locator('.answer-text h3')).toHaveText('解释')
@@ -220,7 +221,7 @@ test('renders assistant markdown without breaking citation navigation', async ()
 
     await insight.locator('.insight-content').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
-    await expect(page.getByTestId('assistant-dialog-tab-insights')).toBeVisible()
+    await expect(page.getByTestId('nav-archives')).toBeVisible()
     await expect(page.getByTestId('answer-current')).toBeVisible()
     await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('mock-assistant-markdown')
     await expect(page.locator('.question-bubble')).toContainText(defaultPrompt)
@@ -366,7 +367,7 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     await restoredPage.getByTestId('assistant-session-tab').filter({ hasText: '当前对话' }).click()
     await expect(restoredPage.locator('.conversation-turn')).toHaveCount(1)
     await expect(restoredPage.locator('.conversation-turn').first()).toContainText('要点甲')
-    await restoredPage.getByTestId('assistant-dialog-tab-insights').click()
+    await restoredPage.getByTestId('nav-archives').click()
     await restoredPage.getByTestId('insight-item').locator('.insight-content').click()
     await expect(restoredPage.getByTestId('assistant-dialog')).toBeVisible()
     await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(3)

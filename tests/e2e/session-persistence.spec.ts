@@ -134,11 +134,11 @@ test('restores open archive tabs with their drafts and the active tab', async ()
     }
 
     await page.getByTestId('assistant-expand-button').click()
-    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await page.getByTestId('nav-archives').click()
     await expect(page.getByTestId('insight-item')).toHaveCount(2)
     await page.getByTestId('insight-item').nth(0).locator('.insight-content').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
-    await page.getByTestId('assistant-dialog-tab-insights').click()
+    await page.getByTestId('nav-archives').click()
     await page.getByTestId('insight-item').nth(1).locator('.insight-content').click()
     await expect(page.getByTestId('assistant-session-tab')).toHaveCount(3)
     const dialogDraft = '.assistant-dialog [data-testid="followup-input"]'

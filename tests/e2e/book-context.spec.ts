@@ -269,7 +269,7 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
         expect(answers.at(-1)?.sessionId).not.toBe(saved.conversationId)
         expect(answers.at(-1)?.context.passages.some((passage) => passage.text.includes(definition))).toBe(true)
         await page.getByTestId('assistant-expand-button').click()
-        await page.getByTestId('assistant-dialog-tab-insights').click()
+        await page.getByTestId('nav-archives').click()
         await page.getByTestId('insight-item').locator('.insight-content').click()
         await ask(page, '归档追问：书中如何定义从众？')
         expect(answers.at(-1)?.sessionId).toBe(saved.conversationId)
@@ -282,7 +282,7 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
         page = restarted.page
         await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
         await page.getByTestId('assistant-expand-button').click()
-        await page.getByTestId('assistant-dialog-tab-insights').click()
+        await page.getByTestId('nav-archives').click()
         const exportPath = join(workspace.root, '全书归档.md')
         await application.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, exportPath)
         await page.getByTestId('insight-export').click()

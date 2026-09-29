@@ -67,7 +67,7 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
     }, [mobiPath, azw3Path, mobiPath])
 
     await page.getByTestId('import-book').click()
-    await expect(page.locator('.format-chip')).toHaveText('MOBI', { timeout: 120_000 })
+    await expect(page.locator('.workspace-bookbar .format-chip')).toHaveText('MOBI', { timeout: 120_000 })
     await expect(page.locator('.reader-surface')).toHaveClass(/is-ready/, { timeout: 120_000 })
     expect((await page.evaluate(() => window.readerApi.listBooks()))[0].sourceFormat).toBe('mobi')
     await showContents(page)
@@ -75,7 +75,7 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
 
     await page.getByTestId('nav-library').click()
     await page.getByTestId('import-book').click()
-    await expect(page.locator('.format-chip')).toHaveText('AZW3', { timeout: 120_000 })
+    await expect(page.locator('.workspace-bookbar .format-chip')).toHaveText('AZW3', { timeout: 120_000 })
     await expect(page.locator('.reader-surface')).toHaveClass(/is-ready/, { timeout: 120_000 })
     await expect.poll(() => page.evaluate(() => window.readerApi.listBooks().then((books) => books.length))).toBe(2)
     await showContents(page)
@@ -92,7 +92,7 @@ test('imports real no-DRM MOBI/AZW3 through local Calibre and keeps their source
     }
     await page.getByTestId('book-details-close').click()
     await page.getByTestId('import-book').click()
-    await expect(page.locator('.format-chip')).toHaveText('MOBI', { timeout: 120_000 })
+    await expect(page.locator('.workspace-bookbar .format-chip')).toHaveText('MOBI', { timeout: 120_000 })
     await expect(page.locator('.reader-surface')).toHaveClass(/is-ready/, { timeout: 120_000 })
     expect(await page.evaluate(() => window.readerApi.listBooks().then((books) => books.length))).toBe(2)
     await expect(page.getByText('这本书已在书库中，已为你打开。')).toBeVisible()
