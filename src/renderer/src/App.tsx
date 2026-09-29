@@ -104,6 +104,7 @@ import { BookNotesView } from './BookNotesView'
 import { bookTabPage, readWorkspaceState, saveWorkspaceState, type BookTabState, type WorkspacePage } from './workspace-state'
 import { KnowledgeSettings } from './KnowledgeSettings'
 import { useBookAnalysis } from './use-book-analysis'
+import { FOCUSABLE, useDialogFocus } from './use-dialog-focus'
 import { EvidenceSources } from './EvidenceSources'
 import { BookCoverCache, observeBookCoverVisibility } from './book-cover-cache'
 import InsightsView from './InsightsView'
@@ -534,47 +535,6 @@ function readPaperThemePreference(): PaperThemePreference {
   } catch {
     return 'default'
   }
-}
-
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject<HTMLElement | null>, returnRef: RefObject<HTMLElement | null>): void {
-  useEffect(() => {
-    if (!open) return undefined
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : returnRef.current
-    const returnTarget = returnRef.current ?? previous
-    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus()
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-        return
-      }
-      if (event.key !== 'Tab' || !dialogRef.current) return
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE))
-        .filter((element) => !element.closest('[hidden]') && element.getClientRects().length > 0)
-      if (!focusable.length) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      const activeElement = document.activeElement
-      if (!dialogRef.current.contains(activeElement)) {
-        event.preventDefault()
-        const boundaryTarget = event.shiftKey ? last : first
-        boundaryTarget.focus()
-      } else if (event.shiftKey && activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      returnTarget?.focus()
-    }
-  }, [dialogRef, onClose, open, returnRef])
 }
 
 function PdfSelectionReviewDialog({ draft }: { draft: ReaderSelectionDraft }): ReactNode {
@@ -1652,7 +1612,7 @@ function AboutPanel(): ReactNode {
   )
 }
 
-function SettingsModal({
+export function SettingsModal({
   initialOverview,
   initialSection,
   initialService,
@@ -1717,7 +1677,7 @@ function SettingsModal({
   const [keyDirty, setKeyDirty] = useState(false)
   const [knowledgeDirty, setKnowledgeDirty] = useState(false)
   const [personaDirty, setPersonaDirty] = useState(false)
-  const [busy, setBusy] = useState<'save' | 'test' | 'models' | 'activate' | 'delete' | null>(null)
+  const [busy, setBusy] = useState<'save' | 'save-and-use' | 'test' | 'models' | 'activate' | 'delete' | null>(null)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
   const [modelStatus, setModelStatus] = useState<{ ok: boolean; message: string } | null>(null)
   const [modelOptions, setModelOptions] = useState<string[]>([])
@@ -1859,8 +1819,11 @@ function SettingsModal({
 
   const handleSave = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
-    if (requestInvalid) return
-    setBusy('save')
+    if (requestInvalid || busy) return
+    const submitter = (event.nativeEvent as SubmitEvent).submitter
+    const useAfterSave = submitter instanceof HTMLButtonElement && submitter.value === 'save-and-use'
+    let savedSuccessfully = false
+    setBusy(useAfterSave ? 'save-and-use' : 'save')
     setStatus(null)
     try {
       const key = keyRef.current?.value.trim()
@@ -1876,11 +1839,13 @@ function SettingsModal({
       const next = selectedProfileId
         ? await window.readerApi.updateProviderProfile({ id: selectedProfileId, ...input })
         : await window.readerApi.createProviderProfile(input)
+      const saved = selectedProfileId
+        ? next.profiles.find((profile) => profile.id === selectedProfileId)
+        : next.profiles.find((profile) => !previousIds.has(profile.id))
+      savedSuccessfully = true
+      onOverviewChange(next, Boolean(saved?.isActive))
       if (mountedRef.current) {
         setOverview(next)
-        const saved = selectedProfileId
-          ? next.profiles.find((profile) => profile.id === selectedProfileId)
-          : next.profiles.find((profile) => !previousIds.has(profile.id))
         if (saved) {
           if (!selectedProfileId) {
             const cached = modelCacheRef.current.get(cacheKey(null))
@@ -1888,13 +1853,26 @@ function SettingsModal({
           }
           loadProfile(saved)
         }
-        onOverviewChange(next, Boolean(saved?.isActive))
+      }
+      if (useAfterSave && saved) {
+        if (mountedRef.current) setBusy('activate')
+        const activated = await window.readerApi.activateProviderProfile(saved.id)
+        onOverviewChange(activated, true)
+        if (mountedRef.current) {
+          setOverview(activated)
+          const current = activated.profiles.find((profile) => profile.id === saved.id)
+          if (current) loadProfile(current)
+        }
+        pushToast(copy('settings.savedAndActivatedToast'), 'success')
+      } else {
         pushToast(copy('settings.savedToast'), 'success')
       }
     } catch (error) {
+      const reason = readableError(error, copy('settings.saveFailed'))
+      const message = savedSuccessfully && useAfterSave ? copy('settings.savedActivationFailed', { reason }) : reason
       if (mountedRef.current) {
-        setStatus({ ok: false, message: readableError(error, copy('settings.saveFailed')) })
-      }
+        setStatus({ ok: false, message })
+      } else pushToast(message, 'error')
     } finally {
       if (mountedRef.current) setBusy(null)
     }
@@ -2029,13 +2007,11 @@ function SettingsModal({
                 aria-controls={`settings-panel-${section.id}`}
                 onClick={() => {
                   if (section.id === activeSection) return
-                  if (activeSection === 'persona' && personaDirty && !window.confirm(copy('persona.discardChanges'))) return
-                  setPersonaDirty(false)
                   setActiveSection(section.id)
                 }}
               >
                 {section.icon}{section.label}
-                {(section.id === 'knowledge' && knowledgeDirty || section.id === 'model' && dirty) &&
+                {(section.id === 'knowledge' && knowledgeDirty || section.id === 'model' && dirty || section.id === 'persona' && personaDirty) &&
                   <span className="settings-nav-pending" aria-label={copy('knowledge.pending')} title={copy('knowledge.pending')}>•</span>}
               </button>
             ))}
@@ -2090,6 +2066,7 @@ function SettingsModal({
               <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onPaperThemePreferenceChange('default'); onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }) }}>{copy('settings.restoreDefaults')}</button>
             </div>
             <p className="field-hint">{copy('settings.immediateHint')}</p>
+            <p className="field-hint">{copy('settings.readingScopeHint')}</p>
             <label className="settings-range" htmlFor="reading-font-scale">
               <span><strong>{copy('settings.fontLabel')}</strong><output>{readingPreferences.fontScale}%</output></span>
               <input
@@ -2188,16 +2165,13 @@ function SettingsModal({
               </section>
             )}
 
-            {activeSection === 'persona' && (
-              <section className="settings-section" id="settings-panel-persona" role="tabpanel" aria-labelledby="settings-tab-persona">
+            <section className="settings-section" id="settings-panel-persona" role="tabpanel" aria-labelledby="settings-tab-persona" hidden={activeSection !== 'persona'}>
                 <h3>{copy('persona.title')}</h3>
                 <PersonaSettingsPanel settings={personaSettings} onChange={onPersonaSettingsChange}
                   onError={() => pushToast(copy('persona.saveFailed'), 'error')}
                   onSaved={() => pushToast(copy('persona.saved'), 'success')} onDirtyChange={setPersonaDirty} />
               </section>
-            )}
 
-            {/* 关于保持在常驻的模型区块之前，避免吃到 .settings-section 的分组上边框 */}
             {activeSection === 'about' && <AboutPanel />}
             <KnowledgeSettings hidden={activeSection !== 'knowledge'} onDirty={setKnowledgeDirty} initialService={initialService} />
 
@@ -2290,6 +2264,7 @@ function SettingsModal({
                     value={baseUrl}
                     onChange={(event) => {
                       setBaseUrl(event.target.value)
+                      setStatus(null)
                       resetSecretInput()
                       setRequestSettings({ ...requestSettings, customHeaders: undefined }); setRequestInvalid(false)
                       modelCacheRef.current.delete(cacheKey(selectedProfileId))
@@ -2382,7 +2357,7 @@ function SettingsModal({
                   <fieldset disabled={busy !== null} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
                     <RequestSettingsEditor key={selectedProfileId + ':' + requestEditorRevision + ':' + baseUrl + ':' + protocol} id="provider" value={requestSettings}
                       savedHeaders={selectedProfile?.hasCustomHeaders && selectedProfile.baseUrl === baseUrl && (selectedProfile.protocol ?? 'openai') === protocol}
-                      onInvalidChange={setRequestInvalid} onChange={(settings) => {
+                      onInvalidChange={(invalid) => { setRequestInvalid(invalid); if (invalid) setStatus(null) }} onChange={(settings) => {
                         setRequestSettings(settings); setStatus(null); setModelOptions([]); setModelStatus(null)
                         modelCacheRef.current.delete(cacheKey(selectedProfileId))
                       }} />
@@ -2402,20 +2377,22 @@ function SettingsModal({
                       disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
                       onClick={() => void handleTest('stream')}>{copy('settings.testStream')}</button>
                     <button
-                      className="secondary-button"
+                      className={selectedProfile?.isActive ? 'secondary-button' : 'primary-button'}
                       data-testid="provider-activate"
-                      type="button"
-                      disabled={busy !== null || !selectedProfile || dirty || (!selectedProfile.hasApiKey && !selectedProfile.hasCustomHeaders) || selectedProfile.isActive}
-                      onClick={handleActivate}
+                      type={!selectedProfile?.isActive && (!selectedProfile || dirty) ? 'submit' : 'button'}
+                      name="action"
+                      value="save-and-use"
+                      disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim() || selectedProfile?.isActive}
+                      onClick={selectedProfile && !dirty ? handleActivate : undefined}
                     >
-                      {busy === 'activate' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
-                      {selectedProfile?.isActive ? copy('settings.activeProfile') : copy('settings.setActive')}
+                      {busy === 'activate' || busy === 'save-and-use' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
+                      {selectedProfile?.isActive ? copy('settings.activeProfile') : !selectedProfile || dirty ? copy('settings.saveAndUse') : copy('settings.setActive')}
                     </button>
                     <button
-                      className="primary-button"
+                      className={selectedProfile?.isActive ? 'primary-button' : 'secondary-button'}
                       data-testid="provider-save"
                       type="submit"
-                      disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim()}
+                      disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim() || Boolean(selectedProfile && !dirty)}
                     >
                       {busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
                       {copy('settings.save')}

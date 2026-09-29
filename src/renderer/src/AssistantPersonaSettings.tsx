@@ -51,6 +51,7 @@ export function PersonaSettingsPanel({ settings, onChange, onError, onSaved, onD
 
   return <div className="persona-settings" data-testid="persona-settings">
     <p className="settings-section-hint">{copy('persona.hint')}</p>
+    <div className="persona-default-group">
     <label className="field-label" htmlFor="persona-default">{copy('persona.default')}</label>
     <select id="persona-default" data-testid="persona-default" value={settings.defaultId ?? ''} onChange={(event) => {
       if (!onChange({ ...settings, defaultId: event.target.value || null })) onError()
@@ -58,7 +59,13 @@ export function PersonaSettingsPanel({ settings, onChange, onError, onSaved, onD
       <option value="">{copy('persona.none')}</option>
       {settings.presets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
     </select>
-    <label className="field-label" htmlFor="persona-preset">{copy('persona.title')}</label>
+    <p className="field-hint">{copy('persona.defaultHint')}</p>
+    </div>
+    <div className="persona-library">
+    <h4>{copy('persona.manage')}</h4>
+    <p className="field-hint">{copy('persona.manageHint')}</p>
+    {dirty && <p className="field-hint" data-testid="persona-dirty-hint">{copy('settings.unsavedHint')}</p>}
+    <label className="field-label" htmlFor="persona-preset">{copy('persona.preset')}</label>
     <select id="persona-preset" data-testid="persona-preset" value={selectedId ?? ''} onChange={(event) => select(event.target.value || null)}>
       {!selectedId && <option value="">{copy('persona.new')}</option>}
       {settings.presets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -80,6 +87,7 @@ export function PersonaSettingsPanel({ settings, onChange, onError, onSaved, onD
       <p className="field-hint">{copy('persona.promptHint')}</p>
       <button type="submit" className="primary-button" data-testid="persona-save" disabled={!dirty && Boolean(selected) || !selected && settings.presets.length >= MAX_PERSONAS}>{copy('persona.save')}</button>
     </form>
+    </div>
   </div>
 }
 

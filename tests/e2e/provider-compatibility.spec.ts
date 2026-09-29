@@ -107,7 +107,7 @@ test('Go proxy drafts, profile switching and persisted settings work in both the
         await page.getByTestId('provider-compatibility').selectOption('opencode-go')
         await page.getByTestId('provider-test').click()
         await expect(page.getByTestId('provider-status')).toContainText('文本测试通过')
-        await page.getByTestId('provider-save').click()
+        await expect(page.getByTestId('provider-save')).toBeDisabled()
         await expect(page.getByTestId('provider-dirty-hint')).toHaveCount(0)
         await expect(page.getByTestId('provider-save')).toBeVisible()
         await page.screenshot({ path: test.info().outputPath(`go-settings-${theme}-${width}-actions.png`) })
