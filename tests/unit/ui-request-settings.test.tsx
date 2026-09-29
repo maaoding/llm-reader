@@ -132,8 +132,8 @@ it('keeps the saved status visible during edits and only removes saved headers o
   const view = setup({ enabled: true, baseUrl: 'https://example.com/v1', model: 'vectors', hasApiKey: false, hasCustomHeaders: true })
   await view.findByTestId('embedding-headers')
   fireEvent.change(view.getByTestId('embedding-model'), { target: { value: 'new-vectors' } })
-  expect(view.container.querySelector('[data-service="embedding"] > summary')?.textContent).toContain('已启用')
-  expect(view.container.querySelector('[data-service="embedding"] > summary')?.textContent).toContain('有未保存的修改')
+  expect(view.container.querySelector('[data-service="embedding"] > header')?.textContent).toContain('已启用')
+  expect(view.container.querySelector('[data-service="embedding"] > header')?.textContent).toContain('有未保存的修改')
   fireEvent.click(view.getByTestId('embedding-clear-headers'))
   expect(view.getByText(/保存当前配置后移除请求头/u)).toBeTruthy()
   expect(view.save).not.toHaveBeenCalled()
@@ -143,4 +143,50 @@ it('keeps the saved status visible during edits and only removes saved headers o
   fireEvent.click(view.getByTestId('embedding-save'))
   await waitFor(() => expect(view.save).toHaveBeenCalledWith(expect.objectContaining({ target: 'embedding', embedding: expect.objectContaining({ customHeaders: null, model: 'new-vectors' }) })))
   await waitFor(() => expect(view.queryByTestId('embedding-clear-headers')).toBeNull())
+})
+
+it('shows the latest failed test after saving or toggling and invalidates it after editing', async () => {
+  const view = setup({ enabled: true, baseUrl: 'https://example.com/v1', model: 'vectors', hasApiKey: false })
+  fireEvent.change(await view.findByTestId('embedding-model'), { target: { value: 'vectors-2' } })
+  fireEvent.click(view.getByTestId('embedding-save'))
+  await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toBe('此项配置已保存。'))
+  view.test.mockResolvedValueOnce({ ok: false, message: 'HTTP 401' })
+  fireEvent.click(view.getByTestId('embedding-test'))
+  await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toBe('HTTP 401'))
+  expect(view.getByTestId('knowledge-embedding-status').className).toContain('is-error-text')
+  fireEvent.click(view.getByTestId('embedding-enabled'))
+  await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toContain('已关闭'))
+  view.test.mockRejectedValueOnce(new Error('service unavailable'))
+  fireEvent.click(view.getByTestId('embedding-test'))
+  await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toContain('service unavailable'))
+  fireEvent.change(view.getByTestId('embedding-body'), { target: { value: '{broken' } })
+  expect(view.getByTestId('knowledge-embedding-status').textContent).toContain('请重新测试')
+  expect(view.container.querySelector('[data-service="embedding"] > header')?.textContent).toContain('有未保存的修改')
+})
+
+it('labels an in-progress save separately from a connection test', async () => {
+  const view = setup({ enabled: true, baseUrl: 'https://example.com/v1', model: 'vectors', hasApiKey: false })
+  fireEvent.change(await view.findByTestId('embedding-model'), { target: { value: 'vectors-2' } })
+  let finish!: () => void
+  const pending = new Promise<void>((resolve) => { finish = resolve })
+  const save = view.save.getMockImplementation()!
+  view.save.mockImplementationOnce(async (input) => { await pending; return save(input) })
+  fireEvent.click(view.getByTestId('embedding-save'))
+  expect(view.getByTestId('knowledge-embedding-status').textContent).toBe('正在保存…')
+  finish()
+  await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toBe('此项配置已保存。'))
+})
+
+it('starts with compact cards ordered by preparation, while switches stay available outside the details', async () => {
+  const view = setup({ enabled: true, baseUrl: 'https://example.com/v1', model: 'vectors', hasApiKey: false })
+  await view.findByTestId('embedding-enabled')
+  expect(Array.from(view.container.querySelectorAll('[data-service]'), (card) => card.getAttribute('data-service'))).toEqual(['document', 'embedding', 'rerank'])
+  for (const kind of ['document', 'embedding', 'rerank']) {
+    expect((view.getByTestId(`${kind}-config`) as HTMLDetailsElement).open).toBe(false)
+    expect(view.getByTestId(`${kind}-enabled`).closest('details')).toBeNull()
+  }
+  fireEvent.click(view.getByTestId('embedding-enabled'))
+  await waitFor(() => expect(view.save).toHaveBeenCalledOnce())
+  expect((view.getByTestId('embedding-config') as HTMLDetailsElement).open).toBe(false)
+  expect(view.getByTestId('knowledge-embedding-status').closest('details')).toBeNull()
 })

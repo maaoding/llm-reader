@@ -166,6 +166,7 @@ test('vision settings recognize scanned PDF images and support cited, archived q
     await showLibrary(page); await expect(page.getByTestId('book-item')).toBeVisible()
     await page.getByTestId('settings-button').click()
     await page.getByTestId('settings-nav-knowledge').click()
+    await page.getByTestId('document-config').locator('summary').first().click()
     await page.getByTestId('document-processor').selectOption('vision')
     await page.getByTestId('document-url').fill(endpoint)
     await page.getByTestId('document-model').fill('vision-fixture')

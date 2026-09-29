@@ -87,6 +87,10 @@
 | persona.title | 助手设定 |
 | persona.hint | 为阅读问答设置角色和表达方式。每个新会话复制当时的默认设定，已有会话可单独切换。 |
 | persona.default | 新会话默认设定 |
+| persona.defaultHint | 选择后立即保存，仅影响之后新建的会话。已有会话保留自己的设定。 |
+| persona.manage | 管理人设 |
+| persona.manageHint | 编辑名称和提示词后点击“保存人设”；保存不会自动将它设为默认。 |
+| persona.preset | 正在编辑的人设 |
 | persona.none | 不使用自定义设定 |
 | persona.new | 新建人设 |
 | persona.duplicate | 复制人设 |
@@ -129,12 +133,17 @@
 | --- | --- |
 | knowledge.title | 阅读增强 |
 | knowledge.description | 三项服务可分别配置和保存。开关使用已保存的配置立即生效；测试不会保存，也不会开始处理书籍。 |
-| knowledge.configureBeforeEnable | 首次使用请填写下方配置，再点击“保存并启用”。 |
+| knowledge.configureBeforeEnable | 首次使用请展开“配置详情”，填写后点击“保存并启用”。 |
 | knowledge.unconfigured | 未配置 |
 | knowledge.active | 已启用 |
 | knowledge.inactive | 已关闭 |
 | knowledge.pending | 有未保存的修改 |
 | knowledge.details | 配置详情 |
+| knowledge.saving | 正在保存… |
+| knowledge.changing | 正在更新开关… |
+| knowledge.embeddingSummary | 按意思查找相关原文；启用后需为每本书建立索引。 |
+| knowledge.documentSummary | 为 PDF 问答准备可检索的原文；启用后仍需在“本书准备”中手动启动。 |
+| rerank.summary | 提问时优先挑选更相关的原文，服务失败时沿用原有顺序。 |
 | knowledge.saveService | 保存配置 |
 | knowledge.saveAndEnable | 保存并启用 |
 | knowledge.savedAndEnabled | 配置已保存并启用。 |
@@ -460,7 +469,8 @@
 | settings.assistantTitle | 划词操作 |
 | settings.assistantHint | 自定义划词按钮的名称和固定提示词，修改后立即保存，从下一次划词操作开始使用。选区与当前章节上下文仍会一并发送。 |
 | settings.immediateHint | 修改后立即保存并生效。 |
-| settings.modelSaveHint | 修改接口或模型后请保存。保存当前使用的配置会影响后续请求；测试当前输入不会保存或切换配置。 |
+| settings.modelSaveHint | “保存配置”保留当前输入，“保存并使用”同时切换后续请求使用的模型。修改当前使用的配置后，保存即生效；测试不会保存或切换配置。 |
+| settings.readingScopeHint | 字体、字号与段落排版适用于 EPUB、TXT 等可重排正文，不改变 PDF 原始页面。PDF 缩放与显示方式请在阅读页的“PDF 工具”中调整。 |
 | settings.assistantExplainName | “解释”按钮名称 |
 | settings.assistantExplainPrompt | “解释”按钮提示词 |
 | settings.assistantContextName | “联系上下文”按钮名称 |
@@ -515,7 +525,7 @@
 | settings.setActive | 设为当前 |
 | settings.profileLimit | 最多保存 10 套配置。 |
 | settings.newProfilePlaceholder | 新配置（未保存） |
-| settings.unsavedHint | 有未保存的修改，切换或关闭前请先保存。 |
+| settings.unsavedHint | 有未保存的修改。切换栏目会保留草稿，关闭前请保存。 |
 | settings.discardChanges | 当前修改尚未保存，确定放弃吗？ |
 | settings.deleteProfileQuestion | 确定删除配置“{name}”及其密钥吗？ |
 | settings.baseUrlLabel | 接口地址 |
@@ -583,7 +593,10 @@
 | settings.testStream | 测试流式回复 |
 | provider.testStreamConnected | 流式测试通过：已收到文本和结束标记。 |
 | provider.testStreamUnsupported | 未收到流式回复。请检查接口是否支持流式输出，或先测试文本回复。 |
-| settings.save | 保存设置 |
+| settings.save | 保存配置 |
+| settings.saveAndUse | 保存并使用 |
+| settings.savedAndActivatedToast | 模型配置已保存并设为当前 |
+| settings.savedActivationFailed | 配置已保存，但未能设为当前：{reason} |
 | settings.savedToast | 模型设置已安全保存 |
 | settings.profileActivatedToast | 已切换当前模型配置 |
 | settings.profileDeletedToast | 已删除配置“{name}” |

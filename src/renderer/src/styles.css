@@ -179,8 +179,11 @@
 .persona-session-editor { display: grid; flex-basis: 100%; gap: 6px; padding: 9px; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-panel); }
 .persona-session-editor :is(input, textarea) { width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-surface); color: var(--ui-ink); resize: vertical; }
 .persona-session-editor button { justify-self: start; }
-.persona-settings, .persona-form { display: grid; gap: 10px; }
-.persona-settings > select, .persona-form > :is(input, textarea) { min-width: 0; width: 100%; padding: 8px 10px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink); }
+.persona-settings, .persona-form, .persona-default-group, .persona-library { display: grid; gap: 10px; }
+.persona-default-group { padding: 14px; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-surface); }
+.persona-library { padding-top: 10px; }
+.persona-library > h4, .persona-settings .field-hint { margin: 0; }
+.persona-settings select, .persona-form > :is(input, textarea) { min-width: 0; width: 100%; padding: 8px 10px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink); }
 .persona-form > textarea { resize: vertical; line-height: 1.5; }
 .persona-form > button { justify-self: start; }
 .persona-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -262,10 +265,13 @@
 .workspace-shell .secondary-button { min-height: 36px; padding: 8px 12px; border-radius: var(--radius-md); display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
 .workspace-shell .format-chip { font-size: 12px; border-radius: var(--radius-sm); }
 .knowledge-service-card { margin-bottom: 18px; padding: 16px; border: 1px solid var(--ui-line); border-radius: var(--radius-lg); background: var(--ui-surface); }
-.knowledge-service-card > summary { cursor: pointer; font-size: 16px; color: var(--ui-ink); }
-.knowledge-service-summary { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
-.knowledge-service-summary small { font-size: 12px; color: var(--ui-ink-soft); }
-.knowledge-service-summary .knowledge-details-label { margin-left: auto; }
+.knowledge-service-heading { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.knowledge-settings .knowledge-service-heading h4 { margin: 0; }
+.knowledge-service-heading small { color: var(--ui-accent); }
+.knowledge-service-state { margin-left: auto; font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); color: var(--ui-ink-soft); }
+.knowledge-service-details { padding-top: 10px; border-top: 1px solid var(--ui-line); }
+.knowledge-service-details > summary { cursor: pointer; font-weight: 600; color: var(--ui-ink); }
+.knowledge-service-details[open] > summary { margin-bottom: 12px; }
 .knowledge-service-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 4px; }
 .settings-nav-pending { margin-left: auto; color: var(--accent); font-size: 18px; line-height: 0; }
 .workspace-shell[data-pdf-display="false"] .pdf-toolbar { display: none; }
@@ -3199,13 +3205,24 @@ button.citation-valid:hover {
 }
 
 .settings-modal .knowledge-checkbox input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
   padding: 0;
-  flex: 0 0 16px;
+  flex: 0 0 34px;
   margin: 0;
-  accent-color: var(--accent);
+  border: 1px solid var(--ui-ink-soft);
+  border-radius: 12px;
+  background: var(--ui-panel);
+  cursor: pointer;
 }
+
+.settings-modal .knowledge-checkbox input[type="checkbox"]::before { content: ''; position: absolute; left: 3px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--ui-ink-soft); }
+.settings-modal .knowledge-checkbox input[type="checkbox"]:checked { border-color: var(--ui-accent); background: var(--ui-accent); }
+.settings-modal .knowledge-checkbox input[type="checkbox"]:checked::before { transform: translateX(14px); background: var(--accent-contrast); }
+.settings-modal .knowledge-checkbox input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
+.settings-modal .knowledge-checkbox input[type="checkbox"]:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
 
 .knowledge-settings select + button {
   margin-top: 12px;
@@ -3220,6 +3237,8 @@ button.citation-valid:hover {
   padding-top: 0;
   border-top: 0;
 }
+
+.settings-panel > .settings-section { border-top: 0; }
 
 .settings-section h3 {
   margin: 0 0 9px;

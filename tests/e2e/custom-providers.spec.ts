@@ -66,9 +66,9 @@ test('Claude settings use draft headers, support header-only authentication and 
     expect(await page.evaluate(() => window.readerApi.getProviderOverview().then((value) => value.profiles))).toHaveLength(0)
     await page.getByTestId('provider-models-fetch').click()
     await expect(page.locator('#provider-model-options option')).toHaveCount(1)
-    await page.getByTestId('provider-save').click()
-    await expect(page.getByTestId('provider-dirty-hint')).toHaveCount(0)
+    await expect(page.getByTestId('provider-activate')).toContainText('保存并使用')
     await page.getByTestId('provider-activate').click()
+    await expect(page.getByTestId('provider-dirty-hint')).toHaveCount(0)
     await expect(page.getByTestId('provider-connection-status')).toHaveAttribute('aria-label', 'API 连接正常')
     expect(JSON.stringify(await page.evaluate(() => window.readerApi.getProviderOverview()))).not.toContain('header-only-fixture')
     launched = await restartReader(application, { userData: workspace.userData }); application = launched.application; page = launched.page
@@ -98,6 +98,7 @@ for (const processor of ['mistral-ocr', 'unstructured'] as const) {
       application = launched.application; let page = launched.page
       await showLibrary(page); await expect(page.getByTestId('book-item')).toBeVisible()
       await page.getByTestId('settings-button').click(); await page.getByTestId('settings-nav-knowledge').click()
+      await page.getByTestId('document-config').locator('summary').first().click()
       await page.getByTestId('document-processor').selectOption(processor)
       await page.getByTestId('document-url').fill(processor === 'mistral-ocr' ? `${endpoint}/mistral/v1` : `${endpoint}/partition/general/v0/general`)
       await page.locator('#document-key').fill('document-fixture')
