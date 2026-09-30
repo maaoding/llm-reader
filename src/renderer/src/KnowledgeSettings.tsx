@@ -1,3 +1,4 @@
+import { Select } from './Select'
 import { useEffect, useRef, useState } from 'react'
 import type { DocumentProcessor, KnowledgeSettings as Settings, SaveKnowledgeSettingsInput, TestKnowledgeSettingsInput } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -164,7 +165,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
         <details className="knowledge-service-details" data-testid="document-config"><summary>{copy('knowledge.details')}</summary>
         <p className="field-hint">{copy('knowledge.documentStartHint')}</p>
         <label className="field-label" htmlFor="document-processor">{copy('knowledge.processor')}</label>
-        <select id="document-processor" data-testid="document-processor" value={draft.document.processor}
+        <Select id="document-processor" data-testid="document-processor" value={draft.document.processor}
           onChange={(event) => {
             const processor = event.target.value as DocumentProcessor
             update({ ...draft, document: { ...draft.document, processor, apiKey: undefined, customHeaders: undefined, extraBody: undefined, protocol: undefined,
@@ -173,7 +174,7 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
           }}>
           <option value="none" disabled>{copy('knowledge.none')}</option>
           {(['mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured'] as const).map((value) => <option key={value} value={value}>{copy(processorCopy[value])}</option>)}
-        </select>
+        </Select>
         <p className="field-hint">{copy('knowledge.processorGuide')}</p>
         <p className="field-hint">{copy(draft.document.processor === 'vision' ? 'vision.hint' : isPageProcessor(draft.document.processor) ? 'request.pageHint' : 'knowledge.documentHint')}</p>
         {draft.document.processor === 'unstructured' && <p className="field-hint">{copy('request.partitionHint')}</p>}
@@ -188,13 +189,13 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
           </>}
           {draft.document.processor === 'vision' && <>
             <label className="field-label" htmlFor="document-protocol">{copy('request.protocol')}</label>
-            <select id="document-protocol" data-testid="document-protocol" value={draft.document.protocol ?? 'openai'} onChange={(event) => update({ ...draft, document: { ...draft.document, protocol: event.target.value as 'openai' | 'anthropic', apiKey: undefined, customHeaders: undefined } })}>
+            <Select id="document-protocol" data-testid="document-protocol" value={draft.document.protocol ?? 'openai'} onChange={(event) => update({ ...draft, document: { ...draft.document, protocol: event.target.value as 'openai' | 'anthropic', apiKey: undefined, customHeaders: undefined } })}>
               <option value="openai">{copy('request.openai')}</option><option value="anthropic">{copy('request.anthropic')}</option>
-            </select>
+            </Select>
             <label className="field-label" htmlFor="document-compatibility">{copy('settings.compatibilityLabel')}</label>
-            <select id="document-compatibility" value={draft.document.compatibility ?? 'auto'} onChange={(event) => update({ ...draft, document: { ...draft.document, compatibility: event.target.value as 'auto' | 'opencode-go' } })}>
+            <Select id="document-compatibility" value={draft.document.compatibility ?? 'auto'} onChange={(event) => update({ ...draft, document: { ...draft.document, compatibility: event.target.value as 'auto' | 'opencode-go' } })}>
               <option value="auto">{copy('settings.compatibilityAuto')}</option><option value="opencode-go">{copy('settings.compatibilityGo')}</option>
-            </select>
+            </Select>
             <p className="field-hint">{copy('settings.compatibilityHint')}</p>
           </>}
           <label className="field-label" htmlFor="document-key">{copy('knowledge.apiKey')}</label>
@@ -209,17 +210,17 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
           {draft.document.apiKey === null && <p className="field-hint">{copy('knowledge.clearPending')}</p>}
           {!isPageProcessor(draft.document.processor) ? <>
             <label className="field-label" htmlFor="document-ocr">{copy('knowledge.extractionMethod')}</label>
-            <select id="document-ocr" data-testid="document-ocr" value={draft.document.ocr ? 'ocr' : 'text'}
+            <Select id="document-ocr" data-testid="document-ocr" value={draft.document.ocr ? 'ocr' : 'text'}
               onChange={(event) => update({ ...draft, document: { ...draft.document, ocr: event.target.value === 'ocr' } })}>
               <option value="text">{copy('knowledge.extractText')}</option>
               <option value="ocr">{copy(draft.document.processor === 'docling' ? 'knowledge.doclingOcr' : 'knowledge.extractOcr')}</option>
-            </select>
+            </Select>
             <p className="field-hint">{copy('knowledge.extractionHint')}</p>
           </> : <p className="field-hint">{copy('knowledge.pageOcrOnly')}</p>}
           <label className="field-label" htmlFor="document-language">{copy('knowledge.language')}</label>
-          <select id="document-language" value={draft.document.language} onChange={(event) => update({ ...draft, document: { ...draft.document, language: event.target.value as 'ch' | 'en' } })}>
+          <Select id="document-language" value={draft.document.language} onChange={(event) => update({ ...draft, document: { ...draft.document, language: event.target.value as 'ch' | 'en' } })}>
             <option value="ch">{copy('knowledge.ch')}</option><option value="en">{copy('knowledge.en')}</option>
-          </select>
+          </Select>
         </>}
         {draft.document.processor !== 'none' && <RequestSettingsEditor key={editorRevision.document + '-document-' + draft.document.baseUrl + draft.document.processor + draft.document.protocol} id="document" value={draft.document}
           savedHeaders={saved.document.hasCustomHeaders && documentEndpointMatches}

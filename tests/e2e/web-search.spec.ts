@@ -200,7 +200,7 @@ test('prepared whole-book questions share one planner per round while cross-book
   const state = await launchFixture('reader-web-concurrent-')
   try {
     await configureSearch(state.page); await enterReading(state.page); await prepare(state.page)
-    await state.page.getByTestId('workspace-tab-conversation').click(); await state.page.getByTestId('scope-book').click()
+    await state.page.getByTestId('workspace-tab-conversation').click(); await state.page.getByTestId('composer-scope').selectOption('book')
     await expect(state.page.getByTestId('web-search-mode')).toHaveValue('auto')
     holdSearch = true
     await state.page.getByTestId('followup-input').fill('第一本书最新外部例证'); await state.page.getByTestId('followup-input').press('Enter')
@@ -214,7 +214,7 @@ test('prepared whole-book questions share one planner per round while cross-book
     const books = await state.page.evaluate(() => window.readerApi.listBooks())
     const secondBook = books.find((book) => book.originalName === '另一本.txt')!
     await state.page.locator(`[data-testid="book-item"][data-book-id="${secondBook.id}"]`).click(); await enterReading(state.page); await prepare(state.page)
-    await state.page.getByTestId('workspace-tab-conversation').click(); await state.page.getByTestId('scope-book').click()
+    await state.page.getByTestId('workspace-tab-conversation').click(); await state.page.getByTestId('composer-scope').selectOption('book')
     await state.page.getByTestId('followup-input').fill('第二本书最新外部例证'); await state.page.getByTestId('followup-input').press('Enter')
     await expect.poll(() => searches.length).toBe(2); expect(plans).toBe(2); expect(searches[0].query).not.toBe(searches[1].query)
     held.splice(0).forEach((release) => release()); holdSearch = false

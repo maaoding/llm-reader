@@ -104,6 +104,8 @@
 | persona.saveAs | 另存为人设 |
 | persona.custom | 本会话自定义 |
 | persona.select | 当前助手设定 |
+| persona.trigger | 助手：{name} |
+| persona.builtIn | 默认 |
 | persona.sessionHint | 修改从下一次提问或主动重新生成开始生效。 |
 | persona.saveFailed | 保存失败，请检查可用空间后重试。 |
 | persona.saved | 已保存助手设定。 |
@@ -578,6 +580,7 @@
 | settings.baseUrlHint | 应用会请求此地址下的 {path}。 |
 | settings.modelLabel | 模型名称 |
 | settings.modelPlaceholder | 例如 gpt-5-mini |
+| settings.modelSuggestions | 模型候选 |
 | settings.fetchModels | 获取模型 |
 | settings.fetchingModels | 正在获取模型 |
 | settings.modelsFetched | 已获取 {count} 个模型，可输入筛选或直接填写。 |

@@ -65,7 +65,7 @@ test('Claude settings use draft headers, support header-only authentication and 
     expect(JSON.parse(requests.at(-1)!.body)).toMatchObject({ max_tokens: 256, temperature: 0.2, stream: true })
     expect(await page.evaluate(() => window.readerApi.getProviderOverview().then((value) => value.profiles))).toHaveLength(0)
     await page.getByTestId('provider-models-fetch').click()
-    await expect(page.locator('#provider-model-options option')).toHaveCount(1)
+    await expect(page.locator('#provider-model-options [role="option"]')).toHaveCount(1)
     await expect(page.getByTestId('provider-activate')).toContainText('保存并使用')
     await page.getByTestId('provider-activate').click()
     await expect(page.getByTestId('provider-dirty-hint')).toHaveCount(0)

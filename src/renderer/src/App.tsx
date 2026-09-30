@@ -1,7 +1,9 @@
+import { Select } from './Select'
 import { RequestSettingsEditor } from './RequestSettingsEditor'
 import { PersonaSettingsPanel, PersonaSessionControl } from './AssistantPersonaSettings'
 import { defaultPersona, MAX_PERSONAS, persistPersonaSettings, personaFromPreset, readPersonaSettings } from './assistant-personas'
 import { RecentConversations } from './RecentConversations'
+import { ModelCombobox } from './ModelCombobox'
 import { QuestionBubble } from './QuestionBubble'
 import { providerIsConfigured, publicRequestSettings } from '@shared/request-settings'
 import type { RequestSettingsInput, ProviderProtocol } from '@shared/contracts'
@@ -104,7 +106,7 @@ import { BookNotesView } from './BookNotesView'
 import { bookTabPage, readWorkspaceState, saveWorkspaceState, type BookTabState, type WorkspacePage } from './workspace-state'
 import { KnowledgeSettings } from './KnowledgeSettings'
 import { useBookAnalysis } from './use-book-analysis'
-import { FOCUSABLE, useDialogFocus } from './use-dialog-focus'
+import { FOCUSABLE, isSelectPickerOpen, useDialogFocus } from './use-dialog-focus'
 import { EvidenceSources } from './EvidenceSources'
 import { WebSources } from './WebSources'
 import { BookCoverCache, observeBookCoverVisibility } from './book-cover-cache'
@@ -372,11 +374,11 @@ function AssistantActionIconPicker({
   return (
     <div className="assistant-icon-select">
       <label htmlFor={id}><AssistantActionIconView icon={value} size={14} /><span>{copy('settings.assistantIconLabel')}</span></label>
-      <select id={id} data-testid={id} value={value} onChange={(event) => onChange(event.target.value as AssistantActionIcon)}>
+      <Select id={id} data-testid={id} value={value} onChange={(event) => onChange(event.target.value as AssistantActionIcon)}>
         {ASSISTANT_ACTION_ICON_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
-      </select>
+      </Select>
     </div>
   )
 }
@@ -1207,11 +1209,11 @@ function AssistantScopeControls({ tab, busy, onScope }: { tab: ConversationTab; 
     ...(history.truncated ? [copy('assistant.contextTruncated')] : [])
   ].join(' · ') : ''
   return <div className="composer-scope-controls">
-    <span>{copy('analysis.scopeLabel')}</span>
-    <div className="analysis-scope" role="group" aria-label={copy('analysis.scopeLabel')}>
-      <button type="button" aria-pressed={tab.scope === 'selection'} disabled={busy} onClick={() => onScope('selection')}>{copy('analysis.selection')}</button>
-      <button type="button" data-testid="scope-book" aria-pressed={tab.scope === 'book'} disabled={busy} onClick={() => onScope('book')}>{copy('analysis.book')}</button>
-    </div>
+    <Select className="analysis-scope" data-testid="composer-scope" aria-label={copy('analysis.scopeLabel')} value={tab.scope} disabled={busy}
+      onChange={(event) => onScope(event.target.value as 'selection' | 'book')}>
+      <option value="selection">{copy('analysis.selection')}</option>
+      <option value="book">{copy('analysis.book')}</option>
+    </Select>
     {hint && <span className="assistant-context-hint" data-testid="assistant-context-hint" title={hint} aria-label={hint}>{hint}</span>}
   </div>
 }
@@ -1360,11 +1362,11 @@ function ConversationPane({
         </div>
       </div>
       <div className="assistant-composer">
-        {composerControls}
+        {composerControls && <div className="composer-toolbar">{composerControls}</div>}
         {blockedReason && <div className="composer-hint" role="status"><span>{blockedReason}</span>{onResolve && resolveLabel && <button type="button" className="text-button" onClick={(event) => onResolve(event.currentTarget)}>{resolveLabel}</button>}</div>}
         {activeRequestId && <button className="cancel-generation" data-testid="cancel-request" type="button" onClick={onCancel}><CircleStop size={14} />{copy('assistant.stop')}</button>}
-        <form onSubmit={onSubmit}>
-          <textarea data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} aria-label={copy('assistant.questionAria')} rows={2} maxLength={2000} />
+        <form className="assistant-question-form" onSubmit={onSubmit}>
+          <textarea className="assistant-question-input" data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} aria-label={copy('assistant.questionAria')} rows={2} maxLength={2000} />
           <button type="submit" aria-label={copy('assistant.sendAria')} disabled={!canAsk || !draft.trim()}><Send size={16} /></button>
         </form>
       </div>
@@ -2124,7 +2126,7 @@ export function SettingsModal({
             <div className="settings-select-grid">
               <label className="settings-select-full" htmlFor="reading-font-family">
                 <span>{copy('settings.fontFamilyLabel')}</span>
-                <select
+                <Select
                   id="reading-font-family"
                   data-testid="reading-font-family"
                   value={readingPreferences.fontFamily ?? ''}
@@ -2161,14 +2163,14 @@ export function SettingsModal({
                       )}
                     </>
                   )}
-                </select>
+                </Select>
                 <small className="settings-font-note">
                   {fontNote}
                 </small>
               </label>
               <label className="settings-select-full" htmlFor="reading-paper-theme">
                 <span>{copy('settings.paperTheme')}</span>
-                <select
+                <Select
                   id="reading-paper-theme"
                   data-testid="reading-paper-theme"
                   value={paperThemePreference}
@@ -2176,14 +2178,14 @@ export function SettingsModal({
                 >
                   <option value="default">{copy('settings.paperThemeDefault')}</option>
                   <option value="eye-care">{copy('settings.paperThemeEyeCare')}</option>
-                </select>
+                </Select>
                 <small className="settings-font-note">{copy('settings.paperThemeHint')}</small>
               </label>
-              <label htmlFor="reading-line-height"><span>{copy('settings.lineHeight')}</span><select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></select></label>
-              <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></select></label>
-              <label htmlFor="reading-content-width"><span>{copy('settings.contentWidth')}</span><select id="reading-content-width" data-testid="reading-content-width" value={readingPreferences.contentWidth} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, contentWidth: event.target.value as ReadingPreferences['contentWidth'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="narrow">{copy('settings.contentWidthNarrow')}</option><option value="standard">{copy('settings.contentWidthStandard')}</option><option value="wide">{copy('settings.contentWidthWide')}</option></select></label>
-              <label htmlFor="reading-paragraph-spacing"><span>{copy('settings.paragraphSpacing')}</span><select id="reading-paragraph-spacing" data-testid="reading-paragraph-spacing" value={readingPreferences.paragraphSpacing} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, paragraphSpacing: event.target.value as ReadingPreferences['paragraphSpacing'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="compact">{copy('settings.spacingCompact')}</option><option value="standard">{copy('settings.spacingStandard')}</option><option value="relaxed">{copy('settings.spacingRelaxed')}</option></select></label>
-              <label htmlFor="reading-text-align"><span>{copy('settings.textAlign')}</span><select id="reading-text-align" data-testid="reading-text-align" value={readingPreferences.textAlign} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, textAlign: event.target.value as ReadingTextAlign })}><option value="original">{copy('settings.followBookDefault')}</option><option value="justify">{copy('settings.textAlignJustify')}</option><option value="left">{copy('settings.textAlignLeft')}</option></select></label>
+              <label htmlFor="reading-line-height"><span>{copy('settings.lineHeight')}</span><Select id="reading-line-height" data-testid="reading-line-height" value={readingPreferences.lineHeight} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, lineHeight: event.target.value as ReadingPreferences['lineHeight'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="1.5">1.5</option><option value="1.7">1.7</option><option value="1.9">1.9</option></Select></label>
+              <label htmlFor="reading-indent"><span>{copy('settings.indent')}</span><Select id="reading-indent" data-testid="reading-indent" value={readingPreferences.indent} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, indent: event.target.value as ReadingPreferences['indent'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="none">{copy('settings.noIndent')}</option><option value="2em">2em</option></Select></label>
+              <label htmlFor="reading-content-width"><span>{copy('settings.contentWidth')}</span><Select id="reading-content-width" data-testid="reading-content-width" value={readingPreferences.contentWidth} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, contentWidth: event.target.value as ReadingPreferences['contentWidth'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="narrow">{copy('settings.contentWidthNarrow')}</option><option value="standard">{copy('settings.contentWidthStandard')}</option><option value="wide">{copy('settings.contentWidthWide')}</option></Select></label>
+              <label htmlFor="reading-paragraph-spacing"><span>{copy('settings.paragraphSpacing')}</span><Select id="reading-paragraph-spacing" data-testid="reading-paragraph-spacing" value={readingPreferences.paragraphSpacing} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, paragraphSpacing: event.target.value as ReadingPreferences['paragraphSpacing'] })}><option value="original">{copy('settings.followBookDefault')}</option><option value="compact">{copy('settings.spacingCompact')}</option><option value="standard">{copy('settings.spacingStandard')}</option><option value="relaxed">{copy('settings.spacingRelaxed')}</option></Select></label>
+              <label htmlFor="reading-text-align"><span>{copy('settings.textAlign')}</span><Select id="reading-text-align" data-testid="reading-text-align" value={readingPreferences.textAlign} onChange={(event) => onReadingPreferencesChange({ ...readingPreferences, textAlign: event.target.value as ReadingTextAlign })}><option value="original">{copy('settings.followBookDefault')}</option><option value="justify">{copy('settings.textAlignJustify')}</option><option value="left">{copy('settings.textAlignLeft')}</option></Select></label>
             </div>
               </section>
             )}
@@ -2228,7 +2230,7 @@ export function SettingsModal({
                   <div className="provider-profile-toolbar">
                     <div className="provider-profile-select">
                       <label className="field-label" htmlFor="provider-profile">{copy('settings.profileLabel')}</label>
-                      <select
+                      <Select
                         id="provider-profile"
                         data-testid="provider-profile"
                         value={selectedProfileId ?? ''}
@@ -2246,7 +2248,7 @@ export function SettingsModal({
                             {profile.name}{profile.isActive ? ` · ${copy('settings.activeProfile')}` : ''}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
                     <div className="provider-profile-actions">
                       <button
@@ -2285,7 +2287,7 @@ export function SettingsModal({
                   />
 
                   <label className="field-label" htmlFor="provider-protocol">{copy('request.protocol')}</label>
-                  <select id="provider-protocol" data-testid="provider-protocol" value={protocol} disabled={busy !== null}
+                  <Select id="provider-protocol" data-testid="provider-protocol" value={protocol} disabled={busy !== null}
                     onChange={(event) => {
                       const next = event.target.value as ProviderProtocol
                       setProtocol(next)
@@ -2296,7 +2298,7 @@ export function SettingsModal({
                       modelCacheRef.current.delete(cacheKey(selectedProfileId)); setModelOptions([]); setModelStatus(null); setStatus(null)
                     }}>
                     <option value="openai">{copy('request.openai')}</option><option value="anthropic">{copy('request.anthropic')}</option>
-                  </select>
+                  </Select>
                   <label className="field-label" htmlFor="provider-base-url">{copy('settings.baseUrlLabel')}</label>
                   <input
                     id="provider-base-url"
@@ -2319,7 +2321,7 @@ export function SettingsModal({
                   <p className="field-hint">{copy('settings.baseUrlHint', { path: protocol === 'anthropic' ? '/v1/messages' : '/v1/chat/completions' })}</p>
 
                   <label className="field-label" htmlFor="provider-compatibility">{copy('settings.compatibilityLabel')}</label>
-                  <select id="provider-compatibility" data-testid="provider-compatibility" value={compatibility} disabled={busy !== null}
+                  <Select id="provider-compatibility" data-testid="provider-compatibility" value={compatibility} disabled={busy !== null}
                     onChange={(event) => {
                       setCompatibility(event.target.value as ProviderCompatibility)
                       modelCacheRef.current.delete(cacheKey(selectedProfileId))
@@ -2329,7 +2331,7 @@ export function SettingsModal({
                     }}>
                     <option value="auto">{copy('settings.compatibilityAuto')}</option>
                     <option value="opencode-go">{copy('settings.compatibilityGo')}</option>
-                  </select>
+                  </Select>
                   <p className="field-hint">{copy('settings.compatibilityHint')}</p>
 
                   <div className="provider-model-heading">
@@ -2345,20 +2347,8 @@ export function SettingsModal({
                       {busy === 'models' ? copy('settings.fetchingModels') : copy('settings.fetchModels')}
                     </button>
                   </div>
-                  <input
-                    id="provider-model"
-                    data-testid="provider-model"
-                    list="provider-model-options"
-                    value={model}
-                    onChange={(event) => { setModel(event.target.value); setStatus(null) }}
-                    disabled={busy !== null}
-                    placeholder={copy('settings.modelPlaceholder')}
-                    spellCheck={false}
-                    required
-                  />
-                  <datalist id="provider-model-options">
-                    {modelOptions.map((option) => <option key={option} value={option} />)}
-                  </datalist>
+                  <ModelCombobox value={model} options={modelOptions} disabled={busy !== null}
+                    onChange={(value) => { setModel(value); setStatus(null) }} />
                   {modelStatus && (
                     <p className={`field-hint ${modelStatus.ok ? 'is-success-text' : 'is-error-text'}`} data-testid="provider-models-status" role="status">
                       {modelStatus.message}
@@ -3641,7 +3631,7 @@ export default function App(): ReactNode {
         openSearchView()
         return
       }
-      if (event.key === 'Escape' && !settingsOpen && !assistantDialogOpen && !detailsBook) {
+      if (event.key === 'Escape' && !isSelectPickerOpen(event.target) && !settingsOpen && !assistantDialogOpen && !detailsBook) {
         adapterRef.current?.clearSelection()
         setSelection(null)
       }
@@ -4304,7 +4294,7 @@ export default function App(): ReactNode {
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
   const webSearchControl = (tab: ConversationTab): ReactNode => <label className="web-search-control" title={copy(webSearchEnabled ? 'webSearch.modeHint' : 'webSearch.unavailable')}>
-    <select data-testid="web-search-mode" aria-label={copy('webSearch.modeLabel')} value={tab.webSearch}
+    <Select data-testid="web-search-mode" aria-label={copy('webSearch.modeLabel')} value={tab.webSearch}
       disabled={Boolean(streamingRequestId(tab)) || isPdfImageRegion(tab.selection) || changingSessions.includes(tab.id)}
       onChange={(event) => {
         const webSearch = event.target.value as 'off' | 'auto'
@@ -4312,7 +4302,7 @@ export default function App(): ReactNode {
         if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, tab.persona, webSearch)
       }}>
       <option value="off">{copy('webSearch.modeOff')}</option><option value="auto" disabled={!webSearchEnabled}>{copy('webSearch.modeAuto')}</option>
-    </select>
+    </Select>
   </label>
   const changeConversationScope = async (tab: ConversationTab, scope: 'selection' | 'book'): Promise<void> => {
     if (scope === tab.scope || tabHasActiveRequest(tab.id)) return

@@ -21,6 +21,8 @@ export const COPY_KEYS = [
   'persona.saveAs',
   'persona.custom',
   'persona.select',
+  'persona.trigger',
+  'persona.builtIn',
   'persona.sessionHint',
   'persona.saveFailed',
   'persona.saved',
@@ -646,6 +648,7 @@ export const COPY_KEYS = [
   'settings.baseUrlHint',
   'settings.modelLabel',
   'settings.modelPlaceholder',
+  'settings.modelSuggestions',
   'settings.fetchModels',
   'settings.fetchingModels',
   'settings.modelsFetched',
@@ -913,6 +916,7 @@ export type CopyKey = (typeof COPY_KEYS)[number]
 export type CopyValues = Readonly<Record<string, string | number>>
 
 export const COPY_PLACEHOLDERS = {
+  'persona.trigger': ['name'],
   'vision.previewPageRange': ['count'],
   'assistant.recentSessionTurns': ['count'],
   'request.headersExample': ['example'],

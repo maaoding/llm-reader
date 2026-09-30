@@ -2,6 +2,10 @@ import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
 export const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+export function isSelectPickerOpen(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest('select')?.matches(':open'))
+}
+
 export function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject<HTMLElement | null>, returnRef: RefObject<HTMLElement | null>): void {
   const closeRef = useRef(onClose)
   useLayoutEffect(() => { closeRef.current = onClose }, [onClose])
@@ -12,6 +16,8 @@ export function useDialogFocus(open: boolean, onClose: () => void, dialogRef: Re
     const returnTarget = returnRef.current ?? previous
     dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus()
     const onKeyDown = (event: KeyboardEvent): void => {
+      // 先交由展开的选择菜单处理 Escape / Tab，避免同时关闭外层弹窗。
+      if (isSelectPickerOpen(event.target)) return
       if (event.key === 'Escape') {
         event.preventDefault()
         closeRef.current()
@@ -19,7 +25,7 @@ export function useDialogFocus(open: boolean, onClose: () => void, dialogRef: Re
       }
       if (event.key !== 'Tab' || !dialogRef.current) return
       const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE))
-        .filter((element) => !element.closest('[hidden]') && element.getClientRects().length > 0)
+        .filter((element) => !element.closest('[hidden], [inert]') && element.getClientRects().length > 0)
       if (!focusable.length) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]

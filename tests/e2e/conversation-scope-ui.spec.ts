@@ -36,15 +36,13 @@ test('keeps the full conversation scope compact and shows only blocking context 
     await expect(scopeControls).toBeVisible()
     await expect(conversation.locator('.composer-hint')).toContainText('先设置模型服务')
     await expect(page.getByTestId('workspace-prepare')).toBeVisible()
-    const scopeLayout = await scopeControls.evaluate((element) => {
-      const label = element.querySelector('span')?.getBoundingClientRect()
-      const options = element.querySelector('.analysis-scope')?.getBoundingClientRect()
-      return label && options ? { gap: options.left - label.right, centerDelta: Math.abs((options.top + options.bottom - label.top - label.bottom) / 2) } : null
+    const scopeLayout = await conversation.locator('.composer-toolbar').evaluate((element) => {
+      const controls = [...element.querySelectorAll('[data-testid="composer-scope"], [data-testid="web-search-mode"], [data-testid="session-persona-trigger"]')]
+        .map((control) => control.getBoundingClientRect())
+      return { count: controls.length, centerDelta: Math.max(...controls.map((rect) => rect.top + rect.height / 2)) - Math.min(...controls.map((rect) => rect.top + rect.height / 2)) }
     })
-    expect(scopeLayout).not.toBeNull()
-    expect(scopeLayout!.gap).toBeGreaterThanOrEqual(0)
-    expect(scopeLayout!.gap).toBeLessThanOrEqual(16)
-    expect(scopeLayout!.centerDelta).toBeLessThanOrEqual(3)
+    expect(scopeLayout.count).toBe(3)
+    expect(scopeLayout.centerDelta).toBeLessThanOrEqual(3)
 
     await page.getByTestId('settings-button').click()
     await page.getByTestId('settings-nav-model').click()
@@ -73,12 +71,13 @@ test('keeps the full conversation scope compact and shows only blocking context 
         await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', theme)
         await expect(scopeControls).toBeInViewport()
         await expect(page.getByTestId('workspace-prepare')).toBeInViewport()
+        expect((await conversation.locator('.assistant-composer').boundingBox())!.height).toBeLessThanOrEqual(140)
         await page.screenshot({ path: test.info().outputPath(`conversation-scope-${width}-${theme}.png`), animations: 'disabled' })
       }
     }
 
-    await scopeControls.getByRole('button', { name: '选中内容' }).click()
-    await expect(scopeControls.getByRole('button', { name: '选中内容' })).toHaveAttribute('aria-pressed', 'true')
+    await scopeControls.getByTestId('composer-scope').selectOption('selection')
+    await expect(scopeControls.getByTestId('composer-scope')).toHaveValue('selection')
     await expect(conversation.locator('.composer-hint')).toContainText('尚未选中原文')
     await expect(conversation.locator('button[type="submit"]')).toBeDisabled()
     await page.getByTestId('workspace-tab-reading').click()
@@ -86,7 +85,7 @@ test('keeps the full conversation scope compact and shows only blocking context 
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
     await page.getByTestId('action-ask').click()
     await page.getByTestId('assistant-expand-button').click()
-    await expect(scopeControls.getByRole('button', { name: '选中内容' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(scopeControls.getByTestId('composer-scope')).toHaveValue('selection')
     await expect(conversation.locator('.composer-hint')).toHaveCount(0)
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)

@@ -1,0 +1,107 @@
+import { expect, test, type ElectronApplication } from '@playwright/test'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
+import { resizeWorkspace } from './support/workspace'
+
+test('keeps persona editing out of the composer and grows drafts without losing them between views', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-composer-')
+  let application: ElectronApplication | undefined
+  try {
+    const fixture = join(workspace.root, '紧凑助手.txt')
+    await writeFile(fixture, '第一章\n\n结合原文理解概念和论证。\n\n'.repeat(30), 'utf8')
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const page = launched.page
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    await page.getByTestId('book-item').click()
+    await resizeWorkspace(application, page, 940, 600)
+    const input = page.getByTestId('followup-input')
+    const trigger = page.getByTestId('session-persona-trigger')
+    const panel = page.getByTestId('session-persona-popover')
+    const composer = page.locator('.assistant-composer:visible')
+    const initialHeight = (await composer.boundingBox())!.height
+    await expect(trigger).toHaveText('助手：默认')
+    await expect(page.getByTestId('session-persona-edit')).toBeHidden()
+
+    // 打开和编辑均不改变底栏高度，Escape 返回入口，点击外部保留问题草稿。
+    await trigger.focus()
+    await trigger.press('Enter')
+    await expect(panel).toBeVisible()
+    await expect(page.getByTestId('session-persona')).toBeFocused()
+    await page.getByTestId('session-persona-edit').click()
+    const editor = page.getByTestId('session-persona-editor')
+    await expect(editor.getByRole('textbox', { name: '人设名称' })).toBeFocused()
+    expect((await composer.boundingBox())!.height).toBe(initialHeight)
+    await expect(panel).toBeInViewport()
+    await expect(page.getByTestId('session-persona-apply')).toBeInViewport()
+    await page.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await input.fill('待续的提问')
+    await trigger.click()
+    await input.click()
+    await expect(panel).toBeHidden()
+    await expect(input).toHaveValue('待续的提问')
+
+    // 长人设名保持单行；编辑、保存预设和恢复默认都通过同一浮层完成。
+    const longName = '关注证据与论证边界的阅读助手'.repeat(3)
+    await trigger.click()
+    await page.getByTestId('session-persona-edit').click()
+    await editor.getByRole('textbox', { name: '人设名称' }).fill(longName)
+    await editor.getByRole('textbox', { name: '提示词正文' }).fill('先核对原文，再解释概念。')
+    await page.getByTestId('session-persona-apply').click()
+    await expect(panel).toBeHidden()
+    await expect(trigger).toHaveAttribute('title', `助手：${longName}`)
+    expect((await composer.boundingBox())!.height).toBe(initialHeight)
+    await trigger.click()
+    await page.getByTestId('session-persona-save-as').click()
+    await expect(panel).toBeHidden()
+    await trigger.click()
+    const savedId = await page.getByTestId('session-persona').inputValue()
+    expect(savedId).not.toBe('custom')
+    expect(savedId).not.toBe('')
+    expect(await panel.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
+    await page.getByTestId('session-persona').click()
+    await expect.poll(() => page.getByTestId('session-persona').evaluate((element) => element.matches(':open'))).toBe(true)
+    await page.screenshot({ path: test.info().outputPath('nested-persona-menu.png'), scale: 'css', animations: 'disabled' })
+    await page.keyboard.press('Escape')
+    await expect(panel).toBeVisible()
+    await expect.poll(() => page.getByTestId('session-persona').evaluate((element) => element.matches(':open'))).toBe(false)
+    await page.getByTestId('session-persona').selectOption('')
+    await expect(trigger).toHaveText('助手：默认')
+    await trigger.click()
+    await page.getByTestId('session-persona').selectOption(savedId)
+    await expect(trigger).toHaveText(`助手：${longName}`)
+
+    await input.fill('短问题')
+    const shortHeight = (await input.boundingBox())!.height
+    const draft = '这段论证的条件是什么？\n'.repeat(20)
+    await input.fill(draft)
+    const tallHeight = (await input.boundingBox())!.height
+    expect(tallHeight).toBeGreaterThan(shortHeight + 30)
+    expect(tallHeight).toBeLessThanOrEqual(160)
+    expect(await input.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+    await page.getByTestId('assistant-expand-button').click()
+    await expect(input).toHaveValue(draft)
+    await expect(trigger).toHaveText(`助手：${longName}`)
+    await input.fill('短问题')
+    expect((await input.boundingBox())!.height).toBe(shortHeight)
+
+    for (const theme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: theme })
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', theme)
+      await expect(trigger).toBeInViewport()
+      await expect(page.getByTestId('web-search-mode')).toBeInViewport()
+      await page.screenshot({ path: test.info().outputPath(`compact-conversation-${theme}.png`), scale: 'css', animations: 'disabled' })
+      await trigger.click()
+      await page.getByTestId('session-persona-edit').click()
+      await expect(page.getByTestId('session-persona-apply')).toBeInViewport()
+      await page.screenshot({ path: test.info().outputPath(`persona-popover-${theme}.png`), scale: 'css', animations: 'disabled' })
+      await page.keyboard.press('Escape')
+    }
+    await page.getByTestId('workspace-tab-reading').click()
+    await expect(input).toHaveValue('短问题')
+    await page.screenshot({ path: test.info().outputPath('compact-sidebar.png'), scale: 'css', animations: 'disabled' })
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
+})

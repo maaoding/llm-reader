@@ -1,4 +1,6 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { Select } from './Select'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type { PersonaSelection, PersonaSettings } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { MAX_PERSONAS, MAX_PERSONA_NAME_LENGTH, MAX_PERSONA_PROMPT_LENGTH, personaFromPreset } from './assistant-personas'
@@ -53,12 +55,12 @@ export function PersonaSettingsPanel({ settings, onChange, onError, onSaved, onD
     <p className="settings-section-hint">{copy('persona.hint')}</p>
     <div className="persona-default-group">
     <label className="field-label" htmlFor="persona-default">{copy('persona.default')}</label>
-    <select id="persona-default" data-testid="persona-default" value={settings.defaultId ?? ''} onChange={(event) => {
+    <Select id="persona-default" data-testid="persona-default" value={settings.defaultId ?? ''} onChange={(event) => {
       if (!onChange({ ...settings, defaultId: event.target.value || null })) onError()
     }}>
       <option value="">{copy('persona.none')}</option>
       {settings.presets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-    </select>
+    </Select>
     <p className="field-hint">{copy('persona.defaultHint')}</p>
     </div>
     <div className="persona-library">
@@ -66,10 +68,10 @@ export function PersonaSettingsPanel({ settings, onChange, onError, onSaved, onD
     <p className="field-hint">{copy('persona.manageHint')}</p>
     {dirty && <p className="field-hint" data-testid="persona-dirty-hint">{copy('settings.unsavedHint')}</p>}
     <label className="field-label" htmlFor="persona-preset">{copy('persona.preset')}</label>
-    <select id="persona-preset" data-testid="persona-preset" value={selectedId ?? ''} onChange={(event) => select(event.target.value || null)}>
+    <Select id="persona-preset" data-testid="persona-preset" value={selectedId ?? ''} onChange={(event) => select(event.target.value || null)}>
       {!selectedId && <option value="">{copy('persona.new')}</option>}
       {settings.presets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-    </select>
+    </Select>
     <div className="persona-actions">
       <button type="button" className="secondary-button" data-testid="persona-new" disabled={settings.presets.length >= MAX_PERSONAS} onClick={() => select(null)}>{copy('persona.new')}</button>
       <button type="button" className="secondary-button" data-testid="persona-duplicate" disabled={!selected || settings.presets.length >= MAX_PERSONAS} onClick={() => {
@@ -99,38 +101,81 @@ interface PersonaSessionControlProps {
 }
 
 export function PersonaSessionControl({ persona, settings, onChange, onSaveAs }: PersonaSessionControlProps): ReactNode {
+  const [isOpen, setIsOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const selectRef = useRef<HTMLSelectElement>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const panelId = useId()
   const current = settings.presets.find((preset) => preset.id === persona?.presetId && preset.name === persona.name && preset.prompt === persona.prompt)
   const value = persona ? current?.id ?? 'custom' : ''
+  const label = copy('persona.trigger', { name: persona?.name ?? copy('persona.builtIn') })
   const beginEdit = (): void => { setName(persona?.name ?? copy('persona.custom')); setPrompt(persona?.prompt ?? ''); setEditing(true) }
+  const close = (): void => { panelRef.current?.hidePopover(); triggerRef.current?.focus() }
+
+  useLayoutEffect(() => {
+    const trigger = triggerRef.current, panel = panelRef.current
+    if (!isOpen || !trigger || !panel) return
+    // 原生浮层进入顶层，避免被完整对话页裁切；始终靠近入口并留在窗口内。
+    const place = (): void => {
+      const rect = trigger.getBoundingClientRect()
+      panel.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12))}px`
+      panel.style.bottom = `${window.innerHeight - rect.top + 8}px`
+      panel.style.maxHeight = `${Math.max(0, rect.top - 20)}px`
+    }
+    place()
+    ;(editing ? nameRef.current : selectRef.current)?.focus({ preventScroll: true })
+    const observer = new ResizeObserver(place)
+    observer.observe(trigger)
+    const composer = trigger.closest('.assistant-composer')
+    if (composer) observer.observe(composer)
+    window.addEventListener('resize', place)
+    return () => { observer.disconnect(); window.removeEventListener('resize', place) }
+  }, [isOpen, editing])
 
   return <div className="persona-session" data-testid="persona-session">
-    <label htmlFor="session-persona">{copy('persona.select')}</label>
-    <select id="session-persona" data-testid="session-persona" value={value} onChange={(event) => {
-      if (event.target.value === 'custom') return
-      const preset = settings.presets.find((item) => item.id === event.target.value)
-      onChange(preset ? personaFromPreset(preset) : null)
-      setEditing(false)
-    }}>
-      <option value="">{copy('persona.none')}</option>
-      {settings.presets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-      {persona && !current && <option value="custom">{persona.name} · {copy('persona.custom')}</option>}
-    </select>
-    <button type="button" className="text-button" data-testid="session-persona-edit" onClick={() => editing ? setEditing(false) : beginEdit()}>{copy('persona.edit')}</button>
-    {persona && <button type="button" className="text-button" data-testid="session-persona-save-as" disabled={settings.presets.length >= MAX_PERSONAS} onClick={() => onSaveAs(persona)}>{copy('persona.saveAs')}</button>}
-    {editing && <form className="persona-session-editor" data-testid="session-persona-editor" onSubmit={(event) => {
-      event.preventDefault()
-      const cleanName = name.trim(), cleanPrompt = prompt.trim()
-      if (!cleanName || !cleanPrompt) return
-      onChange({ presetId: null, name: cleanName, prompt: cleanPrompt })
-      setEditing(false)
-    }}>
-      <input aria-label={copy('persona.name')} value={name} onChange={(event) => setName(event.target.value)} maxLength={MAX_PERSONA_NAME_LENGTH} required />
-      <textarea aria-label={copy('persona.prompt')} value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={MAX_PERSONA_PROMPT_LENGTH} rows={3} required />
-      <small>{copy('persona.sessionHint')}</small>
-      <button type="submit" className="secondary-button" data-testid="session-persona-apply">{copy('persona.save')}</button>
-    </form>}
+    <button type="button" className="persona-session-trigger" data-testid="session-persona-trigger" ref={triggerRef}
+      popoverTarget={panelId} aria-haspopup="dialog" aria-controls={panelId} aria-expanded={isOpen} title={label}>
+      <span>{label}</span><ChevronDown size={14} aria-hidden="true" />
+    </button>
+    <div id={panelId} ref={panelRef} popover="auto" className="persona-session-popover" data-testid="session-persona-popover"
+      role="dialog" aria-label={copy('persona.select')} onToggle={(event) => {
+        const open = event.newState === 'open'
+        setIsOpen(open)
+        if (!open) setEditing(false)
+      }}>
+      <label className="field-label" htmlFor={`${panelId}-select`}>{copy('persona.select')}</label>
+      <Select id={`${panelId}-select`} ref={selectRef} data-testid="session-persona" value={value} onChange={(event) => {
+        if (event.target.value === 'custom') return
+        const preset = settings.presets.find((item) => item.id === event.target.value)
+        onChange(preset ? personaFromPreset(preset) : null)
+        close()
+      }}>
+        <option value="">{copy('persona.none')}</option>
+        {settings.presets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        {persona && !current && <option value="custom">{persona.name} · {copy('persona.custom')}</option>}
+      </Select>
+      <div className="persona-session-actions">
+        <button type="button" className="text-button" data-testid="session-persona-edit" aria-expanded={editing} onClick={() => editing ? setEditing(false) : beginEdit()}>{copy('persona.edit')}</button>
+        {persona && <button type="button" className="text-button" data-testid="session-persona-save-as" disabled={settings.presets.length >= MAX_PERSONAS} onClick={() => { onSaveAs(persona); close() }}>{copy('persona.saveAs')}</button>}
+      </div>
+      {editing && <form className="persona-session-editor" data-testid="session-persona-editor" onSubmit={(event) => {
+        event.preventDefault()
+        const cleanName = name.trim(), cleanPrompt = prompt.trim()
+        if (!cleanName || !cleanPrompt) return
+        onChange({ presetId: null, name: cleanName, prompt: cleanPrompt })
+        close()
+      }}>
+        <label htmlFor={`${panelId}-name`}>{copy('persona.name')}</label>
+        <input id={`${panelId}-name`} ref={nameRef} value={name} onChange={(event) => setName(event.target.value)} maxLength={MAX_PERSONA_NAME_LENGTH} required />
+        <label htmlFor={`${panelId}-prompt`}>{copy('persona.prompt')}</label>
+        <textarea id={`${panelId}-prompt`} value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={MAX_PERSONA_PROMPT_LENGTH} rows={3} required />
+        <small>{copy('persona.sessionHint')}</small>
+        <button type="submit" className="secondary-button" data-testid="session-persona-apply">{copy('persona.save')}</button>
+      </form>}
+    </div>
   </div>
 }

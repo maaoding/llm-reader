@@ -18,6 +18,9 @@ vi.mock('../../src/renderer/src/readers', async () => ({
 beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() })
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
+  // jsdom 尚未实现 Popover；菜单的真实开合、焦点和视觉行为由 Electron E2E 覆盖。
+  Object.defineProperty(HTMLElement.prototype, 'hidePopover', { configurable: true, value: vi.fn() })
+  Object.defineProperty(HTMLElement.prototype, 'showPopover', { configurable: true, value: vi.fn() })
 })
 afterEach(() => { cleanup(); document.body.replaceChildren(); vi.restoreAllMocks() })
 

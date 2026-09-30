@@ -1,3 +1,4 @@
+import { Select } from './Select'
 import { isPageProcessor, providerIsConfigured } from '@shared/request-settings'
 import { useState } from 'react'
 import type { BookAnalysisState, BookRecord, ProviderOverview } from '@shared/contracts'
@@ -70,9 +71,9 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
       {state?.message && <p className="analysis-error" role="status">{state.message}</p>}
       {state?.progress && state.progress.total > 0 && <p data-testid="analysis-stage-progress" role="status">{copy('analysis.stageProgress', { stage: copy(`analysis.stage.${state.progress.stage}`), completed: state.progress.completed, total: state.progress.total })}</p>}
       {state?.progress?.retryAttempt && <p data-testid="analysis-retrying">{copy('analysis.retrying', { attempt: state.progress.retryAttempt })}</p>}
-      <label>{copy('analysis.profile')}<select data-testid="analysis-profile" value={profileId} disabled={busy || starting} onChange={(event) => setChosenProfile(event.target.value)}>
+      <label>{copy('analysis.profile')}<Select data-testid="analysis-profile" value={profileId} disabled={busy || starting} onChange={(event) => setChosenProfile(event.target.value)}>
         <option value="" disabled>{copy('analysis.profile')}</option>{profiles.profiles.map((profile) => <option key={profile.id} value={profile.id} disabled={!providerIsConfigured(profile)}>{profile.name} · {profile.model}</option>)}
-      </select></label>
+      </Select></label>
       <p className="field-hint">{copy('analysis.disclosure')}</p>
       <div className="analysis-actions">
         {state?.status === 'analyzing' ? <button className="secondary-button" data-testid="analysis-cancel" onClick={onCancel}>{copy('analysis.cancel')}</button>
