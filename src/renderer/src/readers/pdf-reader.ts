@@ -844,6 +844,9 @@ export class PdfReaderAdapter implements ReaderAdapter {
       page.element.querySelector('.pdf-page-no-text')?.remove()
       this.updatePageSize(page)
     }
+    // Page geometry is final here. Restore the anchor before rendering so a
+    // subsequent reader scroll is not rolled back when the render completes.
+    this.relocateProgrammatically(operation.anchor.pageNumber, operation.anchor.fraction, 'navigation')
     void this.finishZoom(operation, pendingRenders)
   }
 
@@ -863,9 +866,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     await rendering[nearbyPages.indexOf(operation.anchor.pageNumber)]
     await Promise.allSettled(rendering)
 
-    const anchor = this.zoomCoordinator.complete(operation.revision)
-    if (!anchor) return
-    this.relocateProgrammatically(anchor.pageNumber, anchor.fraction, 'navigation')
+    if (!this.zoomCoordinator.complete(operation.revision)) return
     if (this.zoomMode === 'fit-width') this.host.scrollLeft = 0
     // 布局落定后再判定平移可用性,updateZoomUi 时的 scrollWidth 还是旧布局。
     this.updatePanAvailability()

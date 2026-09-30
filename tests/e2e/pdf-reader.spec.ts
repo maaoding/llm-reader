@@ -409,12 +409,14 @@ test('uses whole-document progress for a text PDF without an outline', async () 
     await page.getByTestId('reader-contents-button').click()
     await expect(page.getByText('没有可用目录')).toBeVisible()
 
-    await page.getByTestId('reader-host').evaluate((host) => {
+    const scroll = await page.getByTestId('reader-host').evaluate((host) => {
       const pageTwo = host.querySelector<HTMLElement>('.pdf-page[data-page-number="2"]')
       if (!pageTwo) throw new Error('Expected PDF page 2')
       host.scrollTop = pageTwo.offsetTop
       host.dispatchEvent(new Event('scroll'))
+      return { target: pageTwo.offsetTop, actual: host.scrollTop, max: host.scrollHeight - host.clientHeight }
     })
+    expect(scroll.actual).toBeGreaterThan(scroll.target - 5)
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '全文')
     await expect.poll(async () => Number.parseInt((await page.locator('.reader-heading strong').textContent()) ?? '0', 10)).toBeGreaterThan(45)
   } finally {
