@@ -1,6 +1,7 @@
 import { Select } from './Select'
+import { ComposerToolButton } from './ComposerToolButton'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { Bot } from 'lucide-react'
 import type { PersonaSelection, PersonaSettings } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { MAX_PERSONAS, MAX_PERSONA_NAME_LENGTH, MAX_PERSONA_PROMPT_LENGTH, personaFromPreset } from './assistant-personas'
@@ -121,7 +122,7 @@ export function PersonaSessionControl({ persona, settings, onChange, onSaveAs }:
     if (!isOpen || !trigger || !panel) return
     // 原生浮层进入顶层，避免被完整对话页裁切；始终靠近入口并留在窗口内。
     const place = (): void => {
-      const rect = trigger.getBoundingClientRect()
+      const rect = (trigger.closest('.assistant-question-box') ?? trigger).getBoundingClientRect()
       panel.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12))}px`
       panel.style.bottom = `${window.innerHeight - rect.top + 8}px`
       panel.style.maxHeight = `${Math.max(0, rect.top - 20)}px`
@@ -137,10 +138,10 @@ export function PersonaSessionControl({ persona, settings, onChange, onSaveAs }:
   }, [isOpen, editing])
 
   return <div className="persona-session" data-testid="persona-session">
-    <button type="button" className="persona-session-trigger" data-testid="session-persona-trigger" ref={triggerRef}
-      popoverTarget={panelId} aria-haspopup="dialog" aria-controls={panelId} aria-expanded={isOpen} title={label}>
-      <span>{label}</span><ChevronDown size={14} aria-hidden="true" />
-    </button>
+    <ComposerToolButton className="persona-session-trigger" data-testid="session-persona-trigger" ref={triggerRef}
+      popoverTarget={panelId} aria-haspopup="dialog" aria-controls={panelId} aria-expanded={isOpen} label={label}>
+      <Bot size={16} aria-hidden="true" />
+    </ComposerToolButton>
     <div id={panelId} ref={panelRef} popover="auto" className="persona-session-popover" data-testid="session-persona-popover"
       role="dialog" aria-label={copy('persona.select')} onToggle={(event) => {
         const open = event.newState === 'open'

@@ -169,6 +169,7 @@
 | webSearch.modeAuto | 联网：自动 |
 | webSearch.modeOff | 联网：关闭 |
 | webSearch.modeHint | 自动模式下由模型判断是否需要联网；选择随会话保存。 |
+| webSearch.imageUnavailable | 图片问答暂不支持联网搜索。 |
 | webSearch.deciding | 判断是否需要联网… |
 | webSearch.searching | 正在搜索资料… |
 | webSearch.searched | 已联网搜索 · {count} 条网页来源 |
@@ -398,6 +399,7 @@
 | assistant.modelUnavailable | 未知模型 |
 | assistant.tokenUsage | 用量 {count} tokens |
 | assistant.contextHintTitle | 上轮上下文 |
+| assistant.contextSummary | 上轮参考 · {source} |
 | assistant.contextPassages | 原文 {count} 处 |
 | assistant.contextHistory | 历史消息 {count} 条 |
 | assistant.contextTruncated | 历史已裁剪 |

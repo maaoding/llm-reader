@@ -36,13 +36,13 @@ test('keeps the full conversation scope compact and shows only blocking context 
     await expect(scopeControls).toBeVisible()
     await expect(conversation.locator('.composer-hint')).toContainText('先设置模型服务')
     await expect(page.getByTestId('workspace-prepare')).toBeVisible()
-    const scopeLayout = await conversation.locator('.composer-toolbar').evaluate((element) => {
-      const controls = [...element.querySelectorAll('[data-testid="composer-scope"], [data-testid="web-search-mode"], [data-testid="session-persona-trigger"]')]
-        .map((control) => control.getBoundingClientRect())
-      return { count: controls.length, centerDelta: Math.max(...controls.map((rect) => rect.top + rect.height / 2)) - Math.min(...controls.map((rect) => rect.top + rect.height / 2)) }
-    })
-    expect(scopeLayout.count).toBe(3)
-    expect(scopeLayout.centerDelta).toBeLessThanOrEqual(3)
+    const scopeLayout = (await scopeControls.boundingBox())!
+    const inputLayout = (await conversation.getByTestId('followup-input').boundingBox())!
+    const toolbarLayout = (await conversation.locator('.composer-toolbar').boundingBox())!
+    expect(scopeLayout.y + scopeLayout.height).toBeLessThan(inputLayout.y)
+    expect(toolbarLayout.y).toBeGreaterThanOrEqual(inputLayout.y + inputLayout.height)
+    await expect(conversation.locator('.composer-toolbar').getByTestId('web-search-mode')).toBeVisible()
+    await expect(conversation.locator('.composer-toolbar').getByTestId('session-persona-trigger')).toBeVisible()
     const scopeOverflow = () => scopeControls.getByTestId('composer-scope')
       .evaluate((element) => element.scrollHeight - element.clientHeight)
     expect(await scopeOverflow()).toBeLessThanOrEqual(1)
@@ -75,7 +75,7 @@ test('keeps the full conversation scope compact and shows only blocking context 
         await expect(scopeControls).toBeInViewport()
         expect(await scopeOverflow()).toBeLessThanOrEqual(1)
         await expect(page.getByTestId('workspace-prepare')).toBeInViewport()
-        expect((await conversation.locator('.assistant-composer').boundingBox())!.height).toBeLessThanOrEqual(140)
+        expect((await conversation.locator('.assistant-composer').boundingBox())!.height).toBeLessThanOrEqual(174)
         await page.screenshot({ path: test.info().outputPath(`conversation-scope-${width}-${theme}.png`), animations: 'disabled' })
       }
     }

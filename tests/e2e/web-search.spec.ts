@@ -82,7 +82,13 @@ async function selectText(page: Page): Promise<void> {
     element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
   })
   await expect(page.getByTestId('selection-toolbar')).toBeVisible(); await page.getByTestId('action-ask').click()
-  await expect(page.getByTestId('web-search-mode')).toHaveValue('auto')
+  await expect(page.getByTestId('web-search-mode')).toHaveAttribute('aria-pressed', 'true')
+}
+async function setWebSearchMode(page: Page, mode: 'auto' | 'off'): Promise<void> {
+  const button = page.getByTestId('web-search-mode')
+  const pressed = mode === 'auto' ? 'true' : 'false'
+  if (await button.getAttribute('aria-pressed') !== pressed) await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', pressed)
 }
 async function ask(page: Page, question: string): Promise<void> {
   await page.getByTestId('followup-input').fill(question); await page.getByTestId('followup-input').press('Enter')
@@ -109,14 +115,15 @@ test('search settings, unprepared selection, safe citations, export and persiste
   let application: ElectronApplication | undefined = state.application, page = state.page
   try {
     await resizeWorkspace(application, page, 1440, 900); await configureSearch(page, true); searches = []
-    await page.getByTestId('web-search-mode').selectOption('auto')
+    await setWebSearchMode(page, 'auto')
+    expect(searches).toHaveLength(0)
     let reopened = await restartReader(application, { userData: state.workspace.userData })
     application = reopened.application; page = reopened.page
-    await expect(page.getByTestId('web-search-mode')).toHaveValue('auto')
-    await page.getByTestId('web-search-mode').selectOption('off')
+    await expect(page.getByTestId('web-search-mode')).toHaveAttribute('aria-pressed', 'true')
+    await setWebSearchMode(page, 'off')
     reopened = await restartReader(application, { userData: state.workspace.userData })
     application = reopened.application; page = reopened.page
-    await expect(page.getByTestId('web-search-mode')).toHaveValue('off')
+    await expect(page.getByTestId('web-search-mode')).toHaveAttribute('aria-pressed', 'false')
     expect(await page.evaluate(async () => window.readerApi.listRecentBookSessions((await window.readerApi.listBooks())[0].id))).toEqual([])
     await selectText(page); await ask(page, '有哪些最新外部例证？')
     expect(plans).toBe(1); expect(searches).toHaveLength(1)
@@ -145,18 +152,18 @@ test('search settings, unprepared selection, safe citations, export and persiste
     await application.evaluate(({ dialog }, path) => { dialog.showSaveDialog = (async () => ({ canceled: false, filePath: path })) as unknown as typeof dialog.showSaveDialog }, exportPath)
     await page.evaluate(() => window.readerApi.exportInsights({ kind: 'all' }))
     const markdown = await readFile(exportPath, 'utf8'); expect(markdown).toContain('https://evidence.example/article-1'); expect(markdown).toContain('最新外部例证'); expect(markdown).toContain('搜索于')
-    await page.getByTestId('workspace-tab-conversation').click(); await expect(page.getByTestId('web-search-mode')).toHaveValue('auto')
-    await page.getByTestId('web-search-mode').selectOption('off')
+    await page.getByTestId('workspace-tab-conversation').click(); await expect(page.getByTestId('web-search-mode')).toHaveAttribute('aria-pressed', 'true')
+    await setWebSearchMode(page, 'off')
     await page.getByTestId('settings-button').click(); await page.getByTestId('theme-dark').click(); await page.getByTestId('settings-close').click()
     await resizeWorkspace(application, page, 940, 600)
     await page.getByTestId('web-sources').locator('summary').click()
     await page.screenshot({ path: test.info().outputPath('conversation-dark-940.png') })
     const restarted = await restartReader(application, { userData: state.workspace.userData })
     application = restarted.application; page = restarted.page
-    await expect(page.getByTestId('web-search-mode')).toHaveValue('off'); await expect(page.getByTestId('citation-web')).toHaveText('网页资料 1')
+    await expect(page.getByTestId('web-search-mode')).toHaveAttribute('aria-pressed', 'false'); await expect(page.getByTestId('citation-web')).toHaveText('网页资料 1')
     expect(searches).toHaveLength(1)
     await page.getByTestId('nav-archives').click(); await page.getByTestId('insight-item').first().locator('.insight-content').click()
-    await expect(page.getByTestId('web-search-mode')).toHaveValue('auto')
+    await expect(page.getByTestId('web-search-mode')).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('citation-web')).toHaveText('网页资料 1'); expect(searches).toHaveLength(1)
     await ask(page, '追问最新外部例证')
     await expect(page.getByTestId('answer-current').getByTestId('citation-web')).toHaveText('网页资料 2')
@@ -172,9 +179,9 @@ test('off, unnecessary/failed planning, rate limits, empty results, body timeout
   try {
     await configureSearch(state.page); await selectText(state.page)
     await ask(state.page, '解释作者论证'); await expect(state.page.getByTestId('web-search-result')).toContainText('不需要联网'); expect(searches).toHaveLength(0)
-    await state.page.getByTestId('web-search-mode').selectOption('off'); await ask(state.page, '有哪些最新外部资料？')
+    await setWebSearchMode(state.page, 'off'); await ask(state.page, '有哪些最新外部资料？')
     expect(searches).toHaveLength(0); expect(plans).toBe(1); await expect(state.page.getByTestId('answer-current').getByTestId('web-search-result')).toHaveCount(0)
-    await state.page.getByTestId('web-search-mode').selectOption('auto'); searchStatus = 429
+    await setWebSearchMode(state.page, 'auto'); searchStatus = 429
     await ask(state.page, '最新外部资料'); await expect(state.page.getByTestId('answer-current').getByTestId('web-search-result')).toContainText('过于频繁')
     searchStatus = 200; emptyResults = true
     await ask(state.page, '再看最新外部资料'); await expect(state.page.getByTestId('answer-current').getByTestId('web-search-result')).toContainText('未找到')
@@ -183,6 +190,9 @@ test('off, unnecessary/failed planning, rate limits, empty results, body timeout
     const before = searches.length; badPlan = false; holdSearch = true
     await state.page.getByTestId('followup-input').fill('搜索最新外部资料'); await state.page.getByTestId('followup-input').press('Enter')
     await expect.poll(() => searches.length).toBe(before + 1); await expect(state.page.getByTestId('answer-current')).toContainText('正在搜索资料')
+    await expect(state.page.getByTestId('web-search-mode')).toBeDisabled()
+    await expect(state.page.getByTestId('send-question')).toHaveCount(0)
+    await expect(state.page.locator('.composer-toolbar').getByTestId('cancel-request')).toBeVisible()
     await state.page.getByTestId('cancel-request').click(); await expect(state.page.getByTestId('cancel-request')).toHaveCount(0)
     held.splice(0).forEach((release) => release())
     await state.page.evaluate(async () => {
@@ -201,7 +211,7 @@ test('prepared whole-book questions share one planner per round while cross-book
   try {
     await configureSearch(state.page); await enterReading(state.page); await prepare(state.page)
     await state.page.getByTestId('workspace-tab-conversation').click(); await state.page.getByTestId('composer-scope').selectOption('book')
-    await expect(state.page.getByTestId('web-search-mode')).toHaveValue('auto')
+    await expect(state.page.getByTestId('web-search-mode')).toHaveAttribute('aria-pressed', 'true')
     holdSearch = true
     await state.page.getByTestId('followup-input').fill('第一本书最新外部例证'); await state.page.getByTestId('followup-input').press('Enter')
     await expect.poll(() => searches.length).toBe(1)

@@ -1,4 +1,5 @@
 import { Select } from './Select'
+import { ComposerToolButton } from './ComposerToolButton'
 import { RequestSettingsEditor } from './RequestSettingsEditor'
 import { PersonaSettingsPanel, PersonaSessionControl } from './AssistantPersonaSettings'
 import { defaultPersona, MAX_PERSONAS, persistPersonaSettings, personaFromPreset, readPersonaSettings } from './assistant-personas'
@@ -20,6 +21,8 @@ import {
   CircleStop,
   Cpu,
   FileText,
+  Globe,
+  GlobeX,
   Highlighter,
   Import,
   Info,
@@ -60,6 +63,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -1195,12 +1199,15 @@ function AssistantContextControls({ tab, state, busy, onScope }: { tab?: Convers
 }
 
 function AssistantScopeControls({ tab, busy, onScope }: { tab: ConversationTab; busy: boolean; onScope: (scope: 'selection' | 'book') => void }) {
+  const tooltipId = useId()
   const lastTurn = tab.turns.at(-1)
   const context = lastTurn?.status === 'completed' ? lastTurn.context : undefined
   const history = context?.historySummary
   const source = context?.selection && isPdfImageRegion(context.selection)
     ? copy('visual.source', { page: context.selection.pageNumber })
     : context ? copy(context.scope === 'book' ? 'analysis.book' : 'analysis.selection') : ''
+  const summary = context ? copy('assistant.contextSummary', { source: context.selection && isPdfImageRegion(context.selection)
+    ? source : copy('assistant.contextPassages', { count: context.passages.length }) }) : ''
   const hint = context && history ? [
     copy('assistant.contextHintTitle'),
     source,
@@ -1214,7 +1221,10 @@ function AssistantScopeControls({ tab, busy, onScope }: { tab: ConversationTab; 
       <option value="selection">{copy('analysis.selection')}</option>
       <option value="book">{copy('analysis.book')}</option>
     </Select>
-    {hint && <span className="assistant-context-hint" data-testid="assistant-context-hint" title={hint} aria-label={hint}>{hint}</span>}
+    {hint && <span className="composer-context-summary" tabIndex={0} aria-label={hint} aria-describedby={tooltipId}>
+      <span className="assistant-context-hint" data-testid="assistant-context-hint">{summary}</span>
+      <span id={tooltipId} className="composer-tooltip" role="tooltip">{hint}</span>
+    </span>}
   </div>
 }
 
@@ -1234,6 +1244,7 @@ function ConversationPane({
   onComposerKey,
   scope = 'selection',
   controls,
+  scopeControls,
   composerControls,
   showSave = true,
   blockedReason = '',
@@ -1247,6 +1258,7 @@ function ConversationPane({
   conversationSelection: ReaderSource | null
   scope?: 'selection' | 'book'
   controls?: ReactNode
+  scopeControls?: ReactNode
   composerControls?: ReactNode
   turns: ConversationTurn[]
   provider: ProviderSettings
@@ -1272,6 +1284,7 @@ function ConversationPane({
   const selectedPassageCount = conversationSelection && !isPdfImageRegion(conversationSelection) ? conversationSelection.passages.length : 0
   const assistantScrollRef = useRef<HTMLDivElement | null>(null)
   const assistantFollowRef = useRef(true)
+  const questionFormId = useId()
 
   useLayoutEffect(() => {
     const container = assistantScrollRef.current
@@ -1362,13 +1375,19 @@ function ConversationPane({
         </div>
       </div>
       <div className="assistant-composer">
-        {composerControls && <div className="composer-toolbar">{composerControls}</div>}
+        {scopeControls && <div className="composer-heading">{scopeControls}</div>}
         {blockedReason && <div className="composer-hint" role="status"><span>{blockedReason}</span>{onResolve && resolveLabel && <button type="button" className="text-button" onClick={(event) => onResolve(event.currentTarget)}>{resolveLabel}</button>}</div>}
-        {activeRequestId && <button className="cancel-generation" data-testid="cancel-request" type="button" onClick={onCancel}><CircleStop size={14} />{copy('assistant.stop')}</button>}
-        <form className="assistant-question-form" onSubmit={onSubmit}>
-          <textarea className="assistant-question-input" data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} aria-label={copy('assistant.questionAria')} rows={2} maxLength={2000} />
-          <button type="submit" aria-label={copy('assistant.sendAria')} disabled={!canAsk || !draft.trim()}><Send size={16} /></button>
-        </form>
+        <div className="assistant-question-box">
+          <form id={questionFormId} className="assistant-question-form" onSubmit={onSubmit}>
+            <textarea className="assistant-question-input" data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} aria-label={copy('assistant.questionAria')} rows={2} maxLength={2000} />
+          </form>
+          <div className="composer-toolbar">
+            <div className="composer-tools">{composerControls}</div>
+            {activeRequestId
+              ? <ComposerToolButton className="composer-submit cancel-generation" data-testid="cancel-request" label={copy('assistant.stop')} onClick={onCancel}><CircleStop size={16} aria-hidden="true" /></ComposerToolButton>
+              : <ComposerToolButton className="composer-submit" type="submit" form={questionFormId} data-testid="send-question" label={copy('assistant.sendAria')} disabled={!canAsk || !draft.trim()}><Send size={16} aria-hidden="true" /></ComposerToolButton>}
+          </div>
+        </div>
       </div>
     </>
   )
@@ -4293,17 +4312,23 @@ export default function App(): ReactNode {
   // 进行中或排队中的请求：用于禁用发送、显示停止按钮与阻止重复入队。
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
-  const webSearchControl = (tab: ConversationTab): ReactNode => <label className="web-search-control" title={copy(webSearchEnabled ? 'webSearch.modeHint' : 'webSearch.unavailable')}>
-    <Select data-testid="web-search-mode" aria-label={copy('webSearch.modeLabel')} value={tab.webSearch}
-      disabled={Boolean(streamingRequestId(tab)) || isPdfImageRegion(tab.selection) || changingSessions.includes(tab.id)}
-      onChange={(event) => {
-        const webSearch = event.target.value as 'off' | 'auto'
+  const webSearchControl = (tab: ConversationTab): ReactNode => {
+    const imageQuestion = isPdfImageRegion(tab.selection)
+    const busy = Boolean(streamingRequestId(tab))
+    const changing = changingSessions.includes(tab.id)
+    const unavailable = !webSearchEnabled
+    const hint = imageQuestion ? copy('webSearch.imageUnavailable') : busy ? copy('assistant.busyHint') : changing ? copy('assistant.sessionLoading') : unavailable ? copy('webSearch.unavailable') : copy('webSearch.modeHint')
+    return <ComposerToolButton data-testid="web-search-mode" label={copy(tab.webSearch === 'auto' ? 'webSearch.modeAuto' : 'webSearch.modeOff')} hint={hint}
+      aria-pressed={tab.webSearch === 'auto'} data-available={!unavailable && !imageQuestion}
+      disabled={busy || imageQuestion || changing || (unavailable && tab.webSearch === 'off')}
+      onClick={() => {
+        const webSearch = tab.webSearch === 'auto' ? 'off' : 'auto'
         updateConversationTab(tab.id, (current) => ({ ...current, webSearch }))
         if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, tab.persona, webSearch)
       }}>
-      <option value="off">{copy('webSearch.modeOff')}</option><option value="auto" disabled={!webSearchEnabled}>{copy('webSearch.modeAuto')}</option>
-    </Select>
-  </label>
+      {tab.webSearch === 'auto' ? <Globe size={16} aria-hidden="true" /> : <GlobeX size={16} aria-hidden="true" />}
+    </ComposerToolButton>
+  }
   const changeConversationScope = async (tab: ConversationTab, scope: 'selection' | 'book'): Promise<void> => {
     if (scope === tab.scope || tabHasActiveRequest(tab.id)) return
     // A new scope from an archived insight starts a live conversation, preserving the archive.
@@ -4973,7 +4998,8 @@ export default function App(): ReactNode {
               ) : activeConversationTab ? (
                 <ConversationPane
                   scope={activeConversationTab.scope}
-                  composerControls={<><AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />
+                  scopeControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />}
+                  composerControls={<>
                     {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && webSearchControl(activeConversationTab)}
                     {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && <PersonaSessionControl key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} persona={activeConversationTab.persona} settings={personaSettings}
                       onChange={(persona) => changeSessionPersona(activeConversationTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(activeConversationTab, persona)} />}</>}

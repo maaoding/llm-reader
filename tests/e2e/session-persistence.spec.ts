@@ -156,13 +156,13 @@ test('restores open archive tabs with their drafts and the active tab', async ()
     await expect(page.locator('.assistant-session-tab.is-active .assistant-session-tab-select')).toHaveAttribute('data-tab-kind', 'archive')
     await expect(page.locator(dialogDraft)).toHaveValue('归档标签里的草稿')
     await expect(page.getByTestId('answer-current')).toContainText('临时会话里的回答，重启后应当仍在。')
-    await expect(page.getByTestId('assistant-context-hint')).toContainText('上轮上下文 · 选中内容 · 原文')
+    await expect(page.getByTestId('assistant-context-hint')).toContainText('上轮参考 · 原文')
     await page.getByTestId('assistant-session-tab').filter({ hasText: '当前对话' }).click()
     await page.getByTestId('conversation-clear').click()
     await page.getByTestId('conversation-clear-confirm').click()
     await expect(page.getByTestId('assistant-context-hint')).toHaveCount(0)
     await page.locator('[data-testid="assistant-session-tab"][data-tab-kind="archive"]').last().click()
-    await expect(page.getByTestId('assistant-context-hint')).toContainText('上轮上下文')
+    await expect(page.getByTestId('assistant-context-hint')).toContainText('上轮参考')
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }
@@ -195,8 +195,14 @@ test('keeps the last temporary session per book across restarts and clears it on
     await expect(page.getByTestId('cancel-request')).toHaveCount(0)
     await page.getByTestId('assistant-expand-button').click()
     const hint = page.getByTestId('assistant-context-hint')
-    await expect(hint).toContainText('上轮上下文 · 选中内容 · 原文')
-    await expect(hint).toContainText('历史消息 0 条')
+    await expect(hint).toContainText('上轮参考 · 原文')
+    await expect(hint).not.toContainText('历史消息')
+    const contextSummary = hint.locator('..')
+    await contextSummary.focus()
+    await expect(contextSummary.getByRole('tooltip')).toBeVisible()
+    await expect(contextSummary.getByRole('tooltip')).toContainText('上轮上下文 · 选中内容 · 原文')
+    await expect(contextSummary.getByRole('tooltip')).toContainText('历史消息 0 条')
+    await page.getByTestId('followup-input').focus()
     await expect(page.locator('.right-sidebar .assistant-context-hint')).toHaveCount(0)
     for (const [width, height] of [[940, 600], [1180, 760], [1440, 900]]) {
       await resizeWorkspace(application, page, width, height)
@@ -212,8 +218,11 @@ test('keeps the last temporary session per book across restarts and clears it on
         expect(row!.sameLine).toBeLessThanOrEqual(5)
         expect(row!.gap).toBeGreaterThanOrEqual(0)
         expect(row!.inBounds).toBe(true)
-        expect(await hint.getAttribute('aria-label')).toContain('历史消息 0 条')
+        expect(await contextSummary.getAttribute('aria-label')).toContain('历史消息 0 条')
         await page.screenshot({ path: test.info().outputPath(`context-hint-${width}-${theme}.png`), animations: 'disabled' })
+        if (width === 1440 && theme === 'light') {
+          await page.locator('.assistant-composer:visible').screenshot({ path: test.info().outputPath('input-area-with-reference.png'), scale: 'css', animations: 'disabled' })
+        }
       }
     }
     await enterReading(page)
@@ -235,7 +244,7 @@ test('keeps the last temporary session per book across restarts and clears it on
     // 清空会话后连库里的记录一起消失，重启也不会回来。
     await page.getByTestId('assistant-expand-button').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
-    await expect(page.getByTestId('assistant-context-hint')).toContainText('上轮上下文')
+    await expect(page.getByTestId('assistant-context-hint')).toContainText('上轮参考')
     const dialogDraft = '.assistant-dialog [data-testid="followup-input"]'
     await expect(page.locator(dialogDraft)).toHaveValue('重启后应保留的草稿')
     await page.getByTestId('conversation-clear').click()
