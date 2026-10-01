@@ -14,6 +14,107 @@ async function assertFits(page: Page) {
   for (const testId of ['nav-library', 'nav-archives', 'settings-button']) await expect(page.getByTestId(testId)).toBeInViewport()
 }
 
+test('keeps compact service switches and uniform settings cards across themes and scales', async () => {
+  test.setTimeout(180_000)
+  const workspace = await createE2eWorkspace('llm-reader-settings-cards-')
+  let application: ElectronApplication | undefined
+  const services = [
+    ['document', 'PDF 解析'], ['embedding', '按含义查找（Embedding）'],
+    ['rerank', '原文排序（Rerank）'], ['webSearch', '联网搜索（Tavily）']
+  ] as const
+  try {
+    const fixture = join(workspace.root, '设置外观.txt')
+    await writeFile(fixture, '第一章 阅读\n\n' + '检查紧凑的阅读标题栏和设置卡片。\n\n'.repeat(60))
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture }); application = launched.application
+    let page = launched.page
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    await page.getByTestId('book-item').click()
+    await page.evaluate(() => window.readerApi.saveKnowledgeSettings({
+      embedding: { enabled: false, baseUrl: 'https://example.invalid/v1', model: 'ui-embedding' },
+      rerank: { enabled: false, baseUrl: 'https://example.invalid/v1', model: 'ui-rerank' },
+      document: { enabled: false, processor: 'docling', baseUrl: 'http://127.0.0.1:5001', ocr: true, language: 'ch' },
+      webSearch: { enabled: false, baseUrl: 'https://example.invalid', apiKey: 'synthetic-ui-test-key' }
+    }))
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-knowledge').click()
+    for (const [kind, name] of services) {
+      const control = page.getByRole('switch', { name, exact: true })
+      await expect(control).not.toBeChecked()
+      await control.focus()
+      await page.keyboard.press('Space')
+      await expect(control).toBeChecked()
+      await expect(control).toBeEnabled()
+      await expect(page.getByTestId(`knowledge-${kind}-status`)).toHaveCount(0)
+    }
+    await page.getByTestId('settings-close').click()
+    const restarted = await restartReader(application, { userData: workspace.userData }); application = restarted.application
+    page = restarted.page
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    const persisted = await page.evaluate(() => window.readerApi.getKnowledgeSettings())
+    for (const [kind] of services) expect(persisted[kind].enabled).toBe(true)
+    for (const [width, height] of [[1440, 900], [940, 600]]) {
+      await resizeWorkspace(application, page, width, height)
+      for (const theme of ['light', 'dark']) for (const scale of [100, 125]) {
+        const label = `${width}-${height}-${theme}-${scale}`
+        await page.getByTestId('settings-button').click()
+        await page.getByTestId('settings-nav-appearance').click()
+        await page.getByTestId(`theme-${theme}`).click()
+        await page.getByTestId(`scale-${scale}`).click()
+        const cardBackground = await page.locator('.workspace-shell').evaluate((node) => getComputedStyle(node).backgroundColor)
+        for (const [section, selector, count] of [
+          ['assistant', '.assistant-action-card', 3], ['knowledge', '.knowledge-service-card', 4],
+          ['persona', '.persona-default-group', 1], ['about', '.about-update', 1]
+        ] as const) {
+          await page.getByTestId(`settings-nav-${section}`).click()
+          const cards = page.locator(`#settings-panel-${section}`).locator(selector)
+          await expect(cards).toHaveCount(count)
+          const backgrounds = await cards.evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor))
+          expect(backgrounds.every((background) => background === cardBackground)).toBe(true)
+          if (section === 'knowledge') {
+            for (const [kind, name] of services) {
+              const control = page.getByRole('switch', { name, exact: true })
+              await control.scrollIntoViewIfNeeded()
+              await expect(control).toBeChecked()
+              const layout = await control.evaluate((node) => {
+                const card = node.closest('.knowledge-service-card')!
+                const title = card.querySelector('h4')!.getBoundingClientRect()
+                const toggle = node.getBoundingClientRect()
+                return {
+                  gap: toggle.left - title.right,
+                  rightInset: card.getBoundingClientRect().right - toggle.right,
+                  centerDifference: Math.abs((title.top + title.bottom - toggle.top - toggle.bottom) / 2)
+                }
+              })
+              expect(layout.gap).toBeGreaterThanOrEqual(0)
+              expect(layout.rightInset).toBeLessThanOrEqual(24)
+              expect(layout.centerDifference).toBeLessThanOrEqual(2)
+              if (kind === 'document') await page.screenshot({ path: test.info().outputPath(`settings-knowledge-top-${label}.png`), animations: 'disabled' })
+            }
+            await expect(cards).not.toContainText(['已启用', '已启用', '已启用', '已启用'])
+            const documentConfig = page.getByTestId('document-config')
+            await documentConfig.locator('summary').first().click()
+            await page.locator('#knowledge-document-title').scrollIntoViewIfNeeded()
+            await assertFits(page)
+            await page.screenshot({ path: test.info().outputPath(`settings-document-expanded-${label}.png`), animations: 'disabled' })
+            await documentConfig.locator('summary').first().click()
+            await page.getByTestId('webSearch-enabled').scrollIntoViewIfNeeded()
+          }
+          await assertFits(page)
+          await page.screenshot({ path: test.info().outputPath(`settings-${section}-${label}.png`), animations: 'disabled' })
+        }
+        await page.getByTestId('settings-close').click()
+        await expect(page.getByRole('button', { name: '返回书库', exact: true })).toHaveCount(0)
+        await expect(page.locator('.workspace-book-title > :first-child')).toHaveClass('format-chip')
+        await page.screenshot({ path: test.info().outputPath(`reader-compact-${label}.png`), animations: 'disabled' })
+        await page.getByTestId('nav-library').click()
+        await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'library')
+        await page.getByTestId('book-item').click()
+        await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
+      }
+    }
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
+})
+
 test('opens books directly in reading, keeps live drafts across pages, and restores the last workspace', async () => {
   const workspace = await createE2eWorkspace('llm-reader-workspace-')
   let application: ElectronApplication | undefined

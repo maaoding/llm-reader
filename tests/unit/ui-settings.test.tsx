@@ -33,11 +33,12 @@ const knowledge: KnowledgeSettings = {
   document: { enabled: false, processor: 'none', baseUrl: '', ocr: true, language: 'ch', hasApiKey: false }
 }
 
-function setup(options: { overview?: ProviderOverview; initialSection?: 'model' | 'persona' | 'knowledge'; initialService?: 'document' | 'embedding' } = {}) {
+function setup(options: { overview?: ProviderOverview; knowledge?: KnowledgeSettings; initialSection?: 'model' | 'persona' | 'knowledge'; initialService?: 'document' | 'embedding' } = {}) {
   let overview = options.overview ?? { profiles: [profile], activeProfileId: null }
   const api = {
     listSystemFonts: vi.fn(async () => []),
-    getKnowledgeSettings: vi.fn(async () => knowledge),
+    getKnowledgeSettings: vi.fn(async () => options.knowledge ?? knowledge),
+    saveKnowledgeSettings: vi.fn<ReaderApi['saveKnowledgeSettings']>(async () => options.knowledge ?? knowledge),
     createProviderProfile: vi.fn<ReaderApi['createProviderProfile']>(async (input) => {
       overview = { ...overview, profiles: [...overview.profiles, { ...profile, ...input, id: 'new' }] }
       return overview
@@ -188,4 +189,62 @@ it('opens and focuses a requested service without expanding the other cards', as
   fireEvent.change(input, { target: { value: 'vision' } })
   expect(document.activeElement).toBe(input)
   view.trigger.remove()
+})
+
+const configuredKnowledge: KnowledgeSettings = {
+  embedding: { enabled: false, baseUrl: 'https://example.com/v1', model: 'saved-embedding', hasApiKey: true },
+  rerank: { enabled: false, baseUrl: 'https://example.com/v1', model: 'saved-rerank', hasApiKey: true },
+  document: { enabled: false, processor: 'docling', baseUrl: 'http://127.0.0.1:5001', ocr: true, language: 'ch', hasApiKey: false },
+  webSearch: { enabled: false, baseUrl: 'https://api.tavily.com', hasApiKey: true }
+}
+
+it('names each switch after its service and keeps unconfigured services disabled', async () => {
+  const view = setup({ initialSection: 'knowledge' })
+  await view.findByRole('switch', { name: 'PDF 解析' })
+  for (const name of ['PDF 解析', '按含义查找（Embedding）', '原文排序（Rerank）', '联网搜索（Tavily）']) {
+    const control = view.getByRole('switch', { name }) as HTMLInputElement
+    expect(control.checked).toBe(false)
+    expect(control.matches(':disabled')).toBe(true)
+  }
+  expect(view.getAllByText('首次使用请展开“配置详情”，填写后点击“保存并启用”。')).toHaveLength(4)
+  expect(view.queryByText('已启用')).toBeNull()
+  expect(view.queryByText('已关闭')).toBeNull()
+})
+
+it('locks service switches until saving completes and keeps unsaved configuration drafts', async () => {
+  const view = setup({ initialSection: 'knowledge', knowledge: configuredKnowledge })
+  const control = await view.findByRole('switch', { name: '按含义查找（Embedding）' }) as HTMLInputElement
+  fireEvent.change(view.getByTestId('embedding-model'), { target: { value: 'unsaved-embedding' } })
+  let completeSave!: (value: KnowledgeSettings) => void
+  view.api.saveKnowledgeSettings.mockReturnValueOnce(new Promise((resolve) => { completeSave = resolve }))
+  fireEvent.click(control)
+  expect(view.api.saveKnowledgeSettings).toHaveBeenCalledWith(expect.objectContaining({
+    target: 'embedding', embedding: expect.objectContaining({ enabled: true, model: 'saved-embedding' })
+  }))
+  expect(control.checked).toBe(false)
+  expect(control.getAttribute('aria-busy')).toBe('true')
+  for (const item of view.getAllByRole('switch')) expect(item.matches(':disabled')).toBe(true)
+  completeSave({ ...configuredKnowledge, embedding: { ...configuredKnowledge.embedding, enabled: true } })
+  await waitFor(() => expect(control.checked).toBe(true))
+  await waitFor(() => expect(control.matches(':disabled')).toBe(false))
+  expect(view.queryByTestId('knowledge-embedding-status')).toBeNull()
+  expect((view.getByTestId('embedding-model') as HTMLInputElement).value).toBe('unsaved-embedding')
+  expect(view.getByTestId('settings-nav-knowledge').querySelector('.settings-nav-pending')).not.toBeNull()
+  fireEvent.click(view.getByTestId('settings-nav-model'))
+  fireEvent.click(view.getByTestId('settings-nav-knowledge'))
+  expect((view.getByTestId('embedding-model') as HTMLInputElement).value).toBe('unsaved-embedding')
+})
+
+it('keeps the saved enabled state and editable draft when a switch change fails', async () => {
+  const saved = { ...configuredKnowledge, embedding: { ...configuredKnowledge.embedding, enabled: true } }
+  const view = setup({ initialSection: 'knowledge', knowledge: saved })
+  const control = await view.findByRole('switch', { name: '按含义查找（Embedding）' }) as HTMLInputElement
+  fireEvent.change(view.getByTestId('embedding-model'), { target: { value: 'unsaved-embedding' } })
+  view.api.saveKnowledgeSettings.mockRejectedValueOnce(new Error('无法保存设置'))
+  fireEvent.click(control)
+  await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toContain('无法保存设置'))
+  expect(control.checked).toBe(true)
+  expect(control.matches(':disabled')).toBe(false)
+  expect((view.getByTestId('embedding-model') as HTMLInputElement).value).toBe('unsaved-embedding')
+  expect(view.getByTestId('settings-nav-knowledge').querySelector('.settings-nav-pending')).not.toBeNull()
 })

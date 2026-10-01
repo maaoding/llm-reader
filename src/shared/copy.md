@@ -12,7 +12,6 @@
 | workspace.library | 书库 |
 | workspace.archives | 问答集 |
 | workspace.continue | 继续阅读 |
-| workspace.backLibrary | 返回书库 |
 | workspace.readingProgress | 已读 {percent}% |
 | workspace.noteCount | 已完成 {completed}/{total} 条笔记 |
 | workspace.tabs | 本书页面 |
@@ -134,11 +133,8 @@
 | key | text |
 | --- | --- |
 | knowledge.title | 阅读增强 |
-| knowledge.description | 三项服务可分别配置和保存。开关使用已保存的配置立即生效；测试不会保存，也不会开始处理书籍。 |
+| knowledge.description | 各项服务可分别配置和保存。开关使用已保存的配置立即生效；测试不会保存，也不会开始处理书籍。 |
 | knowledge.configureBeforeEnable | 首次使用请展开“配置详情”，填写后点击“保存并启用”。 |
-| knowledge.unconfigured | 未配置 |
-| knowledge.active | 已启用 |
-| knowledge.inactive | 已关闭 |
 | knowledge.pending | 有未保存的修改 |
 | knowledge.details | 配置详情 |
 | knowledge.saving | 正在保存… |
@@ -149,13 +145,10 @@
 | knowledge.saveService | 保存配置 |
 | knowledge.saveAndEnable | 保存并启用 |
 | knowledge.savedAndEnabled | 配置已保存并启用。 |
-| knowledge.enabledNow | 已启用，使用已保存的配置。 |
-| knowledge.disabledNow | 已关闭，配置与已完成的进度保留。 |
 | knowledge.testOutdated | 配置已修改，请重新测试。 |
 | knowledge.undoClear | 撤销移除 |
 | knowledge.clearPending | 保存当前配置后移除密钥；保存前可撤销。 |
 | rerank.title | 原文排序（Rerank） |
-| rerank.enabled | 启用原文排序 |
 | rerank.hint | 开启后从下一次提问开始，对候选原文重新排序。问题和候选原文会发送到所选服务，最多额外等待 5 秒；失败时继续使用原有顺序。使用兼容 /rerank 的服务地址。 |
 | rerank.model | 重排模型 |
 | rerank.test | 测试排序服务 |
@@ -167,7 +160,6 @@
 | rerank.skipped | 本次沿用原文检索顺序 |
 | webSearch.title | 联网搜索（Tavily） |
 | webSearch.summary | 允许后由当前问答模型判断是否需要外部资料，结合网页摘录回答。 |
-| webSearch.enabled | 允许问答时联网搜索 |
 | webSearch.hint | 使用兼容 Tavily POST /search 的服务地址，默认 https://api.tavily.com。开启后，模型按需发送一条简短检索词，其中可能包含问题或选区中的关键词；不上传书籍全文。搜索失败或无结果时继续书内回答。 |
 | webSearch.test | 测试搜索服务 |
 | webSearch.testOk | 搜索接口检查通过。 |
@@ -207,7 +199,6 @@
 | webSearch.exportTitle | 网页资料与搜索记录 |
 | webSearch.close | 关闭 |
 | knowledge.embeddingTitle | 按含义查找（Embedding） |
-| knowledge.embeddingEnabled | 启用按含义查找 |
 | knowledge.embeddingHint | 填写兼容 /v1/embeddings 的服务地址和模型。本机服务可不填密钥。开启后仍需在每本书的“本书准备”中建立索引。 |
 | knowledge.baseUrl | 接口地址 |
 | knowledge.model | Embedding 模型 |
@@ -217,7 +208,6 @@
 | knowledge.clearKey | 移除已存密钥 |
 | knowledge.endpointHint | 更换接口地址或文档服务时，请重新填写密钥。 |
 | knowledge.documentTitle | PDF 解析 |
-| knowledge.documentEnabled | 在准备原文时使用所选 PDF 解析服务 |
 | knowledge.documentStartHint | 开启后只允许在“本书准备”中处理 PDF；点击“准备原文”才会发送文件并开始处理。关闭后配置和已有原文保留，进行中的准备会暂停。 |
 | knowledge.processor | 处理服务 |
 | knowledge.none | 请选择处理服务 |

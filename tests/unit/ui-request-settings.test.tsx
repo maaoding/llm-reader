@@ -120,7 +120,7 @@ it('keeps each service draft independent and uses only the saved configuration f
 it('shows a stale test result after editing and explains that OCR choices do not disable document parsing', async () => {
   const view = setup()
   fireEvent.change(await view.findByTestId('document-processor'), { target: { value: 'docling' } })
-  expect(view.getByText('在准备原文时使用所选 PDF 解析服务')).toBeTruthy()
+  expect(view.getByRole('switch', { name: 'PDF 解析' })).toBeTruthy()
   fireEvent.change(view.getByTestId('document-ocr'), { target: { value: 'text' } })
   expect(view.getByText(/无论选择哪种方式/u)).toBeTruthy()
   fireEvent.click(view.getByTestId('document-test'))
@@ -129,11 +129,11 @@ it('shows a stale test result after editing and explains that OCR choices do not
   expect(view.getByTestId('knowledge-document-status').textContent).toContain('请重新测试')
 })
 
-it('keeps the saved status visible during edits and only removes saved headers on save', async () => {
+it('keeps the saved switch state during edits and only removes saved headers on save', async () => {
   const view = setup({ enabled: true, baseUrl: 'https://example.com/v1', model: 'vectors', hasApiKey: false, hasCustomHeaders: true })
   await view.findByTestId('embedding-headers')
   fireEvent.change(view.getByTestId('embedding-model'), { target: { value: 'new-vectors' } })
-  expect(view.container.querySelector('[data-service="embedding"] > header')?.textContent).toContain('已启用')
+  expect((view.getByRole('switch', { name: '按含义查找（Embedding）' }) as HTMLInputElement).checked).toBe(true)
   expect(view.container.querySelector('[data-service="embedding"] > header')?.textContent).toContain('有未保存的修改')
   fireEvent.click(view.getByTestId('embedding-clear-headers'))
   expect(view.getByText(/保存当前配置后移除请求头/u)).toBeTruthy()
@@ -156,7 +156,8 @@ it('shows the latest failed test after saving or toggling and invalidates it aft
   await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toBe('HTTP 401'))
   expect(view.getByTestId('knowledge-embedding-status').className).toContain('is-error-text')
   fireEvent.click(view.getByTestId('embedding-enabled'))
-  await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toContain('已关闭'))
+  await waitFor(() => expect((view.getByTestId('embedding-enabled') as HTMLInputElement).checked).toBe(false))
+  expect(view.queryByTestId('knowledge-embedding-status')).toBeNull()
   view.test.mockRejectedValueOnce(new Error('service unavailable'))
   fireEvent.click(view.getByTestId('embedding-test'))
   await waitFor(() => expect(view.getByTestId('knowledge-embedding-status').textContent).toContain('service unavailable'))
@@ -188,6 +189,7 @@ it('starts with compact cards ordered by preparation, while switches stay availa
   }
   fireEvent.click(view.getByTestId('embedding-enabled'))
   await waitFor(() => expect(view.save).toHaveBeenCalledOnce())
+  await waitFor(() => expect((view.getByTestId('embedding-enabled') as HTMLInputElement).checked).toBe(false))
   expect((view.getByTestId('embedding-config') as HTMLDetailsElement).open).toBe(false)
-  expect(view.getByTestId('knowledge-embedding-status').closest('details')).toBeNull()
+  expect(view.queryByTestId('knowledge-embedding-status')).toBeNull()
 })

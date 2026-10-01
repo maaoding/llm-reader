@@ -109,7 +109,6 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
       setSaved(value)
       onWebSearchChange?.(value.webSearch.enabled)
       setDraft((current) => current ? { ...current, [target]: { ...current[target], enabled } } : current)
-      setStatus((current) => ({ ...current, [target]: { source: 'toggle', tone: 'success', message: copy(enabled ? 'knowledge.enabledNow' : 'knowledge.disabledNow') } }))
     } catch (error) {
       setStatus((current) => ({ ...current, [target]: { source: 'toggle', tone: 'error', message: readableError(error, copy('settings.saveFailed')) } }))
     }
@@ -138,8 +137,10 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
   }
   const heading = (target: Kind, title: string, description: string) => <>
     <header className="knowledge-service-heading"><h4 id={`knowledge-${target}-title`}>{title}</h4>
-      <span className="knowledge-service-state">{copy(!configured(target) ? 'knowledge.unconfigured' :
-        saved?.[target].enabled ? 'knowledge.active' : 'knowledge.inactive')}</span>
+      <label className="knowledge-checkbox"><input data-testid={`${target}-enabled`} type="checkbox" role="switch"
+        aria-labelledby={`knowledge-${target}-title`} aria-busy={busy === `toggle-${target}`}
+        checked={Boolean(saved?.[target].enabled)} disabled={!saved?.[target].enabled && !configured(target)}
+        onChange={(event) => void toggle(target, event.target.checked)} /></label>
       {(changed(target) || invalidSettings[target]) && <small>{copy('knowledge.pending')}</small>}
     </header>
     <p className="field-hint">{description}</p>
@@ -158,9 +159,6 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
     {draft && saved && <div>
       <fieldset disabled={Boolean(busy)}>
         <section className="knowledge-service-card" data-service="document" aria-labelledby="knowledge-document-title">{heading('document', copy('knowledge.documentTitle'), copy('knowledge.documentSummary'))}
-        <label className="knowledge-checkbox"><input data-testid="document-enabled" type="checkbox" role="switch" checked={saved.document.enabled}
-          disabled={!saved.document.enabled && !configured('document')}
-          onChange={(event) => void toggle('document', event.target.checked)} />{copy('knowledge.documentEnabled')}</label>
         {!configured('document') && <p className="field-hint">{copy('knowledge.configureBeforeEnable')}</p>}
         <details className="knowledge-service-details" data-testid="document-config"><summary>{copy('knowledge.details')}</summary>
         <p className="field-hint">{copy('knowledge.documentStartHint')}</p>
@@ -232,9 +230,6 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
         </div>
         </details>{feedback('document')}</section>
         <section className="knowledge-service-card" data-service="embedding" aria-labelledby="knowledge-embedding-title">{heading('embedding', copy('knowledge.embeddingTitle'), copy('knowledge.embeddingSummary'))}
-        <label className="knowledge-checkbox"><input data-testid="embedding-enabled" type="checkbox" role="switch" checked={saved.embedding.enabled}
-          disabled={!saved.embedding.enabled && !configured('embedding')}
-          onChange={(event) => void toggle('embedding', event.target.checked)} />{copy('knowledge.embeddingEnabled')}</label>
         {!configured('embedding') && <p className="field-hint">{copy('knowledge.configureBeforeEnable')}</p>}
         <details className="knowledge-service-details" data-testid="embedding-config"><summary>{copy('knowledge.details')}</summary>
         <p className="field-hint">{copy('knowledge.embeddingHint')}</p>
@@ -263,9 +258,6 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
         </div>
         </details>{feedback('embedding')}</section>
         <section className="knowledge-service-card" data-service="rerank" aria-labelledby="knowledge-rerank-title">{heading('rerank', copy('rerank.title'), copy('rerank.summary'))}
-        <label className="knowledge-checkbox"><input data-testid="rerank-enabled" type="checkbox" role="switch" checked={saved.rerank.enabled}
-          disabled={!saved.rerank.enabled && !configured('rerank')}
-          onChange={(event) => void toggle('rerank', event.target.checked)} />{copy('rerank.enabled')}</label>
         {!configured('rerank') && <p className="field-hint">{copy('knowledge.configureBeforeEnable')}</p>}
         <details className="knowledge-service-details" data-testid="rerank-config"><summary>{copy('knowledge.details')}</summary>
         <p className="field-hint">{copy('rerank.hint')}</p>
@@ -294,9 +286,6 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
         </div>
         </details>{feedback('rerank')}</section>
         <section className="knowledge-service-card" data-service="webSearch" aria-labelledby="knowledge-webSearch-title">{heading('webSearch', copy('webSearch.title'), copy('webSearch.summary'))}
-        <label className="knowledge-checkbox"><input data-testid="webSearch-enabled" type="checkbox" role="switch" checked={saved.webSearch.enabled}
-          disabled={!saved.webSearch.enabled && !configured('webSearch')}
-          onChange={(event) => void toggle('webSearch', event.target.checked)} />{copy('webSearch.enabled')}</label>
         {!configured('webSearch') && <p className="field-hint">{copy('knowledge.configureBeforeEnable')}</p>}
         <details className="knowledge-service-details" data-testid="webSearch-config"><summary>{copy('knowledge.details')}</summary>
           <p className="field-hint">{copy('webSearch.hint')}</p>

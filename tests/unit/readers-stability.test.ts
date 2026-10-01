@@ -95,11 +95,11 @@ describe('EPUB continuous manager compatibility', () => {
       ran.push('rejected')
       return Promise.reject(new Error('chapter load failed'))
     }).catch(() => undefined)
-    queue.enqueue(() => {
+    const completed = queue.enqueue(() => {
       ran.push('third')
-    }).catch(() => undefined)
+    })
 
-    await new Promise((resolve) => setTimeout(resolve, 80))
+    await completed
     expect(ran).toEqual(['sync-throw', 'rejected', 'third'])
   })
 
