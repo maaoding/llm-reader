@@ -21,6 +21,10 @@ const { epubFactory } = vi.hoisted(() => ({ epubFactory: vi.fn() }))
 
 vi.mock('epubjs', () => ({ default: epubFactory }))
 
+function mockSpineHooks() {
+  return { content: { list: vi.fn(() => [vi.fn()]), deregister: vi.fn() } }
+}
+
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value)
 }
@@ -269,6 +273,7 @@ describe('EPUB adapter safety utilities', () => {
       renderTo: vi.fn(() => rendition),
       locations: { generate: vi.fn().mockResolvedValue(['epubcfi(/6/2!/4/1:0)']) },
       spine: {
+        hooks: mockSpineHooks(),
         get: vi.fn((target: number | string) => {
           if (typeof target === 'number') return sections[target] ?? null
           const href = target.split('#', 1)[0]
@@ -321,7 +326,7 @@ describe('EPUB adapter safety utilities', () => {
       },
       renderTo: vi.fn(() => rendition),
       locations: { generate: generateLocations },
-      spine: { get: vi.fn(() => ({ href: 'chapter.xhtml' })) },
+      spine: { hooks: mockSpineHooks(), get: vi.fn(() => ({ href: 'chapter.xhtml' })) },
       destroy: vi.fn()
     }
     epubFactory.mockReturnValue(book)
@@ -369,7 +374,7 @@ describe('EPUB adapter safety utilities', () => {
       ready: Promise.resolve(),
       loaded: { metadata: Promise.resolve({ title: '慢速跳转' }), navigation: Promise.resolve({ toc: [] }), spine: Promise.resolve([{ index: 0 }]) },
       renderTo: () => rendition, locations: { generate: vi.fn().mockResolvedValue([]) },
-      spine: { get: () => ({ href: 'chapter.xhtml' }) }, destroy: vi.fn()
+      spine: { hooks: mockSpineHooks(), get: () => ({ href: 'chapter.xhtml' }) }, destroy: vi.fn()
     }
     epubFactory.mockReturnValue(book)
     const onRelocated = vi.fn()
@@ -430,7 +435,7 @@ describe('EPUB adapter safety utilities', () => {
       },
       renderTo: vi.fn(() => rendition),
       locations: { generate: vi.fn().mockResolvedValue(['epubcfi(/6/2!/4/1:0)']) },
-      spine: { get: vi.fn(() => ({ href: 'chapter.xhtml' })) },
+      spine: { hooks: mockSpineHooks(), get: vi.fn(() => ({ href: 'chapter.xhtml' })) },
       destroy: vi.fn()
     }
     epubFactory.mockReturnValue(book)

@@ -4,7 +4,7 @@ import {
   test,
   type ElectronApplication
 } from '@playwright/test'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import JSZip from 'jszip'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
@@ -70,6 +70,59 @@ async function writeEpubFixture(path: string, chapters: Array<{ file: string; la
   const bytes = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
   await writeFile(path, bytes)
 }
+
+test('renders EPUB chapter assets without base-uri CSP violations', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-epub-base-')
+  const fixture = join(workspace.root, 'chapter-assets.epub')
+  await writeEpubFixture(fixture, ['第一章', '第二章'].map((label, index) => ({
+    file: `c${index + 1}`,
+    label,
+    head: '<link rel="stylesheet" href="assets/chapter.css"/>'
+  })))
+  const zip = await JSZip.loadAsync(await readFile(fixture))
+  const packageXml = await zip.file('OEBPS/content.opf')!.async('string')
+  zip.file('OEBPS/content.opf', packageXml.replace('<manifest>', '<manifest><item id="style" href="assets/chapter.css" media-type="text/css"/><item id="image" href="assets/dot.svg" media-type="image/svg+xml"/>'))
+  zip.file('OEBPS/assets/chapter.css', 'h1 { font-style: italic; }')
+  zip.file('OEBPS/assets/dot.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><rect width="12" height="12"/></svg>')
+  for (const file of ['c1', 'c2']) {
+    const chapterXml = await zip.file(`OEBPS/${file}.xhtml`)!.async('string')
+    zip.file(`OEBPS/${file}.xhtml`, chapterXml.replace('<body>', '<body><img src="assets/dot.svg" alt="书内图片"/>'))
+  }
+  await writeFile(fixture, await zip.generateAsync({ type: 'nodebuffer' }))
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    const violations: string[] = []
+    page.on('console', (message) => {
+      if (message.text().includes('base-uri')) violations.push(message.text())
+    })
+    await showLibrary(page)
+    await page.getByTestId('book-item').first().click()
+    await enterReading(page)
+    await showContents(page)
+    for (const label of ['第一章', '第二章']) {
+      await page.locator('.toc-list button').getByText(label, { exact: true }).click()
+      await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', label)
+      await expect.poll(() => page.getByTestId('reader-host').evaluate((host, title) => {
+        const document = Array.from(host.querySelectorAll('iframe'))
+          .map((frame) => frame.contentDocument)
+          .find((document) => document?.querySelector('h1')?.textContent === title)
+        const heading = document?.querySelector('h1')
+        const image = document?.querySelector('img')
+        return {
+          italic: heading && document?.defaultView?.getComputedStyle(heading).fontStyle === 'italic',
+          imageLoaded: image?.complete && image.naturalWidth > 0
+        }
+      }, label)).toEqual({ italic: true, imageLoaded: true })
+      expect(violations).toEqual([])
+    }
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
 
 test('keeps the reader width stable while opening and switching workspace pages', async () => {
   const workspace = await createE2eWorkspace('llm-reader-opening-width-')

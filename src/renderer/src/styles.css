@@ -4709,6 +4709,7 @@ button.citation-valid:hover {
 
 .workspace-shell select {
   display: inline-flex;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;

@@ -43,6 +43,9 @@ test('keeps the full conversation scope compact and shows only blocking context 
     })
     expect(scopeLayout.count).toBe(3)
     expect(scopeLayout.centerDelta).toBeLessThanOrEqual(3)
+    const scopeOverflow = () => scopeControls.getByTestId('composer-scope')
+      .evaluate((element) => element.scrollHeight - element.clientHeight)
+    expect(await scopeOverflow()).toBeLessThanOrEqual(1)
 
     await page.getByTestId('settings-button').click()
     await page.getByTestId('settings-nav-model').click()
@@ -70,6 +73,7 @@ test('keeps the full conversation scope compact and shows only blocking context 
         await page.emulateMedia({ colorScheme: theme })
         await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', theme)
         await expect(scopeControls).toBeInViewport()
+        expect(await scopeOverflow()).toBeLessThanOrEqual(1)
         await expect(page.getByTestId('workspace-prepare')).toBeInViewport()
         expect((await conversation.locator('.assistant-composer').boundingBox())!.height).toBeLessThanOrEqual(140)
         await page.screenshot({ path: test.info().outputPath(`conversation-scope-${width}-${theme}.png`), animations: 'disabled' })
@@ -78,6 +82,7 @@ test('keeps the full conversation scope compact and shows only blocking context 
 
     await scopeControls.getByTestId('composer-scope').selectOption('selection')
     await expect(scopeControls.getByTestId('composer-scope')).toHaveValue('selection')
+    expect(await scopeOverflow()).toBeLessThanOrEqual(1)
     await expect(conversation.locator('.composer-hint')).toContainText('尚未选中原文')
     await expect(conversation.locator('button[type="submit"]')).toBeDisabled()
     await page.getByTestId('workspace-tab-reading').click()

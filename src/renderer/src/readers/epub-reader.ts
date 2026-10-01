@@ -506,6 +506,11 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
     const book = ePub(Uint8Array.from(bytes).buffer)
     this.book = book
+    // epub.js 0.3.93 registers replaceBase as its first spine content hook.
+    // Blob resource replacements and our validated links do not need it;
+    // inserting it even into a detached document violates the base-uri CSP.
+    const [baseHook] = book.spine.hooks.content.list()
+    book.spine.hooks.content.deregister(baseHook)
     await book.ready
     const [metadata, navigation, spine] = await Promise.all([
       book.loaded.metadata,
