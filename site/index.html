@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="LLM Reader v0.6.0：本地优先的 Windows 阅读器。阅读 EPUB、TXT 与 PDF，围绕选中内容、PDF 图片区域或整本书提问，让每次理解都能回到原文。"
+      content="LLM Reader v0.7.0：本地优先的 Windows 阅读器。阅读 EPUB、TXT 与 PDF，自定义助手设定，按需联网搜索，让每次理解都能核对来源。"
     />
     <meta name="theme-color" content="#f7f8f6" />
     <meta property="og:type" content="website" />
@@ -13,7 +13,7 @@
     <meta property="og:title" content="LLM Reader — 读懂复杂内容，始终锚定原文" />
     <meta
       property="og:description"
-      content="从一句原文到整本书：可恢复的阅读对话、PDF 图片区域提问、逐页 OCR，以及按需配置的文档与检索增强。"
+      content="从一句原文到整本书：可恢复的阅读对话、自定义助手设定、单轮联网搜索、PDF 图片区域提问与逐页 OCR。"
     />
     <meta property="og:url" content="https://llm-reader.maaoding.icu/" />
     <title>LLM Reader — 读懂复杂内容，始终锚定原文</title>
@@ -23,7 +23,7 @@
     <link rel="icon" type="image/png" sizes="128x128" href="./icon-128.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="./icon-256.png" />
     <link rel="apple-touch-icon" sizes="256x256" href="./icon-256.png" />
-    <link rel="stylesheet" href="./styles.css?v=0.6.0" />
+    <link rel="stylesheet" href="./styles.css?v=0.7.0" />
   </head>
   <body>
     <header class="site-header" id="top">
@@ -46,14 +46,14 @@
     <main>
       <section class="hero shell" aria-labelledby="page-title">
         <div class="hero-copy reveal">
-          <p class="eyebrow"><span aria-hidden="true"></span>v0.6.0 · Windows · 本地优先</p>
+          <p class="eyebrow"><span aria-hidden="true"></span>v0.7.0 · Windows · 本地优先</p>
           <h1 id="page-title">读懂复杂内容，<br /><em>始终锚定原文。</em></h1>
           <p class="hero-lead">
             从难懂的一段，到整本书的观点。把阅读、章节笔记与对话放进同一个工作台，用原文核对每次理解，下次打开接着读。
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/maaoding/llm-reader/releases/latest">
-              下载 v0.6.0 · Windows x64
+              下载 v0.7.0 · Windows x64
               <span aria-hidden="true">↓</span>
             </a>
             <a class="button button-secondary" href="#capabilities">
@@ -235,7 +235,7 @@
             <span class="capability-number">02</span>
             <div class="capability-copy">
               <h3>从选中内容，问到整本书</h3>
-              <p>选中难懂句段获得解释，或准备原文后围绕整本书提问。展开本次参考原文，沿有效引用跳回核对。</p>
+              <p>选中难懂句段获得解释，或准备原文后围绕整本书提问。按需联网补充资料，分别核对书内原文与网页摘录。</p>
             </div>
             <div class="citation-demo" aria-hidden="true">
               <span>原文</span>
@@ -248,7 +248,7 @@
             <span class="capability-number">03</span>
             <div class="capability-copy">
               <h3>关掉窗口，下次接着聊</h3>
-              <p>草稿、最近会话与打开的标签随重启恢复。归档回答后，可跨书搜索、继续追问并导出 Markdown。</p>
+              <p>草稿、助手设定、最近会话与打开的标签随重启恢复。归档回答后，可跨书搜索、继续追问并导出 Markdown。</p>
             </div>
             <div class="archive-demo" aria-hidden="true">
               <span></span><span></span><span></span>
@@ -320,7 +320,7 @@
       <section class="final-cta shell" aria-labelledby="cta-title">
         <p class="section-kicker">LLM READER</p>
         <h2 id="cta-title">让每次理解，都能回到原文。</h2>
-        <p>v0.6.0 · Windows x64 · GPL-3.0-or-later 开源。安装包未签名，已有版本可在“设置 → 关于”检查更新。</p>
+        <p>v0.7.0 · Windows x64 · GPL-3.0-or-later 开源。安装包未签名，已有版本可在“设置 → 关于”检查更新。</p>
         <a class="button button-primary" href="https://github.com/maaoding/llm-reader/releases/latest">
           下载最新版本
           <span aria-hidden="true">↓</span>
@@ -340,6 +340,6 @@
       </div>
       <p class="footer-copy">© 2026 LLM Reader</p>
     </footer>
-    <script src="./script.js?v=0.6.0" defer></script>
+    <script src="./script.js?v=0.7.0" defer></script>
   </body>
 </html>
