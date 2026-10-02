@@ -23,7 +23,7 @@
     <link rel="icon" type="image/png" sizes="128x128" href="./icon-128.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="./icon-256.png" />
     <link rel="apple-touch-icon" sizes="256x256" href="./icon-256.png" />
-    <link rel="stylesheet" href="./styles.css?v=0.7.0-demo2" />
+    <link rel="stylesheet" href="./styles.css?v=0.7.0-demo3" />
   </head>
   <body>
     <header class="site-header" id="top">
@@ -64,16 +64,9 @@
         </div>
 
         <figure class="product-stage reveal reveal-late">
-          <div class="demo-scenarios" role="group" aria-label="选择演示场景">
-            <span>v0.7.0 交互演示</span>
-            <button type="button" data-demo-scenario="selection" aria-pressed="true">选区提问</button>
-            <button type="button" data-demo-scenario="book" aria-pressed="false">整本书问答</button>
-            <div class="demo-window-sizes" role="group" aria-label="演示窗口大小"><button type="button" data-demo-size="compact" aria-pressed="false">小窗口</button><button type="button" data-demo-size="wide" aria-pressed="true">大窗口</button></div>
-            <button class="demo-reset" type="button" data-demo-reset>重置演示</button>
-          </div>
           <div class="product-frame">
             <div class="product-viewport">
-              <div class="reader-demo" id="reader-demo-panel" data-reader-demo data-demo-state="selected" data-demo-view="reading" data-demo-scope="book" data-demo-size="wide" aria-label="LLM Reader v0.7.0 工作台，使用预设书籍与回答">
+              <div class="reader-demo" id="reader-demo-panel" data-reader-demo data-demo-state="selected" data-demo-view="reading" data-demo-scope="book" aria-label="LLM Reader v0.7.0 工作台，使用预设书籍与回答">
                 <svg class="demo-icon-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
                   <symbol id="di-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></symbol>
                   <symbol id="di-book" viewBox="0 0 24 24"><path d="M12 5v16"></path><path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"></path></symbol>
@@ -98,7 +91,6 @@
                   <symbol id="di-message" viewBox="0 0 24 24"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path><path d="M7 11h10"></path><path d="M7 15h6"></path><path d="M7 7h8"></path></symbol>
                   <symbol id="di-minus" viewBox="0 0 24 24"><path d="M5 12h14"></path></symbol>
                   <symbol id="di-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect></symbol>
-                  <symbol id="di-restore" viewBox="0 0 24 24"><path d="m14 10 7-7"></path><path d="M20 10h-6V4"></path><path d="m3 21 7-7"></path><path d="M4 14h6v6"></path></symbol>
                 </svg>
                 <header class="demo-workspace-header">
                   <strong>LLM Reader</strong>
@@ -108,7 +100,7 @@
                   </nav>
                   <span class="demo-book-tab">理解复杂概念<svg aria-hidden="true"><use href="#di-close"/></svg></span>
                   <button class="demo-workspace-settings" type="button" data-demo-passive aria-disabled="true"><svg aria-hidden="true"><use href="#di-settings"/></svg>设置<i aria-label="模型服务已配置"></i></button>
-                  <div class="demo-window-controls" role="group" aria-label="演示窗口控制"><button type="button" data-demo-passive aria-disabled="true" aria-label="最小化"><svg aria-hidden="true"><use href="#di-minus"/></svg></button><button type="button" data-demo-window-toggle aria-label="最大化" title="最大化"><svg aria-hidden="true"><use href="#di-square"/></svg></button><button class="is-close" type="button" data-demo-passive aria-disabled="true" aria-label="关闭"><svg aria-hidden="true"><use href="#di-close"/></svg></button></div>
+                  <div class="demo-window-controls" role="group" aria-label="演示窗口控制"><button type="button" data-demo-passive aria-disabled="true" aria-label="最小化"><svg aria-hidden="true"><use href="#di-minus"/></svg></button><button type="button" data-demo-passive aria-disabled="true" aria-label="最大化"><svg aria-hidden="true"><use href="#di-square"/></svg></button><button class="is-close" type="button" data-demo-passive aria-disabled="true" aria-label="关闭"><svg aria-hidden="true"><use href="#di-close"/></svg></button></div>
                 </header>
                 <div class="demo-bookbar">
                   <div class="demo-book-identity"><span class="demo-format-chip">TXT</span><div class="demo-book-heading"><strong>理解复杂概念</strong>
@@ -409,6 +401,6 @@
       </div>
       <p class="footer-copy">© 2026 LLM Reader</p>
     </footer>
-    <script src="./script.js?v=0.7.0-demo2" defer></script>
+    <script src="./script.js?v=0.7.0-demo3" defer></script>
   </body>
 </html>

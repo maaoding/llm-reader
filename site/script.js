@@ -33,7 +33,6 @@ if (demo) {
   const save = find('[data-demo-save]')
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   let scope = 'book'
-  let scenario = 'selection'
   let hasSelection = true
   let hasAnswer = false
   let lastAction = 'explain'
@@ -41,20 +40,10 @@ if (demo) {
   let toastTimer
   let citationTimer
   let savedPersonas = 0
-  let maximized = false
-  let sizeBeforeMaximize = 'compact'
   const personas = new Map([
     ['default', { name: '本会话自定义', prompt: '' }],
     ['evidence', { name: '证据与边界', prompt: '先核对原文，再解释概念；区分作者的明确表述与推断，说明结论的前提和边界。' }]
   ])
-
-  function setWindowSize(size) {
-    demo.dataset.demoSize = size
-    demo.closest('.product-stage').dataset.demoSize = size
-    for (const button of document.querySelectorAll('button[data-demo-size]')) button.setAttribute('aria-pressed', String(button.dataset.demoSize === size))
-    resizeInput()
-    closePersona()
-  }
 
   function notify(message) {
     window.clearTimeout(toastTimer)
@@ -108,19 +97,15 @@ if (demo) {
       button.classList.toggle('is-active', active)
       button.setAttribute('aria-pressed', String(active))
     }
-    for (const button of document.querySelectorAll('[data-demo-scenario]')) {
-      button.setAttribute('aria-pressed', String(button.dataset.demoScenario === scenario))
-    }
     composer.placeholder = scope === 'book' ? '询问本书的观点、概念或章节联系…'
       : !hasSelection ? '写下问题，发送前先选中原文…'
         : hasAnswer ? '继续追问这段原文…' : '针对这段原文提问…'
     resizeInput()
   }
 
-  function setScenario(nextScope) {
-    scenario = nextScope
-    scope = 'book'
-    hasSelection = scenario === 'selection'
+  function resetConversation(nextScope) {
+    scope = nextScope
+    hasSelection = scope === 'selection'
     hasAnswer = false
     demo.dataset.demoState = hasSelection ? 'selected' : 'reading'
     answer.hidden = true
@@ -136,7 +121,7 @@ if (demo) {
     closePersona()
     renderScope()
     scroll.scrollTop = 0
-    if (window.innerWidth <= 1088) viewport.scrollLeft = scenario === 'book' ? viewport.scrollWidth : 0
+    if (window.innerWidth <= 1088) viewport.scrollLeft = scope === 'book' ? viewport.scrollWidth : 0
   }
 
   function showAnswer(action, value = '') {
@@ -182,15 +167,10 @@ if (demo) {
     button.title = '此入口请在桌面应用中使用'
     button.addEventListener('click', (event) => event.preventDefault())
   }
-  for (const button of document.querySelectorAll('[data-demo-scenario]')) {
-    button.addEventListener('click', () => { setView('reading'); setScenario(button.dataset.demoScenario) })
-  }
   for (const button of demo.querySelectorAll('button[data-demo-scope]')) {
     button.addEventListener('click', () => {
       if (scope === button.dataset.demoScope) return
-      setScenario(button.dataset.demoScope)
-      scope = button.dataset.demoScope
-      renderScope()
+      resetConversation(button.dataset.demoScope)
     })
   }
   for (const button of demo.querySelectorAll('button[data-demo-view]')) {
@@ -215,7 +195,6 @@ if (demo) {
     notify('已保存演示摘录。')
   })
   function selectPassage() {
-    scenario = 'selection'
     hasSelection = true
     demo.dataset.demoState = 'selected'
     renderScope()
@@ -256,10 +235,7 @@ if (demo) {
   })
   composer.addEventListener('input', resizeInput)
   composerScope.addEventListener('change', () => {
-    const nextScope = composerScope.value
-    setScenario(nextScope)
-    scope = nextScope
-    renderScope()
+    resetConversation(composerScope.value)
   })
   function renderSearch() {
     const needle = conversationSearch.value.trim().toLocaleLowerCase()
@@ -278,10 +254,7 @@ if (demo) {
     resizeInput()
   })
   find('[data-demo-clear-yes]').addEventListener('click', () => {
-    const previousScope = scope
-    setScenario(scenario)
-    scope = previousScope
-    renderScope()
+    resetConversation(scope)
     notify('已清空当前演示会话。')
   })
   composer.addEventListener('keydown', (event) => {
@@ -363,39 +336,6 @@ if (demo) {
   })
   demo.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !personaPanel.hidden) { event.preventDefault(); closePersona(true) }
-  })
-  for (const button of document.querySelectorAll('button[data-demo-size]')) {
-    button.addEventListener('click', () => {
-      maximized = false
-      find('[data-demo-window-toggle] use').setAttribute('href', '#di-square')
-      find('[data-demo-window-toggle]').setAttribute('aria-label', '最大化')
-      find('[data-demo-window-toggle]').title = '最大化'
-      setWindowSize(button.dataset.demoSize)
-    })
-  }
-  find('[data-demo-window-toggle]').addEventListener('click', (event) => {
-    if (!maximized) sizeBeforeMaximize = demo.dataset.demoSize
-    maximized = !maximized
-    const label = maximized ? '还原' : '最大化'
-    event.currentTarget.setAttribute('aria-label', label)
-    event.currentTarget.title = label
-    event.currentTarget.querySelector('use').setAttribute('href', maximized ? '#di-restore' : '#di-square')
-    setWindowSize(maximized ? 'wide' : sizeBeforeMaximize)
-  })
-  document.querySelector('[data-demo-reset]').addEventListener('click', () => {
-    window.clearTimeout(citationTimer)
-    window.clearTimeout(toastTimer)
-    toast.hidden = true
-    setView('reading')
-    setScenario('selection')
-    web.setAttribute('aria-pressed', 'true')
-    web.click()
-    personaSelect.value = 'default'
-    updatePersona()
-    find('[data-demo-excerpt] span').textContent = '摘录这段'
-    reader.scrollTop = 0
-    viewport.scrollLeft = 0
-    status.textContent = '演示已重置。'
   })
   renderScope()
 }

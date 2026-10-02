@@ -288,14 +288,6 @@ h1 em {
   scrollbar-color: #c2cdd2 transparent;
 }
 
-.demo-scenarios { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; text-align: left; font-size: 12px; }
-.demo-scenarios > span { margin-right: 8px; color: var(--muted); }
-.demo-scenarios button { min-height: 32px; padding: 5px 12px; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; font: inherit; }
-.demo-scenarios button[aria-pressed="true"] { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
-.demo-scenarios .demo-reset { margin-left: auto; background: transparent; }
-.demo-window-sizes { display: flex; align-items: center; gap: 4px; margin-left: 8px; padding-left: 12px; border-left: 1px solid var(--line); }
-.product-stage[data-demo-size="compact"] .product-frame { width: min(100%, 942px); margin-inline: auto; }
-.product-stage[data-demo-size="compact"] .product-viewport { height: 600px; }
 .reader-demo {
   --demo-ui-bg: #eef1f2;
   --demo-ui-panel: #f4f6f7;
@@ -335,7 +327,6 @@ h1 em {
 .demo-window-controls svg { width: 14px; height: 14px; }
 .demo-window-controls button:nth-child(2) svg { width: 12px; height: 12px; }
 .demo-window-controls .is-close svg { width: 15px; height: 15px; }
-.demo-window-controls button[aria-label="还原"] svg { width: 13px; height: 13px; }
 .reader-demo .demo-window-controls .is-close:hover { color: white; background: #c42b1c; }
 .demo-bookbar { padding: 0 24px; gap: 20px; background: var(--demo-ui-panel); }
 .demo-book-identity { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 100px; }
@@ -471,7 +462,6 @@ h1 em {
 .demo-mobile-hint { display: none; }
 @keyframes demo-citation-return { from { background: rgb(240 220 160 / 90%); } to { background: transparent; } }
 .demo-reader-paper .is-citation-return { animation: demo-citation-return 900ms ease-out; }
-.reader-demo[data-demo-size="compact"] { grid-template-rows: 48px 56px minmax(0, 1fr); }
 @container reader-demo (max-width: 1179px) {
   .demo-workspace-header { gap: 14px; padding-left: 16px; }
   .demo-bookbar { gap: 12px; padding-inline: 16px; }
@@ -894,9 +884,6 @@ h1 em {
 }
 @media (max-width: 780px) {
   .product-stage { margin-top: 48px; }
-  .demo-scenarios > span { width: 100%; margin: 0; }
-  .demo-scenarios .demo-reset { padding-inline: 8px; }
-  .demo-window-sizes { margin-left: 0; padding-left: 0; border-left: 0; }
   .demo-mobile-hint { display: block; }
 }
 
