@@ -23,7 +23,7 @@
     <link rel="icon" type="image/png" sizes="128x128" href="./icon-128.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="./icon-256.png" />
     <link rel="apple-touch-icon" sizes="256x256" href="./icon-256.png" />
-    <link rel="stylesheet" href="./styles.css?v=0.7.0" />
+    <link rel="stylesheet" href="./styles.css?v=0.7.0-demo2" />
   </head>
   <body>
     <header class="site-header" id="top">
@@ -64,122 +64,191 @@
         </div>
 
         <figure class="product-stage reveal reveal-late">
+          <div class="demo-scenarios" role="group" aria-label="选择演示场景">
+            <span>v0.7.0 交互演示</span>
+            <button type="button" data-demo-scenario="selection" aria-pressed="true">选区提问</button>
+            <button type="button" data-demo-scenario="book" aria-pressed="false">整本书问答</button>
+            <div class="demo-window-sizes" role="group" aria-label="演示窗口大小"><button type="button" data-demo-size="compact" aria-pressed="false">小窗口</button><button type="button" data-demo-size="wide" aria-pressed="true">大窗口</button></div>
+            <button class="demo-reset" type="button" data-demo-reset>重置演示</button>
+          </div>
           <div class="product-frame">
             <div class="product-viewport">
-              <div
-                class="reader-demo"
-                id="reader-demo-panel"
-                data-reader-demo
-                data-demo-state="selected"
-                aria-label="LLM Reader 工作台交互示意，使用预设原文与回答"
-              >
+              <div class="reader-demo" id="reader-demo-panel" data-reader-demo data-demo-state="selected" data-demo-view="reading" data-demo-scope="book" data-demo-size="wide" aria-label="LLM Reader v0.7.0 工作台，使用预设书籍与回答">
+                <svg class="demo-icon-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                  <symbol id="di-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></symbol>
+                  <symbol id="di-book" viewBox="0 0 24 24"><path d="M12 5v16"></path><path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"></path></symbol>
+                  <symbol id="di-library" viewBox="0 0 24 24"><path d="m16 6 4 14"></path><path d="M12 6v14"></path><path d="M8 8v12"></path><path d="M4 4v16"></path></symbol>
+                  <symbol id="di-bookmark" viewBox="0 0 24 24"><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"></path></symbol>
+                  <symbol id="di-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path><circle cx="12" cy="12" r="3"></circle></symbol>
+                  <symbol id="di-close" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12"/></symbol>
+                  <symbol id="di-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></symbol>
+                  <symbol id="di-expand" viewBox="0 0 24 24"><path d="M15 3h6v6"></path><path d="m21 3-7 7"></path><path d="m3 21 7-7"></path><path d="M9 21H3v-6"></path></symbol>
+                  <symbol id="di-panel" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M9 3v18"></path><path d="m16 15-3-3 3-3"></path></symbol>
+                  <symbol id="di-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+                  <symbol id="di-layout" viewBox="0 0 24 24"><path d="M10 5H3"></path><path d="M12 19H3"></path><path d="M14 3v4"></path><path d="M16 17v4"></path><path d="M21 12h-9"></path><path d="M21 19h-5"></path><path d="M21 5h-7"></path><path d="M8 10v4"></path><path d="M8 12H3"></path></symbol>
+                  <symbol id="di-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></symbol>
+                  <symbol id="di-arrow" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></symbol>
+                  <symbol id="di-pen" viewBox="0 0 24 24"><path d="m16 3 5 5-12 12H4v-5L16 3ZM3 22h18"/></symbol>
+                  <symbol id="di-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a18 18 0 0 1 0 20 18 18 0 0 1 0-20Z"/></symbol>
+                  <symbol id="di-globe-off" viewBox="0 0 24 24"><path d="m16 3 5 5"></path><path d="M2 12h20A10 10 0 1 1 12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 4-10"></path><path d="m21 3-5 5"></path></symbol>
+                  <symbol id="di-bot" viewBox="0 0 24 24"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></symbol>
+                  <symbol id="di-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path><path d="m21.854 2.147-10.94 10.939"></path></symbol>
+                  <symbol id="di-refresh" viewBox="0 0 24 24"><path d="M3 11a9 9 0 0 1 15.5-6.5L21 7M21 3v4h-4M21 13a9 9 0 0 1-15.5 6.5L3 17M3 21v-4h4"/></symbol>
+                  <symbol id="di-highlighter" viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"></path><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path></symbol>
+                  <symbol id="di-message" viewBox="0 0 24 24"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path><path d="M7 11h10"></path><path d="M7 15h6"></path><path d="M7 7h8"></path></symbol>
+                  <symbol id="di-minus" viewBox="0 0 24 24"><path d="M5 12h14"></path></symbol>
+                  <symbol id="di-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect></symbol>
+                  <symbol id="di-restore" viewBox="0 0 24 24"><path d="m14 10 7-7"></path><path d="M20 10h-6V4"></path><path d="m3 21 7-7"></path><path d="M4 14h6v6"></path></symbol>
+                </svg>
                 <header class="demo-workspace-header">
-                  <strong><img src="./icon-32.png" width="22" height="22" alt="" />LLM Reader</strong>
+                  <strong>LLM Reader</strong>
                   <nav aria-label="演示全局导航">
-                    <button type="button" data-demo-passive aria-disabled="true">书库</button>
-                    <button type="button" data-demo-passive aria-disabled="true">问答集</button>
+                    <button type="button" data-demo-passive aria-disabled="true"><svg aria-hidden="true"><use href="#di-library"/></svg>书库</button>
+                    <button type="button" data-demo-passive aria-disabled="true"><svg aria-hidden="true"><use href="#di-bookmark"/></svg>问答集</button>
                   </nav>
-                  <span class="demo-book-tab">理解复杂概念</span>
-                  <button class="demo-workspace-settings" type="button" data-demo-passive aria-disabled="true"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.56V21h-4v-.04A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.04 14H3v-4h.04A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88L4.2 7.06 7.06 4.2l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.04V3h4v.04A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.56 1H21v4h-.04A1.7 1.7 0 0 0 19.4 15Z"/></svg>设置</button>
-                  <div class="demo-window-controls" role="group" aria-label="窗口控制，演示中不可用">
-                    <button type="button" data-demo-passive aria-disabled="true" aria-label="最小化" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
-                    <button type="button" data-demo-passive aria-disabled="true" aria-label="最大化或还原" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1"/></svg></button>
-                    <button class="is-close" type="button" data-demo-passive aria-disabled="true" aria-label="关闭" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-                  </div>
+                  <span class="demo-book-tab">理解复杂概念<svg aria-hidden="true"><use href="#di-close"/></svg></span>
+                  <button class="demo-workspace-settings" type="button" data-demo-passive aria-disabled="true"><svg aria-hidden="true"><use href="#di-settings"/></svg>设置<i aria-label="模型服务已配置"></i></button>
+                  <div class="demo-window-controls" role="group" aria-label="演示窗口控制"><button type="button" data-demo-passive aria-disabled="true" aria-label="最小化"><svg aria-hidden="true"><use href="#di-minus"/></svg></button><button type="button" data-demo-window-toggle aria-label="最大化" title="最大化"><svg aria-hidden="true"><use href="#di-square"/></svg></button><button class="is-close" type="button" data-demo-passive aria-disabled="true" aria-label="关闭"><svg aria-hidden="true"><use href="#di-close"/></svg></button></div>
                 </header>
                 <div class="demo-bookbar">
-                  <div class="demo-book-identity">
-                    <span class="demo-book-back" aria-hidden="true">←</span>
-                    <span class="demo-format-chip">TXT</span>
-                    <strong>理解复杂概念</strong>
-                    <div class="demo-reading-position" aria-label="阅读进度 42%">
-                      <span>第一章 · 定义、条件与边界</span>
-                      <strong>42%</strong>
-                      <div class="demo-title-progress" role="progressbar" aria-label="本章阅读进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="42"><i></i></div>
+                  <div class="demo-book-identity"><span class="demo-format-chip">TXT</span><div class="demo-book-heading"><strong>理解复杂概念</strong>
+                    <div class="demo-reading-position" aria-label="阅读进度">
+                      <span>全文</span><strong data-demo-progress-label>0%</strong>
+                      <div class="demo-title-progress" role="progressbar" aria-label="阅读进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
                     </div>
                   </div>
+                  </div>
                   <nav aria-label="演示本书导航">
-                    <button class="is-active" type="button" data-demo-passive aria-disabled="true" aria-current="page">阅读</button>
+                    <button class="is-active" type="button" data-demo-view="reading" aria-current="page">阅读</button>
                     <button type="button" data-demo-passive aria-disabled="true">笔记</button>
-                    <button type="button" data-demo-passive aria-disabled="true">对话</button>
+                    <button type="button" data-demo-view="conversation">对话</button>
                   </nav>
                   <button class="demo-book-prepare" type="button" data-demo-passive aria-disabled="true">本书准备</button>
                 </div>
                 <nav class="demo-reader-rail" aria-label="演示阅读工具">
-                  <button type="button" data-demo-passive aria-disabled="true" aria-label="目录" title="目录（演示中不可用）"><svg aria-hidden="true" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg></button>
-                  <button type="button" data-demo-passive aria-disabled="true" aria-label="摘录" title="摘录（演示中不可用）"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></button>
-                  <button type="button" data-demo-passive aria-disabled="true" aria-label="搜索" title="搜索（演示中不可用）"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
-                  <button type="button" data-demo-passive aria-disabled="true" aria-label="排版" title="排版（演示中不可用）"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16M9 3v4M15 10v4M9 17v4"/></svg></button>
-                  <button type="button" data-demo-passive aria-disabled="true" aria-label="书籍详情" title="书籍详情（演示中不可用）"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></button>
+                  <button type="button" data-demo-passive aria-disabled="true" aria-label="目录"><svg aria-hidden="true"><use href="#di-panel"/></svg></button>
+                  <button type="button" data-demo-passive aria-disabled="true" aria-label="摘录"><svg aria-hidden="true"><use href="#di-bookmark"/></svg></button>
+                  <button type="button" data-demo-passive aria-disabled="true" aria-label="搜索"><svg aria-hidden="true"><use href="#di-search"/></svg></button>
+                  <button type="button" data-demo-passive aria-disabled="true" aria-label="排版"><svg aria-hidden="true"><use href="#di-layout"/></svg></button>
+                  <button type="button" data-demo-passive aria-disabled="true" aria-label="书籍详情"><svg aria-hidden="true"><use href="#di-info"/></svg></button>
                 </nav>
-
                 <section class="demo-reader-column">
                   <section class="demo-reader-surface" aria-label="演示原文">
                     <article class="demo-reader-paper">
                       <p>理解一个复杂概念，通常需要区分它的定义、成立条件与适用边界。</p>
-                      <p class="demo-selected-paragraph">定义回答“它是什么”，但定义本身并不保证某个判断在现实中成立。<mark id="demo-source-passage" data-demo-selection tabindex="-1">成立条件描述一个结论依赖哪些前提；只要其中一个关键前提变化，原来的结论就可能失效。</mark>
+                      <p class="demo-selected-paragraph">定义回答“它是什么”，但定义本身并不保证某个判断在现实中成立。<mark id="demo-source-passage" data-demo-selection tabindex="0" role="button" aria-label="选中这段原文">成立条件描述一个结论依赖哪些前提；只要其中一个关键前提变化，原来的结论就可能失效。</mark>
                         <span class="demo-selection-toolbar" role="toolbar" aria-label="选区操作">
-                          <span class="demo-selection-spark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg></span>
-                          <button type="button" data-demo-explain><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4l8 8Z"/></svg><span data-demo-explain-label>解释这段</span></button>
-                          <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>联系上下文</button>
-                          <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/></svg>自由提问</button>
-                          <button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>摘录这段</button>
-                          <button class="toolbar-close" type="button" data-demo-passive aria-disabled="true" aria-label="关闭选区工具" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                          <span class="demo-selection-spark" aria-hidden="true"><svg><use href="#di-sparkles"/></svg></span>
+                          <button type="button" data-demo-explain><svg aria-hidden="true"><use href="#di-highlighter"/></svg>解释这段</button>
+                          <button type="button" data-demo-context><svg aria-hidden="true"><use href="#di-book"/></svg>联系上下文</button>
+                          <button type="button" data-demo-ask><svg aria-hidden="true"><use href="#di-message"/></svg>自由提问</button>
+                          <button type="button" data-demo-excerpt><svg aria-hidden="true"><use href="#di-bookmark"/></svg><span>摘录这段</span></button>
+                          <button class="toolbar-close" type="button" data-demo-clear-selection aria-label="关闭选区工具"><svg aria-hidden="true"><use href="#di-close"/></svg></button>
                         </span>
                       </p>
-                      <p>适用边界则提醒读者，不要把局部有效的模型扩展到所有情境。模型的价值并不来自它对现实的完整复制，而来自它在明确范围内压缩复杂度的能力。</p>
-                      <p>因此，阅读非虚构作品时，一个有用的问题不是“作者说得对不对”，而是“这个结论依赖什么前提，在什么范围内成立”。</p>
+                      <p data-demo-boundaries>适用边界则提醒读者，不要把局部有效的模型扩展到所有情境。模型的价值并不来自它对现实的完整复制，而来自它在明确范围内压缩复杂度的能力。</p>
+                      <p data-demo-source-question>因此，阅读非虚构作品时，一个有用的问题不是“作者说得对不对”，而是“这个结论依赖什么前提，在什么范围内成立”。</p>
                       <p>When a model is useful, it makes selected relationships easier to reason about. Its simplifications are features only while their limits remain visible.</p>
                       <p>进一步阅读时，可以把每个论证拆成主张、证据和隐含前提。主张告诉我们作者希望读者接受什么，证据说明作者凭什么这样判断，隐含前提则连接二者。</p>
+                      <p>如果只记录结论，不记录前提，笔记会很快变成脱离语境的口号。可靠的阅读笔记应当保留它在原文中的位置，使之后的复查能够回到证据附近。</p>
+                      <p>面对术语密集的章节，可以先问它与相邻概念的区别，再问它解决了什么问题。</p>
                     </article>
                   </section>
                 </section>
-
                 <aside class="demo-right-sidebar" aria-label="演示阅读助手">
                   <header class="demo-assistant-header">
-                    <div class="demo-assistant-title"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg></span><strong>阅读助手</strong></div>
+                    <div class="demo-assistant-title"><span aria-hidden="true"><svg><use href="#di-sparkles"/></svg></span><strong>阅读助手</strong></div>
                     <div class="demo-assistant-actions">
-                      <button class="demo-expand-button" type="button" data-demo-passive aria-disabled="true" aria-label="打开对话" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg></button>
+                      <button class="demo-icon-button" type="button" data-demo-passive aria-disabled="true" aria-label="最近对话"><svg aria-hidden="true"><use href="#di-history"/></svg></button>
+                      <button class="demo-icon-button" type="button" data-demo-view="conversation" aria-label="展开对话" title="展开对话"><svg aria-hidden="true"><use href="#di-expand"/></svg></button>
                     </div>
                   </header>
-                  <div class="demo-scope" aria-label="演示提问范围">
-                    <button class="is-active" type="button" data-demo-passive aria-disabled="true">选中内容</button>
-                    <button type="button" data-demo-passive aria-disabled="true">整本书</button>
-                    <span>原文已就绪</span>
+                  <div class="demo-scope" role="group" aria-label="提问范围">
+                    <button type="button" data-demo-scope="selection" aria-pressed="false">选中内容</button>
+                    <button class="is-active" type="button" data-demo-scope="book" aria-pressed="true">整本书</button>
+                    <span data-demo-scope-status>原文已就绪</span>
+                  </div>
+                  <div class="demo-conversation-controls">
+                    <div class="demo-conversation-tabs" role="tablist" aria-label="对话"><button type="button" role="tab" aria-selected="true">当前对话</button></div>
+                    <label><svg aria-hidden="true"><use href="#di-search"/></svg><input type="search" data-demo-search placeholder="搜索当前会话" aria-label="搜索当前会话" /><small data-demo-search-count hidden></small></label>
+                    <button class="demo-icon-button" type="button" data-demo-passive aria-disabled="true" aria-label="最近对话"><svg aria-hidden="true"><use href="#di-history"/></svg></button>
+                    <button type="button" data-demo-clear hidden>清空会话</button>
+                    <span class="demo-clear-confirm" data-demo-clear-confirm hidden><span>清空当前会话？</span><button type="button" data-demo-clear-yes>确认</button><button type="button" data-demo-clear-no>返回</button></span>
                   </div>
                   <div class="demo-assistant-scroll" aria-live="polite">
+                    <div class="demo-source-card" data-demo-source hidden>
+                      <div class="demo-source-heading"><span>选中的原文</span><small>全文 · 参考附近 3 段原文</small></div>
+                      <blockquote>“成立条件描述一个结论依赖哪些前提；只要其中一个关键前提变化，原来的结论就可能失效。”</blockquote>
+                      <button type="button" data-demo-return><svg aria-hidden="true"><use href="#di-arrow"/></svg>回到原文</button>
+                    </div>
                     <div class="demo-assistant-empty" data-demo-empty>
-                      <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg></span>
-                      <strong>从这一段，读懂它的前提</strong>
-                      <p>点击正文中的“解释这段”，查看示例回答，再沿引用回到原文。</p>
+                      <span aria-hidden="true"><svg><use href="#di-book"/></svg></span>
+                      <strong>从书中寻找答案</strong>
+                      <p>询问书中的观点、概念或章节联系，回答会附上本次参考的原文。</p>
                     </div>
                     <div class="demo-answer" data-demo-answer hidden>
-                      <details class="demo-source-card">
-                        <summary>本次参考原文 · 1 处</summary>
-                        <blockquote>“成立条件描述一个结论依赖哪些前提；只要其中一个关键前提变化，原来的结论就可能失效。”</blockquote>
-                        <button type="button" data-demo-return aria-describedby="demo-citation-status"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>回到原文</button>
-                      </details>
-                      <div class="demo-user-message"><small>解释这段</small><details class="demo-question-prompt"><summary>查看本次提示词</summary><p>请解释我选中的原文，帮助我读懂它，而不只是换一种说法。先用一两句话说清核心意思，再按理解需要解释关键概念在这里的含义，理清指代、转折或因果；若涉及论证，说明作者的主张、依据与成立条件。简化表达时保留原文的限定、否定和语气，不把可能性说成必然，也不把作者的观点当成公认事实。必要时用一个简短的假设例子辅助理解，并标明是示例。以本次提供的原文为依据，引用关键语句支撑解释，区分明确表述与推断；遇到歧义或信息不足，说明具体不确定之处。用自然、清楚的中文直接回答，篇幅随内容难度调整，不机械套用固定栏目，不复述整段原文或反复总结。</p></details></div>
+                      <div class="demo-user-message"><small data-demo-question-label>解释这段</small><details class="demo-question-prompt" data-demo-prompt><summary>查看本次提示词</summary><p>请解释我选中的原文，帮助我读懂它，而不只是换一种说法。以原文为依据，理清关键概念、前提与适用边界，区分明确表述与推断。</p></details><p data-demo-question hidden></p></div>
                       <article class="demo-answer-card">
-                        <header><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg></span><strong>示例回答</strong></header>
-                        <div class="demo-answer-text">
-                          <p>这段话区分了“定义”和“成立条件”：知道概念是什么，还要检查结论依赖的前提是否仍然成立。<button type="button" class="demo-citation" data-demo-return aria-describedby="demo-citation-status" title="跳转到原文：成立条件描述一个结论依赖哪些前提……">原文：成立条件描述一个结论依赖哪些前提……</button></p>
+                        <header><span aria-hidden="true"><svg><use href="#di-sparkles"/></svg></span><strong>演示模型</strong></header>
+                        <details class="demo-answer-sources">
+                          <summary>本次参考原文 · 3 处</summary>
+                          <button type="button" data-demo-return>理解复杂概念：成立条件描述一个结论依赖哪些前提……</button>
+                          <button type="button" data-demo-return="boundaries">理解复杂概念：适用边界则提醒读者，不要把局部有效的模型扩展到所有情境。</button>
+                          <button type="button" data-demo-return="question">理解复杂概念：这个结论依赖什么前提，在什么范围内成立。</button>
+                        </details>
+                        <div class="demo-web-sources" data-demo-web-sources hidden><p>本轮判断不需要联网</p></div>
+                        <div class="demo-answer-text" data-demo-answer-text>
+                          <p>这段话区分了“定义”和“成立条件”：知道概念是什么，还要检查结论依赖的前提是否仍然成立。</p>
+                          <p><button type="button" class="demo-citation" data-demo-return title="跳转到对应原文">原文：成立条件描述一个结论依赖哪些前提……</button></p>
+                          <p>比如，一项结论依赖“其他条件不变”。一旦这个前提改变，就需要重新判断。这是辅助理解的假设例子。</p>
                         </div>
-                        <footer><span>阅读助手</span><button type="button" data-demo-passive aria-disabled="true" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>归档回答</button></footer>
+                        <footer>
+                          <div class="demo-answer-meta"><span>耗时 0.8 秒</span></div>
+                          <div class="demo-answer-actions">
+                            <button type="button" data-demo-regenerate><svg aria-hidden="true"><use href="#di-refresh"/></svg>重新生成</button>
+                            <button type="button" data-demo-edit-question><svg aria-hidden="true"><use href="#di-pen"/></svg>编辑问题</button>
+                            <button type="button" data-demo-save><svg aria-hidden="true"><use href="#di-bookmark"/></svg><span>归档回答</span></button>
+                          </div>
+                        </footer>
                       </article>
                     </div>
-                    <span class="visually-hidden" id="demo-citation-status" data-demo-status aria-live="polite"></span>
                   </div>
                   <footer class="demo-assistant-composer">
-                    <label class="visually-hidden" for="demo-followup">继续追问</label>
-                    <textarea id="demo-followup" rows="2" readonly placeholder="点击“解释这段”体验示例"></textarea>
-                    <button type="button" data-demo-passive aria-disabled="true" aria-label="发送" title="官网演示中不可用"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+                    <div class="demo-composer-heading">
+                      <label class="visually-hidden" for="demo-composer-scope">提问范围</label>
+                      <select id="demo-composer-scope"><option value="selection">选中内容</option><option value="book">整本书</option></select>
+                      <span class="demo-context-hint" data-demo-context-hint tabindex="0" title="上轮回答实际使用的上下文 · 原文 3 处" hidden>上轮参考 · 原文 3 处</span>
+                    </div>
+                    <form class="demo-question-box" data-demo-form>
+                      <label class="visually-hidden" for="demo-followup">输入问题</label>
+                      <textarea id="demo-followup" rows="2" maxlength="2000" placeholder="询问本书的观点、概念或章节联系…"></textarea>
+                      <div class="demo-composer-toolbar">
+                        <div class="demo-composer-tools">
+                          <span class="demo-composer-tool"><button class="demo-icon-button" type="button" data-demo-web-search aria-pressed="false" aria-label="联网：关闭" aria-describedby="demo-web-tooltip"><svg aria-hidden="true"><use href="#di-globe-off"/></svg></button><span id="demo-web-tooltip" class="demo-composer-tooltip" role="tooltip"><strong>联网：关闭</strong><span>由模型判断是否需要联网，每轮最多搜索一次。</span></span></span>
+                          <span class="demo-composer-tool"><button class="demo-icon-button" type="button" data-demo-persona-trigger aria-expanded="false" aria-controls="demo-persona-panel" aria-label="助手：默认" aria-describedby="demo-persona-tooltip"><svg aria-hidden="true"><use href="#di-bot"/></svg></button><span id="demo-persona-tooltip" class="demo-composer-tooltip" role="tooltip">助手：默认</span></span>
+                        </div>
+                        <span class="demo-composer-tool"><button class="demo-icon-button demo-send-button" type="submit" data-demo-send aria-label="发送问题" aria-describedby="demo-send-tooltip" disabled><svg aria-hidden="true"><use href="#di-send"/></svg></button><span id="demo-send-tooltip" class="demo-composer-tooltip" role="tooltip">发送问题</span></span>
+                      </div>
+                    </form>
+                    <div class="demo-persona-panel" id="demo-persona-panel" data-demo-persona-panel hidden>
+                      <label for="demo-persona-select">当前助手设定</label>
+                      <select id="demo-persona-select"><option value="default">不使用自定义设定</option><option value="evidence">证据与边界</option><option value="custom" hidden>本会话自定义</option></select>
+                      <div class="demo-persona-actions"><button type="button" data-demo-persona-edit>修改本会话设定</button><button type="button" data-demo-persona-save-as hidden>另存为人设</button></div>
+                      <div class="demo-persona-editor" data-demo-persona-editor hidden>
+                        <label for="demo-persona-name">人设名称</label><input id="demo-persona-name" maxlength="80" value="证据与边界" />
+                        <label for="demo-persona-prompt">提示词正文</label><textarea id="demo-persona-prompt" rows="3" maxlength="3000">先核对原文，再解释概念；区分作者的明确表述与推断，说明结论的前提和边界。</textarea>
+                        <small>修改从下一次提问或主动重新生成开始生效。</small>
+                        <button type="button" class="demo-persona-apply" data-demo-persona-apply>保存人设</button>
+                      </div>
+                    </div>
                   </footer>
                 </aside>
+                <div class="demo-toast" data-demo-toast role="status" hidden></div>
+                <span class="visually-hidden" data-demo-status aria-live="polite"></span>
               </div>
             </div>
           </div>
-          <figcaption class="demo-caption">工作台交互示意 · 点击“解释这段”和回答引用体验流程，原文与回答均为预设内容，不调用模型。<noscript>启用 JavaScript 后可体验交互。</noscript></figcaption>
+          <figcaption class="demo-caption">按 v0.7.0 工作台展示 · 选区提问、整本书问答、助手设定与引用返回可交互。书籍、模型配置和回答均为预设示例，不调用模型或搜索服务。<span class="demo-mobile-hint">左右滑动查看完整工作台。</span><noscript>启用 JavaScript 后可体验交互。</noscript></figcaption>
         </figure>
       </section>
 
@@ -340,6 +409,6 @@
       </div>
       <p class="footer-copy">© 2026 LLM Reader</p>
     </footer>
-    <script src="./script.js?v=0.7.0" defer></script>
+    <script src="./script.js?v=0.7.0-demo2" defer></script>
   </body>
 </html>
