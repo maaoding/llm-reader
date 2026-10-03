@@ -107,6 +107,8 @@ pnpm dev
 
 开发环境需要 Node.js 24+ 与 pnpm 11+。
 
+云端 Linux 的 pnpm、Xvfb 与 Wine 初始化命令见[开发环境说明](docs/development-environment.md)，支持无需管理员权限的安装与重复执行。
+
 重装依赖后若 `pnpm dev` 报 `Error: Electron uninstall`，是 Electron 二进制的 postinstall 下载未执行，手动运行 `node node_modules\electron\install.js` 即可。
 
 “请求适配”默认为“自动”，会识别 OpenCode Go 官方地址（如 `https://opencode.ai/zen/go/v1`）。通过中转调用 Go 时，选择“OpenCode Go”；测试连接和获取模型列表会直接使用当前表单选项。中转需透传会话标识；Go 请求遇到重定向时，请填写最终接口地址。此选项仅适配请求头，仍需选择支持 `/v1/chat/completions` 的模型。
