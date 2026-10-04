@@ -397,8 +397,16 @@ export interface DocumentSettings extends RequestSettings {
   enabled: boolean; processor: DocumentProcessor; baseUrl: string; ocr: boolean; language: 'ch' | 'en'
   model?: string; compatibility?: ProviderCompatibility; protocol?: ProviderProtocol
 }
-/** Tavily-compatible single-round web search; the service only receives the planned query. */
-export interface WebSearchSettings extends RequestSettings { enabled: boolean; baseUrl: string }
+export type WebSearchProvider = 'tavily' | 'brave' | 'exa'
+/** Single-round search; omitted options preserve the legacy Tavily defaults. */
+export interface WebSearchSettings extends RequestSettings {
+  enabled: boolean
+  baseUrl: string
+  provider?: WebSearchProvider
+  maxResults?: number
+  includeDomains?: string[]
+  excludeDomains?: string[]
+}
 export interface KnowledgeSettings {
   embedding: EmbeddingSettings & { hasApiKey: boolean }
   rerank: RerankSettings & { hasApiKey: boolean }

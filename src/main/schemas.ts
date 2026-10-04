@@ -1,6 +1,7 @@
 import { copy } from '@shared/copy'
 import { z } from 'zod'
 import { requestSettingsFields } from '@shared/request-settings'
+import { searchDomainsSchema } from '@shared/web-search-settings'
 import { normalizeReaderSearchQuery } from '@shared/reader-search'
 import { validateDocument } from '@shared/document-structure'
 import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR_MAX_PAGES } from '@shared/vision-ocr'
@@ -397,7 +398,9 @@ const documentSettingsSchema = z.object({ ...requestSettingsFields, protocol: z.
     ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
     .refine((value) => !(value.enabled ?? value.processor !== 'none') || value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl'))
     .refine((value) => !(value.enabled ?? value.processor !== 'none') || !['vision', 'mistral-ocr'].includes(value.processor) || Boolean(value.model), copy('vision.configRequired'))
-const webSearchSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl.refine((value) => !value || new URL(value).protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(new URL(value).hostname), copy('webSearch.required')), apiKey: knowledgeKey }).strict()
+const webSearchSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl.refine((value) => !value || new URL(value).protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(new URL(value).hostname), copy('webSearch.required')), apiKey: knowledgeKey,
+  provider: z.enum(['tavily', 'brave', 'exa']).optional(), maxResults: z.number().int().min(1).max(5).optional(),
+  includeDomains: searchDomainsSchema.optional(), excludeDomains: searchDomainsSchema.optional() }).strict()
   .refine((value) => !value.enabled || Boolean(value.baseUrl), copy('webSearch.required'))
 export const knowledgeSettingsSchema = z.object({
   target: z.enum(['embedding', 'rerank', 'document', 'webSearch']).optional(),

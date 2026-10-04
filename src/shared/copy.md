@@ -158,9 +158,16 @@
 | rerank.applied | 已优化原文顺序 |
 | rerank.fallback | 排序服务未完成，已使用原有顺序 |
 | rerank.skipped | 本次沿用原文检索顺序 |
-| webSearch.title | 联网搜索（Tavily） |
+| webSearch.title | 联网搜索 |
 | webSearch.summary | 允许后由当前问答模型判断是否需要外部资料，结合网页摘录回答。 |
-| webSearch.hint | 使用兼容 Tavily POST /search 的服务地址，默认 https://api.tavily.com。开启后，模型按需发送一条简短检索词，其中可能包含问题或选区中的关键词；不上传书籍全文。搜索失败或无结果时继续书内回答。 |
+| webSearch.hint | 选择 Tavily、Brave Search 或 Exa，也可连接相同协议的中转服务。开启后，模型按需发送一条简短检索词，其中可能包含问题或选区中的关键词；不上传书籍全文。搜索失败或无结果时继续书内回答。 |
+| webSearch.provider | 搜索提供商 |
+| webSearch.endpointHint | 填写服务基础地址，应用自动追加搜索接口路径。更换提供商或地址后需重新填写密钥和请求头；当前只保存一套连接。 |
+| webSearch.maxResults | 结果数量（1–5） |
+| webSearch.includeDomains | 仅搜索这些域名 |
+| webSearch.excludeDomains | 排除这些域名 |
+| webSearch.domainsHint | 可留空；用逗号或换行分隔，每组最多20个主机名（如 example.com），包含子域名。排除规则优先，过滤后可能少于设定数量。 |
+| webSearch.domainsInvalid | 请只填写主机名，不要包含协议、路径、端口或通配符；每组最多20个不同主机名。 |
 | webSearch.test | 测试搜索服务 |
 | webSearch.testOk | 搜索接口检查通过。 |
 | webSearch.required | 请填写搜索服务地址。 |

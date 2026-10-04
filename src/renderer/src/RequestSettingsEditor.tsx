@@ -3,8 +3,9 @@ import type { RequestSettingsInput } from '@shared/contracts'
 import { customHeadersSchema, extraBodySchema } from '@shared/request-settings'
 import { copy } from '@shared/copy'
 
-export function RequestSettingsEditor({ id, value, savedHeaders, onChange, onInvalidChange }: {
+export function RequestSettingsEditor({ id, value, savedHeaders, headersOnly = false, onChange, onInvalidChange }: {
   id: string; value: RequestSettingsInput; savedHeaders?: boolean
+  headersOnly?: boolean
   onChange: (value: RequestSettingsInput) => void; onInvalidChange: (invalid: boolean) => void
 }) {
   const [headers, setHeaders] = useState(value.customHeaders ? JSON.stringify(value.customHeaders, null, 2) : '')
@@ -35,7 +36,7 @@ export function RequestSettingsEditor({ id, value, savedHeaders, onChange, onInv
         onChange({ ...value, customHeaders: value.customHeaders === null ? undefined : savedHeaders ? null : undefined })
       }}>{copy(value.customHeaders === null ? 'knowledge.undoClear' : savedHeaders ? 'request.clearHeaders' : 'request.clearDraftHeaders')}</button>}
     {value.customHeaders === null && <p className="field-hint">{copy('request.clearPending')}</p>}
-    <label className="field-label" htmlFor={`${id}-body`}>{copy('request.body')}</label>
+    {!headersOnly && <><label className="field-label" htmlFor={`${id}-body`}>{copy('request.body')}</label>
     <textarea id={`${id}-body`} data-testid={`${id}-body`} rows={4} spellCheck={false} value={body} aria-invalid={errors.body}
       placeholder={copy('request.bodyExample', { example: JSON.stringify({ max_tokens: 4096 }) })} onChange={(event) => edit('body', event.target.value)} />
     {errors.body && <p role="alert" className="field-hint is-error-text">{copy('request.bodyInvalid')}</p>}
@@ -43,6 +44,6 @@ export function RequestSettingsEditor({ id, value, savedHeaders, onChange, onInv
     <label className="field-label" htmlFor={`${id}-timeout`}>{copy('request.timeout')}</label>
     <input id={`${id}-timeout`} data-testid={`${id}-timeout`} type="number" min={1} max={600} step={1}
       placeholder={copy('request.timeoutDefault')} value={value.timeoutMs === undefined ? '' : value.timeoutMs / 1_000}
-      onChange={(event) => onChange({ ...value, timeoutMs: event.target.value ? Number(event.target.value) * 1_000 : undefined })} />
+      onChange={(event) => onChange({ ...value, timeoutMs: event.target.value ? Number(event.target.value) * 1_000 : undefined })} /></>}
   </details>
 }

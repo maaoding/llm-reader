@@ -56,3 +56,50 @@ it('keeps search configuration isolated, tests unsaved input, invalidates old re
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
   expect(changed).toHaveBeenCalledWith(false)
 })
+
+it('switches provider defaults without reusing credentials and validates domain/header drafts before testing or saving', async () => {
+  let settings: Settings = { embedding: { enabled: false, baseUrl: '', model: '', hasApiKey: false }, rerank: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
+    document: { enabled: false, processor: 'none', baseUrl: '', ocr: true, language: 'ch', hasApiKey: false },
+    webSearch: { enabled: true, baseUrl: 'https://api.tavily.com', hasApiKey: true, hasCustomHeaders: true } }
+  const save = vi.fn(async (input: SaveKnowledgeSettingsInput) => {
+    const { apiKey, customHeaders, ...value } = input.webSearch!
+    settings = { ...settings, webSearch: { ...value, hasApiKey: Boolean(apiKey), hasCustomHeaders: Boolean(customHeaders && Object.keys(customHeaders).length) } }
+    return settings
+  })
+  const test = vi.fn(async () => ({ ok: true, message: '搜索接口检查通过。' }))
+  Object.defineProperty(window, 'readerApi', { configurable: true, value: { getKnowledgeSettings: async () => settings, saveKnowledgeSettings: save, testKnowledgeSettings: test } })
+  const view = render(<KnowledgeSettings hidden={false} onDirty={vi.fn()} />)
+  await view.findByTestId('webSearch-provider')
+  fireEvent.change(view.getByTestId('webSearch-key'), { target: { value: 'draft-tavily-key' } })
+  fireEvent.change(view.getByTestId('webSearch-headers'), { target: { value: '{"X-Secret":"draft-tavily-header"}' } })
+  fireEvent.change(view.getByTestId('webSearch-provider'), { target: { value: 'brave' } })
+  expect((view.getByTestId('webSearch-url') as HTMLInputElement).value).toBe('https://api.search.brave.com/res/v1')
+  expect((view.getByTestId('webSearch-key') as HTMLInputElement).value).toBe('')
+  expect((view.getByTestId('webSearch-headers') as HTMLTextAreaElement).value).toBe('')
+  expect(save).not.toHaveBeenCalled(); expect(test).not.toHaveBeenCalled()
+  fireEvent.change(view.getByTestId('webSearch-url'), { target: { value: 'https://api.tavily.com' } })
+  expect((view.getByTestId('webSearch-key') as HTMLInputElement).placeholder).toBe('未保存密钥')
+  expect(view.queryByTestId('webSearch-clear-headers')).toBeNull()
+  fireEvent.change(view.getByTestId('webSearch-includeDomains'), { target: { value: 'https://example.com' } })
+  fireEvent.change(view.getByTestId('webSearch-headers'), { target: { value: '{' } })
+  expect(view.getByTestId('webSearch-test').hasAttribute('disabled')).toBe(true)
+  fireEvent.change(view.getByTestId('webSearch-provider'), { target: { value: 'exa' } })
+  expect(view.getByTestId('webSearch-test').hasAttribute('disabled')).toBe(true)
+  expect(view.getByTestId('webSearch-includeDomains').getAttribute('aria-invalid')).toBe('true')
+  fireEvent.change(view.getByTestId('webSearch-includeDomains'), { target: { value: 'Example.COM, docs.example.com\nexample.com' } })
+  fireEvent.change(view.getByTestId('webSearch-excludeDomains'), { target: { value: 'blocked.example.com' } })
+  fireEvent.change(view.getByTestId('webSearch-maxResults'), { target: { value: '2' } })
+  fireEvent.change(view.getByTestId('webSearch-headers'), { target: { value: '{"x-api-key":"synthetic-exa-header"}' } })
+  fireEvent.click(view.getByTestId('webSearch-test'))
+  await waitFor(() => expect(test).toHaveBeenCalledOnce())
+  expect(test.mock.calls[0]).toEqual([{ target: 'webSearch', webSearch: expect.objectContaining({ provider: 'exa', baseUrl: 'https://api.exa.ai', maxResults: 2,
+    includeDomains: ['example.com', 'docs.example.com'], excludeDomains: ['blocked.example.com'], customHeaders: { 'x-api-key': 'synthetic-exa-header' } }) }])
+  expect(JSON.stringify(test.mock.calls)).not.toMatch(/draft-tavily/u)
+  fireEvent.change(view.getByTestId('webSearch-excludeDomains'), { target: { value: 'other.example.com' } })
+  expect(view.getByTestId('knowledge-webSearch-status').textContent).toContain('请重新测试')
+  fireEvent.click(view.getByTestId('webSearch-save'))
+  await waitFor(() => expect(save).toHaveBeenCalledOnce())
+  expect(save.mock.calls[0][0].target).toBe('webSearch')
+  expect((view.getByTestId('webSearch-includeDomains') as HTMLTextAreaElement).value).toBe('example.com\ndocs.example.com')
+  expect((view.getByTestId('webSearch-headers') as HTMLTextAreaElement).value).toBe('')
+})

@@ -7,7 +7,7 @@ import type { ContextSnapshot, DocumentSection, LlmEvent, LlmRequest } from '../
 import { AppDatabase, migrations } from '../../src/main/database'
 import { KnowledgeSettingsService } from '../../src/main/knowledge-settings'
 import { KnowledgeHttp } from '../../src/main/knowledge-http'
-import { tavilySearch, WebSearchService } from '../../src/main/web-search-service'
+import { searchWeb, WebSearchService } from '../../src/main/web-search-service'
 import { BookContextStore } from '../../src/main/book-context-store'
 import { BookAnalysisService } from '../../src/main/book-analysis'
 import { boundContext, LlmService } from '../../src/main/llm-service'
@@ -73,7 +73,7 @@ describe('bounded Tavily requests', () => {
       { ...webResult, url: 'https://user:password@example.com' }, { ...webResult, content: '' },
       { ...webResult, title: '', url: `https://evidence.example/${'x'.repeat(600)}` }
     ] }))
-    const sources = await tavilySearch(new KnowledgeHttp(fetcher), config, '😀'.repeat(500), signal())
+    const sources = await searchWeb(new KnowledgeHttp(fetcher), config, '😀'.repeat(500), signal())
     expect(sources).toHaveLength(2); expect(Array.from(sources[0].excerpt)).toHaveLength(1_200)
     expect(Array.from(sources[1].title)).toHaveLength(200); expect(sources[1].url).toHaveLength(625)
     expect(Array.from(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).query)).toHaveLength(400)

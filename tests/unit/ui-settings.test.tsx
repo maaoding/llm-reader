@@ -201,7 +201,7 @@ const configuredKnowledge: KnowledgeSettings = {
 it('names each switch after its service and keeps unconfigured services disabled', async () => {
   const view = setup({ initialSection: 'knowledge' })
   await view.findByRole('switch', { name: 'PDF 解析' })
-  for (const name of ['PDF 解析', '按含义查找（Embedding）', '原文排序（Rerank）', '联网搜索（Tavily）']) {
+  for (const name of ['PDF 解析', '按含义查找（Embedding）', '原文排序（Rerank）', '联网搜索']) {
     const control = view.getByRole('switch', { name }) as HTMLInputElement
     expect(control.checked).toBe(false)
     expect(control.matches(':disabled')).toBe(true)

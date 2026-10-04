@@ -20,7 +20,7 @@ test('keeps compact service switches and uniform settings cards across themes an
   let application: ElectronApplication | undefined
   const services = [
     ['document', 'PDF 解析'], ['embedding', '按含义查找（Embedding）'],
-    ['rerank', '原文排序（Rerank）'], ['webSearch', '联网搜索（Tavily）']
+    ['rerank', '原文排序（Rerank）'], ['webSearch', '联网搜索']
   ] as const
   try {
     const fixture = join(workspace.root, '设置外观.txt')

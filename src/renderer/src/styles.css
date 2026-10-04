@@ -2668,13 +2668,19 @@ button.citation-valid:hover {
 }
 
 .insight-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+@media (max-width: 939px) {
+  .insight-list { grid-template-columns: minmax(0, 1fr); }
+  .workspace-shell[data-page="archives"] { min-width: 0; }
 }
 
 .insight-item {
   display: flex;
+  min-width: 0;
   width: 100%;
   flex-direction: column;
   padding: 11px;
@@ -2720,6 +2726,8 @@ button.citation-valid:hover {
 
 .insight-content {
   display: flex;
+  min-width: 0;
+  flex: 1;
   width: 100%;
   flex-direction: column;
   padding: 11px 11px 8px;
@@ -2754,6 +2762,8 @@ button.citation-valid:hover {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
+  margin-top: auto;
   padding-top: 7px;
   color: var(--faint);
   border-top: 1px solid var(--line);
@@ -2781,6 +2791,9 @@ button.citation-valid:hover {
   color: var(--accent);
   white-space: nowrap;
 }
+
+.insight-book, .insight-content .answer-text { overflow-wrap: anywhere; min-width: 0; }
+.insight-item footer .insight-delete-confirmation { flex-wrap: wrap; min-width: 0; max-width: 100%; white-space: normal; }
 
 .insight-actions,
 .insight-delete-confirmation {
@@ -4636,6 +4649,9 @@ button.citation-valid:hover {
 }
 
 .request-settings { margin: 16px 0; }
+.web-search-domains { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; font: inherit; resize: vertical; color: var(--ui-ink); background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--radius-md); }
+.web-search-domains:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.web-search-domains[aria-invalid="true"] { border-color: var(--accent); }
 .request-settings summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
 .request-settings textarea { width: 100%; box-sizing: border-box; padding: 10px; font: 12px/1.6 ui-monospace, monospace; resize: vertical; color: inherit; background: transparent; border: 1px solid var(--ui-line); border-radius: 6px; }
 .request-settings textarea[aria-invalid="true"] { border-color: #c05050; }

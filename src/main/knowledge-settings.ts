@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { DocumentSettings, EmbeddingSettings, RerankSettings, KnowledgeSettings, SaveKnowledgeSettingsInput, RequestSettingsInput, WebSearchSettings } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { customHeadersSchema, publicRequestSettings } from '@shared/request-settings'
+import { WEB_SEARCH_BASE_URLS } from '@shared/web-search-settings'
 import { AppDatabase } from './database'
 import { AppError } from './errors'
 import type { KeyProtector } from './provider-service'
@@ -13,7 +14,7 @@ export type EmbeddingCredentials = EmbeddingSettings & { customHeaders?: Record<
 export type RerankCredentials = RerankSettings & { customHeaders?: Record<string, string>; apiKey: string; revision: string }
 export type DocumentCredentials = DocumentSettings & { customHeaders?: Record<string, string>; apiKey: string; revision: string }
 export type WebSearchCredentials = WebSearchSettings & { customHeaders?: Record<string, string>; apiKey: string; revision: string }
-export const WEB_SEARCH_DEFAULT_BASE_URL = 'https://api.tavily.com'
+export const WEB_SEARCH_DEFAULT_BASE_URL = WEB_SEARCH_BASE_URLS.tavily
 const defaults: KnowledgeSettings = {
   embedding: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
   rerank: { enabled: false, baseUrl: '', model: '', hasApiKey: false },
@@ -40,19 +41,19 @@ export class KnowledgeSettingsService {
     }
     return result
   }
-  private sameEndpoint(kind: Kind, value: { baseUrl: string; processor?: string; protocol?: string }): boolean {
+  private sameEndpoint(kind: Kind, value: { baseUrl: string; processor?: string; protocol?: string; provider?: WebSearchSettings['provider'] }): boolean {
     const saved = this.get()[kind]
-    return normalizeUrl(saved.baseUrl) === normalizeUrl(value.baseUrl) && (kind !== 'document' ||
+    return normalizeUrl(saved.baseUrl) === normalizeUrl(value.baseUrl) && (kind !== 'webSearch' || (value.provider ?? 'tavily') === (this.get().webSearch.provider ?? 'tavily')) && (kind !== 'document' ||
       value.processor === this.get().document.processor && (value.protocol ?? 'openai') === (this.get().document.protocol ?? 'openai'))
   }
-  private secret(kind: Kind, value: { baseUrl: string; apiKey?: string | null; processor?: string; protocol?: string }): string {
+  private secret(kind: Kind, value: { baseUrl: string; apiKey?: string | null; processor?: string; protocol?: string; provider?: WebSearchSettings['provider'] }): string {
     if (value.apiKey !== undefined) return value.apiKey ?? ''
     const row = this.row(kind)
     if (!row?.secret || !this.sameEndpoint(kind, value)) return ''
     try { return this.protector.decrypt(row.secret) }
     catch { throw new AppError('KNOWLEDGE_SECRET', copy('knowledge.secretError')) }
   }
-  private requestSettings(kind: Kind, value: RequestSettingsInput & { baseUrl: string; processor?: string; protocol?: string }): RequestSettingsInput & { customHeaders: Record<string, string> } {
+  private requestSettings(kind: Kind, value: RequestSettingsInput & { baseUrl: string; processor?: string; protocol?: string; provider?: WebSearchSettings['provider'] }): RequestSettingsInput & { customHeaders: Record<string, string> } {
     let headers = value.customHeaders ?? {}
     const row = this.row(kind)
     if (value.customHeaders === undefined && row?.headers_secret && this.sameEndpoint(kind, value)) {
@@ -81,6 +82,8 @@ export class KnowledgeSettingsService {
   webSearch(draft?: NonNullable<SaveKnowledgeSettingsInput['webSearch']>): WebSearchCredentials {
     const value = draft ?? this.get().webSearch
     return { ...this.requestSettings('webSearch', value), enabled: value.enabled, baseUrl: normalizeUrl(value.baseUrl),
+      ...(value.provider ? { provider: value.provider } : {}), ...(value.maxResults !== undefined ? { maxResults: value.maxResults } : {}),
+      ...(value.includeDomains ? { includeDomains: value.includeDomains } : {}), ...(value.excludeDomains ? { excludeDomains: value.excludeDomains } : {}),
       apiKey: this.secret('webSearch', value), revision: this.row('webSearch')?.revision ?? '' }
   }
   save(raw: SaveKnowledgeSettingsInput): KnowledgeSettings {
