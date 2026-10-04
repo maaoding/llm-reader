@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from 'vitest'
-import { copy } from '../../src/shared/copy'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { copy, copyIn, setCopyLanguage } from '../../src/shared/copy'
 import {
   ASSISTANT_ACTIONS_STORAGE_KEY,
   assistantActionLabel,
@@ -17,6 +17,10 @@ import {
 describe('assistant action settings', () => {
   beforeEach(() => {
     window.localStorage.clear()
+  })
+
+  afterEach(() => {
+    setCopyLanguage('zh')
   })
 
   it('uses the shared copy text and default icons', () => {
@@ -126,5 +130,27 @@ describe('assistant action settings', () => {
     settings.context.prompt = '请结合本章上下文说明这段内容的含义与作用。'
     persistAssistantActionSettings(settings)
     expect(readAssistantActionSettings()).toEqual(settings)
+  })
+
+  it('migrates stored defaults to the active UI language while keeping custom values', () => {
+    setCopyLanguage('en')
+    const enDefaults = createDefaultAssistantActionSettings()
+    const normalized = normalizeAssistantActionSettings({
+      explain: { label: '解释这段', prompt: copyIn('zh', 'assistant.questionExplain'), icon: 'highlighter' },
+      context: { label: '联系上下文', prompt: '请重点梳理作者的论证链条。', icon: 'book-open' },
+      ask: { label: '自由提问', icon: 'message-square-text' }
+    })
+
+    expect(normalized.explain.label).toBe(enDefaults.explain.label)
+    expect(normalized.explain.prompt).toBe(enDefaults.explain.prompt)
+    expect(normalized.context.label).toBe(enDefaults.context.label)
+    expect(normalized.context.prompt).toBe('请重点梳理作者的论证链条。')
+    expect(normalized.ask.label).toBe(enDefaults.ask.label)
+
+    // 反向同理：英文默认值在中文环境下归一化为中文默认。
+    setCopyLanguage('zh')
+    const renormalized = normalizeAssistantActionSettings(normalized)
+    expect(renormalized.explain.label).toBe(copy('assistant.actionExplain'))
+    expect(renormalized.context.prompt).toBe('请重点梳理作者的论证链条。')
   })
 })

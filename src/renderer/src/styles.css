@@ -3537,6 +3537,16 @@ button.citation-valid:hover {
   border-color: var(--line-strong);
 }
 
+/* 界面语言只有两项，按内容收窄，不与四等分控件共用整行宽度。 */
+.segmented-control.language-control {
+  grid-template-columns: repeat(2, auto);
+  width: fit-content;
+}
+
+.segmented-control.language-control button {
+  padding: 0 22px;
+}
+
 .settings-range {
   display: flex;
   flex-direction: column;

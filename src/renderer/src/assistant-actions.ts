@@ -1,5 +1,5 @@
 import type { LlmAction } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, copyIn, type CopyKey } from '@shared/copy'
 
 export const ASSISTANT_ACTIONS_STORAGE_KEY = 'llm-reader.assistant-actions'
 export const MAX_ASSISTANT_ACTION_LABEL_LENGTH = 12
@@ -9,6 +9,22 @@ const DEFAULT_PROMPT_VERSION = 2
 const LEGACY_DEFAULT_PROMPTS = {
   explain: '请用清晰、准确的语言解释这段内容。',
   context: '请结合本章上下文说明这段内容的含义与作用。'
+}
+
+const ACTION_DEFAULT_KEYS = {
+  explain: { label: 'assistant.actionExplain', prompt: 'assistant.questionExplain' },
+  context: { label: 'assistant.actionContext', prompt: 'assistant.questionContext' },
+  ask: { label: 'assistant.actionAsk' }
+} as const
+
+const UI_LANGUAGES_FOR_DEFAULTS = ['zh', 'en'] as const
+
+// 与任一语言默认文案完全一致的存储值视为“仍是默认”，随界面语言切换；自定义值保留。
+function followLanguageDefault(value: string, key: CopyKey): string {
+  for (const language of UI_LANGUAGES_FOR_DEFAULTS) {
+    if (value === copyIn(language, key)) return copy(key)
+  }
+  return value
 }
 
 export const ASSISTANT_ACTION_ICONS = [
@@ -84,17 +100,17 @@ export function normalizeAssistantActionSettings(value: unknown): AssistantActio
 
   return {
     explain: {
-      label: normalizeLabel(explain.label, defaults.explain.label),
-      prompt: normalizePrompt(explain.prompt, defaults.explain.prompt),
+      label: followLanguageDefault(normalizeLabel(explain.label, defaults.explain.label), ACTION_DEFAULT_KEYS.explain.label),
+      prompt: followLanguageDefault(normalizePrompt(explain.prompt, defaults.explain.prompt), ACTION_DEFAULT_KEYS.explain.prompt),
       icon: normalizeIcon(explain.icon, defaults.explain.icon)
     },
     context: {
-      label: normalizeLabel(context.label, defaults.context.label),
-      prompt: normalizePrompt(context.prompt, defaults.context.prompt),
+      label: followLanguageDefault(normalizeLabel(context.label, defaults.context.label), ACTION_DEFAULT_KEYS.context.label),
+      prompt: followLanguageDefault(normalizePrompt(context.prompt, defaults.context.prompt), ACTION_DEFAULT_KEYS.context.prompt),
       icon: normalizeIcon(context.icon, defaults.context.icon)
     },
     ask: {
-      label: normalizeLabel(ask.label, defaults.ask.label),
+      label: followLanguageDefault(normalizeLabel(ask.label, defaults.ask.label), ACTION_DEFAULT_KEYS.ask.label),
       icon: normalizeIcon(ask.icon, defaults.ask.icon)
     }
   }

@@ -356,15 +356,15 @@ const ASSISTANT_ACTION_ICON_VIEWS: Readonly<Record<AssistantActionIcon, LucideIc
   'book-marked': BookMarked
 }
 
-const ASSISTANT_ACTION_ICON_OPTIONS: ReadonlyArray<{ value: AssistantActionIcon; label: string }> = [
-  { value: 'highlighter', label: copy('settings.assistantIconHighlighter') },
-  { value: 'book-open', label: copy('settings.assistantIconBookOpen') },
-  { value: 'message-square-text', label: copy('settings.assistantIconMessageSquareText') },
-  { value: 'search', label: copy('settings.assistantIconSearch') },
-  { value: 'lightbulb', label: copy('settings.assistantIconLightbulb') },
-  { value: 'pen-line', label: copy('settings.assistantIconPenLine') },
-  { value: 'quote', label: copy('settings.assistantIconQuote') },
-  { value: 'book-marked', label: copy('settings.assistantIconBookMarked') }
+const ASSISTANT_ACTION_ICON_OPTIONS: ReadonlyArray<{ value: AssistantActionIcon; labelKey: CopyKey }> = [
+  { value: 'highlighter', labelKey: 'settings.assistantIconHighlighter' },
+  { value: 'book-open', labelKey: 'settings.assistantIconBookOpen' },
+  { value: 'message-square-text', labelKey: 'settings.assistantIconMessageSquareText' },
+  { value: 'search', labelKey: 'settings.assistantIconSearch' },
+  { value: 'lightbulb', labelKey: 'settings.assistantIconLightbulb' },
+  { value: 'pen-line', labelKey: 'settings.assistantIconPenLine' },
+  { value: 'quote', labelKey: 'settings.assistantIconQuote' },
+  { value: 'book-marked', labelKey: 'settings.assistantIconBookMarked' }
 ]
 
 function AssistantActionIconView({ icon, size = 15 }: { icon: AssistantActionIcon; size?: number }): ReactNode {
@@ -386,7 +386,7 @@ function AssistantActionIconPicker({
       <label htmlFor={id}><AssistantActionIconView icon={value} size={14} /><span>{copy('settings.assistantIconLabel')}</span></label>
       <Select id={id} data-testid={id} value={value} onChange={(event) => onChange(event.target.value as AssistantActionIcon)}>
         {ASSISTANT_ACTION_ICON_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+          <option key={option.value} value={option.value}>{copy(option.labelKey)}</option>
         ))}
       </Select>
     </div>
@@ -1417,7 +1417,8 @@ function AssistantActionFields({
   settings: AssistantActionSettings
   onChange: (settings: AssistantActionSettings) => void
 }): ReactNode {
-  const defaults = useMemo(() => createDefaultAssistantActionSettings(), [])
+  // 每次渲染按当前语言重建，避免空依赖 memo 冻结切换前的默认值。
+  const defaults = createDefaultAssistantActionSettings()
   return (
     <>
       <p className="settings-section-hint">{copy('settings.assistantHint')}</p>
@@ -2140,7 +2141,7 @@ export function SettingsModal({
             </div>
             <div className="settings-row">
               <div><strong>{copy('settings.languageLabel')}</strong><small>{copy('settings.languageHint')}</small></div>
-              <div className="segmented-control" data-testid="ui-language" role="group" aria-label={copy('settings.languageGroupAria')}>
+              <div className="segmented-control language-control" data-testid="ui-language" role="group" aria-label={copy('settings.languageGroupAria')}>
                 {UI_LANGUAGE_OPTIONS.map((option) => (
                   <button
                     className={uiLanguage === option.value ? 'is-active' : ''}
@@ -2740,10 +2741,12 @@ export default function App(): ReactNode {
     }
   }, [paperThemePreference])
 
-  // 先切换 copy 模块再触发渲染，保证本次 commit 的所有文案已用新语言。
+  // 先切换 copy 模块再触发渲染，保证本次 commit 的所有文案已用新语言；
+  // 仍为默认值的划词名称与提示词跟随语言，自定义值不受影响。
   const changeUiLanguage = useCallback((language: UiLanguage) => {
     setCopyLanguage(language)
     setUiLanguage(language)
+    setAssistantActions((previous) => normalizeAssistantActionSettings(previous))
   }, [])
 
   const pushToast = useCallback((message: string, tone: ToastState['tone'] = 'neutral'): void => {    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)

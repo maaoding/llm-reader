@@ -1097,3 +1097,7 @@ export function setCopyLanguage(language: UiLanguage): void {
 export function copy<Key extends CopyKey>(key: Key, ...args: CopyArguments<Key>): string {
   return formatCopy(COPY_TEXT_BY_LANGUAGE[activeCopyLanguage][key], args[0] ?? {})
 }
+
+export function copyIn<Key extends CopyKey>(language: UiLanguage, key: Key, ...args: CopyArguments<Key>): string {
+  return formatCopy(COPY_TEXT_BY_LANGUAGE[language][key], args[0] ?? {})
+}

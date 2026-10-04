@@ -52,6 +52,11 @@ test('switches the UI language to English, persists it and switches back', async
     await expect(page.getByTestId('reading-reset')).toHaveText('Restore defaults')
     await page.screenshot({ path: resolve(screenshotDir, '03-en-reading.png') })
 
+    // 划词操作的默认名称与提示词跟随界面语言。
+    await page.getByTestId('settings-nav-assistant').click()
+    await expect(page.getByTestId('assistant-explain-label')).toHaveValue('Explain this')
+    await page.screenshot({ path: resolve(screenshotDir, '03b-en-assistant-actions.png') })
+
     await page.getByTestId('settings-close').click()
 
     // 持久化：重启后界面仍为英文。
@@ -64,11 +69,13 @@ test('switches the UI language to English, persists it and switches back', async
     await expect(restartedPage.getByTestId('ui-language-en')).toHaveAttribute('aria-pressed', 'true')
     await restartedPage.screenshot({ path: resolve(screenshotDir, '04-en-after-restart.png') })
 
-    // 切回中文并验证。
+    // 切回中文并验证，划词默认值同步回到中文。
     await restartedPage.getByTestId('ui-language-zh').click()
     await expect(restartedPage.getByTestId('settings-nav-appearance')).toHaveText('外观')
     await expect(restartedPage.getByTestId('theme-light')).toHaveText('浅色')
-    await restartedPage.screenshot({ path: resolve(screenshotDir, '05-zh-back.png') })
+    await restartedPage.getByTestId('settings-nav-assistant').click()
+    await expect(restartedPage.getByTestId('assistant-explain-label')).toHaveValue('解释这段')
+    await restartedPage.screenshot({ path: resolve(screenshotDir, '06-zh-back-assistant.png') })
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }
