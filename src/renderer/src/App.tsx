@@ -101,7 +101,7 @@ import type {
   TocItem
 } from '@shared/contracts'
 import appIcon from '../../../resources/icon.png'
-import { copy } from '@shared/copy'
+import { copy, isUiLanguage, setCopyLanguage, type CopyKey, type UiLanguage } from '@shared/copy'
 import { AnswerText } from './AnswerText'
 import { BookAnalysisControls } from './BookAnalysisControls'
 import { OcrPageReader } from './OcrPageReader'
@@ -329,14 +329,20 @@ const MAX_SESSION_TABS = 20
 const MAX_SESSION_ANSWER_LENGTH = 20_000
 const THEME_STORAGE_KEY = 'llm-reader.theme'
 const INTERFACE_SCALE_STORAGE_KEY = 'llm-reader.interface-scale'
+const UI_LANGUAGE_STORAGE_KEY = 'llm-reader.ui-language'
 const READING_PREFERENCES_STORAGE_KEY = 'llm-reader.reading-preferences'
 const PAPER_THEME_PREFERENCE_STORAGE_KEY = 'llm-reader.paper-theme-preference'
 const LEGACY_PAPER_THEME_MODE_STORAGE_KEY = 'llm-reader.paper-theme-mode'
 
-const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; ariaLabel: string }> = [
-  { value: 'light', label: copy('settings.themeLight'), ariaLabel: copy('settings.themeLightAria') },
-  { value: 'system', label: copy('settings.themeSystem'), ariaLabel: copy('settings.themeSystemAria') },
-  { value: 'dark', label: copy('settings.themeDark'), ariaLabel: copy('settings.themeDarkAria') }
+const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; labelKey: CopyKey; ariaLabelKey: CopyKey }> = [
+  { value: 'light', labelKey: 'settings.themeLight', ariaLabelKey: 'settings.themeLightAria' },
+  { value: 'system', labelKey: 'settings.themeSystem', ariaLabelKey: 'settings.themeSystemAria' },
+  { value: 'dark', labelKey: 'settings.themeDark', ariaLabelKey: 'settings.themeDarkAria' }
+]
+
+const UI_LANGUAGE_OPTIONS: ReadonlyArray<{ value: UiLanguage; labelKey: CopyKey }> = [
+  { value: 'zh', labelKey: 'settings.languageZh' },
+  { value: 'en', labelKey: 'settings.languageEn' }
 ]
 
 const ASSISTANT_ACTION_ICON_VIEWS: Readonly<Record<AssistantActionIcon, LucideIcon>> = {
@@ -507,6 +513,17 @@ function readThemePreference(): ThemePreference {
     return isThemePreference(stored) ? stored : 'system'
   } catch {
     return 'system'
+  }
+}
+
+// 应用启动渲染前读取一次并同步到 copy 模块，保证首帧就是所选语言。
+function readUiLanguage(): UiLanguage {
+  if (typeof window === 'undefined') return 'zh'
+  try {
+    const stored = window.localStorage.getItem(UI_LANGUAGE_STORAGE_KEY)
+    return isUiLanguage(stored) ? stored : 'zh'
+  } catch {
+    return 'zh'
   }
 }
 
@@ -842,8 +859,8 @@ function formatFullDate(iso: string): string {
 // 生成耗时：满一分钟改按“分 秒”显示，避免出现“73.4 秒”这类读数。
 function formatGenerationDuration(durationMs: number): string {
   const seconds = Math.max(0, Math.round(durationMs / 1000))
-  if (seconds < 60) return `${(Math.max(0, durationMs) / 1000).toFixed(1)} 秒`
-  return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
+  if (seconds < 60) return copy('common.durationSeconds', { count: Number((Math.max(0, durationMs) / 1000).toFixed(1)) })
+  return copy('common.durationMinutes', { minutes: Math.floor(seconds / 60), seconds: seconds % 60 })
 }
 
 function BookDetailRow({
@@ -1677,6 +1694,7 @@ export function SettingsModal({
   initialService,
   themePreference,
   interfaceScale,
+  uiLanguage,
   readingPreferences,
   paperThemePreference,
   assistantActions,
@@ -1686,6 +1704,7 @@ export function SettingsModal({
   onOverviewChange,
   onThemeChange,
   onInterfaceScaleChange,
+  onUiLanguageChange,
   onReadingPreferencesChange,
   onPaperThemePreferenceChange,
   onAssistantActionsChange,
@@ -1698,6 +1717,7 @@ export function SettingsModal({
   initialService?: 'document' | 'embedding'
   themePreference: ThemePreference
   interfaceScale: InterfaceScale
+  uiLanguage: UiLanguage
   readingPreferences: ReadingPreferences
   paperThemePreference: PaperThemePreference
   assistantActions: AssistantActionSettings
@@ -1707,6 +1727,7 @@ export function SettingsModal({
   onOverviewChange: (overview: ProviderOverview, checkActive: boolean) => void
   onThemeChange: (preference: ThemePreference) => void
   onInterfaceScaleChange: (scale: InterfaceScale) => void
+  onUiLanguageChange: (language: UiLanguage) => void
   onReadingPreferencesChange: (preferences: ReadingPreferences) => void
   onPaperThemePreferenceChange: (preference: PaperThemePreference) => void
   onAssistantActionsChange: (settings: AssistantActionSettings) => void
@@ -2092,11 +2113,11 @@ export function SettingsModal({
                       data-testid={`theme-${option.value}`}
                       key={option.value}
                       type="button"
-                      aria-label={option.ariaLabel}
+                      aria-label={copy(option.ariaLabelKey)}
                       aria-pressed={themePreference === option.value}
                       onClick={() => onThemeChange(option.value)}
                     >
-                      {option.label}
+                      {copy(option.labelKey)}
                     </button>
                   ))}
                 </div>
@@ -2114,6 +2135,22 @@ export function SettingsModal({
                     aria-pressed={interfaceScale === scale}
                     onClick={() => onInterfaceScaleChange(scale)}
                   >{scale}%</button>
+                ))}
+              </div>
+            </div>
+            <div className="settings-row">
+              <div><strong>{copy('settings.languageLabel')}</strong><small>{copy('settings.languageHint')}</small></div>
+              <div className="segmented-control" data-testid="ui-language" role="group" aria-label={copy('settings.languageGroupAria')}>
+                {UI_LANGUAGE_OPTIONS.map((option) => (
+                  <button
+                    className={uiLanguage === option.value ? 'is-active' : ''}
+                    data-testid={`ui-language-${option.value}`}
+                    key={option.value}
+                    type="button"
+                    lang={option.value === 'en' ? 'en' : 'zh-CN'}
+                    aria-pressed={uiLanguage === option.value}
+                    onClick={() => onUiLanguageChange(option.value)}
+                  >{copy(option.labelKey)}</button>
                 ))}
               </div>
             </div>
@@ -2457,6 +2494,12 @@ export function SettingsModal({
 }
 
 export default function App(): ReactNode {
+  // 初始化阶段同时切换 copy 模块语言，保证首帧渲染的文案与持久化语言一致。
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>(() => {
+    const language = readUiLanguage()
+    setCopyLanguage(language)
+    return language
+  })
   const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference)
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(themePreference))
   const [interfaceScale, setInterfaceScale] = useState<InterfaceScale>(readInterfaceScale)
@@ -2649,6 +2692,18 @@ export default function App(): ReactNode {
   }, [interfaceScale])
 
   useLayoutEffect(() => {
+    setCopyLanguage(uiLanguage)
+    try {
+      window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, uiLanguage)
+    } catch {
+      // The chosen language remains active for this session when storage is unavailable.
+    }
+    document.documentElement.lang = uiLanguage === 'en' ? 'en' : 'zh-CN'
+    // 主进程的原生对话框与错误文案跟随同一语言。
+    void window.readerApi.setUiLanguage(uiLanguage).catch(() => undefined)
+  }, [uiLanguage])
+
+  useLayoutEffect(() => {
     const systemTheme = typeof window.matchMedia === 'function'
       ? window.matchMedia('(prefers-color-scheme: dark)')
       : null
@@ -2685,8 +2740,13 @@ export default function App(): ReactNode {
     }
   }, [paperThemePreference])
 
-  const pushToast = useCallback((message: string, tone: ToastState['tone'] = 'neutral'): void => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+  // 先切换 copy 模块再触发渲染，保证本次 commit 的所有文案已用新语言。
+  const changeUiLanguage = useCallback((language: UiLanguage) => {
+    setCopyLanguage(language)
+    setUiLanguage(language)
+  }, [])
+
+  const pushToast = useCallback((message: string, tone: ToastState['tone'] = 'neutral'): void => {    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setToast({ id: Date.now(), tone, message })
     toastTimerRef.current = setTimeout(() => setToast(null), 3200)
   }, [])
@@ -3796,7 +3856,7 @@ export default function App(): ReactNode {
       window.setTimeout(() => followupRef.current?.focus(), 0)
       return
     }
-    await enqueueRequest(action, isPdfImageRegion(selection) ? '请解释这块 PDF 图片区域。' : assistantActions[action].prompt, liveTabId, selection)
+    await enqueueRequest(action, isPdfImageRegion(selection) ? copy('assistant.pdfRegionPrompt') : assistantActions[action].prompt, liveTabId, selection)
   }
 
   const cancelRequest = async (requestId: string | null): Promise<void> => {
@@ -5041,6 +5101,7 @@ export default function App(): ReactNode {
           initialService={settingsInitialService}
           themePreference={themePreference}
           interfaceScale={interfaceScale}
+          uiLanguage={uiLanguage}
           readingPreferences={readingPreferences}
           paperThemePreference={paperThemePreference}
           assistantActions={assistantActions}
@@ -5051,6 +5112,7 @@ export default function App(): ReactNode {
           onOverviewChange={handleProviderOverviewChange}
           onThemeChange={setThemePreference}
           onInterfaceScaleChange={setInterfaceScale}
+          onUiLanguageChange={changeUiLanguage}
           onReadingPreferencesChange={setReadingPreferences}
           onPaperThemePreferenceChange={setPaperThemePreference}
           onAssistantActionsChange={setAssistantActions}

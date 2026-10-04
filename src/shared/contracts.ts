@@ -1,4 +1,5 @@
 import type { ReaderSearchResult } from './reader-search'
+import type { UiLanguage } from './copy'
 
 export const IPC_CHANNELS = {
   clipboardWriteText: 'clipboard:write-text',
@@ -6,6 +7,7 @@ export const IPC_CHANNELS = {
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
   appInfo: 'app:info',
+  uiLanguageSet: 'app:ui-language-set',
   appUpdatePhase: 'app:update-phase',
   appUpdateCheck: 'app:update-check',
   appUpdateDownload: 'app:update-download',
@@ -800,6 +802,7 @@ export interface ReaderApi {
   copyText(text: string): Promise<void>
   getBookOcrPage(input: { bookId: string; pageNumber: number }): Promise<PreparedOcrPage>
   getAppInfo(): Promise<AppInfo>
+  setUiLanguage(language: UiLanguage): Promise<null>
   getAppUpdatePhase(): Promise<AppUpdatePhase>
   checkForAppUpdate(): Promise<AppUpdatePhase>
   downloadAppUpdate(): Promise<AppUpdatePhase>

@@ -1,4 +1,5 @@
 import copySource from './copy.md?raw'
+import copyEnSource from './copy.en.md?raw'
 
 export const COPY_KEYS = [
   'persona.title',
@@ -11,6 +12,7 @@ export const COPY_KEYS = [
   'persona.none',
   'persona.new',
   'persona.duplicate',
+  'persona.copyName',
   'persona.delete',
   'persona.confirmDelete',
   'persona.name',
@@ -435,6 +437,8 @@ export const COPY_KEYS = [
   'common.back',
   'common.currentChapter',
   'common.unknownAuthor',
+  'common.durationSeconds',
+  'common.durationMinutes',
   'window.controlsAria',
   'window.minimizeAria',
   'window.maximizeAria',
@@ -511,6 +515,7 @@ export const COPY_KEYS = [
   'assistant.actionContext',
   'assistant.actionAsk',
   'assistant.actionSaveHighlight',
+  'assistant.pdfRegionPrompt',
   'assistant.questionExplain',
   'assistant.questionContext',
   'assistant.cancelledPartial',
@@ -580,6 +585,11 @@ export const COPY_KEYS = [
   'settings.scaleLabel',
   'settings.scaleHint',
   'settings.scaleGroupAria',
+  'settings.languageLabel',
+  'settings.languageHint',
+  'settings.languageGroupAria',
+  'settings.languageZh',
+  'settings.languageEn',
   'settings.assistantTitle',
   'settings.assistantHint',
   'settings.immediateHint',
@@ -916,6 +926,7 @@ export type CopyValues = Readonly<Record<string, string | number>>
 
 export const COPY_PLACEHOLDERS = {
   'persona.trigger': ['name'],
+  'persona.copyName': ['name'],
   'vision.previewPageRange': ['count'],
   'assistant.recentSessionTurns': ['count'],
   'request.headersExample': ['example'],
@@ -931,6 +942,8 @@ export const COPY_PLACEHOLDERS = {
   'preparation.pageDiagnostic': ['page', 'message'],
   'notes.aliases': ['names'],
   'knowledge.httpError': ['status'],
+  'common.durationSeconds': ['count'],
+  'common.durationMinutes': ['minutes', 'seconds'],
   'vision.progress': ['completed', 'total'],
   'knowledge.pdfPage': ['page'],
   'knowledge.indexProgress': ['completed', 'total'],
@@ -1060,8 +1073,27 @@ export function formatCopy(template: string, values: CopyValues = {}): string {
   return template.replace(PLACEHOLDER, (_match, name: string) => String(values[name]))
 }
 
-const COPY_TEXT = parseCopySource(copySource, COPY_KEYS, COPY_PLACEHOLDERS)
+const COPY_TEXT_BY_LANGUAGE = {
+  zh: parseCopySource(copySource, COPY_KEYS, COPY_PLACEHOLDERS),
+  en: parseCopySource(copyEnSource, COPY_KEYS, COPY_PLACEHOLDERS)
+} as const
+
+export type UiLanguage = keyof typeof COPY_TEXT_BY_LANGUAGE
+
+export function isUiLanguage(value: unknown): value is UiLanguage {
+  return value === 'zh' || value === 'en'
+}
+
+let activeCopyLanguage: UiLanguage = 'zh'
+
+export function getCopyLanguage(): UiLanguage {
+  return activeCopyLanguage
+}
+
+export function setCopyLanguage(language: UiLanguage): void {
+  activeCopyLanguage = language
+}
 
 export function copy<Key extends CopyKey>(key: Key, ...args: CopyArguments<Key>): string {
-  return formatCopy(COPY_TEXT[key], args[0] ?? {})
+  return formatCopy(COPY_TEXT_BY_LANGUAGE[activeCopyLanguage][key], args[0] ?? {})
 }

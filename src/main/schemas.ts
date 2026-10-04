@@ -16,6 +16,7 @@ const personaSelectionSchema = z.object({
 }).strict()
 
 export const clipboardTextSchema = z.string().max(OCR_MAX_PAGE_CHARACTERS)
+export const uiLanguageSchema = z.enum(['zh', 'en'])
 export const bookOcrPageSchema = z.object({ bookId: idSchema, pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES) }).strict()
 export const bookIdSchema = idSchema
 export const recentBookSessionSchema = z.object({ bookId: idSchema, conversationId: z.uuid({ version: 'v4' }) }).strict()

@@ -77,7 +77,7 @@ export function PersonaSettingsPanel({ settings, onChange, onError, onSaved, onD
       <button type="button" className="secondary-button" data-testid="persona-new" disabled={settings.presets.length >= MAX_PERSONAS} onClick={() => select(null)}>{copy('persona.new')}</button>
       <button type="button" className="secondary-button" data-testid="persona-duplicate" disabled={!selected || settings.presets.length >= MAX_PERSONAS} onClick={() => {
         if (!discard() || !selected) return
-        setSelectedId(null); setName(`${selected.name} 副本`.slice(0, MAX_PERSONA_NAME_LENGTH)); setPrompt(selected.prompt)
+        setSelectedId(null); setName(copy('persona.copyName', { name: selected.name }).slice(0, MAX_PERSONA_NAME_LENGTH)); setPrompt(selected.prompt)
       }}>{copy('persona.duplicate')}</button>
       <button type="button" className="text-button danger-text" data-testid="persona-delete" disabled={!selected} onClick={remove}>{copy('persona.delete')}</button>
     </div>

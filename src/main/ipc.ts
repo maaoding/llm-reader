@@ -2,7 +2,7 @@ import { isPageProcessor } from '@shared/request-settings'
 import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { ZodError, type ZodType } from 'zod'
 import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, setCopyLanguage } from '@shared/copy'
 import { BookImportCoordinator, MAX_BOOK_IMPORT_BATCH } from './book-import-coordinator'
 import type { BookAnalysisService } from './book-analysis'
 import type { BookExtractionRunner } from './book-extraction-runner'
@@ -29,6 +29,7 @@ import {
   bookPagePreviewSchema,
   bookOcrPageSchema,
   clipboardTextSchema,
+  uiLanguageSchema,
   bookChapterNotesSchema,
   bookImportPathsSchema,
   createProviderProfileSchema,
@@ -132,6 +133,10 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   })
   handle(IPC_CHANNELS.clipboardWriteText, dependencies, (_event, value) => clipboard.writeText(parse(clipboardTextSchema, value)))
   handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
+  handle(IPC_CHANNELS.uiLanguageSet, dependencies, (_event, value) => {
+    setCopyLanguage(parse(uiLanguageSchema, value))
+    return null
+  })
   handle(IPC_CHANNELS.appUpdatePhase, dependencies, () => dependencies.updater.getPhase())
   handle(IPC_CHANNELS.appUpdateCheck, dependencies, () => dependencies.updater.check('manual'))
   handle(IPC_CHANNELS.appUpdateDownload, dependencies, () => dependencies.updater.download())

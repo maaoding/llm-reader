@@ -62,10 +62,10 @@ function setup(options: { overview?: ProviderOverview; knowledge?: KnowledgeSett
   function Harness() {
     const [personas, setPersonas] = useState<PersonaSettings>({ presets: [{ id: 'persona', name: 'Reader', prompt: 'Explain the book.' }], defaultId: null })
     return <SettingsModal initialOverview={overview} initialSection={options.initialSection ?? 'model'} initialService={options.initialService}
-      themePreference="light" interfaceScale={100} readingPreferences={DEFAULT_READING_PREFERENCES} paperThemePreference="default"
+      themePreference="light" interfaceScale={100} uiLanguage="zh" readingPreferences={DEFAULT_READING_PREFERENCES} paperThemePreference="default"
       assistantActions={createDefaultAssistantActionSettings()} personaSettings={personas} returnFocusRef={returnFocusRef}
       onClose={close} onOverviewChange={changed} pushToast={toast} onThemeChange={vi.fn()} onInterfaceScaleChange={vi.fn()}
-      onReadingPreferencesChange={vi.fn()} onPaperThemePreferenceChange={vi.fn()} onAssistantActionsChange={vi.fn()}
+      onUiLanguageChange={vi.fn()} onReadingPreferencesChange={vi.fn()} onPaperThemePreferenceChange={vi.fn()} onAssistantActionsChange={vi.fn()}
       onPersonaSettingsChange={(next) => { setPersonas(next); return true }} />
   }
   const view = render(<Harness />)

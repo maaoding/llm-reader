@@ -3180,14 +3180,14 @@ button.citation-valid:hover {
   min-height: calc(32px * var(--interface-scale));
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
+  padding: 5px 10px;
   color: var(--muted);
   background: transparent;
   border-radius: 4px;
   font-size: max(12px, calc(12px * var(--interface-scale)));
   font-weight: 600;
+  line-height: 1.35;
   text-align: left;
-  white-space: nowrap;
 }
 
 .settings-nav button svg {

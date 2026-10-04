@@ -12,6 +12,7 @@ export const readerApi: ReaderApi = {
   copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.clipboardWriteText, text),
   getBookOcrPage: (input) => ipcRenderer.invoke(IPC_CHANNELS.documentOcrPage, input),
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
+  setUiLanguage: (language) => ipcRenderer.invoke(IPC_CHANNELS.uiLanguageSet, language),
   getAppUpdatePhase: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatePhase),
   checkForAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateCheck),
   downloadAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateDownload),
