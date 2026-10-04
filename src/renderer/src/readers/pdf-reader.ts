@@ -188,7 +188,6 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const loadingTask = pdfjs.getDocument({
       data: Uint8Array.from(bytes),
       enableXfa: false,
-      isEvalSupported: false,
       stopAtErrors: true,
       useWorkerFetch: false,
       useWasm: false,
@@ -1068,12 +1067,17 @@ export class PdfReaderAdapter implements ReaderAdapter {
         annotation.url != null ||
         annotation.unsafeUrl != null ||
         annotation.action != null ||
-        !Array.isArray(annotation.rect)
+        !Array.isArray(annotation.rect) ||
+        annotation.rect.length !== 4 ||
+        !annotation.rect.every(Number.isFinite)
       ) continue
       const destination = annotation.dest as string | unknown[]
       const target = await this.positionForDestination(destination)
       if (!target) continue
-      const rectangle = viewport.convertToViewportRectangle(annotation.rect as [number, number, number, number])
+      const rectangle = [
+        ...viewport.convertToViewportPoint(annotation.rect[0], annotation.rect[1]),
+        ...viewport.convertToViewportPoint(annotation.rect[2], annotation.rect[3])
+      ]
       const left = Math.min(rectangle[0], rectangle[2])
       const top = Math.min(rectangle[1], rectangle[3])
       const width = Math.abs(rectangle[2] - rectangle[0])

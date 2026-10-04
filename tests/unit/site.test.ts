@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { JSDOM } from 'jsdom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 const siteRoot = resolve('site')
 const html = readFileSync(resolve(siteRoot, 'index.html'), 'utf8')
@@ -80,10 +80,14 @@ describe('static product website', () => {
     expect(currentExplainPrompt).toBeTruthy()
     expect(questionPrompt?.open).toBe(false)
     expect(questionPrompt?.querySelector('summary')?.textContent).toBe('查看本次提示词')
-    expect(questionPrompt?.querySelector('p')?.textContent).toBe(currentExplainPrompt)
+    // 官网使用精简演示提示词，保留应用默认任务与原文证据边界。
+    const demoExplainPrompt = questionPrompt?.querySelector('p')?.textContent ?? ''
+    expect(demoExplainPrompt).toContain(currentExplainPrompt!.split('。')[0])
+    expect(demoExplainPrompt).toContain('以原文为依据')
+    expect(demoExplainPrompt).toContain('区分明确表述与推断')
     expect(document.querySelector('[data-demo-citation]')).toBeNull()
     expect(document.querySelector('.demo-citation[data-demo-return]')).not.toBeNull()
-    expect(document.querySelector('[data-demo-selection]')?.getAttribute('tabindex')).toBe('-1')
+    expect(document.querySelector('[data-demo-selection]')?.getAttribute('tabindex')).toBe('0')
     expect(scriptElement).not.toBeNull()
     // 0.5.0 站点用 ./script.js?v=... 做缓存失效，并保持 defer。
     expect(scriptElement?.hasAttribute('defer')).toBe(true)
@@ -101,7 +105,20 @@ describe('static product website', () => {
     expect(document.querySelector('[data-demo-step]')).toBeNull()
     expect(styles).not.toContain('.window-dots')
     expect(styles).not.toContain('.demo-stepper')
-    expect(script).not.toContain('setTimeout')
+    // 提示与引用高亮可以延时收起，演示步骤必须由用户操作触发。
+    vi.useFakeTimers()
+    const runtime = new JSDOM(html, { runScripts: 'outside-only' })
+    try {
+      runtime.window.matchMedia = () => ({ matches: false }) as MediaQueryList
+      runtime.window.eval(script)
+      vi.advanceTimersByTime(60_000)
+      const runtimeDemo = runtime.window.document.querySelector('[data-reader-demo]')
+      expect(runtimeDemo?.getAttribute('data-demo-state')).toBe('selected')
+      expect(runtimeDemo?.querySelector('[data-demo-answer]')?.hasAttribute('hidden')).toBe(true)
+    } finally {
+      runtime.window.close()
+      vi.useRealTimers()
+    }
   })
 
   it('provides accessible, present local image assets', () => {

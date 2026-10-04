@@ -12,7 +12,7 @@ export async function loadPdfPreview(bookId: string, pageNumber: number, signal:
   const pdf = await import('pdfjs-dist')
   signal.throwIfAborted()
   pdf.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-  const task = pdf.getDocument({ data: payload.bytes, isEvalSupported: false, useSystemFonts: false })
+  const task = pdf.getDocument({ data: payload.bytes, useSystemFonts: false })
   let destroyed: Promise<void> | undefined
   const destroy = () => { destroyed ??= task.destroy(); void destroyed.catch(() => undefined) }
   signal.addEventListener('abort', destroy, { once: true })

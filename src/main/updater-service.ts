@@ -4,6 +4,7 @@ export type AppUpdaterEvent = 'checking-for-update' | 'update-available' | 'upda
 
 export interface AppUpdaterLike {
   autoDownload: boolean
+  autoInstallOnAppQuit: boolean
   checkForUpdates(): Promise<unknown>
   downloadUpdate(): Promise<string[]>
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
@@ -78,6 +79,7 @@ export class UpdaterService {
     private readonly updater: AppUpdaterLike
   ) {
     updater.autoDownload = false
+    updater.autoInstallOnAppQuit = false
     updater.on('update-available', (payload: unknown) => {
       const version = readVersion(payload)
       if (version && this.phase.status === 'checking') {

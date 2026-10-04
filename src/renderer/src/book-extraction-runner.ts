@@ -11,7 +11,7 @@ void (async () => {
   if (job.payload.book.format === 'pdf') {
     const pdf = await import('pdfjs-dist')
     pdf.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-    const task = pdf.getDocument({ data: job.payload.bytes, isEvalSupported: false, useSystemFonts: false })
+    const task = pdf.getDocument({ data: job.payload.bytes, useSystemFonts: false })
     let unsubscribe: (() => void) | undefined
     try {
       const document = await task.promise

@@ -6,6 +6,7 @@ type Listener = (...args: unknown[]) => void
 
 class FakeUpdater implements AppUpdaterLike {
   autoDownload = true
+  autoInstallOnAppQuit = true
 
   checkForUpdatesResult: 'available' | 'not-available' | 'reject' = 'not-available'
   downloadShouldReject = false
@@ -103,6 +104,21 @@ describe('UpdaterService', () => {
   it('keeps auto-download disabled on the underlying updater', () => {
     const { updater } = makeUpdaterService()
     expect(updater.autoDownload).toBe(false)
+  })
+
+  it('keeps downloaded updates pending until installation is explicitly requested', async () => {
+    const { service, updater } = makeUpdaterService()
+    const quitAndInstall = vi.spyOn(updater, 'quitAndInstall')
+    updater.checkForUpdatesResult = 'available'
+    await service.check('manual')
+    await service.download()
+
+    expect(updater.autoInstallOnAppQuit).toBe(false)
+    expect(quitAndInstall).not.toHaveBeenCalled()
+    expect(service.getPhase().status).toBe('downloaded')
+
+    service.install()
+    expect(quitAndInstall).toHaveBeenCalledWith(false, true)
   })
 
   it('falls back to idle without surfacing an error when the silent startup check fails', async () => {
