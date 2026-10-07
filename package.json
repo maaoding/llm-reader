@@ -22,6 +22,7 @@
     "build:electron": "electron-vite build",
     "build:app": "pnpm copy:check && pnpm build:electron",
     "build:win": "pnpm build:app && electron-builder --win nsis",
+    "build:mac": "pnpm build:app && electron-builder --mac dmg zip",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint .",
