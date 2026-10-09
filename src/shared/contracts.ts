@@ -2,6 +2,11 @@ import type { ReaderSearchResult } from './reader-search'
 import type { UiLanguage } from './copy'
 
 export const IPC_CHANNELS = {
+  workbenchesList: 'workbenches:list',
+  workbenchesCreate: 'workbenches:create',
+  workbenchesSave: 'workbenches:save',
+  workbenchesDelete: 'workbenches:delete',
+  workbenchesExport: 'workbenches:export',
   clipboardWriteText: 'clipboard:write-text',
   documentOcrPage: 'document:ocr-page',
   appBeforeClose: 'app:before-close',
@@ -211,6 +216,8 @@ export interface TocItem {
 
 export interface Passage {
   id: string
+  bookId?: string
+  bookTitle?: string
   text: string
   anchor: string
   chapterTitle?: string
@@ -504,8 +511,9 @@ export interface WebSearchRecord {
 }
 
 export interface ContextSnapshot {
-  scope: 'selection' | 'book'
+  scope: 'selection' | 'book' | 'books'
   bookId: string
+  books?: Array<{ id: string; title: string }>
   selection: ReaderSource | null
   passages: Passage[]
   background: string
@@ -567,6 +575,7 @@ export type LlmRequest = LlmRequestBase & (
   | { scope?: 'selection'; selection: SelectionContext; imageDataUrl?: never }
   | { scope: 'visual'; selection: PdfImageRegionSource; imageDataUrl: string }
   | { scope: 'book'; bookId: string; selection?: never }
+  | { scope: 'books'; bookIds: string[]; selection?: never }
 )
 
 export interface LlmUsage {
@@ -765,6 +774,33 @@ export interface BookSessionSummary {
   updatedAt: string
 }
 
+export const MAX_WORKBENCH_BOOKS = 5
+export interface WorkbenchTurn {
+  id: string
+  bookIds: string[]
+  question: string
+  answer: string
+  model: string
+  status: 'queued' | 'streaming' | 'completed' | 'error'
+  error?: string
+  context?: ContextSnapshot
+  usage?: LlmUsage
+  persona?: PersonaSelection | null
+}
+export interface WorkbenchInput {
+  id: string
+  name: string
+  bookIds: string[]
+  draft: string
+  turns: WorkbenchTurn[]
+  webSearch: WebSearchMode
+  persona: PersonaSelection | null
+}
+export interface WorkbenchRecord extends WorkbenchInput {
+  createdAt: string
+  updatedAt: string
+}
+
 export const RECENT_BOOK_SESSION_LIMIT = 20
 
 /** 打开的会话标签：归档标签必须带 insightId，草稿只对归档标签生效。 */
@@ -799,6 +835,11 @@ export interface SaveHighlightInput {
 }
 
 export interface ReaderApi {
+  listWorkbenches(): Promise<WorkbenchRecord[]>
+  createWorkbench(input: { name: string; bookIds: string[] }): Promise<WorkbenchRecord>
+  saveWorkbench(input: WorkbenchInput): Promise<WorkbenchRecord>
+  deleteWorkbench(id: string): Promise<boolean>
+  exportWorkbench(id: string): Promise<InsightExportResult>
   copyText(text: string): Promise<void>
   getBookOcrPage(input: { bookId: string; pageNumber: number }): Promise<PreparedOcrPage>
   getAppInfo(): Promise<AppInfo>

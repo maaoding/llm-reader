@@ -47,7 +47,7 @@ afterAll(async () => {
   await new Promise<void>((done, reject) => server.close((error) => error ? reject(error) : done()))
 })
 
-function question(conversationId = randomUUID()): LlmRequest {
+function question(conversationId = randomUUID()): Extract<LlmRequest, { selection: import('../../src/shared/contracts').SelectionContext }> {
   return { requestId: randomUUID(), conversationId, action: 'ask', question: '解释证据', history: [],
     selection: { bookId: randomUUID(), quote: '证据', anchor: 'txt:0:2', chapterTitle: '开篇', passages: [{ id: 'p1', text: '证据', anchor: 'txt:0:2' }] } }
 }
@@ -191,7 +191,6 @@ it('migrates old archives and analysis IDs once, preserving timestamps, notes an
     database.insertBook({ id: bookId, title: '旧书', sha256: 'b'.repeat(64), author: null, format: 'txt', sourceFormat: 'txt', originalName: 'old.txt', storedName: 'old.txt', importedAt: '1', lastOpenedAt: null, lastLocator: null, progress: 0 })
     database.createProviderProfile({ id: 'legacy', name: '旧配置', base_url: endpoint, model: 'fixture', compatibility: 'auto', is_active: 1, created_at: '1', updated_at: 'unchanged' })
     const request = question()
-    if (request.scope === 'book') throw new Error('Expected selection fixture')
     const input = { bookId, selection: { ...request.selection, bookId }, question: '问题', answer: '答案', model: 'fixture' }
     database.insertInsight(insightId, input, '1')
     const store = new BookContextStore(database)

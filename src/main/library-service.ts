@@ -25,6 +25,8 @@ import type {
   UpdateInsightHistoryInput
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
+import type { WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
+import { buildWorkbenchMarkdown } from './workbench-export'
 import { AppDatabase, type StoredBook } from './database'
 import { CalibreEpubConverter, type EpubConverter } from './calibre-converter'
 import { AppError } from './errors'
@@ -710,6 +712,38 @@ export class LibraryService {
 
   listSessionTabs(): SessionTabsState {
     return this.database.listSessionTabs()
+  }
+
+  listWorkbenches(): WorkbenchRecord[] {
+    return this.database.listWorkbenches().map((record) => ({ ...record, turns: record.turns.map((turn) =>
+      turn.status === 'queued' || turn.status === 'streaming' ? { ...turn, status: 'error', error: copy('workbench.interrupted') } : turn) }))
+  }
+
+  createWorkbench(input: { name: string; bookIds: string[] }): WorkbenchRecord {
+    this.validateWorkbenchBooks(input.bookIds)
+    return this.database.createWorkbench(input.name, input.bookIds)
+  }
+
+  saveWorkbench(input: WorkbenchInput): WorkbenchRecord {
+    this.validateWorkbenchBooks(input.bookIds)
+    const result = this.database.saveWorkbench(input)
+    if (!result) throw new AppError('WORKBENCH_NOT_FOUND', copy('workbench.missing'))
+    return result
+  }
+
+  private validateWorkbenchBooks(bookIds: string[]): void {
+    if (bookIds.some((id) => !this.database.getStoredBook(id))) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+  }
+
+  deleteWorkbench(id: string): boolean { return this.database.deleteWorkbench(id) }
+
+  async exportWorkbench(id: string, path: string): Promise<string> {
+    const record = this.database.getWorkbench(id)
+    if (!record) throw new AppError('WORKBENCH_NOT_FOUND', copy('workbench.missing'))
+    if (!isAbsolute(path)) throw new AppError('INVALID_EXPORT_PATH', copy('error.importAbsolutePath'))
+    const target = ensureMarkdownExtension(path)
+    await writeFile(target, buildWorkbenchMarkdown(record, this.database.listBooks()), 'utf8')
+    return basename(target)
   }
 
   saveSessionTabs(input: SessionTabsState): SessionTabsState {

@@ -37,15 +37,16 @@ export function WebCitation({ source, bookId }: { source: WebSearchSource; bookI
     {expanded && <SourceDialog source={source} bookId={bookId} onClose={() => setExpanded(false)} />}</>
 }
 
-export function WebSources({ context }: { context: ContextSnapshot }) {
+export function WebSources({ context, availableBookIds }: { context: ContextSnapshot; availableBookIds?: string[] }) {
   const record = context.webSearch
   if (!record) return null
+  const bookId = context.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context.bookId
   return <div className="web-sources" data-testid="web-search-result">
     <p className="field-hint" role="status">{webSearchStatus(record)}</p>
     {(record.query || record.sources.length > 0) && <details className="answer-sources" data-testid="web-sources"><summary>{copy('webSearch.sourcesTitle')}</summary>
       {record.query && <p className="field-hint">{copy('webSearch.queryLabel', { query: record.query })}</p>}
       {record.searchedAt && <p className="field-hint">{copy('webSearch.searchedAt', { time: record.searchedAt })}</p>}
-      {record.sources.map((source) => <SourceContent key={source.id} source={source} bookId={context.bookId} />)}
+      {record.sources.map((source) => <SourceContent key={source.id} source={source} bookId={bookId} />)}
     </details>}
   </div>
 }

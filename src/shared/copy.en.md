@@ -705,7 +705,7 @@
 | library.readFailed | Could not read the local library. |
 | library.deleteBook | Delete this book |
 | library.deleteQuestion | Delete “{title}”? |
-| library.deleteDetail | Its extracts and saved answers are deleted too and cannot be recovered. |
+| library.deleteDetail | Its extracts and single-book archived answers are deleted too and cannot be recovered. |
 | library.deletedToast | Deleted “{title}”. |
 | library.alreadyRemoved | This book is no longer in the library. |
 | library.deleteFailed | Could not delete the book. |
@@ -981,3 +981,54 @@
 | request.custom | Custom URL |
 
 | request.keyScope | After changing the endpoint URL or protocol, re-enter the API key; the old key is not sent to the new endpoint automatically. |
+
+## Multi-book workbenches
+
+| key | text |
+| --- | --- |
+| workbench.archived | Archived answers |
+| workbench.title | Workbenches |
+| workbench.new | New workbench |
+| workbench.name | Workbench name |
+| workbench.defaultName | New reading workbench |
+| workbench.create | Create workbench |
+| workbench.empty | Discuss your books together |
+| workbench.hint | Create a workbench, choose books, and compare ideas. Each workbench saves independently. |
+| workbench.books | Source books |
+| workbench.selectBooks | Choose books (up to 5) |
+| workbench.searchBooks | Search title or author |
+| workbench.noBooks | Choose books to start the discussion. |
+| workbench.prepare | Prepare text |
+| workbench.unready | Prepare the text of each selected book before asking. |
+| workbench.question | Compare these books, or ask about one of them… |
+| workbench.send | Send |
+| workbench.stop | Stop |
+| workbench.generating | Preparing sources or answering… |
+| workbench.sources | Books for this turn |
+| workbench.remove | Delete workbench |
+| workbench.removeConfirm | Delete this workbench and its conversation? Books are kept. |
+| workbench.back | Back to workbenches |
+| workbench.return | Return to workbench |
+| workbench.saveFailed | Could not save the workbench. Please retry. |
+| workbench.loadFailed | Could not load workbenches. |
+| workbench.missing | This workbench has been deleted. |
+| workbench.interrupted | The previous answer was interrupted. You can regenerate it. |
+| workbench.deletedBook | Book deleted |
+| workbench.missingSource | The original book was deleted. This saved reference cannot be opened. |
+| workbench.changed | Source text changed during this request. Please try again. |
+| workbench.regenerate | Regenerate last answer |
+| workbench.edit | Edit last question |
+| workbench.export | Export workbench |
+| workbench.rename | Rename |
+| workbench.saved | Saved |
+| workbench.saving | Saving… |
+| workbench.limit | This workbench has reached 200 turns. Create another to continue. |
+| workbench.changedSources | Book changes apply to future questions; past answers retain their original sources. |
+| workbench.deleteBookHint | Multi-book workbench answers and source excerpts are kept, but their references can no longer be opened. |
+| workbench.noEvidence | No usable original evidence was found in this book for this turn. |
+| workbench.bookLimit | Select up to 5 books. |
+| workbench.modelNeeded | Configure a model in Settings first. |
+| workbench.notSaved | Unsaved changes |
+| workbench.cancelled | Answer stopped. |
+| workbench.load | Reload |
+| workbench.editing | Editing the last question using its original books. |

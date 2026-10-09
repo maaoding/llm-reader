@@ -1,5 +1,6 @@
 import { Select } from './Select'
-import { ComposerToolButton } from './ComposerToolButton'
+import { AssistantComposer } from './AssistantComposer'
+import { WebSearchControl } from './WebSearchControl'
 import { RequestSettingsEditor } from './RequestSettingsEditor'
 import { PersonaSettingsPanel, PersonaSessionControl } from './AssistantPersonaSettings'
 import { defaultPersona, MAX_PERSONAS, persistPersonaSettings, personaFromPreset, readPersonaSettings } from './assistant-personas'
@@ -21,8 +22,6 @@ import {
   CircleStop,
   Cpu,
   FileText,
-  Globe,
-  GlobeX,
   Highlighter,
   Import,
   Info,
@@ -43,7 +42,6 @@ import {
   Save,
   Search,
   SearchX,
-  Send,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -58,7 +56,6 @@ import {
   type CSSProperties,
   type FormEvent,
   Fragment,
-  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -115,6 +112,8 @@ import { EvidenceSources } from './EvidenceSources'
 import { WebSources } from './WebSources'
 import { BookCoverCache, observeBookCoverVisibility } from './book-cover-cache'
 import InsightsView from './InsightsView'
+import WorkbenchesView from './WorkbenchesView'
+import { useWorkbenches } from './use-workbenches'
 import { readableError } from './readable-error'
 import { MarkedText } from './MarkedText'
 import { normalizeNeedle } from './highlight'
@@ -286,7 +285,7 @@ function createArchiveTab(insight: InsightArchiveRecord): ConversationTab {
     bookId: insight.bookId,
     title: compactTabTitle(insight.question || (insight.selection && !isPdfImageRegion(insight.selection) ? insight.selection.quote : '') || '', copy('assistant.insightLabel')),
     selection: latest ? latest.selection : insight.selection,
-    scope: latest?.context?.scope ?? insight.context?.scope ?? 'selection',
+    scope: (latest?.context?.scope ?? insight.context?.scope) === 'book' ? 'book' : 'selection',
     turns,
     draft: '',
     persona: insight.persona ?? null,
@@ -1009,6 +1008,7 @@ function BookDetailsModal({
               <div>
                 <strong>{copy('library.deleteQuestion', { title: book.title })}</strong>
                 <p>{copy('library.deleteDetail')}</p>
+                <p>{copy('workbench.deleteBookHint')}</p>
               </div>
               <div className="book-details-delete-actions">
                 <button
@@ -1258,7 +1258,6 @@ function ConversationPane({
   onSave,
   onCancel,
   onSubmit,
-  onComposerKey,
   scope = 'selection',
   controls,
   scopeControls,
@@ -1296,12 +1295,10 @@ function ConversationPane({
   resolveLabel?: string
   onCancel: () => void
   onSubmit: (event: FormEvent) => void
-  onComposerKey: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
 }): ReactNode {
   const selectedPassageCount = conversationSelection && !isPdfImageRegion(conversationSelection) ? conversationSelection.passages.length : 0
   const assistantScrollRef = useRef<HTMLDivElement | null>(null)
   const assistantFollowRef = useRef(true)
-  const questionFormId = useId()
 
   useLayoutEffect(() => {
     const container = assistantScrollRef.current
@@ -1391,21 +1388,10 @@ function ConversationPane({
           })}
         </div>
       </div>
-      <div className="assistant-composer">
-        {scopeControls && <div className="composer-heading">{scopeControls}</div>}
-        {blockedReason && <div className="composer-hint" role="status"><span>{blockedReason}</span>{onResolve && resolveLabel && <button type="button" className="text-button" onClick={(event) => onResolve(event.currentTarget)}>{resolveLabel}</button>}</div>}
-        <div className="assistant-question-box">
-          <form id={questionFormId} className="assistant-question-form" onSubmit={onSubmit}>
-            <textarea className="assistant-question-input" data-testid="followup-input" ref={followupRef} value={draft} onChange={(event) => onDraftChange(event.target.value)} onKeyDown={onComposerKey} placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')} aria-label={copy('assistant.questionAria')} rows={2} maxLength={2000} />
-          </form>
-          <div className="composer-toolbar">
-            <div className="composer-tools">{composerControls}</div>
-            {activeRequestId
-              ? <ComposerToolButton className="composer-submit cancel-generation" data-testid="cancel-request" label={copy('assistant.stop')} onClick={onCancel}><CircleStop size={16} aria-hidden="true" /></ComposerToolButton>
-              : <ComposerToolButton className="composer-submit" type="submit" form={questionFormId} data-testid="send-question" label={copy('assistant.sendAria')} disabled={!canAsk || !draft.trim()}><Send size={16} aria-hidden="true" /></ComposerToolButton>}
-          </div>
-        </div>
-      </div>
+      <AssistantComposer inputRef={followupRef} draft={draft} onDraftChange={onDraftChange}
+        placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')}
+        heading={scopeControls} controls={composerControls} blockedReason={blockedReason} resolveLabel={resolveLabel} onResolve={onResolve}
+        canAsk={canAsk} busy={Boolean(activeRequestId)} onSubmit={onSubmit} onCancel={onCancel} />
     </>
   )
 }
@@ -2521,6 +2507,11 @@ export default function App(): ReactNode {
   const [bookState, setBookState] = useState<LoadState>('idle')
   const [bookError, setBookError] = useState('')
   const [libraryState, setLibraryState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const workbenches = useWorkbenches(books, libraryState === 'ready')
+  const closeWorkbenches = workbenches.beforeClose
+  const [archiveView, setArchiveView] = useState<'archived' | 'workbenches'>(() => { try { return localStorage.getItem('llm-reader-archive-view') === 'workbenches' ? 'workbenches' : 'archived' } catch { return 'archived' } })
+  const [workbenchReturnId, setWorkbenchReturnId] = useState<string | null>(null)
+  useEffect(() => { try { localStorage.setItem('llm-reader-archive-view', archiveView) } catch { /* Keep the in-memory choice. */ } }, [archiveView])
   const [libraryError, setLibraryError] = useState('')
   const [importing, setImporting] = useState(false)
   const [importDialogState, setImportDialogState] = useState<BookImportDialogState | null>(null)
@@ -3311,15 +3302,20 @@ export default function App(): ReactNode {
     if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, persona)
   }
 
-  const saveSessionPersonaAs = (tab: ConversationTab, persona: PersonaSelection): void => {
-    if (personaSettings.presets.length >= MAX_PERSONAS) return
+  const savePersonaAs = (persona: PersonaSelection): PersonaSelection | null => {
+    if (personaSettings.presets.length >= MAX_PERSONAS) return null
     const preset = { id: crypto.randomUUID(), name: persona.name, prompt: persona.prompt }
     if (!changePersonaSettings({ ...personaSettings, presets: [...personaSettings.presets, preset] })) {
       pushToast(copy('persona.saveFailed'), 'error')
-      return
+      return null
     }
-    changeSessionPersona(tab, personaFromPreset(preset))
     pushToast(copy('persona.saved'), 'success')
+    return personaFromPreset(preset)
+  }
+
+  const saveSessionPersonaAs = (tab: ConversationTab, persona: PersonaSelection): void => {
+    const saved = savePersonaAs(persona)
+    if (saved) changeSessionPersona(tab, saved)
   }
 
   // 并发上限：超出上限的会话请求排队等待，响应结束后按入队顺序补位。
@@ -3436,6 +3432,7 @@ export default function App(): ReactNode {
     if (!window.readerApi) return undefined
     return window.readerApi.onBeforeClose(async () => {
       closingRef.current = true
+      await closeWorkbenches()
       coverCache.dispose()
       if (progressTimerRef.current) {
         clearTimeout(progressTimerRef.current)
@@ -3451,7 +3448,7 @@ export default function App(): ReactNode {
       }
       if (workspaceReady) await window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
     })
-  }, [coverCache, flushProgress, sessionPayload, sessionTabsState, workspaceReady])
+  }, [closeWorkbenches, coverCache, flushProgress, sessionPayload, sessionTabsState, workspaceReady])
 
   useEffect(() => {
     if (!window.readerApi) return undefined
@@ -3948,12 +3945,6 @@ export default function App(): ReactNode {
     if (!tab) return
     submitTabQuestion(tab.id)
   }
-  const handleComposerKey = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-      event.preventDefault()
-      event.currentTarget.form?.requestSubmit()
-    }
-  }
 
   const navigateToAnchor = useCallback(async (anchor: string, showSelection = false, chapterTitle?: string): Promise<void> => {
     setOcrReadingOpen(false)
@@ -3983,6 +3974,17 @@ export default function App(): ReactNode {
       pushToast(readableError(error, copy('reader.navigateSourceFailed')), 'error')
     }
   }, [pushToast])
+
+  const navigateWorkbenchSource = async (bookId: string, anchor: string, chapterTitle?: string): Promise<void> => {
+    const book = books.find((item) => item.id === bookId)
+    if (!book) { pushToast(copy('workbench.missingSource'), 'error'); return }
+    setWorkbenchReturnId(workbenches.activeId)
+    await openBook(book, 'reading', { focusLiveTab: false })
+    if (activeBookRef.current?.id === bookId && adapterRef.current) {
+      setPage('reading')
+      await navigateToAnchor(anchor, false, chapterTitle)
+    }
+  }
 
   const navigateToSearchResult = useCallback(async (result: ReaderSearchResult): Promise<void> => {
     chapterTitleOverrideRef.current = result.chapterTitle
@@ -4376,21 +4378,12 @@ export default function App(): ReactNode {
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
   const webSearchControl = (tab: ConversationTab): ReactNode => {
-    const imageQuestion = isPdfImageRegion(tab.selection)
-    const busy = Boolean(streamingRequestId(tab))
-    const changing = changingSessions.includes(tab.id)
-    const unavailable = !webSearchEnabled
-    const hint = imageQuestion ? copy('webSearch.imageUnavailable') : busy ? copy('assistant.busyHint') : changing ? copy('assistant.sessionLoading') : unavailable ? copy('webSearch.unavailable') : copy('webSearch.modeHint')
-    return <ComposerToolButton data-testid="web-search-mode" label={copy(tab.webSearch === 'auto' ? 'webSearch.modeAuto' : 'webSearch.modeOff')} hint={hint}
-      aria-pressed={tab.webSearch === 'auto'} data-available={!unavailable && !imageQuestion}
-      disabled={busy || imageQuestion || changing || (unavailable && tab.webSearch === 'off')}
-      onClick={() => {
-        const webSearch = tab.webSearch === 'auto' ? 'off' : 'auto'
+    return <WebSearchControl mode={tab.webSearch} enabled={webSearchEnabled} busy={Boolean(streamingRequestId(tab))}
+      imageQuestion={isPdfImageRegion(tab.selection)} changing={changingSessions.includes(tab.id)}
+      onChange={(webSearch) => {
         updateConversationTab(tab.id, (current) => ({ ...current, webSearch }))
         if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, tab.persona, webSearch)
-      }}>
-      {tab.webSearch === 'auto' ? <Globe size={16} aria-hidden="true" /> : <GlobeX size={16} aria-hidden="true" />}
-    </ComposerToolButton>
+      }} />
   }
   const changeConversationScope = async (tab: ConversationTab, scope: 'selection' | 'book'): Promise<void> => {
     if (scope === tab.scope || tabHasActiveRequest(tab.id)) return
@@ -4541,6 +4534,7 @@ export default function App(): ReactNode {
         <nav aria-label={copy('workspace.navigation')}>
           <button type="button" data-testid="nav-library" aria-current={page === 'library' ? 'page' : undefined} onClick={() => setPage('library')}><Library size={17} />{copy('workspace.library')}</button>
           <button type="button" data-testid="nav-archives" aria-current={page === 'archives' ? 'page' : undefined} onClick={() => setPage('archives')}><Bookmark size={17} />{copy('workspace.archives')}</button>
+          {page === 'reading' && workbenchReturnId && workbenches.records.some((record) => record.id === workbenchReturnId) && <button type="button" data-testid="return-workbench" onClick={() => { workbenches.activate(workbenchReturnId); setArchiveView('workbenches'); setPage('archives') }}>{copy('workbench.return')}</button>}
         </nav>
         <div className="workspace-book-tabs" role="tablist" aria-label={copy('workspace.bookTabs')} data-testid="book-tabs" ref={bookTabStripRef}>
           {bookTabs.map((tab) => {
@@ -4937,7 +4931,6 @@ export default function App(): ReactNode {
             onEditQuestion={(turnId) => { if (sidebarTab) editTurnQuestion(sidebarTab, turnId) }}
             canRegenerate={canAskSidebar}
             onSubmit={submitSidebarQuestion}
-            onComposerKey={handleComposerKey}
           />
         )}
       </aside>
@@ -4959,8 +4952,12 @@ export default function App(): ReactNode {
           <section ref={assistantDialogRef} className="assistant-dialog" data-testid="assistant-dialog" role="region" aria-labelledby="assistant-dialog-title">
             <header className="modal-header">
               <div><h2 id="assistant-dialog-title">{copy(page === 'archives' ? 'workspace.archives' : 'workspace.conversation')}</h2></div>
+              {page === 'archives' && <div className="archive-view-switch" role="group" aria-label={copy('workspace.archives')}>
+                <button type="button" aria-pressed={archiveView === 'archived'} onClick={() => setArchiveView('archived')}>{copy('workbench.archived')}</button>
+                <button type="button" data-testid="nav-workbenches" aria-pressed={archiveView === 'workbenches'} onClick={() => setArchiveView('workbenches')}>{copy('workbench.title')}</button>
+              </div>}
             </header>
-            <nav className="assistant-workspace-nav" aria-label={copy('assistant.viewsAria')}>
+            {(assistantDialogView !== 'insights' || archiveView === 'archived') && <nav className="assistant-workspace-nav" aria-label={copy('assistant.viewsAria')}>
               <div className="assistant-session-tabs" role="tablist" aria-label={copy('assistant.viewsAria')} ref={sessionTabStripRef}>
                 {visibleSessionTabs.map((tab) => {
                   const isActive = assistantDialogView === 'conversation' && activeTabId === tab.id
@@ -5043,9 +5040,11 @@ export default function App(): ReactNode {
                   <button className="assistant-session-clear" data-testid="conversation-clear" type="button" onClick={() => setPendingClearSession(true)}>{copy('assistant.clearSession')}</button>
                 )
               )}
-            </nav>
+            </nav>}
             <div className="assistant-dialog-body">
-              {assistantDialogView === 'insights' ? (
+              {assistantDialogView === 'insights' ? (archiveView === 'workbenches' ? <WorkbenchesView
+                controller={workbenches} books={books} states={analysis.states} refresh={analysis.refresh} provider={provider} personas={personaSettings} webSearchEnabled={webSearchEnabled} onSavePersonaAs={savePersonaAs}
+                onPrepare={(id) => openPreparation(id)} onNavigate={(id, anchor, title) => void navigateWorkbenchSource(id, anchor, title)} onConfigure={(trigger) => openSettings('model', trigger)} /> :
                 <InsightsView
                   insights={insights}
                   loading={insightsLoading}
@@ -5085,7 +5084,6 @@ export default function App(): ReactNode {
                   searchNeedle={conversationNeedle}
                   onCancel={() => void cancelRequest(streamingRequestId(activeConversationTab))}
                   onSubmit={submitActiveQuestion}
-                  onComposerKey={handleComposerKey}
                 />
               ) : (
                 <div className="assistant-dialog-empty">

@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AppDatabase } from '../../src/main/database'
+import { AppDatabase, migrations } from '../../src/main/database'
 import { LibraryService } from '../../src/main/library-service'
 import { highlightIdSchema, insightIdSchema } from '../../src/main/schemas'
 import type { ArchivedChatMessage } from '../../src/shared/contracts'
@@ -116,7 +116,7 @@ describe('LibraryService', () => {
       expect.objectContaining({ id: 'legacy-txt', format: 'txt', sourceFormat: 'txt' })
     ])
     expect(database.connection.prepare('SELECT MAX(version) AS version FROM schema_migrations').get())
-      .toMatchObject({ version: 21 })
+      .toMatchObject({ version: migrations.length })
     expect(database.listProviderProfiles()).toEqual([
       expect.objectContaining({
         id: 'legacy',

@@ -233,7 +233,7 @@ describe('budget, encrypted configuration and saved provenance', () => {
       const stored = state.db.getStoredBook(state.bookId)!
       db.insertBook(stored)
       const old = { bookId: state.bookId, conversationId: randomUUID(), scope: 'book' as const, selection: null, draft: '旧草稿', turns: [], updatedAt: '1' }
-      db.upsertBookSession(old); removeWebSearchSchema(db); db.connection.prepare('DELETE FROM schema_migrations WHERE version = ?').run(migrations.length)
+      db.upsertBookSession(old); removeWebSearchSchema(db); db.connection.prepare('DELETE FROM schema_migrations WHERE version >= ?').run(migrations.findIndex((sql) => sql.includes('CREATE TABLE web_source_records')) + 1)
       db.close(); db = new AppDatabase(path)
       expect(db.getBookSession(state.bookId)).toEqual(old)
       db.upsertBookSession({ ...old, webSearch: 'auto' })

@@ -92,6 +92,8 @@ export const normalizedDocumentSchema = z.object({
 })
 
 const passageSchema = z.object({
+  bookId: idSchema.optional(),
+  bookTitle: z.string().max(1_000).optional(),
   id: z.string().trim().min(1).max(128).regex(/^[\w.:/-]+$/u),
   text: z.string().min(1).max(100_000),
   anchor: shortText(16_384),
@@ -152,12 +154,13 @@ export const webSearchRecordSchema = z.object({
   record.sources.reduce((sum, source) => sum + Array.from(source.excerpt).length, 0) <= 5_000, copy('error.invalidInput'))
 
 export const contextSnapshotSchema = z.object({
-  scope: z.enum(['selection', 'book']),
+  scope: z.enum(['selection', 'book', 'books']),
   bookId: idSchema,
+  books: z.array(z.object({ id: idSchema, title: z.string().max(1_000) }).strict()).min(1).max(5).optional(),
   selection: selectionSchema.nullable(),
   passages: z.array(passageSchema).max(200),
   background: z.string().max(30_000),
-  coverage: z.object({ covered: z.number().int().min(0).max(10_000), total: z.number().int().min(0).max(10_000) }),
+  coverage: z.object({ covered: z.number().int().min(0).max(50_000), total: z.number().int().min(0).max(50_000) }),
   historySummary: z.object({ includedMessages: z.number().int().min(0).max(30), truncated: z.boolean() }).strict().optional(),
   rerank: z.object({
     status: z.enum(['applied', 'skipped', 'fallback']), model: z.string().max(256),
@@ -172,6 +175,10 @@ export const contextSnapshotSchema = z.object({
     totalTokens: z.number().int().nonnegative().optional()
   }).optional()
 }).superRefine((snapshot, context) => {
+  if (snapshot.scope === 'books' && (!snapshot.books || new Set(snapshot.books.map((book) => book.id)).size !== snapshot.books.length ||
+      snapshot.bookId !== snapshot.books[0]?.id || snapshot.passages.some((passage) => !snapshot.books?.some((book) => book.id === passage.bookId)))) {
+    context.addIssue({ code: 'custom', message: copy('validation.contextSource') })
+  }
   if ((snapshot.scope === 'selection') !== Boolean(snapshot.selection) || (snapshot.selection && snapshot.selection.bookId !== snapshot.bookId)) {
     context.addIssue({ code: 'custom', message: copy('validation.contextMismatch') })
   }
@@ -194,7 +201,7 @@ export const insightSchema = z
     webSearch: z.enum(['off', 'auto']).optional()
   })
     .refine((insight) => (insight.selection ? insight.bookId === insight.selection.bookId : insight.context?.scope === 'book') &&
-      (!insight.context || insight.context.bookId === insight.bookId), {
+      (!insight.context || (insight.context.scope !== 'books' && insight.context.bookId === insight.bookId)), {
     message: copy('validation.archiveSelection'),
     path: ['selection', 'bookId']
   })
@@ -213,7 +220,7 @@ export const insightHistorySchema = z.object({
   history: z.array(archivedMessageSchema).min(2).max(200),
   persona: personaSelectionSchema.nullable().optional(),
   webSearch: z.enum(['off', 'auto']).optional()
-}).refine((input) => input.history.every((message) => !message.context || message.context.bookId === input.bookId), {
+}).refine((input) => input.history.every((message) => !message.context || (message.context.scope !== 'books' && message.context.bookId === input.bookId)), {
   message: copy('validation.archiveHistory'), path: ['history']
 })
 
@@ -257,7 +264,7 @@ export const bookSessionSchema = z.object({
 }).strict().refine((session) => (
   (session.scope === 'selection') === Boolean(session.selection)
   && (!session.selection || session.selection.bookId === session.bookId)
-  && session.turns.every((turn) => !turn.context || turn.context.bookId === session.bookId)
+  && session.turns.every((turn) => !turn.context || (turn.context.scope !== 'books' && turn.context.bookId === session.bookId))
 ), { message: copy('validation.archiveSelection'), path: ['selection', 'bookId'] })
 
 // 打开的会话标签列表：归档标签必须带 insightId，激活下标必须落在列表范围内。
@@ -356,6 +363,7 @@ const llmRequestBase = {
       .max(30)
   }
 export const llmRequestSchema = z.union([
+  z.object({ ...llmRequestBase, scope: z.literal('books'), action: z.literal('ask'), bookIds: z.array(idSchema).min(1).max(5).refine((ids) => new Set(ids).size === ids.length) }).strict(),
   z.object({ ...llmRequestBase, scope: z.literal('selection').optional(), selection: textSelectionSchema }),
   z.object({ ...llmRequestBase, scope: z.literal('visual'), selection: pdfImageRegionSchema,
     imageDataUrl: z.string().max(PDF_REGION_IMAGE_MAX_DATA_URL).regex(PDF_REGION_IMAGE_PATTERN) }).strict(),
@@ -365,6 +373,28 @@ export const llmRequestSchema = z.union([
     message: copy('validation.question'),
     path: ['question']
   })
+
+const workbenchBookIds = z.array(idSchema).max(5).refine((ids) => new Set(ids).size === ids.length)
+export const createWorkbenchSchema = z.object({ name: z.string().trim().min(1).max(120), bookIds: workbenchBookIds }).strict()
+export const workbenchSchema = createWorkbenchSchema.extend({
+  id: z.uuid({ version: 'v4' }),
+  draft: z.string().max(2_000),
+  webSearch: z.enum(['off', 'auto']),
+  persona: personaSelectionSchema.nullable(),
+  turns: z.array(z.object({
+    id: z.uuid({ version: 'v4' }),
+    bookIds: workbenchBookIds.refine((ids) => ids.length > 0),
+    question: z.string().trim().min(1).max(2_000),
+    answer: z.string().max(2_000_000),
+    model: z.string().max(256),
+    status: z.enum(['queued', 'streaming', 'completed', 'error']),
+    error: z.string().max(2_000).optional(),
+    context: contextSnapshotSchema.optional(),
+    usage: z.object({ promptTokens: z.number().nonnegative().optional(), completionTokens: z.number().nonnegative().optional(), totalTokens: z.number().nonnegative().optional() }).strict().optional(),
+    persona: personaSelectionSchema.nullable().optional()
+  }).strict().refine((turn) => !turn.context || (turn.context.scope === 'books' && turn.context.books?.length === turn.bookIds.length &&
+    turn.context.books.every((book, index) => book.id === turn.bookIds[index])))).max(200)
+}).strict().refine((value) => new Set(value.turns.map((turn) => turn.id)).size === value.turns.length)
 
 export const requestIdSchema = z.string().min(1).max(128).regex(/^[\w.-]+$/u)
 

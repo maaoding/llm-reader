@@ -97,11 +97,12 @@ export function PersonaSettingsPanel({ settings, onChange, onError, onSaved, onD
 interface PersonaSessionControlProps {
   persona: PersonaSelection | null
   settings: PersonaSettings
+  disabled?: boolean
   onChange: (persona: PersonaSelection | null) => void
   onSaveAs: (persona: PersonaSelection) => void
 }
 
-export function PersonaSessionControl({ persona, settings, onChange, onSaveAs }: PersonaSessionControlProps): ReactNode {
+export function PersonaSessionControl({ persona, settings, disabled = false, onChange, onSaveAs }: PersonaSessionControlProps): ReactNode {
   const [isOpen, setIsOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
@@ -139,7 +140,7 @@ export function PersonaSessionControl({ persona, settings, onChange, onSaveAs }:
 
   return <div className="persona-session" data-testid="persona-session">
     <ComposerToolButton className="persona-session-trigger" data-testid="session-persona-trigger" ref={triggerRef}
-      popoverTarget={panelId} aria-haspopup="dialog" aria-controls={panelId} aria-expanded={isOpen} label={label}>
+      popoverTarget={panelId} aria-haspopup="dialog" aria-controls={panelId} aria-expanded={isOpen} label={label} disabled={disabled}>
       <Bot size={16} aria-hidden="true" />
     </ComposerToolButton>
     <div id={panelId} ref={panelRef} popover="auto" className="persona-session-popover" data-testid="session-persona-popover"
@@ -149,7 +150,7 @@ export function PersonaSessionControl({ persona, settings, onChange, onSaveAs }:
         if (!open) setEditing(false)
       }}>
       <label className="field-label" htmlFor={`${panelId}-select`}>{copy('persona.select')}</label>
-      <Select id={`${panelId}-select`} ref={selectRef} data-testid="session-persona" value={value} onChange={(event) => {
+      <Select id={`${panelId}-select`} ref={selectRef} data-testid="session-persona" value={value} disabled={disabled} onChange={(event) => {
         if (event.target.value === 'custom') return
         const preset = settings.presets.find((item) => item.id === event.target.value)
         onChange(preset ? personaFromPreset(preset) : null)
@@ -160,13 +161,13 @@ export function PersonaSessionControl({ persona, settings, onChange, onSaveAs }:
         {persona && !current && <option value="custom">{persona.name} · {copy('persona.custom')}</option>}
       </Select>
       <div className="persona-session-actions">
-        <button type="button" className="text-button" data-testid="session-persona-edit" aria-expanded={editing} onClick={() => editing ? setEditing(false) : beginEdit()}>{copy('persona.edit')}</button>
-        {persona && <button type="button" className="text-button" data-testid="session-persona-save-as" disabled={settings.presets.length >= MAX_PERSONAS} onClick={() => { onSaveAs(persona); close() }}>{copy('persona.saveAs')}</button>}
+        <button type="button" className="text-button" data-testid="session-persona-edit" aria-expanded={editing} disabled={disabled} onClick={() => editing ? setEditing(false) : beginEdit()}>{copy('persona.edit')}</button>
+        {persona && <button type="button" className="text-button" data-testid="session-persona-save-as" disabled={disabled || settings.presets.length >= MAX_PERSONAS} onClick={() => { onSaveAs(persona); close() }}>{copy('persona.saveAs')}</button>}
       </div>
       {editing && <form className="persona-session-editor" data-testid="session-persona-editor" onSubmit={(event) => {
         event.preventDefault()
         const cleanName = name.trim(), cleanPrompt = prompt.trim()
-        if (!cleanName || !cleanPrompt) return
+        if (disabled || !cleanName || !cleanPrompt) return
         onChange({ presetId: null, name: cleanName, prompt: cleanPrompt })
         close()
       }}>
@@ -175,7 +176,7 @@ export function PersonaSessionControl({ persona, settings, onChange, onSaveAs }:
         <label htmlFor={`${panelId}-prompt`}>{copy('persona.prompt')}</label>
         <textarea id={`${panelId}-prompt`} value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={MAX_PERSONA_PROMPT_LENGTH} rows={3} required />
         <small>{copy('persona.sessionHint')}</small>
-        <button type="submit" className="secondary-button" data-testid="session-persona-apply">{copy('persona.save')}</button>
+        <button type="submit" className="secondary-button" data-testid="session-persona-apply" disabled={disabled}>{copy('persona.save')}</button>
       </form>}
     </div>
   </div>

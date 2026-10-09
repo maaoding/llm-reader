@@ -24,6 +24,7 @@ import type {
   SessionTabsState,
   UpdateInsightHistoryInput
 } from '@shared/contracts'
+import type { WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
 
 interface BookRow {
   id: string
@@ -488,6 +489,24 @@ export const migrations = [
         url TEXT NOT NULL,
         PRIMARY KEY(book_id, url)
       ) STRICT;
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workbenches (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        draft TEXT NOT NULL DEFAULT '',
+        turns_json TEXT NOT NULL DEFAULT '[]',
+        persona_json TEXT,
+        web_search TEXT NOT NULL DEFAULT 'off',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS workbench_books (
+        workbench_id TEXT NOT NULL REFERENCES workbenches(id) ON DELETE CASCADE,
+        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        PRIMARY KEY(workbench_id, book_id)
+      ) STRICT;
     `
 ] as const
 
@@ -875,6 +894,49 @@ export class AppDatabase {
       .prepare('SELECT * FROM book_sessions WHERE book_id = ?')
       .get(bookId) as unknown as BookSessionRow | undefined
     return row ? mapBookSession(row) : null
+  }
+
+  listWorkbenches(): WorkbenchRecord[] {
+    return this.connection.prepare('SELECT id FROM workbenches ORDER BY updated_at DESC, id').all()
+      .map((row) => this.getWorkbench(String(row.id))!)
+  }
+
+  getWorkbench(id: string): WorkbenchRecord | null {
+    const row = this.connection.prepare('SELECT * FROM workbenches WHERE id = ?').get(id)
+    if (!row) return null
+    return { id, name: String(row.name), draft: String(row.draft),
+      bookIds: this.connection.prepare('SELECT book_id FROM workbench_books WHERE workbench_id = ? ORDER BY position').all(id).map((book) => String(book.book_id)),
+      turns: JSON.parse(String(row.turns_json)) as WorkbenchRecord['turns'],
+      persona: row.persona_json ? JSON.parse(String(row.persona_json)) as WorkbenchRecord['persona'] : null,
+      webSearch: row.web_search === 'auto' ? 'auto' : 'off', createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
+  }
+
+  createWorkbench(name: string, bookIds: string[]): WorkbenchRecord {
+    const id = randomUUID(), now = new Date().toISOString()
+    this.connection.exec('BEGIN')
+    try {
+      this.connection.prepare('INSERT INTO workbenches(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(id, name, now, now)
+      bookIds.forEach((bookId, position) => this.connection.prepare('INSERT INTO workbench_books VALUES (?, ?, ?)').run(id, bookId, position))
+      this.connection.exec('COMMIT')
+    } catch (error) { this.connection.exec('ROLLBACK'); throw error }
+    return this.getWorkbench(id)!
+  }
+
+  saveWorkbench(input: WorkbenchInput): WorkbenchRecord | null {
+    if (!this.getWorkbench(input.id)) return null
+    this.connection.exec('BEGIN')
+    try {
+      this.connection.prepare('UPDATE workbenches SET name = ?, draft = ?, turns_json = ?, persona_json = ?, web_search = ?, updated_at = ? WHERE id = ?')
+        .run(input.name, input.draft, JSON.stringify(input.turns), input.persona ? JSON.stringify(input.persona) : null, input.webSearch, new Date().toISOString(), input.id)
+      this.connection.prepare('DELETE FROM workbench_books WHERE workbench_id = ?').run(input.id)
+      input.bookIds.forEach((bookId, position) => this.connection.prepare('INSERT INTO workbench_books VALUES (?, ?, ?)').run(input.id, bookId, position))
+      this.connection.exec('COMMIT')
+    } catch (error) { this.connection.exec('ROLLBACK'); throw error }
+    return this.getWorkbench(input.id)
+  }
+
+  deleteWorkbench(id: string): boolean {
+    return this.connection.prepare('DELETE FROM workbenches WHERE id = ?').run(id).changes > 0
   }
 
   listRecentBookSessions(bookId: string): BookSessionSummary[] {

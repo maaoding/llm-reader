@@ -707,7 +707,7 @@
 | library.readFailed | 无法读取本地书库。 |
 | library.deleteBook | 删除这本书 |
 | library.deleteQuestion | 删除《{title}》？ |
-| library.deleteDetail | 这本书的摘录与问答集会一并删除，且无法恢复。 |
+| library.deleteDetail | 这本书的摘录与单书归档回答会一并删除，且无法恢复。 |
 | library.deletedToast | 已删除《{title}》。 |
 | library.alreadyRemoved | 这本书已不在书库中。 |
 | library.deleteFailed | 删除书籍失败。 |
@@ -984,3 +984,54 @@
 | request.custom | 自定义地址 |
 
 | request.keyScope | 更换接口地址或协议后，请重新填写 API 密钥；原密钥不会自动发送到新接口。 |
+
+## Multi-book workbenches
+
+| key | text |
+| --- | --- |
+| workbench.archived | 已归档 |
+| workbench.title | 工作台 |
+| workbench.new | 新建工作台 |
+| workbench.name | 工作台名称 |
+| workbench.defaultName | 新的多书工作台 |
+| workbench.create | 创建工作台 |
+| workbench.empty | 把几本书放在一起讨论 |
+| workbench.hint | 新建工作台，选择书籍，比较观点或综合提问。每个工作台独立保存。 |
+| workbench.books | 参与书籍 |
+| workbench.selectBooks | 选择书籍（最多 5 本） |
+| workbench.searchBooks | 搜索书名或作者 |
+| workbench.noBooks | 先选择参与讨论的书籍。 |
+| workbench.prepare | 准备原文 |
+| workbench.unready | 所选书籍需先完成原文准备。 |
+| workbench.question | 比较这些书的观点，或指定其中一本提问… |
+| workbench.send | 发送 |
+| workbench.stop | 停止 |
+| workbench.generating | 正在准备资料或回答… |
+| workbench.sources | 本轮参与书籍 |
+| workbench.remove | 删除工作台 |
+| workbench.removeConfirm | 删除这个工作台及其会话？书籍不受影响。 |
+| workbench.back | 返回工作台列表 |
+| workbench.return | 返回多书工作台 |
+| workbench.saveFailed | 工作台保存失败，请重试。 |
+| workbench.loadFailed | 工作台加载失败。 |
+| workbench.missing | 工作台已被删除。 |
+| workbench.interrupted | 上次回答未完成，可以重新生成。 |
+| workbench.deletedBook | 书籍已删除 |
+| workbench.missingSource | 原书已删除，保留的引用无法跳转。 |
+| workbench.changed | 本轮书籍原文已变化，请重新提问。 |
+| workbench.regenerate | 重新生成最后一轮 |
+| workbench.edit | 编辑最后一问 |
+| workbench.export | 导出工作台 |
+| workbench.rename | 重命名 |
+| workbench.saved | 已保存 |
+| workbench.saving | 正在保存… |
+| workbench.limit | 本工作台已达到 200 轮，请新建工作台继续。 |
+| workbench.changedSources | 书籍调整用于后续提问；历史引用保留当轮来源。 |
+| workbench.deleteBookHint | 多书工作台的历史回答和引用摘录会保留，相关引用将无法跳转。 |
+| workbench.noEvidence | 该书本轮未找到可用原文依据。 |
+| workbench.bookLimit | 最多选择 5 本书。 |
+| workbench.modelNeeded | 先在设置中配置问答模型。 |
+| workbench.notSaved | 有未保存的更改 |
+| workbench.cancelled | 回答已停止。 |
+| workbench.load | 重新加载 |
+| workbench.editing | 正在编辑上一问，沿用该轮书籍。 |

@@ -19,6 +19,8 @@ import { searchWeb, WEB_SEARCH_TIMEOUT_MS } from './web-search-service'
 import { embed, type SemanticIndexService } from './semantic-index'
 import type { DocumentProcessingService } from './document-processing'
 import {
+  workbenchSchema,
+  createWorkbenchSchema,
   startBookAnalysisSchema,
   prepareBookDocumentSchema,
   knowledgeSettingsSchema,
@@ -230,6 +232,23 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.sessionsGet, dependencies, (_event, value) =>
     dependencies.library.getBookSession(parse(bookIdSchema, value))
   )
+  handle(IPC_CHANNELS.workbenchesList, dependencies, () => dependencies.library.listWorkbenches())
+  handle(IPC_CHANNELS.workbenchesCreate, dependencies, (_event, value) => dependencies.library.createWorkbench(parse(createWorkbenchSchema, value)))
+  handle(IPC_CHANNELS.workbenchesSave, dependencies, (_event, value) => dependencies.library.saveWorkbench(parse(workbenchSchema, value)))
+  handle(IPC_CHANNELS.workbenchesDelete, dependencies, (_event, value) => {
+    const id = parse(bookIdSchema, value)
+    dependencies.llm.cancelConversation(id)
+    return dependencies.library.deleteWorkbench(id)
+  })
+  handle(IPC_CHANNELS.workbenchesExport, dependencies, async (_event, value) => {
+    const id = parse(bookIdSchema, value)
+    const result = await dialog.showSaveDialog(dependencies.window, {
+      title: copy('dialog.exportTitle'), defaultPath: 'workbench.md',
+      filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    return { canceled: false, fileName: await dependencies.library.exportWorkbench(id, result.filePath) }
+  })
   handle(IPC_CHANNELS.sessionsRecent, dependencies, (_event, value) => dependencies.library.listRecentBookSessions(parse(bookIdSchema, value)))
   handle(IPC_CHANNELS.sessionsReadRecent, dependencies, (_event, value) => dependencies.library.getRecentBookSession(parse(recentBookSessionSchema, value)))
   handle(IPC_CHANNELS.sessionsSave, dependencies, (_event, value) =>
@@ -340,7 +359,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     }
     const emit = (llmEvent: LlmEvent): void => {
       if (llmEvent.type === 'context' && llmEvent.context.webSearch?.sources.length) {
-        dependencies.library.recordWebSources(llmEvent.context.bookId, llmEvent.context.webSearch.sources.map((source) => source.url))
+        for (const bookId of llmEvent.context.books?.map((book) => book.id) ?? [llmEvent.context.bookId]) {
+          dependencies.library.recordWebSources(bookId, llmEvent.context.webSearch.sources.map((source) => source.url))
+        }
       }
       if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.llmEvent, llmEvent)
     }

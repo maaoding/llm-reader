@@ -9,6 +9,11 @@ import {
 } from '@shared/contracts'
 
 export const readerApi: ReaderApi = {
+  listWorkbenches: () => ipcRenderer.invoke(IPC_CHANNELS.workbenchesList),
+  createWorkbench: (input) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesCreate, input),
+  saveWorkbench: (input) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesSave, input),
+  deleteWorkbench: (id) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesDelete, id),
+  exportWorkbench: (id) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesExport, id),
   copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.clipboardWriteText, text),
   getBookOcrPage: (input) => ipcRenderer.invoke(IPC_CHANNELS.documentOcrPage, input),
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
