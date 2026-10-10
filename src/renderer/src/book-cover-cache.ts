@@ -76,7 +76,7 @@ export class BookCoverCache {
 }
 
 export function observeBookCoverVisibility(element: Element, onVisible: () => void): () => void {
-  const root = element.closest('.library-list')
+  const root = element.closest('.library-list, .workbench-book-picker')
   if (!root || typeof IntersectionObserver === 'undefined') {
     onVisible()
     return () => undefined

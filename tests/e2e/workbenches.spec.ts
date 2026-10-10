@@ -6,6 +6,7 @@ import type { ContextSnapshot } from '../../src/shared/contracts'
 import type {} from '../../src/renderer/src/global'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
 import { enterReading, resizeWorkspace, showLibrary } from './support/workspace'
+import { createCoveredEpubFixture } from './fixtures/covered-epub'
 
 let server: Server, endpoint = ''
 const answers: Array<{ context: ContextSnapshot; history: string[] }> = []
@@ -36,6 +37,115 @@ test.beforeAll(async () => {
   endpoint = `http://127.0.0.1:${address.port}/v1`
 })
 test.afterAll(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())) })
+
+test('shares book covers with the shelf and keeps workbench navigation in one compact header', async () => {
+  const workspace = await createE2eWorkspace('reader-workbench-covers-')
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const page = launched.page
+    await showLibrary(page)
+    const titles = ['群体的判断', '独立的证据']
+    // Distinct raster covers make it possible to catch book-to-cover mixups.
+    const covers = await page.evaluate((bookTitles) => bookTitles.map((title, index) => {
+      const canvas = document.createElement('canvas'); canvas.width = 180; canvas.height = 260
+      const context = canvas.getContext('2d')!
+      context.fillStyle = index ? '#344d60' : '#b36948'; context.fillRect(0, 0, 180, 260)
+      context.fillStyle = '#ffffff20'; context.fillRect(12, 0, 2, 260)
+      context.strokeStyle = '#f4e8d0'; context.lineWidth = 1
+      context.strokeRect(26, 24, 128, 212)
+      context.fillStyle = '#f4e8d0'; context.font = '22px sans-serif'
+      context.fillText(title.slice(0, 3), 38, 78); context.fillText(title.slice(3), 38, 110)
+      context.font = '10px sans-serif'; context.fillText('READING / 0' + (index + 1), 38, 215)
+      return canvas.toDataURL('image/png').split(',')[1]
+    }), titles)
+    const paths = titles.map((title) => join(workspace.root, `${title}.epub`))
+    for (let index = 0; index < titles.length; index++) {
+      await createCoveredEpubFixture(paths[index], { title: titles[index], identifier: `urn:workbench:cover:${index}`, coverPng: Buffer.from(covers[index], 'base64') })
+    }
+    paths.push(join(workspace.root, '没有封面的笔记.txt'))
+    await writeFile(paths[2], '没有封面的笔记\n\n关于群体判断的阅读笔记。')
+    await application.evaluate(({ dialog }, filePaths) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths }) }, paths)
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 3 本')
+    await page.getByTestId('book-import-close').click()
+    const ids = await page.evaluate(async (baseUrl) => {
+      const overview = await window.readerApi.createProviderProfile({ name: '封面测试', baseUrl, model: 'fixture', apiKey: 'test-only' })
+      await window.readerApi.activateProviderProfile(overview.profiles[0].id)
+      return (await window.readerApi.listBooks()).filter((book) => book.format === 'epub').map((book) => book.id)
+    }, endpoint)
+    for (const id of ids) {
+      await page.evaluate((bookId) => window.readerApi.prepareBookDocument({ bookId }), id)
+      await expect.poll(() => page.evaluate(async (bookId) => (await window.readerApi.getBookAnalysis(bookId)).document?.status, id)).toBe('ready')
+    }
+    await page.reload(); await showLibrary(page)
+    const shelfUrls: string[] = []
+    for (const title of titles) {
+      const cover = page.getByTestId('book-item').filter({ hasText: title }).getByTestId('book-cover')
+      await expect(cover).toHaveAttribute('data-has-cover', 'true')
+      shelfUrls.push((await cover.locator('img').getAttribute('src'))!)
+    }
+    await page.getByTestId('nav-archives').click()
+    await page.getByTestId('nav-workbenches').click()
+    await page.getByTestId('workbench-new').click()
+    await page.getByTestId('workbench-name').fill('封面与顶栏')
+    await page.getByRole('button', { name: '创建工作台', exact: true }).click()
+    const header = page.getByTestId('workbench-header')
+    await expect(page.getByTestId('assistant-dialog').locator(':scope > .modal-header')).toHaveCount(0)
+    await expect(header.getByTestId('nav-workbenches')).toHaveAttribute('aria-pressed', 'true')
+    const name = header.getByRole('textbox', { name: '工作台名称' })
+    await name.fill('判断与证据的对读工作台')
+    await header.getByRole('button', { name: '重命名', exact: true }).click()
+    for (const [index, title] of titles.entries()) {
+      await page.getByRole('checkbox', { name: new RegExp(title) }).check()
+      const selectedCover = page.locator('.workbench-selected-book').filter({ hasText: title }).getByTestId('book-cover')
+      await expect(selectedCover).toHaveAttribute('data-has-cover', 'true')
+      await expect(selectedCover.locator('img')).toHaveAttribute('src', shelfUrls[index])
+      await expect.poll(() => selectedCover.locator('img').evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(180)
+      const pickerCover = page.locator('.workbench-book-picker label').filter({ hasText: title }).getByTestId('book-cover')
+      await expect(pickerCover.locator('img')).toHaveAttribute('src', shelfUrls[index])
+    }
+    await page.getByRole('checkbox', { name: '没有封面的笔记' }).check()
+    await expect(page.locator('.workbench-selected-book').filter({ hasText: '没有封面的笔记' }).getByTestId('book-cover')).toHaveAttribute('data-has-cover', 'false')
+    await page.getByRole('checkbox', { name: '没有封面的笔记' }).uncheck()
+    await page.getByText('选择书籍（最多 5 本）', { exact: true }).click()
+    await page.getByTestId('workbench-question').fill('比较两本书的依据')
+    await page.getByTestId('workbench-send').click()
+    await expect(page.getByTestId('workbench-turn')).toContainText('的原文依据')
+    await expect(page.getByTestId('workbench-stop')).toHaveCount(0)
+    await page.getByTestId('workbench-question').fill('继续比较论证的条件…')
+
+    await header.getByRole('button', { name: '已归档', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '问答集', exact: true })).toBeVisible()
+    await page.getByTestId('nav-workbenches').click()
+    await expect(page.getByTestId('workbench-question')).toHaveValue('继续比较论证的条件…')
+    await header.getByRole('button', { name: '返回工作台列表', exact: true }).click()
+    await expect(page.getByTestId('workbench-list')).toBeVisible()
+    await page.getByRole('button', { name: /判断与证据的对读工作台/u }).click()
+    await expect(name).toHaveValue('判断与证据的对读工作台')
+    await expect(page.locator('#assistant-dialog-title')).toHaveCount(1)
+
+    await resizeWorkspace(application, page, 1180, 820)
+    await page.screenshot({ path: test.info().outputPath('workbench-covers-desktop.png') })
+    await resizeWorkspace(application, page, 940, 600)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-appearance').click()
+    await page.getByTestId('theme-dark').click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-close').click()
+    for (const label of ['返回工作台列表', '导出工作台', '删除工作台', '已归档', '工作台']) {
+      await expect(header.getByRole('button', { name: label, exact: true })).toBeInViewport()
+    }
+    const bounds = await header.evaluate((element) => ({ top: element.getBoundingClientRect().top, height: element.getBoundingClientRect().height, overflow: element.scrollWidth - element.clientWidth }))
+    expect(bounds.top).toBe((await page.getByTestId('assistant-dialog').boundingBox())!.y)
+    expect(bounds.height).toBeLessThanOrEqual(72)
+    expect(bounds.overflow).toBeLessThanOrEqual(1)
+    expect((await name.boundingBox())!.width).toBeGreaterThan(160)
+    await expect(page.getByTestId('workbench-send')).toBeInViewport()
+    await page.screenshot({ path: test.info().outputPath('workbench-covers-compact-dark.png') })
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
+})
 
 test('creates an independent workbench, cites two books, keeps reading drafts and restores sources across restart', async () => {
   test.setTimeout(120_000)

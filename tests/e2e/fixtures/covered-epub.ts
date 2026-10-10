@@ -12,7 +12,7 @@ const COVER_PNG = Buffer.from(
  */
 export async function createCoveredEpubFixture(
   path: string,
-  options: { identifier?: string; title?: string } = {}
+  options: { identifier?: string; title?: string; coverPng?: Uint8Array } = {}
 ): Promise<void> {
   const identifier = options.identifier ?? 'urn:isbn:9787111111111'
   const title = options.title ?? '带封面的元数据样本'
@@ -63,7 +63,7 @@ export async function createCoveredEpubFixture(
   <body><h1>第一章</h1><p>封面与元数据窗口的桌面交互验证。</p></body>
 </html>`
   )
-  zip.file('OEBPS/images/cover.png', COVER_PNG)
+  zip.file('OEBPS/images/cover.png', options.coverPng ?? COVER_PNG)
 
   const bytes = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
   await writeFile(path, bytes)

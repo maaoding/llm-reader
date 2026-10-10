@@ -110,9 +110,10 @@ import { useBookAnalysis } from './use-book-analysis'
 import { FOCUSABLE, isSelectPickerOpen, useDialogFocus } from './use-dialog-focus'
 import { EvidenceSources } from './EvidenceSources'
 import { WebSources } from './WebSources'
-import { BookCoverCache, observeBookCoverVisibility } from './book-cover-cache'
+import { BookCoverCache } from './book-cover-cache'
+import { BookCover, BookCoverView } from './BookCover'
 import InsightsView from './InsightsView'
-import WorkbenchesView from './WorkbenchesView'
+import WorkbenchesView, { ArchiveViewSwitch } from './WorkbenchesView'
 import { useWorkbenches } from './use-workbenches'
 import { readableError } from './readable-error'
 import { MarkedText } from './MarkedText'
@@ -719,83 +720,6 @@ function useCoverPayloadUrl(cover: BookCoverPayload | null | undefined): string 
   }, [cover])
 
   return loaded !== null && loaded.cover === cover ? loaded.url : null
-}
-
-function BookCoverView({
-  url,
-  book,
-  size,
-  elementRef
-}: {
-  url: string | null
-  book: BookRecord
-  size: 'small' | 'large'
-  elementRef?: RefObject<HTMLSpanElement | null>
-}): ReactNode {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null)
-
-  const failed = Boolean(url && failedUrl === url)
-  const showImage = Boolean(url && !failed)
-  const iconSize = size === 'large' ? 24 : 17
-  const alt = size === 'large' ? copy('bookDetails.coverAlt', { title: book.title }) : ''
-
-  return (
-    <span
-      ref={elementRef}
-      className={'book-cover is-' + book.format + ' is-' + size}
-      data-testid="book-cover"
-      data-has-cover={showImage ? 'true' : 'false'}
-    >
-      {showImage && url ? (
-        <img src={url} alt={alt} onError={() => setFailedUrl(url)} />
-      ) : book.format === 'epub' ? (
-        <BookOpen size={iconSize} />
-      ) : (
-        <FileText size={iconSize} />
-      )}
-    </span>
-  )
-}
-
-export function BookCover({ book, cache }: { book: BookRecord; cache: BookCoverCache }): ReactNode {
-  const hostRef = useRef<HTMLSpanElement>(null)
-  const [nearby, setNearby] = useState(book.format !== 'epub')
-  const [url, setUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (book.format !== 'epub') return undefined
-    const host = hostRef.current
-    if (!host) {
-      setNearby(true)
-      return undefined
-    }
-    return observeBookCoverVisibility(host, () => setNearby(true))
-  }, [book.format, book.id])
-
-  useEffect(() => {
-    let alive = true
-    let retryTimer: ReturnType<typeof setTimeout> | null = null
-    if (!nearby || book.format !== 'epub') return undefined
-    const retryDelays = [250, 1_000] as const
-    const loadCover = async (attempt: number): Promise<void> => {
-      try {
-        const coverUrl = await cache.load(book.id)
-        if (alive) setUrl(coverUrl)
-      } catch {
-        if (!alive) return
-        const delay = retryDelays[attempt]
-        if (delay === undefined) return
-        retryTimer = setTimeout(() => void loadCover(attempt + 1), delay)
-      }
-    }
-    void loadCover(0)
-    return () => {
-      alive = false
-      if (retryTimer) clearTimeout(retryTimer)
-    }
-  }, [book.format, book.id, cache, nearby])
-
-  return <BookCoverView url={url} book={book} size="small" elementRef={hostRef} />
 }
 
 function formatFileSize(bytes: number): string {
@@ -2566,6 +2490,7 @@ export default function App(): ReactNode {
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const assistantDialogOpen = page === 'conversation' || page === 'archives'
   const assistantDialogView: AssistantDialogView = page === 'archives' ? 'insights' : 'conversation'
+  const workbenchDetailOpen = page === 'archives' && archiveView === 'workbenches' && workbenches.active && !workbenches.loading && !workbenches.loadError
   const setAssistantDialogOpen = useCallback((open: boolean) => setPage(open ? 'conversation' : 'reading'), [])
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
@@ -4950,13 +4875,10 @@ export default function App(): ReactNode {
       {assistantDialogOpen && (
         <div className="modal-backdrop assistant-dialog-backdrop" role="presentation">
           <section ref={assistantDialogRef} className="assistant-dialog" data-testid="assistant-dialog" role="region" aria-labelledby="assistant-dialog-title">
-            <header className="modal-header">
+            {!workbenchDetailOpen && <header className="modal-header">
               <div><h2 id="assistant-dialog-title">{copy(page === 'archives' ? 'workspace.archives' : 'workspace.conversation')}</h2></div>
-              {page === 'archives' && <div className="archive-view-switch" role="group" aria-label={copy('workspace.archives')}>
-                <button type="button" aria-pressed={archiveView === 'archived'} onClick={() => setArchiveView('archived')}>{copy('workbench.archived')}</button>
-                <button type="button" data-testid="nav-workbenches" aria-pressed={archiveView === 'workbenches'} onClick={() => setArchiveView('workbenches')}>{copy('workbench.title')}</button>
-              </div>}
-            </header>
+              {page === 'archives' && <ArchiveViewSwitch value={archiveView} onChange={setArchiveView} />}
+            </header>}
             {(assistantDialogView !== 'insights' || archiveView === 'archived') && <nav className="assistant-workspace-nav" aria-label={copy('assistant.viewsAria')}>
               <div className="assistant-session-tabs" role="tablist" aria-label={copy('assistant.viewsAria')} ref={sessionTabStripRef}>
                 {visibleSessionTabs.map((tab) => {
@@ -5043,7 +4965,7 @@ export default function App(): ReactNode {
             </nav>}
             <div className="assistant-dialog-body">
               {assistantDialogView === 'insights' ? (archiveView === 'workbenches' ? <WorkbenchesView
-                controller={workbenches} books={books} states={analysis.states} refresh={analysis.refresh} provider={provider} personas={personaSettings} webSearchEnabled={webSearchEnabled} onSavePersonaAs={savePersonaAs}
+                controller={workbenches} books={books} coverCache={coverCache} states={analysis.states} refresh={analysis.refresh} provider={provider} personas={personaSettings} webSearchEnabled={webSearchEnabled} onSavePersonaAs={savePersonaAs} onArchiveViewChange={setArchiveView}
                 onPrepare={(id) => openPreparation(id)} onNavigate={(id, anchor, title) => void navigateWorkbenchSource(id, anchor, title)} onConfigure={(trigger) => openSettings('model', trigger)} /> :
                 <InsightsView
                   insights={insights}

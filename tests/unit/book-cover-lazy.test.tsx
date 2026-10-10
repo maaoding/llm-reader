@@ -4,7 +4,7 @@ import React from 'react'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BookCoverPayload, BookRecord } from '../../src/shared/contracts'
-import { BookCover } from '../../src/renderer/src/App'
+import { BookCover } from '../../src/renderer/src/BookCover'
 import { BookCoverCache } from '../../src/renderer/src/book-cover-cache'
 
 interface ObserverHarness {

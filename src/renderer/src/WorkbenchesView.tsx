@@ -6,6 +6,8 @@ import { providerIsConfigured } from '@shared/request-settings'
 import { AnswerText } from './AnswerText'
 import { AssistantComposer } from './AssistantComposer'
 import { PersonaSessionControl } from './AssistantPersonaSettings'
+import { BookCover } from './BookCover'
+import type { BookCoverCache } from './book-cover-cache'
 import { EvidenceSources } from './EvidenceSources'
 import { QuestionBubble } from './QuestionBubble'
 import { WebSearchControl } from './WebSearchControl'
@@ -16,9 +18,17 @@ import { readableError } from './readable-error'
 
 type Controller = ReturnType<typeof useWorkbenches>
 
+export function ArchiveViewSwitch({ value, onChange }: { value: 'archived' | 'workbenches'; onChange: (view: 'archived' | 'workbenches') => void }) {
+  return <div className="archive-view-switch" role="group" aria-label={copy('workspace.archives')}>
+    <button type="button" aria-pressed={value === 'archived'} onClick={() => onChange('archived')}>{copy('workbench.archived')}</button>
+    <button type="button" data-testid="nav-workbenches" aria-pressed={value === 'workbenches'} onClick={() => onChange('workbenches')}>{copy('workbench.title')}</button>
+  </div>
+}
+
 interface WorkbenchProps {
   controller: Controller
   books: BookRecord[]
+  coverCache: BookCoverCache
   states: Record<string, BookAnalysisState>
   provider: ProviderSettings
   personas: PersonaSettings
@@ -27,9 +37,10 @@ interface WorkbenchProps {
   onNavigate: (bookId: string, anchor: string, title?: string) => void
   onConfigure: (trigger: HTMLButtonElement) => void
   onSavePersonaAs: (persona: PersonaSelection) => PersonaSelection | null
+  onArchiveViewChange: (view: 'archived' | 'workbenches') => void
 }
 
-function WorkbenchConversation({ record, controller, books, states, provider, personas, webSearchEnabled, onPrepare, onNavigate, onConfigure, onSavePersonaAs }: WorkbenchProps & { record: WorkbenchRecord }) {
+function WorkbenchConversation({ record, controller, books, coverCache, states, provider, personas, webSearchEnabled, onPrepare, onNavigate, onConfigure, onSavePersonaAs, onArchiveViewChange }: WorkbenchProps & { record: WorkbenchRecord }) {
   const [query, setQuery] = useState('')
   const [pickerOpen, setPickerOpen] = useState(record.bookIds.length === 0)
   const [name, setName] = useState(record.name)
@@ -59,15 +70,19 @@ function WorkbenchConversation({ record, controller, books, states, provider, pe
   }, [record.turns])
 
   return <div className="multi-book-workbench" data-testid="workbench-detail">
-    <header className="workbench-header">
+    <header className="workbench-header" data-testid="workbench-header">
+      <h2 className="visually-hidden" id="assistant-dialog-title">{copy('workspace.archives')} · {record.name}</h2>
       <button className="icon-button" type="button" onClick={() => controller.activate(null)} aria-label={copy('workbench.back')} title={copy('workbench.back')}><ArrowLeft size={16} /></button>
       <form onSubmit={(event) => { event.preventDefault(); if (name.trim()) change({ name: name.trim() }) }}>
         <input aria-label={copy('workbench.name')} value={name} maxLength={120} onChange={(event) => setName(event.target.value)} />
         {name.trim() !== record.name && <button className="icon-button" type="submit" disabled={!name.trim()} aria-label={copy('workbench.rename')}><Check size={15} /></button>}
       </form>
-      <span className="workbench-save-status" role="status">{controller.errors[record.id] ? copy('workbench.notSaved') : controller.dirty.includes(record.id) ? copy('workbench.saving') : copy('workbench.saved')}</span>
-      <button className="icon-button" type="button" disabled={pending || busy} onClick={() => void run(async () => { await controller.flush(record.id); await window.readerApi.exportWorkbench(record.id) })} aria-label={copy('workbench.export')} title={copy('workbench.export')}><Download size={16} /></button>
-      <button className="icon-button" type="button" disabled={pending} onClick={() => setConfirmDelete(true)} aria-label={copy('workbench.remove')} title={copy('workbench.remove')}><Trash2 size={16} /></button>
+      <div className="workbench-header-actions">
+        <span className="workbench-save-status" role="status">{controller.errors[record.id] ? copy('workbench.notSaved') : controller.dirty.includes(record.id) ? copy('workbench.saving') : copy('workbench.saved')}</span>
+        <button className="icon-button" type="button" disabled={pending || busy} onClick={() => void run(async () => { await controller.flush(record.id); await window.readerApi.exportWorkbench(record.id) })} aria-label={copy('workbench.export')} title={copy('workbench.export')}><Download size={16} /></button>
+        <button className="icon-button" type="button" disabled={pending} onClick={() => setConfirmDelete(true)} aria-label={copy('workbench.remove')} title={copy('workbench.remove')}><Trash2 size={16} /></button>
+      </div>
+      <ArchiveViewSwitch value="workbenches" onChange={onArchiveViewChange} />
     </header>
     {confirmDelete && <div className="workbench-notice" role="alert">
       <span>{copy('workbench.removeConfirm')}</span>
@@ -81,7 +96,7 @@ function WorkbenchConversation({ record, controller, books, states, provider, pe
       <aside className="workbench-books" aria-label={copy('workbench.books')}>
         <h3><Library size={16} aria-hidden="true" />{copy('workbench.books')} <small>{scopeIds.length} / {MAX_WORKBENCH_BOOKS}</small></h3>
         {selected.map((book) => <div className="workbench-selected-book" key={book.id}>
-          <BookOpen size={17} aria-hidden="true" />
+          <BookCover book={book} cache={coverCache} />
           <div><strong>{book.title}</strong>
             <small data-ready={states[book.id]?.document?.status === 'ready'}>{states[book.id]?.document?.status === 'ready' && <Check size={12} aria-hidden="true" />}{copy(`preparation.document.${states[book.id]?.document?.status ?? 'empty'}`)}</small>
             {states[book.id]?.document?.status !== 'ready' && <button className="text-button" type="button" onClick={() => onPrepare(book.id)}>{copy('workbench.prepare')}</button>}
@@ -94,7 +109,8 @@ function WorkbenchConversation({ record, controller, books, states, provider, pe
             {visible.map((book) => <label key={book.id}>
               <input type="checkbox" checked={scopeIds.includes(book.id)} disabled={busy || editing || (!record.bookIds.includes(book.id) && record.bookIds.length >= MAX_WORKBENCH_BOOKS)}
                 onChange={(event) => change({ bookIds: event.target.checked ? [...record.bookIds, book.id] : record.bookIds.filter((id) => id !== book.id) })} />
-              <span>{book.title}<small>{book.author}</small></span>
+              <BookCover book={book} cache={coverCache} />
+              <span className="workbench-book-label">{book.title}<small>{book.author}</small></span>
             </label>)}
             {visible.length === 0 && <p className="field-hint" role="status">{copy('workspace.libraryNoResults')}</p>}
           </div>

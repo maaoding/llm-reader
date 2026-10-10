@@ -98,8 +98,11 @@
 .workbench-card small { margin-top: auto; }
 .workbench-card .workbench-card-icon { display: grid; place-items: center; width: 36px; height: 36px; color: var(--ui-accent); background: var(--ui-accent-soft); border-radius: var(--radius-md); }
 .multi-book-workbench { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
-.workbench-header { flex: 0 0 auto; padding: 10px 20px; border-bottom: 1px solid var(--ui-line); }
+.workbench-header { flex: 0 0 auto; min-width: 0; padding: 10px 18px; border-bottom: 1px solid var(--ui-line); background: var(--ui-surface); }
 .workbench-header .icon-button { flex: 0 0 auto; width: max(32px, calc(32px * var(--interface-scale))); height: max(32px, calc(32px * var(--interface-scale))); }
+.workbench-header-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+.workbench-header-actions .workbench-save-status { margin-right: 6px; }
+.workbench-header .archive-view-switch { flex: 0 0 auto; margin-left: 6px; }
 .workbench-header form { display: flex; align-items: center; flex: 1; min-width: 0; gap: 6px; }
 .workbench-header input { font-size: calc(var(--ui-text-size) * var(--interface-scale)); font-weight: 600; background: transparent; border-color: transparent; text-overflow: ellipsis; }
 .workbench-header input:hover { border-color: var(--ui-line); }
@@ -109,8 +112,8 @@
 .workbench-books { overflow: auto; padding: 18px 16px; border-right: 1px solid var(--ui-line); background: var(--ui-panel); }
 .workbench-books h3 { margin: 0 0 16px; display: flex; align-items: center; gap: 8px; color: var(--ui-ink-soft); font-size: calc(var(--ui-label-size) * var(--interface-scale)); font-weight: 600; }
 .workbench-books h3 small { margin-left: auto; color: var(--ui-muted); font-weight: 400; font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
-.workbench-selected-book { display: grid; grid-template-columns: 17px minmax(0, 1fr); gap: 10px; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-surface); padding: 12px 10px; margin-bottom: 8px; overflow-wrap: anywhere; }
-.workbench-selected-book > svg { margin-top: 2px; color: var(--ui-accent); }
+.workbench-selected-book { display: grid; grid-template-columns: calc(44px * var(--interface-scale)) minmax(0, 1fr); align-items: center; gap: 10px; border: 1px solid var(--ui-line); border-radius: var(--radius-md); background: var(--ui-surface); padding: 10px; margin-bottom: 8px; overflow-wrap: anywhere; }
+.workbench-selected-book .book-cover { width: calc(44px * var(--interface-scale)); height: calc(62px * var(--interface-scale)); }
 .workbench-selected-book strong { display: block; color: var(--ui-ink); font-size: calc(var(--ui-label-size) * var(--interface-scale)); font-weight: 500; line-height: 1.5; }
 .workbench-selected-book small { display: flex; align-items: center; gap: 4px; margin-top: 6px; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .workbench-selected-book .text-button { padding: 0; margin-top: 4px; }
@@ -123,12 +126,13 @@
 .workbench-book-selection[open] > summary svg:last-child { transform: rotate(180deg); }
 .workbench-book-selection .insights-search { margin-top: 8px; }
 .workbench-book-picker { max-height: 300px; overflow: auto; margin-top: 8px; }
-.workbench-book-picker label { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border-radius: var(--radius-sm); font-size: calc(var(--ui-label-size) * var(--interface-scale)); line-height: 1.5; cursor: pointer; }
+.workbench-book-picker label { display: flex; gap: 8px; align-items: center; padding: 8px; border-radius: var(--radius-sm); font-size: calc(var(--ui-label-size) * var(--interface-scale)); line-height: 1.5; cursor: pointer; }
 .workbench-book-picker label:hover { background: var(--ui-accent-faint); }
 .workbench-book-picker label:has(:checked) { color: var(--ui-accent); background: var(--ui-accent-soft); }
 .workbench-book-picker label:has(:disabled) { cursor: default; opacity: .6; }
-.workbench-book-picker input { margin: 3px 0 0; accent-color: var(--ui-accent); flex: 0 0 auto; }
-.workbench-book-picker span { min-width: 0; overflow-wrap: anywhere; }
+.workbench-book-picker input { margin: 0; accent-color: var(--ui-accent); flex: 0 0 auto; }
+.workbench-book-picker .book-cover { width: calc(28px * var(--interface-scale)); height: calc(40px * var(--interface-scale)); }
+.workbench-book-label { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .workbench-book-picker small { display: block; color: var(--ui-muted); }
 .workbench-hint { margin: 16px 0 0; }
 .workbench-conversation { --workbench-gutter: max(24px, calc((100% - 840px) / 2)); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
