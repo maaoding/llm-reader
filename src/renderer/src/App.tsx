@@ -2490,7 +2490,6 @@ export default function App(): ReactNode {
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const assistantDialogOpen = page === 'conversation' || page === 'archives'
   const assistantDialogView: AssistantDialogView = page === 'archives' ? 'insights' : 'conversation'
-  const workbenchDetailOpen = page === 'archives' && archiveView === 'workbenches' && workbenches.active && !workbenches.loading && !workbenches.loadError
   const setAssistantDialogOpen = useCallback((open: boolean) => setPage(open ? 'conversation' : 'reading'), [])
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
@@ -4875,9 +4874,8 @@ export default function App(): ReactNode {
       {assistantDialogOpen && (
         <div className="modal-backdrop assistant-dialog-backdrop" role="presentation">
           <section ref={assistantDialogRef} className="assistant-dialog" data-testid="assistant-dialog" role="region" aria-labelledby="assistant-dialog-title">
-            {!workbenchDetailOpen && <header className="modal-header">
-              <div><h2 id="assistant-dialog-title">{copy(page === 'archives' ? 'workspace.archives' : 'workspace.conversation')}</h2></div>
-              {page === 'archives' && <ArchiveViewSwitch value={archiveView} onChange={setArchiveView} />}
+            {assistantDialogView === 'conversation' && <header className="modal-header">
+              <div><h2 id="assistant-dialog-title">{copy('workspace.conversation')}</h2></div>
             </header>}
             {(assistantDialogView !== 'insights' || archiveView === 'archived') && <nav className="assistant-workspace-nav" aria-label={copy('assistant.viewsAria')}>
               <div className="assistant-session-tabs" role="tablist" aria-label={copy('assistant.viewsAria')} ref={sessionTabStripRef}>
@@ -4968,6 +4966,7 @@ export default function App(): ReactNode {
                 controller={workbenches} books={books} coverCache={coverCache} states={analysis.states} refresh={analysis.refresh} provider={provider} personas={personaSettings} webSearchEnabled={webSearchEnabled} onSavePersonaAs={savePersonaAs} onArchiveViewChange={setArchiveView}
                 onPrepare={(id) => openPreparation(id)} onNavigate={(id, anchor, title) => void navigateWorkbenchSource(id, anchor, title)} onConfigure={(trigger) => openSettings('model', trigger)} /> :
                 <InsightsView
+                  viewSwitch={<ArchiveViewSwitch value={archiveView} onChange={setArchiveView} />}
                   insights={insights}
                   loading={insightsLoading}
                   activeBookId={activeBook?.id ?? null}

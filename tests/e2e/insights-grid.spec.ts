@@ -48,16 +48,27 @@ test('archive cards use two equal columns, retain actions at 125% and fall back 
       await page.getByTestId(`theme-${theme}`).click(); await page.getByTestId(`scale-${scale}`).click()
       await page.getByTestId('settings-close').click()
       await resizeWorkspace(application, page, width, 800)
+      const header = page.getByTestId('archives-header')
+      await expect(page.getByTestId('assistant-dialog').locator(':scope > .modal-header')).toHaveCount(0)
+      await expect(header.getByRole('heading', { name: '问答集', exact: true })).toHaveClass('visually-hidden')
+      for (const testId of ['insights-search-input', 'insights-scope-all', 'insights-scope-book', 'insights-export-scope', 'nav-workbenches']) {
+        await expect(header.getByTestId(testId)).toBeInViewport()
+      }
+      const toolbarBounds = await header.evaluate((element) => ({ height: element.getBoundingClientRect().height, overflow: element.scrollWidth - element.clientWidth }))
+      expect(toolbarBounds.height).toBeLessThanOrEqual(72)
+      expect(toolbarBounds.overflow).toBeLessThanOrEqual(1)
       await expectColumns(page, 2)
       await page.getByTestId('insight-item').first().getByTestId('insight-delete').click()
       await expect(page.getByTestId('insight-delete-confirm')).toBeVisible()
       await expectColumns(page, 2)
-      await page.screenshot({ path: test.info().outputPath(`archives-${theme}-${width}-${scale}.png`) })
       await page.getByTestId('insight-delete-cancel').click()
+      await page.screenshot({ path: test.info().outputPath(`archives-${theme}-${width}-${scale}.png`) })
     }
     // The production window has a 940px minimum; lower it only in this disposable test instance.
     await application.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setMinimumSize(320, 400) })
     await resizeWorkspace(application, page, 390, 800)
+    expect(await page.getByTestId('archives-header').evaluate((header) => header.scrollWidth - header.clientWidth)).toBeLessThanOrEqual(1)
+    await expect(page.getByTestId('insights-export-scope')).toBeInViewport()
     await expectColumns(page, 1)
     expect(await page.getByTestId('insight-item').first().evaluate((card) => card.getBoundingClientRect().right <= innerWidth)).toBe(true)
     await page.screenshot({ path: test.info().outputPath('archives-dark-390.png') })

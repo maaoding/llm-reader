@@ -46,7 +46,7 @@ test('shares book covers with the shelf and keeps workbench navigation in one co
     application = launched.application
     const page = launched.page
     await showLibrary(page)
-    const titles = ['群体的判断', '独立的证据']
+    const titles = ['群体的判断', '我们时代的神经症人格·卡伦霍妮作品·与荣格阿德勒弗洛姆齐名的心理学大师·新弗洛伊德学派代表人物·唯一开创一个精神分析思想流派的女学者']
     // Distinct raster covers make it possible to catch book-to-cover mixups.
     const covers = await page.evaluate((bookTitles) => bookTitles.map((title, index) => {
       const canvas = document.createElement('canvas'); canvas.width = 180; canvas.height = 260
@@ -88,6 +88,7 @@ test('shares book covers with the shelf and keeps workbench navigation in one co
     }
     await page.getByTestId('nav-archives').click()
     await page.getByTestId('nav-workbenches').click()
+    await expect(page.getByTestId('workbench-list-header').getByTestId('workbench-new')).toBeVisible()
     await page.getByTestId('workbench-new').click()
     await page.getByTestId('workbench-name').fill('封面与顶栏')
     await page.getByRole('button', { name: '创建工作台', exact: true }).click()
@@ -106,6 +107,17 @@ test('shares book covers with the shelf and keeps workbench navigation in one co
       const pickerCover = page.locator('.workbench-book-picker label').filter({ hasText: title }).getByTestId('book-cover')
       await expect(pickerCover.locator('img')).toHaveAttribute('src', shelfUrls[index])
     }
+    const longBook = page.locator('.workbench-selected-book').filter({ hasText: titles[1] })
+    const titleDetails = longBook.locator('.workbench-book-title')
+    const collapsed = await titleDetails.locator('strong').evaluate((element) => ({ height: element.getBoundingClientRect().height, lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight) }))
+    expect(collapsed.height).toBeLessThanOrEqual(collapsed.lineHeight * 2 + 1)
+    await titleDetails.locator('summary').click()
+    await expect(titleDetails).toHaveAttribute('open', '')
+    expect((await titleDetails.locator('strong').boundingBox())!.height).toBeGreaterThan(collapsed.height + 20)
+    await titleDetails.locator('summary').press('Enter')
+    await expect(titleDetails).not.toHaveAttribute('open')
+    expect((await titleDetails.locator('strong').boundingBox())!.height).toBe(collapsed.height)
+    expect((await page.locator('.workbench-book-selection > summary').boundingBox())!.y).toBeLessThan((await longBook.boundingBox())!.y)
     await page.getByRole('checkbox', { name: '没有封面的笔记' }).check()
     await expect(page.locator('.workbench-selected-book').filter({ hasText: '没有封面的笔记' }).getByTestId('book-cover')).toHaveAttribute('data-has-cover', 'false')
     await page.getByRole('checkbox', { name: '没有封面的笔记' }).uncheck()
@@ -117,7 +129,7 @@ test('shares book covers with the shelf and keeps workbench navigation in one co
     await page.getByTestId('workbench-question').fill('继续比较论证的条件…')
 
     await header.getByRole('button', { name: '已归档', exact: true }).click()
-    await expect(page.getByRole('heading', { name: '问答集', exact: true })).toBeVisible()
+    await expect(page.getByTestId('archives-header').getByTestId('insights-search-input')).toBeVisible()
     await page.getByTestId('nav-workbenches').click()
     await expect(page.getByTestId('workbench-question')).toHaveValue('继续比较论证的条件…')
     await header.getByRole('button', { name: '返回工作台列表', exact: true }).click()
