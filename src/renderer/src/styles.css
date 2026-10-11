@@ -138,6 +138,7 @@
 .workbench-book-selection > summary svg { flex: 0 0 auto; }
 .workbench-book-selection > summary svg:last-child { margin-left: auto; }
 .workbench-book-selection[open] > summary svg:last-child { transform: rotate(180deg); }
+.workbench-book-selection[open] ~ .workbench-selected-book { display: none; }
 .workbench-book-selection .insights-search { margin-top: 8px; }
 .workbench-book-picker { max-height: 300px; overflow: auto; margin-top: 8px; }
 .workbench-book-picker label { display: flex; gap: 8px; align-items: center; padding: 8px; border-radius: var(--radius-sm); font-size: calc(var(--ui-label-size) * var(--interface-scale)); line-height: 1.5; cursor: pointer; }
@@ -277,7 +278,8 @@
 .persona-session { display: flex; min-width: 0; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .composer-tool, .composer-context-summary { position: relative; display: inline-flex; flex: 0 0 auto; }
 .composer-icon-button { display: grid; width: max(32px, calc(32px * var(--interface-scale))); height: max(32px, calc(32px * var(--interface-scale))); padding: 0; place-items: center; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--ui-ink-soft); background: transparent; }
-.composer-icon-button:hover:not(:disabled), .composer-icon-button[aria-expanded="true"], .composer-icon-button[aria-pressed="true"][data-available="true"] { color: var(--ui-accent); background: var(--ui-accent-soft); }
+.composer-icon-button:hover:not(:disabled), .composer-icon-button[aria-expanded="true"] { color: var(--ui-accent); background: var(--ui-accent-soft); }
+.composer-icon-button[aria-pressed="true"][data-available="true"] { color: var(--ui-accent); }
 .composer-icon-button:disabled { color: var(--ui-faint); opacity: .6; }
 .composer-icon-button svg { width: calc(16px * var(--interface-scale)); height: calc(16px * var(--interface-scale)); }
 .composer-icon-button:focus-visible, .composer-context-summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
@@ -305,7 +307,7 @@
 .persona-settings select, .persona-form > :is(input, textarea) { min-width: 0; width: 100%; padding: 8px 10px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); color: var(--ui-ink); }
 .persona-form > textarea { resize: vertical; line-height: 1.5; }
 .persona-form > button { justify-self: start; }
-.persona-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.persona-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .workspace-shell .analysis-scope button { padding: 6px 9px; min-height: 32px; font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .composer-hint { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); line-height: 1.6; }
 .composer-hint .text-button { margin: 0; }
@@ -4071,7 +4073,7 @@ button.citation-valid:hover {
   padding: 0 12px;
 }
 
-.provider-profile-actions .danger-text {
+.settings-modal .danger-text {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4082,10 +4084,10 @@ button.citation-valid:hover {
   color: var(--danger);
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
-.provider-profile-actions .danger-text:hover:not(:disabled) {
+.settings-modal .danger-text:hover:not(:disabled) {
   background: var(--danger-soft);
   border-color: color-mix(in srgb, var(--danger) 55%, var(--line));
 }

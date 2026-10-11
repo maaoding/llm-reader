@@ -391,7 +391,8 @@ export const workbenchSchema = createWorkbenchSchema.extend({
     error: z.string().max(2_000).optional(),
     context: contextSnapshotSchema.optional(),
     usage: z.object({ promptTokens: z.number().nonnegative().optional(), completionTokens: z.number().nonnegative().optional(), totalTokens: z.number().nonnegative().optional() }).strict().optional(),
-    persona: personaSelectionSchema.nullable().optional()
+    persona: personaSelectionSchema.nullable().optional(),
+    durationMs: z.number().int().nonnegative().max(86_400_000).optional()
   }).strict().refine((turn) => !turn.context || (turn.context.scope === 'books' && turn.context.books?.length === turn.bookIds.length &&
     turn.context.books.every((book, index) => book.id === turn.bookIds[index])))).max(200)
 }).strict().refine((value) => new Set(value.turns.map((turn) => turn.id)).size === value.turns.length)

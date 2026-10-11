@@ -4,6 +4,7 @@ import { MAX_WORKBENCH_BOOKS, type BookAnalysisState, type BookRecord, type Pers
 import { copy } from '@shared/copy'
 import { providerIsConfigured } from '@shared/request-settings'
 import { AnswerText } from './AnswerText'
+import { AnswerMetadata } from './AnswerMetadata'
 import { AssistantComposer } from './AssistantComposer'
 import { PersonaSessionControl } from './AssistantPersonaSettings'
 import { BookCover } from './BookCover'
@@ -56,7 +57,10 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
   const scopeIds = editing ? record.turns.at(-1)!.bookIds : record.bookIds
   const selected = scopeIds.flatMap((id) => books.find((book) => book.id === id) ?? [])
   const availableBookIds = books.map((book) => book.id)
-  const visible = books.filter((book) => `${book.title} ${book.author ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).slice(0, 100)
+  const visible = books
+    .filter((book) => `${book.title} ${book.author ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+    .sort((left, right) => Number(scopeIds.includes(right.id)) - Number(scopeIds.includes(left.id)))
+    .slice(0, 100)
   const ready = (ids: string[]) => ids.length > 0 && ids.every((id) => books.some((book) => book.id === id) && states[id]?.document?.status === 'ready')
   const configured = providerIsConfigured(provider)
   const blocked = !configured ? copy('workbench.modelNeeded') : !scopeIds.length ? copy('workbench.noBooks') : !ready(scopeIds) ? copy('workbench.unready') : record.turns.length >= 200 && !editing ? copy('workbench.limit') : ''
@@ -138,11 +142,11 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
                   : (turn.status === 'queued' || turn.status === 'streaming') && <div className="answer-thinking" role="status"><i /><i /><i /><span>{copy('workbench.generating')}</span></div>}
                 {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
                 {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`} role="alert"><AlertCircle size={14} />{turn.error}</div>}
-                {(turn.usage?.totalTokens || (index === record.turns.length - 1 && !busy && !editing)) && <footer className="answer-footer">
-                  {!!turn.usage?.totalTokens && <div className="answer-meta"><span className="answer-usage">{copy('assistant.tokenUsage', { count: turn.usage.totalTokens })}</span></div>}
+                {(turn.usage?.totalTokens || turn.durationMs !== undefined || (index === record.turns.length - 1 && !busy && !editing)) && <footer className="answer-footer">
+                  <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />
                   {index === record.turns.length - 1 && !busy && !editing && <span className="answer-retry-actions">
-                    <button type="button" disabled={!configured || !ready(turn.bookIds)} onClick={() => void controller.submit(record.id, provider.model, true)}><RefreshCw size={13} />{copy('workbench.regenerate')}</button>
-                    <button type="button" onClick={() => { priorDraft.current = record.draft; setEditing(true); change({ draft: turn.question }); questionRef.current?.focus() }}><PenLine size={13} />{copy('workbench.edit')}</button>
+                    <button type="button" disabled={!configured || !ready(turn.bookIds)} onClick={() => void controller.submit(record.id, provider.model, true)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
+                    <button type="button" onClick={() => { priorDraft.current = record.draft; setEditing(true); change({ draft: turn.question }); questionRef.current?.focus() }}><PenLine size={13} />{copy('assistant.editQuestion')}</button>
                   </span>}
                 </footer>}
               </div>

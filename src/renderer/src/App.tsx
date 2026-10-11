@@ -7,6 +7,7 @@ import { defaultPersona, MAX_PERSONAS, persistPersonaSettings, personaFromPreset
 import { RecentConversations } from './RecentConversations'
 import { ModelCombobox } from './ModelCombobox'
 import { QuestionBubble } from './QuestionBubble'
+import { AnswerMetadata } from './AnswerMetadata'
 import { providerIsConfigured, publicRequestSettings } from '@shared/request-settings'
 import type { RequestSettingsInput, ProviderProtocol } from '@shared/contracts'
 import {
@@ -779,13 +780,6 @@ function formatFullDate(iso: string): string {
   }
 }
 
-// 生成耗时：满一分钟改按“分 秒”显示，避免出现“73.4 秒”这类读数。
-function formatGenerationDuration(durationMs: number): string {
-  const seconds = Math.max(0, Math.round(durationMs / 1000))
-  if (seconds < 60) return copy('common.durationSeconds', { count: Number((Math.max(0, durationMs) / 1000).toFixed(1)) })
-  return copy('common.durationMinutes', { minutes: Math.floor(seconds / 60), seconds: seconds % 60 })
-}
-
 function BookDetailRow({
   label,
   value,
@@ -1264,7 +1258,6 @@ function ConversationPane({
         <div className="conversation-list" aria-live="polite">
           {turns.map((turn, index) => {
             const isLatest = index === turns.length - 1
-            const durationLabel = turn.durationMs === undefined ? '' : formatGenerationDuration(turn.durationMs)
             const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
@@ -1287,12 +1280,7 @@ function ConversationPane({
                   )}
                   {turn.status === 'completed' && (
                     <footer className="answer-footer">
-                      {turn.usage?.totalTokens || durationLabel ? (
-                        <div className="answer-meta">
-                          {turn.usage?.totalTokens ? <span className="answer-usage">{copy('assistant.tokenUsage', { count: turn.usage.totalTokens })}</span> : null}
-                          {durationLabel ? <span className="answer-duration">{copy('assistant.generationDuration', { duration: durationLabel })}</span> : null}
-                        </div>
-                      ) : null}
+                      <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />
                       {isLatest && !activeRequestId && (onRegenerate || onEditQuestion) && (
                         <span className="answer-retry-actions">
                           {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
@@ -2234,7 +2222,7 @@ export function SettingsModal({
                         disabled={busy !== null || !selectedProfile}
                         onClick={handleDelete}
                       >
-                        <Trash2 size={14} /> {copy('settings.deleteProfile')}
+                        <Trash2 size={14} aria-hidden="true" /> {copy('settings.deleteProfile')}
                       </button>
                     </div>
                   </div>
@@ -2434,7 +2422,6 @@ export default function App(): ReactNode {
   const workbenches = useWorkbenches(books, libraryState === 'ready')
   const closeWorkbenches = workbenches.beforeClose
   const [archiveView, setArchiveView] = useState<'archived' | 'workbenches'>(() => { try { return localStorage.getItem('llm-reader-archive-view') === 'workbenches' ? 'workbenches' : 'archived' } catch { return 'archived' } })
-  const [workbenchReturnId, setWorkbenchReturnId] = useState<string | null>(null)
   useEffect(() => { try { localStorage.setItem('llm-reader-archive-view', archiveView) } catch { /* Keep the in-memory choice. */ } }, [archiveView])
   const [libraryError, setLibraryError] = useState('')
   const [importing, setImporting] = useState(false)
@@ -3902,7 +3889,6 @@ export default function App(): ReactNode {
   const navigateWorkbenchSource = async (bookId: string, anchor: string, chapterTitle?: string): Promise<void> => {
     const book = books.find((item) => item.id === bookId)
     if (!book) { pushToast(copy('workbench.missingSource'), 'error'); return }
-    setWorkbenchReturnId(workbenches.activeId)
     await openBook(book, 'reading', { focusLiveTab: false })
     if (activeBookRef.current?.id === bookId && adapterRef.current) {
       setPage('reading')
@@ -4458,7 +4444,6 @@ export default function App(): ReactNode {
         <nav aria-label={copy('workspace.navigation')}>
           <button type="button" data-testid="nav-library" aria-current={page === 'library' ? 'page' : undefined} onClick={() => setPage('library')}><Library size={17} />{copy('workspace.library')}</button>
           <button type="button" data-testid="nav-archives" aria-current={page === 'archives' ? 'page' : undefined} onClick={() => setPage('archives')}><Bookmark size={17} />{copy('workspace.archives')}</button>
-          {page === 'reading' && workbenchReturnId && workbenches.records.some((record) => record.id === workbenchReturnId) && <button type="button" data-testid="return-workbench" onClick={() => { workbenches.activate(workbenchReturnId); setArchiveView('workbenches'); setPage('archives') }}>{copy('workbench.return')}</button>}
         </nav>
         <div className="workspace-book-tabs" role="tablist" aria-label={copy('workspace.bookTabs')} data-testid="book-tabs" ref={bookTabStripRef}>
           {bookTabs.map((tab) => {

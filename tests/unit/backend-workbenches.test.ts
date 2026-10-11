@@ -35,7 +35,7 @@ describe('independent multi-book workbenches', () => {
       expect(db.getBookSession(first)).toEqual(session)
       const record = db.createWorkbench('对读', [first, second])
       const snapshot: ContextSnapshot = { scope: 'books', bookId: first, books: [{ id: first, title: '第一本' }, { id: second, title: '第二本' }], selection: null, background: '', coverage: { covered: 0, total: 2 }, passages: [{ id: 'P1', bookId: second, bookTitle: '第二本', text: '第二本的原文', anchor: 'txt:0:7' }] }
-      const saved: WorkbenchRecord = { ...record, draft: '工作台草稿', turns: [{ id: randomUUID(), bookIds: [first, second], question: '比较', answer: '第二本的观点 [P1]', model: 'fixture', status: 'completed', context: snapshot }] }
+      const saved: WorkbenchRecord = { ...record, draft: '工作台草稿', turns: [{ id: randomUUID(), bookIds: [first, second], question: '比较', answer: '第二本的观点 [P1]', model: 'fixture', status: 'completed', context: snapshot, durationMs: 16_800 }] }
       db.saveWorkbench(saved)
       db.close(); db = new AppDatabase(path)
       expect(db.getWorkbench(record.id)).toMatchObject({ name: '对读', bookIds: [first, second], draft: '工作台草稿', turns: saved.turns })
@@ -50,6 +50,19 @@ describe('independent multi-book workbenches', () => {
       expect(db.getStoredBook(first)).toBeTruthy()
       expect(db.getBookSession(first)).toEqual(session)
     } finally { db.close(); rmSync(root, { recursive: true, force: true }) }
+  })
+
+  it('accepts legacy turns without duration and validates persisted generation timing', () => {
+    const bookId = randomUUID()
+    const turn = { id: randomUUID(), bookIds: [bookId], question: '问题', answer: '回答', model: 'fixture', status: 'completed' }
+    const input = { id: randomUUID(), name: '工作台', bookIds: [bookId], draft: '', turns: [turn], persona: null, webSearch: 'off' }
+    expect(workbenchSchema.safeParse(input).success).toBe(true)
+    for (const durationMs of [0, 16_800, 86_400_000]) {
+      expect(workbenchSchema.safeParse({ ...input, turns: [{ ...turn, durationMs }] }).success).toBe(true)
+    }
+    for (const durationMs of [-1, 1.5, 86_400_001, Number.POSITIVE_INFINITY]) {
+      expect(workbenchSchema.safeParse({ ...input, turns: [{ ...turn, durationMs }] }).success).toBe(false)
+    }
   })
 
   it('plans once, retrieves both books with colliding local IDs, excludes unselected books and degrades to local retrieval', async () => {

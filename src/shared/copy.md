@@ -1011,7 +1011,6 @@
 | workbench.remove | 删除工作台 |
 | workbench.removeConfirm | 删除这个工作台及其会话？书籍不受影响。 |
 | workbench.back | 返回工作台列表 |
-| workbench.return | 返回多书工作台 |
 | workbench.saveFailed | 工作台保存失败，请重试。 |
 | workbench.loadFailed | 工作台加载失败。 |
 | workbench.missing | 工作台已被删除。 |
@@ -1019,8 +1018,6 @@
 | workbench.deletedBook | 书籍已删除 |
 | workbench.missingSource | 原书已删除，保留的引用无法跳转。 |
 | workbench.changed | 本轮书籍原文已变化，请重新提问。 |
-| workbench.regenerate | 重新生成最后一轮 |
-| workbench.edit | 编辑最后一问 |
 | workbench.export | 导出工作台 |
 | workbench.rename | 重命名 |
 | workbench.saved | 已保存 |

@@ -1008,7 +1008,6 @@
 | workbench.remove | Delete workbench |
 | workbench.removeConfirm | Delete this workbench and its conversation? Books are kept. |
 | workbench.back | Back to workbenches |
-| workbench.return | Return to workbench |
 | workbench.saveFailed | Could not save the workbench. Please retry. |
 | workbench.loadFailed | Could not load workbenches. |
 | workbench.missing | This workbench has been deleted. |
@@ -1016,8 +1015,6 @@
 | workbench.deletedBook | Book deleted |
 | workbench.missingSource | The original book was deleted. This saved reference cannot be opened. |
 | workbench.changed | Source text changed during this request. Please try again. |
-| workbench.regenerate | Regenerate last answer |
-| workbench.edit | Edit last question |
 | workbench.export | Export workbench |
 | workbench.rename | Rename |
 | workbench.saved | Saved |

@@ -1,7 +1,7 @@
 import { Select } from './Select'
 import { ComposerToolButton } from './ComposerToolButton'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Bot } from 'lucide-react'
+import { Bot, Trash2 } from 'lucide-react'
 import type { PersonaSelection, PersonaSettings } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { MAX_PERSONAS, MAX_PERSONA_NAME_LENGTH, MAX_PERSONA_PROMPT_LENGTH, personaFromPreset } from './assistant-personas'
@@ -79,7 +79,7 @@ export function PersonaSettingsPanel({ settings, onChange, onError, onSaved, onD
         if (!discard() || !selected) return
         setSelectedId(null); setName(copy('persona.copyName', { name: selected.name }).slice(0, MAX_PERSONA_NAME_LENGTH)); setPrompt(selected.prompt)
       }}>{copy('persona.duplicate')}</button>
-      <button type="button" className="text-button danger-text" data-testid="persona-delete" disabled={!selected} onClick={remove}>{copy('persona.delete')}</button>
+      <button type="button" className="text-button danger-text" data-testid="persona-delete" disabled={!selected} onClick={remove}><Trash2 size={14} aria-hidden="true" />{copy('persona.delete')}</button>
     </div>
     {settings.presets.length >= MAX_PERSONAS && <p className="field-hint">{copy('persona.limit')}</p>}
     <form onSubmit={save} className="persona-form">

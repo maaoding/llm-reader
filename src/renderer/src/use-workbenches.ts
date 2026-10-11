@@ -20,6 +20,7 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const writes = useRef(new Map<string, Promise<void>>())
   const requests = useRef(new Map<string, string>())
+  const requestStartedAt = useRef(new Map<string, number>())
   const closing = useRef(false)
   const publish = useCallback((next: WorkbenchRecord[]) => { recordsRef.current = next; setRecords(next) }, [])
 
@@ -84,12 +85,17 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
       if (event.type === 'context') return { ...turn, status: 'streaming', context: event.context }
       if (event.type === 'delta') return { ...turn, status: 'streaming', answer: turn.answer + event.delta }
       if (event.type === 'usage') return { ...turn, usage: event.usage }
-      if (event.type === 'completed') return { ...turn, status: 'completed', model: event.model }
+      if (event.type === 'completed') {
+        const startedAt = requestStartedAt.current.get(event.requestId)
+        return { ...turn, status: 'completed', model: event.model,
+          durationMs: startedAt === undefined ? undefined : Math.min(86_400_000, Math.max(0, Math.round(performance.now() - startedAt))) }
+      }
       if (event.type === 'error') return { ...turn, status: 'error', error: event.message }
       return turn
     }) }))
     if (event.type === 'completed' || event.type === 'error') {
       requests.current.delete(event.requestId)
+      requestStartedAt.current.delete(event.requestId)
       void flush(id).catch(() => undefined)
     }
   }), [flush, update])
@@ -99,6 +105,7 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
       if (workbenchId !== id) continue
       await window.readerApi.cancelLlm(requestId)
       requests.current.delete(requestId)
+      requestStartedAt.current.delete(requestId)
       update(id, (record) => ({ ...record, turns: record.turns.map((turn) => turn.id === requestId && (turn.status === 'queued' || turn.status === 'streaming')
         ? { ...turn, status: 'error', error: copy('workbench.cancelled') } : turn) }))
     }
@@ -137,6 +144,7 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     const persona = previous ? previous.persona ?? null : record.persona
     const requestId = crypto.randomUUID()
     requests.current.set(requestId, id)
+    requestStartedAt.current.set(requestId, performance.now())
     update(id, (current) => ({ ...current, draft: regenerate && editedQuestion === undefined ? current.draft : '', turns: [...prior, { id: requestId, question, bookIds, answer: '', model, persona, status: 'queued' }] }))
     try {
       await flush(id)
@@ -148,6 +156,7 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
         historyCandidateMessages: Math.min(prior.length * 2, 1_000_000), historyCandidateTruncated: historyTurns.some((turn) => turn.answer.length > 20_000) })
     } catch (error) {
       requests.current.delete(requestId)
+      requestStartedAt.current.delete(requestId)
       update(id, (current) => ({ ...current, turns: current.turns.map((turn) => turn.id === requestId
         ? { ...turn, status: 'error', error: readableError(error, copy('error.requestStartFailed')) } : turn) }))
     }

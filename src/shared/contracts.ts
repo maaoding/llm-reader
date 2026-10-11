@@ -786,6 +786,7 @@ export interface WorkbenchTurn {
   context?: ContextSnapshot
   usage?: LlmUsage
   persona?: PersonaSelection | null
+  durationMs?: number
 }
 export interface WorkbenchInput {
   id: string
