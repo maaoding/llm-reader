@@ -112,7 +112,7 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
           <BookCover book={book} cache={coverCache} />
           <div className="workbench-selected-book-info">
             <details className="workbench-book-title">
-              <summary title={book.title}><strong>{book.title}</strong><ChevronDown size={12} aria-hidden="true" /></summary>
+              <summary title={book.title}><strong>{book.title}</strong></summary>
             </details>
             <small data-ready={states[book.id]?.document?.status === 'ready'}>{states[book.id]?.document?.status === 'ready' && <Check size={12} aria-hidden="true" />}{copy(`preparation.document.${states[book.id]?.document?.status ?? 'empty'}`)}</small>
             {states[book.id]?.document?.status !== 'ready' && <button className="text-button" type="button" onClick={() => onPrepare(book.id)}>{copy('workbench.prepare')}</button>}
