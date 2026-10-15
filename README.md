@@ -112,7 +112,7 @@ pnpm dev
 
 云端 Linux 的 pnpm、Xvfb 与 Wine 初始化命令见[开发环境说明](docs/development-environment.md)，支持无需管理员权限的安装与重复执行。
 
-重装依赖后若 `pnpm dev` 报 `Error: Electron uninstall`，是 Electron 二进制的 postinstall 下载未执行，手动运行 `node node_modules\electron\install.js` 即可。
+重装依赖后若 `pnpm dev` 提示 Electron 安装不完整，先手动运行 `node node_modules/electron/install.js` 下载项目固定版本的二进制。云端代理环境的下载方式见[开发环境说明](docs/development-environment.md)。
 
 “请求适配”默认为“自动”，会识别 OpenCode Go 官方地址（如 `https://opencode.ai/zen/go/v1`）。通过中转调用 Go 时，选择“OpenCode Go”；测试连接和获取模型列表会直接使用当前表单选项。中转需透传会话标识；Go 请求遇到重定向时，请填写最终接口地址。此选项仅适配请求头，仍需选择支持 `/v1/chat/completions` 的模型。
 
@@ -130,6 +130,8 @@ pnpm build:win
 ```
 
 `pnpm test:e2e` 会先执行文案校验和应用构建，再运行 Playwright；`pnpm test:all` 依次执行 lint、typecheck、完整单元测试、应用构建与 Playwright，避免重复运行文案测试。`pnpm build:win` 会在 `release/` 生成未签名的 Windows x64 NSIS 安装包，以及自动更新所需的 `latest.yml` 元数据；更新源在 `electron-builder.yml` 的 `publish` 中配置为 GitHub Releases。
+
+[应用 CI](.github/workflows/ci.yml) 在推送到 `main`、提交 Pull Request 或手动触发时运行：先在 Linux 执行 lint、typecheck、完整单元测试与应用构建，再在 Windows Server 2025 的 1920×1080 桌面执行完整 Electron E2E。CI 从 `package.json` 安装固定版本的 pnpm，按锁文件安装依赖，并安装 Electron 与 Calibre；桌面测试报告、截图及失败 trace 保留 7 天。测试使用隔离书库、合成资料与本机模拟服务，不调用真实付费接口；需要私有 PDF 的用例仍按原条件跳过。CI 检查源码构建与桌面行为，Windows 安装包、覆盖升级及真实服务质量仍需单独验收。
 
 验收已安装版本时，将 `LLM_READER_E2E_EXECUTABLE` 指向安装目录中的 `LLM Reader.exe`，再运行 `pnpm test:e2e:run`。测试仍会为每个用例创建并清理隔离的临时用户数据目录，不会读写日常书库。
 

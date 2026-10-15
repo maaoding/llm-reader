@@ -1,0 +1,94 @@
+name: Application CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: application-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Code checks and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install pinned pnpm
+        run: corepack install
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Build application
+        run: pnpm build:electron
+
+  desktop:
+    name: Windows desktop regression
+    needs: checks
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install pinned pnpm
+        run: corepack install
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+      - name: Install Calibre for conversion regression
+        run: choco install calibre --yes --no-progress --limit-output
+      - name: Verify Calibre conversion tool
+        run: '& "$env:ProgramFiles\Calibre2\ebook-convert.exe" --version'
+      - name: Configure desktop resolution
+        shell: pwsh
+        run: |
+          powershell -NoProfile -Command "Set-DisplayResolution -Width 1920 -Height 1080 -Force"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Type -AssemblyName System.Windows.Forms
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          Write-Host "Desktop resolution: $($bounds.Width)x$($bounds.Height)"
+          if ($bounds.Width -lt 1920 -or $bounds.Height -lt 1080) {
+            throw 'Desktop regression requires a display of at least 1920x1080.'
+          }
+      - name: Build application
+        run: pnpm build:electron
+      - name: Electron end-to-end tests
+        run: pnpm test:e2e:run
+      - name: Upload desktop test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-desktop-test-reports
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7

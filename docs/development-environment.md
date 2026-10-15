@@ -37,4 +37,12 @@ xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24 -nolisten tcp' \
   env USE_SYSTEM_WINE=true pnpm exec electron-builder --win nsis --publish never
 ```
 
-工具准备脚本不会自动更新项目依赖。常规依赖重装仍使用锁文件；Electron 二进制下载由项目已允许的安装步骤完成。
+工具准备脚本不会自动更新项目依赖。常规依赖重装仍使用锁文件；Electron 二进制使用项目固定版本，必要时按下方命令完成下载。
+
+若 Electron 启动时提示安装不完整，或二进制下载报 `fetch failed`，先在仓库中执行 `node node_modules/electron/install.js`。在必须使用环境 HTTP(S) 代理的云端，Electron 下载器还需显式启用代理：
+
+```bash
+ELECTRON_GET_USE_PROXY=1 node node_modules/electron/install.js
+```
+
+该开关只作用于本次下载，沿用环境代理、CA 信任和官方工件校验，不关闭 TLS 校验；不需要更改项目依赖或替换 Electron 版本。
