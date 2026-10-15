@@ -1,0 +1,72 @@
+name: Windows package validation
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-package-validation.yml
+      - scripts/validate-windows-package.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-package-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Install and upgrade the Windows package
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Enable Corepack and install pinned pnpm
+        run: |
+          corepack enable
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          corepack install
+      - name: Install dependencies and Electron
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node node_modules/electron/install.js
+      - name: Configure desktop resolution
+        run: |
+          powershell -NoProfile -Command "Set-DisplayResolution -Width 1920 -Height 1080 -Force"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Type -AssemblyName System.Windows.Forms
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          if ($bounds.Width -lt 1920 -or $bounds.Height -lt 1080) {
+            throw 'Package validation requires a display of at least 1920x1080.'
+          }
+      - name: Build Windows NSIS package without publishing
+        run: |
+          pnpm build:app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm exec electron-builder --win nsis --publish never
+      - name: Verify installation and upgrade from public v1.1.0
+        run: node scripts/validate-windows-package.mjs --output release
+      - name: Run installed application regression
+        run: |
+          if (!$env:LLM_READER_E2E_EXECUTABLE -or !(Test-Path -LiteralPath $env:LLM_READER_E2E_EXECUTABLE)) {
+            throw 'The installed application executable is required for package regression.'
+          }
+          pnpm exec playwright test tests/e2e/about-panel.spec.ts tests/e2e/pdf-reader.spec.ts tests/e2e/workbenches.spec.ts tests/e2e/session-persistence.spec.ts tests/e2e/vision-ocr.spec.ts
+      - name: Upload validation results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package-validation
+          path: |
+            release/package-validation.json
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 7
