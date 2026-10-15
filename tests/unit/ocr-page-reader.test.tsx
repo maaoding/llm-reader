@@ -21,9 +21,8 @@ it('selects literal OCR text with page evidence, copies it and clears the select
   act(() => {
     const range = document.createRange(); range.setStart(text.firstChild!, 0); range.setEnd(text.firstChild!, 6)
     window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range)
-    document.dispatchEvent(new Event('selectionchange'))
   })
-  expect(onSelection).toHaveBeenLastCalledWith(expect.objectContaining({ quote: '😀独立复核', anchor: expect.stringMatching(/^pdfocr:1:0:5:/u), passages: [expect.objectContaining({ sources: [{ page: 1, anchor: 'pdfpos:1:0', precision: 'block' }] })] }))
+  await waitFor(() => expect(onSelection).toHaveBeenLastCalledWith(expect.objectContaining({ quote: '😀独立复核', anchor: expect.stringMatching(/^pdfocr:1:0:5:/u), passages: [expect.objectContaining({ sources: [{ page: 1, anchor: 'pdfpos:1:0', precision: 'block' }] })] })))
   fireEvent.click(screen.getByTestId('ocr-reading-copy'))
   await screen.findByText('已复制')
   expect(copyText).toHaveBeenCalledWith(page.text)

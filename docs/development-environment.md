@@ -1,6 +1,6 @@
 # 云端 Linux 开发环境
 
-需要 x86_64 Linux、Node.js 24+、Corepack，以及使用签名软件源的 APT 和 `dpkg-deb`。当前 Debian 13 环境已具备这些基础工具。pnpm 使用 `package.json` 中固定的版本和校验值，不自行追踪最新版。
+需要 x86_64 Linux、Node.js 24 LTS（至少 24.15，也支持 Node.js 26+）、Corepack，以及使用签名软件源的 APT 和 `dpkg-deb`。当前 Debian 13 环境已具备这些基础工具。pnpm 使用 `package.json` 中固定的版本和校验值，不自行追踪最新版。
 
 在仓库目录执行一次：
 
