@@ -1,6 +1,34 @@
 import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
+import type { Plugin } from 'vite'
+
+function developmentHmrCsp(): Plugin {
+  return {
+    name: 'reader:development-hmr-csp',
+    apply: 'serve',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html, context) {
+        const server = context.server
+        const address = server?.resolvedUrls?.local[0] ?? server?.resolvedUrls?.network[0]
+        const connection = server?.config.server.ws
+        if (!server || !address || server.config.server.hmr === false || connection === false) return html
+
+        const websocket = new URL(address)
+        const options = connection ?? {}
+        websocket.protocol = options.protocol
+          ? `${options.protocol}:`
+          : websocket.protocol === 'https:' ? 'wss:' : 'ws:'
+        if (options.host) websocket.hostname = options.host.includes(':') && !options.host.startsWith('[') ? `[${options.host}]` : options.host
+        const port = options.clientPort ?? options.port
+        if (port !== undefined) websocket.port = String(port)
+
+        return html.replace(/connect-src 'none'/g, `connect-src 'self' ${websocket.origin}`)
+      }
+    }
+  }
+}
 
 export default defineConfig({
   main: {
@@ -46,6 +74,6 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [react()]
+    plugins: [developmentHmrCsp(), react()]
   }
 })
