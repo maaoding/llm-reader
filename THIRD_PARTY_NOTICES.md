@@ -9,17 +9,17 @@ lockfile and dependency packages.
 
 | Component | Version | License | Copyright |
 | --- | --- | --- | --- |
-| Electron | 43.5.0 | MIT | Copyright (c) Electron contributors |
-| electron-updater | 6.8.9 | MIT | Copyright (c) Vladimir Krivosheev |
+| Electron | 43.7.11 | MIT | Copyright (c) Electron contributors |
+| electron-updater | 6.8.10 | MIT | Copyright (c) Vladimir Krivosheev |
 | epub.js | 0.3.93 | BSD-2-Clause | Copyright (c) 2013, FuturePress |
-| JSZip | 3.10.1 | MIT OR GPL-3.0-or-later | Copyright (c) 2009-2025 Stuart Knightley and contributors |
+| JSZip | 3.10.2 | MIT OR GPL-3.0-or-later | Copyright (c) 2009-2025 Stuart Knightley and contributors |
 | parse5 | 8.0.1 | MIT | Copyright (c) 2013-2019 Ivan Nikulin |
 | localforage | 1.10.0 | Apache-2.0 | Copyright 2014 Mozilla |
-| PDF.js | 6.2.108 | Apache-2.0 | Copyright 2012 Mozilla Foundation |
-| lucide-react | 1.31.0 | ISC | Copyright (c) 2026 Lucide Icons and Contributors |
-| React | 19.2.8 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates |
-| React DOM | 19.2.8 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates |
-| Zod | 4.4.3 | MIT | Copyright (c) 2025 Colin McDonnell |
+| PDF.js | 6.4.299 | Apache-2.0 | Copyright 2012 Mozilla Foundation |
+| lucide-react | 1.56.0 | ISC | Copyright (c) 2026 Lucide Icons and Contributors |
+| React | 19.3.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates |
+| React DOM | 19.3.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates |
+| Zod | 4.6.7 | MIT | Copyright (c) 2025 Colin McDonnell |
 
 The following license texts are reproduced as required by the respective
 licenses. Where a package offers a choice of licenses, the license text for

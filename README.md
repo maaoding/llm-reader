@@ -108,7 +108,7 @@ pnpm install
 pnpm dev
 ```
 
-开发环境需要 Node.js 24+ 与 pnpm 11+。
+开发环境推荐 Node.js 24 LTS（至少 24.15），也支持 Node.js 26+。pnpm 使用 `package.json` 中固定的版本，可通过 Corepack 安装。
 
 云端 Linux 的 pnpm、Xvfb 与 Wine 初始化命令见[开发环境说明](docs/development-environment.md)，支持无需管理员权限的安装与重复执行。
 
