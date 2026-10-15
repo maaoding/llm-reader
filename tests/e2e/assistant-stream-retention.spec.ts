@@ -8,6 +8,7 @@ import { resizeWorkspace } from './support/workspace'
 
 let mockServer: Server
 let endpoint = ''
+let streamCompletionBarrier: Promise<void> | undefined
 
 const TITLES = ['正在生成的书', '另一本书', '排队的书']
 
@@ -16,6 +17,16 @@ const STREAM_CHUNKS = [
   '第二段：切换标签后仍在后台生成。\n\n',
   '第三段：回到本书时答案应当完整。'
 ]
+
+function holdStreamCompletions(): () => void {
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  streamCompletionBarrier = barrier
+  return () => {
+    if (streamCompletionBarrier === barrier) streamCompletionBarrier = undefined
+    release()
+  }
+}
 
 async function stubImportDialog(application: ElectronApplication, paths: string[]): Promise<void> {
   await application.evaluate(({ dialog }, selectedPaths) => {
@@ -78,15 +89,23 @@ test.beforeAll(async () => {
         'cache-control': 'no-cache',
         connection: 'keep-alive'
       })
+      const completionBarrier = streamCompletionBarrier
       STREAM_CHUNKS.forEach((content, index) => {
         setTimeout(() => {
-          if (response.writableEnded) return
-          response.write(`data: ${JSON.stringify({
-            id: 'mock-stream-retention-stream',
-            model: 'mock-stream-retention',
-            choices: [{ index: 0, delta: { content } }]
-          })}\n\n`)
-          if (index === STREAM_CHUNKS.length - 1) response.end('data: [DONE]\n\n')
+          const sendChunk = (): void => {
+            if (response.writableEnded || response.destroyed) return
+            response.write(`data: ${JSON.stringify({
+              id: 'mock-stream-retention-stream',
+              model: 'mock-stream-retention',
+              choices: [{ index: 0, delta: { content } }]
+            })}\n\n`)
+            if (index === STREAM_CHUNKS.length - 1) response.end('data: [DONE]\n\n')
+          }
+          if (completionBarrier && index === STREAM_CHUNKS.length - 1) {
+            void completionBarrier.then(sendChunk)
+          } else {
+            sendChunk()
+          }
         }, index * 900)
       })
     })
@@ -110,6 +129,7 @@ test('keeps a running answer while switching book tabs and renders the saved ans
   test.setTimeout(120_000)
   const workspace = await createE2eWorkspace('llm-reader-stream-retention-')
   let application: ElectronApplication | undefined
+  let releaseStreams: (() => void) | undefined
 
   try {
     const paths = TITLES.map((title) => join(workspace.root, `${title}.txt`))
@@ -135,6 +155,7 @@ test('keeps a running answer while switching book tabs and renders the saved ans
     await expect(page.locator('.reader-document--txt')).toBeVisible()
 
     // 在书 A 中发起问答
+    releaseStreams = holdStreamCompletions()
     await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
     await page.getByTestId('action-explain').click()
@@ -154,6 +175,8 @@ test('keeps a running answer while switching book tabs and renders the saved ans
     await expect(page.locator('.workspace-book-title h1')).toHaveText(TITLES[0])
     const restored = page.getByTestId('answer-current')
     await expect(restored).toContainText('第一段')
+    await expect(page.getByTestId('cancel-request')).toHaveCount(1)
+    releaseStreams()
     await expect(restored).toContainText('第三段：回到本书时答案应当完整。', { timeout: 30_000 })
     await expect(restored).not.toContainText('已停止生成')
     await expect(restored.locator('.turn-error')).toHaveCount(0)
@@ -175,6 +198,7 @@ test('keeps a running answer while switching book tabs and renders the saved ans
     await expect(page.locator('.reader-document--txt')).toBeVisible()
 
     // 并发上限 2：第三个会话请求排队等待，前两个结束后自动补位。
+    releaseStreams = holdStreamCompletions()
     for (const index of [0, 1, 2]) {
       await openFromLibrary(index)
       await page.getByTestId('workspace-tab-reading').click()
@@ -186,7 +210,13 @@ test('keeps a running answer while switching book tabs and renders the saved ans
     }
     // 第三个请求先排队，等前两个结束后自动开始。
     await expect(page.getByTestId('answer-current')).toContainText('已排队，前面还有回答在生成。')
-    await expect(page.getByTestId('answer-current')).toContainText('第三段：回到本书时答案应当完整。', { timeout: 30_000 })
+    releaseStreams()
+    for (const index of [0, 1, 2]) {
+      await tabs.nth(index).click()
+      await expect(page.locator('.workspace-book-title h1')).toHaveText(TITLES[index])
+      await expect(page.getByTestId('answer-current')).toContainText('第三段：回到本书时答案应当完整。', { timeout: 30_000 })
+      await expect(page.getByTestId('cancel-request')).toHaveCount(0)
+    }
     await expect(page.locator('.right-sidebar .conversation-turn')).toHaveCount(1)
 
     await resizeWorkspace(application, page, 940, 600)
@@ -198,6 +228,7 @@ test('keeps a running answer while switching book tabs and renders the saved ans
       return host.getBoundingClientRect().right <= panel.getBoundingClientRect().left + 1
     })).toBe(true)
   } finally {
+    releaseStreams?.()
     await cleanupE2eWorkspace(application, workspace.root)
   }
 })
