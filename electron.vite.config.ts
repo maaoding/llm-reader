@@ -1,7 +1,25 @@
 import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
-import type { Plugin } from 'vite'
+import { normalizePath, type Plugin } from 'vite'
+
+function developmentReaderReload(): Plugin {
+  const appModule = normalizePath(resolve('src/renderer/src/App.tsx'))
+  return {
+    name: 'reader:development-root-reload',
+    apply: 'serve',
+    hotUpdate({ file, modules, timestamp }) {
+      if (this.environment.config.consumer !== 'client' || normalizePath(file) !== appModule) return
+
+      // The root owns an imperative reader; reload to recreate it after cleanup.
+      for (const module of modules) {
+        this.environment.moduleGraph.invalidateModule(module, undefined, timestamp, true)
+      }
+      this.environment.hot.send({ type: 'full-reload', path: '*' })
+      return []
+    }
+  }
+}
 
 function developmentHmrCsp(): Plugin {
   return {
@@ -74,6 +92,6 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [developmentHmrCsp(), react()]
+    plugins: [developmentHmrCsp(), developmentReaderReload(), react()]
   }
 })
