@@ -21,7 +21,7 @@ fi
 for command_name in node corepack apt-get dpkg-deb; do
   command -v "$command_name" >/dev/null || { printf 'Missing prerequisite: %s\n' "$command_name" >&2; exit 1; }
 done
-node -e 'if (Number(process.versions.node.split(".")[0]) < 24) { console.error("Node.js 24+ is required."); process.exit(1); }'
+node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (!((major === 24 && minor >= 15) || major >= 26)) { console.error("Node.js 24.15+ on the 24 LTS line, or Node.js 26+, is required."); process.exit(1); }'
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 bin_dir="$HOME/.local/bin"
