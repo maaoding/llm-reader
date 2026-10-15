@@ -16,7 +16,7 @@ lockfile and dependency packages.
 | parse5 | 8.0.1 | MIT | Copyright (c) 2013-2019 Ivan Nikulin |
 | localforage | 1.10.0 | Apache-2.0 | Copyright 2014 Mozilla |
 | PDF.js | 6.4.299 | Apache-2.0 | Copyright 2012 Mozilla Foundation |
-| lucide-react | 1.56.0 | ISC | Copyright (c) 2026 Lucide Icons and Contributors |
+| lucide-react | 1.57.0 | ISC | Copyright (c) 2026 Lucide Icons and Contributors |
 | React | 19.3.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates |
 | React DOM | 19.3.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates |
 | Zod | 4.6.7 | MIT | Copyright (c) 2025 Colin McDonnell |

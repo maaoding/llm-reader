@@ -968,13 +968,14 @@ test('renders EPUB continuously while keeping embedded scripts disabled', async 
     await expect
       .poll(async () => {
         const frame = page.getByTestId('reader-host').frameLocator('iframe').first()
-        return (await frame.locator('#epubjs-inserted-css-llm-reader-reading-preferences').textContent()) ?? ''
+        const css = (await frame.locator('#epubjs-inserted-css-llm-reader-reading-preferences').textContent()) ?? ''
+        // Each preference may arrive in a separate debounced update.
+        return {
+          contentWidth: css.includes('max-width: 920px'),
+          paragraphSpacing: css.includes('margin-block-end: 1.8em')
+        }
       })
-      .toContain('max-width: 920px')
-    const updatedEpubCss =
-      (await page.getByTestId('reader-host').frameLocator('iframe').first()
-        .locator('#epubjs-inserted-css-llm-reader-reading-preferences').textContent()) ?? ''
-    expect(updatedEpubCss).toContain('margin-block-end: 1.8em')
+      .toEqual({ contentWidth: true, paragraphSpacing: true })
     const markerBefore = Number(visibleBeforeLayoutChange.replace('reading-marker-', ''))
     await expect
       .poll(async () => {

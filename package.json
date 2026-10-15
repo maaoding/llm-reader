@@ -39,7 +39,7 @@
     "electron-updater": "^6.8.10",
     "epubjs": "0.3.93",
     "jszip": "3.10.2",
-    "lucide-react": "1.56.0",
+    "lucide-react": "1.57.0",
     "parse5": "8.0.1",
     "pdfjs-dist": "6.4.299",
     "react": "19.3.0",
