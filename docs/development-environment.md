@@ -39,6 +39,8 @@ xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24 -nolisten tcp' \
 
 工具准备脚本不会自动更新项目依赖。常规依赖重装仍使用锁文件；Electron 二进制使用项目固定版本，必要时按下方命令完成下载。
 
+类型检查运行 `pnpm typecheck`：它显式调用 `typescript-compiler` 中的 TypeScript 7 原生编译器，并先显示版本。根目录的 `typescript` 保留为 TypeScript 6，满足 `typescript-eslint` 对 JavaScript 编译器 API 的兼容要求；不能依赖裸 `tsc` 命令在两个同名可执行文件之间的选择顺序。
+
 若 Electron 启动时提示安装不完整，或二进制下载报 `fetch failed`，先在仓库中执行 `node node_modules/electron/install.js`。在必须使用环境 HTTP(S) 代理的云端，Electron 下载器还需显式启用代理：
 
 ```bash

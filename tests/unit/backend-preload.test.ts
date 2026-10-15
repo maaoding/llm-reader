@@ -26,6 +26,13 @@ vi.mock('electron', () => ({
 import { readerApi } from '../../src/preload/index'
 
 describe('preload ReaderApi', () => {
+  it('exposes the reader API when preload initializes', async () => {
+    vi.resetModules()
+    const { readerApi: exposedApi } = await import('../../src/preload/index')
+
+    expect(electronMocks.exposeInMainWorld).toHaveBeenCalledExactlyOnceWith('readerApi', exposedApi)
+  })
+
   it('exposes highlight list, save and delete through their dedicated IPC channels', async () => {
     const bookId = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
     const highlight = {
@@ -185,7 +192,6 @@ describe('preload ReaderApi', () => {
 
     expect(electronMocks.invoke).toHaveBeenCalledOnce()
     expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.insightsDelete, id)
-    expect(electronMocks.exposeInMainWorld).toHaveBeenCalledWith('readerApi', readerApi)
   })
 
   it('exposes the per-book temporary session through its dedicated IPC channels', async () => {

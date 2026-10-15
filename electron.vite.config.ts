@@ -1,10 +1,12 @@
 import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig } from 'electron-vite'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    build: {
+      externalizeDeps: true
+    },
     resolve: {
       alias: {
         '@shared': resolve('src/shared')
@@ -12,9 +14,9 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     build: {
-      rollupOptions: {
+      externalizeDeps: true,
+      rolldownOptions: {
         output: {
           format: 'cjs',
           entryFileNames: 'index.js'
@@ -30,7 +32,14 @@ export default defineConfig({
   renderer: {
     root: 'src/renderer',
     base: './',
-    build: { rollupOptions: { input: { index: resolve('src/renderer/index.html'), extraction: resolve('src/renderer/extraction.html') } } },
+    build: {
+      rolldownOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          extraction: resolve('src/renderer/extraction.html')
+        }
+      }
+    },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),

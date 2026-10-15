@@ -14,6 +14,10 @@ overrides:
   'undici@7': 7.30.0
   'undici@8': 8.11.2
 
+# Reviewed stable release needed for the Vite 8 migration; keep the exception version-specific.
+minimumReleaseAgeExclude:
+  - electron-vite@6.0.0
+
 allowBuilds:
   core-js: true
   electron: true
