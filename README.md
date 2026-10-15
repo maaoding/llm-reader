@@ -110,6 +110,8 @@ pnpm dev
 
 开发环境推荐 Node.js 24 LTS（至少 24.15），也支持 Node.js 26+。pnpm 使用 `package.json` 中固定的版本，可通过 Corepack 安装。
 
+`pnpm typecheck` 使用 TypeScript 7 原生编译器（`typescript-compiler` 别名包），启动时会输出实际版本。`typescript-eslint` 尚依赖 TypeScript 的 JavaScript 编译器 API，因此另保留 TypeScript 6 供 lint 使用；类型检查脚本显式指定编译器路径，避免两个包的同名命令产生歧义。
+
 云端 Linux 的 pnpm、Xvfb 与 Wine 初始化命令见[开发环境说明](docs/development-environment.md)，支持无需管理员权限的安装与重复执行。
 
 重装依赖后若 `pnpm dev` 提示 Electron 安装不完整，先手动运行 `node node_modules/electron/install.js` 下载项目固定版本的二进制。云端代理环境的下载方式见[开发环境说明](docs/development-environment.md)。
