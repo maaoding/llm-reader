@@ -59,6 +59,18 @@ jobs:
             throw 'The installed application executable is required for package regression.'
           }
           pnpm exec playwright test tests/e2e/about-panel.spec.ts tests/e2e/pdf-reader.spec.ts tests/e2e/workbenches.spec.ts tests/e2e/session-persistence.spec.ts tests/e2e/vision-ocr.spec.ts
+      - name: Upload verified unsigned installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-validation-installer
+          path: |
+            release/LLM-Reader-*-setup.exe
+            release/LLM-Reader-*-setup.exe.blockmap
+            release/latest.yml
+            release/package-validation.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
       - name: Upload validation results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

@@ -107,7 +107,8 @@ function verifyBuildArtifacts() {
       const path = join(directory, entry.name)
       if (entry.isDirectory()) checkOutput(path)
       else {
-        const archivePath = relative(process.cwd(), path).replaceAll('\\', '/')
+        // The ASAR API resolves archive paths with the host platform's separator.
+        const archivePath = relative(process.cwd(), path)
         assert.ok(asar.extractFile(buildArchive, archivePath).equals(readFileSync(path)), archivePath)
         checkedOutputFiles += 1
       }

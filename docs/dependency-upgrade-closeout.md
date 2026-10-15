@@ -45,6 +45,8 @@ Vite 配置迁移到 `rolldownOptions` 和内置依赖外置选项，保留 ESM 
 
 结果以该工作流的完整成功状态为准。`windows-package-validation` 产物包含 `package-validation.json` 和 Playwright 报告，保留 7 天。摘要记录安装器和已安装文件的校验值；隔离书库及加密测试凭据在脚本结束时清理，不上传。所有服务请求发送到本机模拟接口。
 
+安装与专项回归均通过后，另上传 `windows-unsigned-validation-installer`，包含本次未签名的安装器、blockmap、更新元数据及校验摘要，保留 7 天，供下载复核；它不会进入公开 Release。
+
 ## 发布状态与剩余事项
 
 公开版本仍为 [v1.1.0](https://github.com/maaoding/llm-reader/releases/tag/v1.1.0)，2026-10-11 发布。此次依赖升级没有发布新版，应用版本号仍为 `1.1.0`；验收安装器与已公开的同名安装器分别记录。下一次发布需要推进版本、重建最终安装器并验收该正式产物。
