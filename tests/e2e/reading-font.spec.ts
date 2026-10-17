@@ -31,7 +31,7 @@ test('picks a reading font from installed system fonts and persists it across re
     const fontSelect = page.getByTestId('reading-font-family')
     await expect(fontSelect).toHaveValue('')
 
-    // The main process enumerates installed fonts via PowerShell; wait until they arrive.
+    // Wait for the main process to enumerate this platform's installed fonts.
     await expect
       .poll(() => fontSelect.locator('optgroup').count(), { timeout: 15_000 })
       .toBeGreaterThan(0)

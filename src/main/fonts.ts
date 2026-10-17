@@ -37,10 +37,17 @@ export function parseInstalledFontOutput(output: string): string[] {
 }
 
 function enumerateSystemFonts(): Promise<string[]> {
+  const isWindows = process.platform === 'win32'
+  if (!isWindows && process.platform !== 'linux') return Promise.resolve([])
+  const executable = isWindows ? 'powershell.exe' : 'fc-list'
+  const commandArguments = isWindows
+    ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', ENUMERATION_SCRIPT]
+    : ['--format=%{family[0]}\\n']
+
   return new Promise((resolve) => {
     execFile(
-      'powershell.exe',
-      ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', ENUMERATION_SCRIPT],
+      executable,
+      commandArguments,
       { timeout: SPAWN_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
       (error, stdout) => {
         if (error) {
@@ -55,8 +62,9 @@ function enumerateSystemFonts(): Promise<string[]> {
 
 /**
  * Enumerates fonts freshly on every call (the settings dialog requests it on
- * open), broadcasting WM_FONTCHANGE first so caches stay in sync with the
- * registry. Falls back to the last successful result when enumeration fails.
+ * open), broadcasting WM_FONTCHANGE on Windows so caches stay in sync with the
+ * registry and using Fontconfig on Linux. Falls back to the last successful
+ * result when enumeration fails.
  */
 export async function listSystemFonts(): Promise<string[]> {
   const fonts = await enumerateSystemFonts()

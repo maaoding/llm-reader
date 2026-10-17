@@ -21,6 +21,7 @@ function isAllowedNavigation(target: string, allowedOrigins: ReadonlySet<string>
 
 export function createMainWindow(): CreatedWindow {
   const developmentUrl = process.env.ELECTRON_RENDERER_URL
+  const iconFileName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
   const allowedOrigins = new Set<string>(['llm-reader://app'])
   if (developmentUrl) allowedOrigins.add(new URL(developmentUrl).origin)
 
@@ -32,8 +33,8 @@ export function createMainWindow(): CreatedWindow {
     frame: false,
     show: false,
     icon: app.isPackaged
-      ? join(process.resourcesPath, 'icon.ico')
-      : join(__dirname, '../../resources/icon.ico'),
+      ? join(process.resourcesPath, iconFileName)
+      : join(__dirname, '../../resources', iconFileName),
     backgroundColor: '#f5f3ee',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

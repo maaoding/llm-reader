@@ -13,6 +13,8 @@ files:
 extraResources:
   - from: resources/icon.ico
     to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
   - from: LICENSE
     to: LICENSE
   - from: THIRD_PARTY_NOTICES.md

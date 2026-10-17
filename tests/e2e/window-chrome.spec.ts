@@ -16,7 +16,8 @@ test('uses a frameless window with working window controls', async () => {
     await expect(maximizeButton).toBeVisible()
     await expect(page.getByTestId('window-close')).toBeVisible()
 
-    const iconLoadsInElectron = await application.evaluate(({ nativeImage }, iconPath) => !nativeImage.createFromPath(iconPath).isEmpty(), resolve('resources/icon.ico'))
+    const iconFileName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+    const iconLoadsInElectron = await application.evaluate(({ nativeImage }, iconPath) => !nativeImage.createFromPath(iconPath).isEmpty(), resolve('resources', iconFileName))
     expect(iconLoadsInElectron).toBe(true)
 
     // A frameless window has no native caption area above the web contents.
