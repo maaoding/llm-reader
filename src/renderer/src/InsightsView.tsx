@@ -1,4 +1,4 @@
-import { Bookmark, Download, LoaderCircle, Search, SearchX, Trash2 } from 'lucide-react'
+import { AlertCircle, Bookmark, Download, LoaderCircle, RefreshCw, Search, SearchX, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope } from '@shared/contracts'
 import { copy } from '@shared/copy'
@@ -36,6 +36,8 @@ export default function InsightsView({
   viewSwitch,
   insights,
   loading,
+  error,
+  onRetry,
   activeBookId,
   pendingDeleteInsightId,
   exporting,
@@ -48,6 +50,8 @@ export default function InsightsView({
   viewSwitch?: ReactNode
   insights: InsightArchiveRecord[]
   loading: boolean
+  error: string
+  onRetry: () => void
   activeBookId: string | null
   pendingDeleteInsightId: string | null
   exporting: boolean
@@ -154,16 +158,21 @@ export default function InsightsView({
 
       <div className="insights-view insights-workspace" data-testid="insights-view">
         {loading && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('insights.loading')}</div>}
+        {error && <div className="empty-state" role="alert" data-testid="insights-load-error">
+          <div className="empty-icon" aria-hidden="true"><AlertCircle size={20} /></div>
+          <strong>{error}</strong>
+          <button className="text-button" data-testid="insights-retry" type="button" onClick={onRetry}><RefreshCw size={14} />{copy('common.retry')}</button>
+        </div>}
 
-        {!loading && insights.length === 0 && (
+        {!loading && !error && insights.length === 0 && (
           <EmptyState icon={<Bookmark size={20} />} title={copy('insights.emptyTitle')} detail={copy('insights.emptyDetail')} />
         )}
 
-        {!loading && insights.length > 0 && scope === 'book' && !activeBookId && (
+        {!loading && !error && insights.length > 0 && scope === 'book' && !activeBookId && (
           <EmptyState icon={<Bookmark size={20} />} title={copy('insights.noBookTitle')} detail={copy('insights.noBookDetail')} />
         )}
 
-        {!loading && insights.length > 0 && visibleRecords.length === 0 && (
+        {!loading && !error && insights.length > 0 && visibleRecords.length === 0 && (
           <EmptyState icon={<SearchX size={20} />} title={copy('insights.noSearchResultsTitle')} detail={copy('insights.noSearchResultsDetail')} />
         )}
 

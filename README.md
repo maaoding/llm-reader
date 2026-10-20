@@ -143,6 +143,8 @@ pnpm build:win
 
 全书理解质量检查先运行 `pnpm build:app`，再运行 `pnpm eval:book-context` 检查样本与模型配置；此时不会调用模型。显式执行 `pnpm eval:book-context --run` 后，会发送合成书籍内容并比较固定问题的回答。默认使用当前配置，可通过 `LLM_READER_REAL_API_PROFILE_ID` 指定另一已有配置。报告写入 `tmp/book-context-eval-*/`，逐轮保留实际来源、回答、引用与接口返回的用量；程序检查证据召回，回答含义仍需人工复核。详见 [全书上下文验证记录](docs/book-context-validation.md)。
 
+独立阅读样本另覆盖长篇 EPUB、复杂 PDF、扫描 PDF 和跨书问题。先运行 `node scripts/independent-reading-generate.mjs` 固定材料与题目，再用 `pnpm eval:independent-reading` 检查条件；`--offline` 只验证导入与本地 EPUB 原文准备，`--run` 才使用已保存的模型和 PDF 服务配置调用真实接口。`--simulate` 使用本机模拟服务，并等待读者仅依据每题实际检索上下文填写队列回答，可在没有真实配置时检查完整流程；它不代表真实解析、OCR 或供应商质量。报告区分未运行、离线验证、模拟与真实回答、语义复核，详见[评测说明](docs/independent-reading-validation.md)及[本机模拟结果](docs/independent-reading-simulation.md)。
+
 ## 许可证
 
 LLM Reader 依据 [GPL-3.0-or-later](https://spdx.org/licenses/GPL-3.0-or-later.html) 发布。

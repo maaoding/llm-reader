@@ -33,6 +33,7 @@
     "eval:book-context": "node scripts/book-context-eval.mjs",
     "eval:rerank": "node scripts/rerank-eval.mjs",
     "eval:document-structure": "node scripts/document-structure-eval.mjs",
+    "eval:independent-reading": "node scripts/independent-reading-eval.mjs",
     "test:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:electron && pnpm test:e2e:run"
   },
   "dependencies": {
