@@ -2,18 +2,10 @@
 import React, { createRef, useState } from 'react'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { SettingsModal } from '../../src/renderer/src/App'
+import { SettingsModal } from '../../src/renderer/src/SettingsModal'
 import { createDefaultAssistantActionSettings } from '../../src/renderer/src/assistant-actions'
 import { DEFAULT_READING_PREFERENCES } from '../../src/renderer/src/readers/types'
 import type { KnowledgeSettings, PersonaSettings, ProviderOverview, ProviderProfile, ReaderApi } from '../../src/shared/contracts'
-
-// Settings do not mount a book; keep native PDF/canvas readers outside this component test.
-vi.mock('../../src/renderer/src/readers', async () => ({
-  ...await import('../../src/renderer/src/readers/types'),
-  ...await import('../../src/renderer/src/readers/reading-preferences'),
-  ...await import('../../src/renderer/src/readers/search'),
-  createReaderAdapter: vi.fn()
-}))
 
 beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() })
