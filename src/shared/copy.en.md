@@ -641,6 +641,7 @@
 | assistant.recentSessionsHint | Each book keeps the 20 most recent chats, up to 20 turns each. Click to restore selection, answers and drafts. |
 | assistant.recentSessionsEmpty | No other chats yet. |
 | assistant.sessionRestoreFailed | Could not read or restore the chat. Try again. |
+| assistant.tabsRestoreFailed | Could not restore your open conversation tabs. Your saved tabs and drafts are preserved. Please retry. |
 | assistant.sessionLoading | Restoring chat… |
 | assistant.sessionSaveFailed | Saving the chat failed. Check available space and retry; the current chat must save before switching. |
 | settings.testConnection | Test text reply |

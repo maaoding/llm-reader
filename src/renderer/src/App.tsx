@@ -2450,6 +2450,13 @@ export default function App(): ReactNode {
   const [conversationQuery, setConversationQuery] = useState('')
   const [pendingClearSession, setPendingClearSession] = useState(false)
   const [workspaceReady, setWorkspaceReady] = useState(false)
+  const [sessionTabsRestoreState, setSessionTabsRestoreState] = useState<LoadState>('idle')
+  const [sessionTabsRestoreError, setSessionTabsRestoreError] = useState(false)
+  const [sessionTabsRestoreAttempt, setSessionTabsRestoreAttempt] = useState(0)
+  const restoredSessionTabsRef = useRef(false)
+  const restoredSessionTabIdsRef = useRef(new Set<string>())
+  const editedArchiveDraftsRef = useRef(new Set<string>())
+  const closedSessionTabsDuringRestoreRef = useRef(new Set<string>())
   const [selection, setSelection] = useState<ReaderSource | null>(null)
   const [selectionDraft, setSelectionDraft] = useState<ReaderSelectionDraft | null>(null)
   const [imageRegionDraft, setImageRegionDraft] = useState<ReaderImageRegionDraft | null>(null)
@@ -2457,9 +2464,13 @@ export default function App(): ReactNode {
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [insights, setInsights] = useState<InsightArchiveRecord[]>([])
   const [insightsLoading, setInsightsLoading] = useState(false)
+  const [insightsError, setInsightsError] = useState('')
+  const insightsRequestRef = useRef(0)
   const [exportingInsights, setExportingInsights] = useState(false)
   const [highlights, setHighlights] = useState<HighlightRecord[]>([])
   const [highlightsLoading, setHighlightsLoading] = useState(false)
+  const [highlightsError, setHighlightsError] = useState('')
+  const highlightsRequestRef = useRef(0)
   const [pendingDeleteHighlightId, setPendingDeleteHighlightId] = useState<string | null>(null)
   const [deletingBookId, setDeletingBookId] = useState<string | null>(null)
   const [currentLocator, setCurrentLocator] = useState<string | null>(null)
@@ -2751,32 +2762,42 @@ export default function App(): ReactNode {
   }, [])
 
   const refreshInsights = useCallback(async (): Promise<void> => {
+    const request = ++insightsRequestRef.current
     setInsightsLoading(true)
+    setInsightsError('')
     try {
-      setInsights(await window.readerApi.listAllInsights())
+      const records = await window.readerApi.listAllInsights()
+      if (request !== insightsRequestRef.current || closingRef.current) return
+      setInsights(records)
     } catch (error) {
-      pushToast(readableError(error, copy('insights.readFailed')), 'error')
+      if (request !== insightsRequestRef.current || closingRef.current) return
+      setInsightsError(readableError(error, copy('insights.readFailed')))
     } finally {
-      setInsightsLoading(false)
+      if (request === insightsRequestRef.current && !closingRef.current) setInsightsLoading(false)
     }
-  }, [pushToast])
+  }, [])
 
   const refreshHighlights = useCallback(async (bookId: string): Promise<void> => {
+    if (activeBookRef.current?.id !== bookId) return
+    const request = ++highlightsRequestRef.current
+    const isCurrent = (): boolean => request === highlightsRequestRef.current && activeBookRef.current?.id === bookId && !closingRef.current
     setHighlightsLoading(true)
+    setHighlightsError('')
     try {
       const records = await window.readerApi.listHighlights(bookId)
-      if (activeBookRef.current?.id !== bookId) return
+      if (!isCurrent()) return
       setHighlights(records)
       const adapter = adapterRef.current
       if (adapter) {
         await adapter.setHighlights(records)
       }
     } catch (error) {
-      pushToast(readableError(error, copy('highlights.readFailed')), 'error')
+      if (!isCurrent()) return
+      setHighlightsError(readableError(error, copy('highlights.readFailed')))
     } finally {
-      setHighlightsLoading(false)
+      if (isCurrent()) setHighlightsLoading(false)
     }
-  }, [pushToast])
+  }, [])
 
   const flushProgress = useCallback(async (): Promise<void> => {
     const pending = pendingProgressRef.current
@@ -2831,7 +2852,12 @@ export default function App(): ReactNode {
   )
 
   const updateConversationTab = useCallback((tabId: string, updater: (tab: ConversationTab) => ConversationTab): void => {
-    commitConversationTabs((current) => current.map((tab) => tab.id === tabId ? updater(tab) : tab))
+    commitConversationTabs((current) => current.map((tab) => {
+      if (tab.id !== tabId) return tab
+      const next = updater(tab)
+      if (!restoredSessionTabsRef.current && tab.kind === 'archive' && next.draft !== tab.draft) editedArchiveDraftsRef.current.add(tab.id)
+      return next
+    }))
   }, [commitConversationTabs])
 
   const changePersonaSettings = (settings: PersonaSettings): boolean => {
@@ -2841,6 +2867,7 @@ export default function App(): ReactNode {
   }
 
   const ensureLiveTab = useCallback((book: BookRecord): string => {
+    closedSessionTabsDuringRestoreRef.current.delete(`live-${book.id}`)
     const existing = conversationTabsRef.current.find((tab) => tab.kind === 'live' && tab.bookId === book.id)
     if (existing) return existing.id
     const tab = createLiveTab(book, defaultPersona(personaSettings), webSearchEnabled ? 'auto' : 'off')
@@ -2867,6 +2894,7 @@ export default function App(): ReactNode {
 
   const visibleSessionTabs = useMemo(() => conversationTabs.filter((tab) => (
     tab.kind === 'archive' ||
+    restoredSessionTabIdsRef.current.has(tab.id) ||
     tab.bookId === activeBook?.id ||
     tab.turns.length > 0 ||
     Boolean(tab.selection) ||
@@ -2875,12 +2903,15 @@ export default function App(): ReactNode {
 
   // 打开的会话标签（含归档标签草稿）整体落库；live 草稿由 book_sessions 负责，避免两份来源。
   const sessionTabsState = useCallback((): SessionTabsState => {
-    const source = visibleSessionTabs.filter((tab) => tab.kind === 'live' || Boolean(tab.insightId))
+    // Use committed refs so closing immediately after restoration sees the restored tabs too.
+    const source = conversationTabsRef.current.filter((tab) => (
+      tab.kind === 'archive' || restoredSessionTabIdsRef.current.has(tab.id) || tab.bookId === activeBookRef.current?.id || tab.turns.length > 0 || Boolean(tab.selection) || Boolean(tab.draft)
+    )).filter((tab) => tab.kind === 'live' || Boolean(tab.insightId))
     const window = source.slice(-MAX_SESSION_TABS)
-    const active = source.find((tab) => tab.id === activeTabId)
+    const active = source.find((tab) => tab.id === activeTabIdRef.current)
     // 超过上限时也保留当前激活标签：必要时挤掉窗口里最旧的一个。
     const kept = active && !window.includes(active) ? [...window.slice(1), active] : window
-    const activeIndex = kept.findIndex((tab) => tab.id === activeTabId)
+    const activeIndex = kept.findIndex((tab) => tab.id === activeTabIdRef.current)
     return {
       activeIndex: activeIndex >= 0 ? activeIndex : null,
       tabs: kept.map((tab) => ({
@@ -2891,7 +2922,7 @@ export default function App(): ReactNode {
         webSearch: tab.webSearch
       }))
     }
-  }, [activeTabId, visibleSessionTabs])
+  }, [])
 
   // 同一本书只允许一个进行中的请求；切换书籍不会取消其他书中正在生成的回答。
   const tabHasActiveRequest = (tabId: string): boolean => {
@@ -3053,6 +3084,9 @@ export default function App(): ReactNode {
     setCollapsedTocItems(new Set())
     setInsights([])
     setHighlights([])
+    highlightsRequestRef.current += 1
+    setHighlightsLoading(false)
+    setHighlightsError('')
     setPendingDeleteHighlightId(null)
     setCurrentLocator(book.lastLocator)
     setNaturalLocator(book.lastLocator)
@@ -3357,7 +3391,7 @@ export default function App(): ReactNode {
       for (const tab of flushTabs) {
         await window.readerApi.saveBookSession(sessionPayload(tab)).catch(() => undefined)
       }
-      if (workspaceReady) await window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
+      if (workspaceReady && restoredSessionTabsRef.current) await window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
     })
   }, [closeWorkbenches, coverCache, flushProgress, sessionPayload, sessionTabsState, workspaceReady])
 
@@ -3923,6 +3957,7 @@ export default function App(): ReactNode {
       return
     }
 
+    closedSessionTabsDuringRestoreRef.current.delete(`archive-${insight.id}`)
     let tabId = conversationTabsRef.current.find((tab) => tab.kind === 'archive' && tab.insightId === insight.id)?.id
     if (!tabId) {
       const tab = createArchiveTab(insight)
@@ -4038,6 +4073,9 @@ export default function App(): ReactNode {
     setCollapsedTocItems(new Set())
     setInsights([])
     setHighlights([])
+    highlightsRequestRef.current += 1
+    setHighlightsLoading(false)
+    setHighlightsError('')
     setPendingDeleteHighlightId(null)
     setCurrentLocator(null)
     setNaturalLocator(null)
@@ -4230,6 +4268,8 @@ export default function App(): ReactNode {
   const closeConversationTab = (tabId: string): void => {
     const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
     if (!tab || (tab.kind === 'live' && tab.bookId === activeBookRef.current?.id)) return
+    if (!restoredSessionTabsRef.current) closedSessionTabsDuringRestoreRef.current.add(tab.id)
+    editedArchiveDraftsRef.current.delete(tab.id)
     const remaining = commitConversationTabs((current) => current.filter((candidate) => candidate.id !== tabId))
     if (activeTabIdRef.current === tabId) {
       const activeBookId = activeBookRef.current?.id
@@ -4244,42 +4284,62 @@ export default function App(): ReactNode {
     ? activeConversationTab?.bookId === activeBook.id ? activeConversationTab : conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id)
     : undefined
   // 启动时恢复标签列表：顺序、激活项与归档草稿都还原，已删书籍/归档的条目跳过。
-  const restoredSessionTabsRef = useRef(false)
   useEffect(() => {
-    if (restoredSessionTabsRef.current || libraryState !== 'ready' || !workspaceReady) return
-    restoredSessionTabsRef.current = true
+    if (restoredSessionTabsRef.current || libraryState !== 'ready' || !workspaceReady || closingRef.current) return
+    let cancelled = false
+    setSessionTabsRestoreState('loading')
     void (async () => {
-      const [state, allInsights] = await Promise.all([
-        window.readerApi.listSessionTabs().catch(() => null),
-        window.readerApi.listAllInsights().catch(() => [])
-      ])
-      if (!state || state.tabs.length === 0) return
-      const restored = state.tabs.flatMap((record, index) => {
-        const book = books.find((candidate) => candidate.id === record.bookId)
-        if (!book) return []
-        if (record.kind === 'live') {
-          const existing = conversationTabsRef.current.find((tab) => tab.kind === 'live' && tab.bookId === book.id)
-          return [{ index, id: existing?.id ?? null, tab: existing ? null : createLiveTab(book, defaultPersona(personaSettings), record.webSearch ?? 'off') }]
-        }
-        const insight = allInsights.find((candidate) => candidate.id === record.insightId)
-        if (!insight) return []
-        return [{ index, id: null, tab: { ...createArchiveTab(insight), draft: record.draft, webSearch: record.webSearch ?? 'off' } }]
-      })
-      const createdTabs = restored.flatMap((entry) => entry.tab ? [entry.tab] : [])
-      if (createdTabs.length > 0) commitConversationTabs((current) => [...current, ...createdTabs])
-      const activeEntry = restored.find((entry) => entry.index === state.activeIndex)
-      if (activeEntry) focusConversationTab(activeEntry.id ?? activeEntry.tab!.id)
+      try {
+        const state = await window.readerApi.listSessionTabs()
+        if (cancelled || closingRef.current) return
+        // An unavailable archive list cannot establish that saved archive tabs were deleted.
+        const allInsights = state.tabs.some((tab) => tab.kind === 'archive') ? await window.readerApi.listAllInsights() : []
+        if (cancelled || closingRef.current) return
+        const restored = state.tabs.flatMap((record, index) => {
+          const tabId = record.kind === 'live' ? `live-${record.bookId}` : `archive-${record.insightId}`
+          if (closedSessionTabsDuringRestoreRef.current.has(tabId)) return []
+          const book = books.find((candidate) => candidate.id === record.bookId)
+          if (!book) return []
+          if (record.kind === 'live') {
+            const existing = conversationTabsRef.current.find((tab) => tab.kind === 'live' && tab.bookId === book.id)
+            return [{ index, tab: existing ?? createLiveTab(book, defaultPersona(personaSettings), record.webSearch ?? 'off') }]
+          }
+          const insight = allInsights.find((candidate) => candidate.id === record.insightId)
+          if (!insight) return []
+          const existing = conversationTabsRef.current.find((tab) => tab.kind === 'archive' && tab.insightId === insight.id)
+          return [{ index, tab: existing
+            ? { ...existing, draft: editedArchiveDraftsRef.current.has(existing.id) ? existing.draft : record.draft }
+            : { ...createArchiveTab(insight), draft: record.draft, webSearch: record.webSearch ?? 'off' } }]
+        })
+        const restoredIds = new Set(restored.map(({ tab }) => tab.id))
+        restoredSessionTabIdsRef.current = restoredIds
+        if (restored.length > 0) commitConversationTabs((current) => [...restored.map(({ tab }) => tab), ...current.filter((tab) => !restoredIds.has(tab.id))])
+        const activeEntry = restored.find((entry) => entry.index === state.activeIndex)
+        if (activeEntry) focusConversationTab(activeEntry.tab.id)
+        restoredSessionTabsRef.current = true
+        editedArchiveDraftsRef.current.clear()
+        closedSessionTabsDuringRestoreRef.current.clear()
+        setSessionTabsRestoreError(false)
+        setSessionTabsRestoreState('ready')
+      } catch {
+        if (cancelled || closingRef.current) return
+        setSessionTabsRestoreError(true)
+        setSessionTabsRestoreState('error')
+      }
     })()
-  }, [books, commitConversationTabs, focusConversationTab, libraryState, personaSettings, workspaceReady])
+    return () => { cancelled = true }
+  }, [books, commitConversationTabs, focusConversationTab, libraryState, personaSettings, sessionTabsRestoreAttempt, workspaceReady])
 
-  // 去抖保存标签列表；未恢复完成前不写，避免把持久化内容冲掉。
+  // 去抖保存标签列表；只有读取并应用成功后才写，失败及关闭过程中均保留原有记录。
   useEffect(() => {
-    if (!workspaceReady || !restoredSessionTabsRef.current) return undefined
+    if (!workspaceReady || sessionTabsRestoreState !== 'ready' || !restoredSessionTabsRef.current || closingRef.current) return undefined
     const timer = window.setTimeout(() => {
-      void window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
+      if (!closingRef.current && restoredSessionTabsRef.current) {
+        void window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
+      }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [sessionTabsState, workspaceReady])
+  }, [activeTabId, sessionTabsRestoreState, sessionTabsState, visibleSessionTabs, workspaceReady])
   useEffect(() => {
     if (activeBook?.id) void refreshAnalysis(activeBook.id)
     if (activeConversationTab?.bookId && activeConversationTab.bookId !== activeBook?.id) void refreshAnalysis(activeConversationTab.bookId)
@@ -4434,6 +4494,7 @@ export default function App(): ReactNode {
       data-left-open={leftPanelOpen}
       data-pdf-display={pdfDisplayOpen}
       data-workspace-ready={workspaceReady}
+      data-session-tabs-state={sessionTabsRestoreState}
       data-testid="app-shell"
       data-theme={resolvedTheme}
       data-theme-preference={themePreference}
@@ -4501,6 +4562,13 @@ export default function App(): ReactNode {
           <i className={'connection-status-dot is-' + providerConnection.status} data-testid="provider-connection-status" role="status" aria-label={providerStatusLabel(providerConnection.status)} title={providerConnection.message || providerStatusLabel(providerConnection.status)} />
         </button><WindowControls />
       </header>
+      {sessionTabsRestoreError && <div className="session-tabs-recovery" data-testid="session-tabs-recovery" role="alert">
+        <AlertCircle size={18} />
+        <span>{copy('assistant.tabsRestoreFailed')}</span>
+        <button className="secondary-button" data-testid="session-tabs-retry" type="button" disabled={sessionTabsRestoreState === 'loading'} onClick={() => setSessionTabsRestoreAttempt((attempt) => attempt + 1)}>
+          {sessionTabsRestoreState === 'loading' ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}{copy('common.retry')}
+        </button>
+      </div>}
       {activeBook && !['library', 'archives'].includes(page) && <header className="workspace-bookbar">
         <div className="workspace-book-title"><span className="format-chip">{activeBook.sourceFormat.toUpperCase()}</span><div className="workspace-book-identity"><h1 title={activeBook.title}>{activeBook.title}</h1>{page === 'reading' && <div className="workspace-reading-position reader-heading" data-testid="workspace-reading-position" aria-label={copy('reader.progressAria', { percent: Math.round(currentChapterProgress * 100) })}><span title={currentChapterTitle}>{currentChapterTitle || copy('common.currentChapter')}</span><strong>{Math.round(currentChapterProgress * 100)}%</strong><div className="workspace-reading-progress" data-testid="workspace-reading-progress" aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, currentChapterProgress * 100))}%` }} /></div></div>}</div></div>
         <nav aria-label={copy('workspace.tabs')}>{(['reading', 'notes', 'conversation'] as const).map((item) => <button type="button" key={item} data-testid={'workspace-tab-' + item} aria-current={page === item ? 'page' : undefined} onClick={() => setPage(item)}>{copy(('workspace.' + item) as 'workspace.reading' | 'workspace.notes' | 'workspace.conversation')}</button>)}</nav>
@@ -4617,8 +4685,13 @@ export default function App(): ReactNode {
                 <span>{copy('highlights.count', { count: highlights.length })}</span>
               </div>
               {highlightsLoading && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('highlights.loading')}</div>}
+              {highlightsError && <div className="empty-state" role="alert" data-testid="highlights-load-error">
+                <div className="empty-icon" aria-hidden="true"><AlertCircle size={20} /></div>
+                <strong>{highlightsError}</strong>
+                <button className="text-button" data-testid="highlights-retry" type="button" onClick={() => activeBook && void refreshHighlights(activeBook.id)}><RefreshCw size={14} />{copy('common.retry')}</button>
+              </div>}
               {!highlightsLoading && !activeBook && <EmptyState icon={<Bookmark size={20} />} title={copy('highlights.noBookTitle')} detail={copy('highlights.noBookDetail')} />}
-              {!highlightsLoading && activeBook && highlights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title={copy('highlights.emptyTitle')} detail={copy('highlights.emptyDetail')} />}
+              {!highlightsLoading && !highlightsError && activeBook && highlights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title={copy('highlights.emptyTitle')} detail={copy('highlights.emptyDetail')} />}
               {highlights.map((highlight) => (
                 <article className="highlight-item" data-testid="highlight-item" data-highlight-id={highlight.id} key={highlight.id}>
                   <button className="highlight-jump" type="button" onClick={() => void navigateToAnchor(highlight.anchor, true)}>
@@ -4954,6 +5027,8 @@ export default function App(): ReactNode {
                   viewSwitch={<ArchiveViewSwitch value={archiveView} onChange={setArchiveView} />}
                   insights={insights}
                   loading={insightsLoading}
+                  error={insightsError}
+                  onRetry={() => void refreshInsights()}
                   activeBookId={activeBook?.id ?? null}
                   pendingDeleteInsightId={pendingDeleteInsightId}
                   exporting={exportingInsights}
