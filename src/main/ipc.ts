@@ -1,7 +1,7 @@
 import { isPageProcessor } from '@shared/request-settings'
 import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
-import { ZodError, type ZodType } from 'zod'
-import { IPC_CHANNELS, type LlmEvent } from '@shared/contracts'
+import { z, ZodError, type ZodType } from 'zod'
+import { IPC_CHANNELS, type AppCloseResponse, type LlmEvent } from '@shared/contracts'
 import { copy, setCopyLanguage } from '@shared/copy'
 import { BookImportCoordinator, MAX_BOOK_IMPORT_BATCH } from './book-import-coordinator'
 import type { BookAnalysisService } from './book-analysis'
@@ -70,7 +70,8 @@ interface IpcDependencies {
   documents?: DocumentProcessingService
   updater: UpdaterService
   allowedRendererOrigins: ReadonlySet<string>
-  completeClose: () => void
+  requestClose: (afterSave?: () => boolean) => void
+  respondToClose: (response: AppCloseResponse) => void
 }
 
 let bookImportDialogOpen = false
@@ -142,7 +143,12 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.appUpdatePhase, dependencies, () => dependencies.updater.getPhase())
   handle(IPC_CHANNELS.appUpdateCheck, dependencies, () => dependencies.updater.check('manual'))
   handle(IPC_CHANNELS.appUpdateDownload, dependencies, () => dependencies.updater.download())
-  handle(IPC_CHANNELS.appUpdateInstall, dependencies, () => dependencies.updater.install())
+  handle(IPC_CHANNELS.appUpdateInstall, dependencies, () => {
+    if (dependencies.updater.getPhase().status === 'downloaded') dependencies.requestClose(() => {
+      dependencies.updater.install()
+      return dependencies.updater.getPhase().status === 'downloaded'
+    })
+  })
   handle(IPC_CHANNELS.booksList, dependencies, () => dependencies.library.listBooks())
   handle(IPC_CHANNELS.booksImport, dependencies, async () => {
     if (bookImportDialogOpen || dependencies.bookImporter.isBusy()) {
@@ -384,8 +390,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     dependencies.window.close()
   })
   handle(IPC_CHANNELS.windowIsMaximized, dependencies, () => dependencies.window.isMaximized())
-  handle(IPC_CHANNELS.appCloseReady, dependencies, () => {
-    setTimeout(dependencies.completeClose, 0)
+  handle(IPC_CHANNELS.appCloseReady, dependencies, (_event, value) => {
+    const response = parse(z.object({ requestId: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER), approved: z.boolean() }).strict(), value)
+    setTimeout(() => dependencies.respondToClose(response), 0)
   })
 }
 
@@ -397,6 +404,7 @@ export function unregisterIpcHandlers(): void {
         channel !== IPC_CHANNELS.llmEvent &&
         channel !== IPC_CHANNELS.analysisEvent &&
         channel !== IPC_CHANNELS.appBeforeClose &&
+        channel !== IPC_CHANNELS.appCloseCancelled &&
         channel !== IPC_CHANNELS.appUpdateEvent &&
         channel !== IPC_CHANNELS.booksImportEvent &&
         channel !== IPC_CHANNELS.windowMaximizedChange

@@ -2,6 +2,15 @@ import copySource from './copy.md?raw'
 import copyEnSource from './copy.en.md?raw'
 
 export const COPY_KEYS = [
+  'assistant.unsavedSessions',
+  'assistant.closeSaveFailed',
+  'assistant.savingBeforeClose',
+  'window.closeWaitTitle',
+  'window.closeWaitMessage',
+  'window.closeWaitDetail',
+  'window.closeWait',
+  'window.closeForce',
+
   'workbench.archived',
   'workbench.title',
   'workbench.new',

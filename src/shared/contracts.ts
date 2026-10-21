@@ -1,6 +1,11 @@
 import type { ReaderSearchResult } from './reader-search'
 import type { UiLanguage } from './copy'
 
+export interface AppCloseResponse {
+  requestId: number
+  approved: boolean
+}
+
 export const IPC_CHANNELS = {
   workbenchesList: 'workbenches:list',
   workbenchesCreate: 'workbenches:create',
@@ -11,6 +16,7 @@ export const IPC_CHANNELS = {
   documentOcrPage: 'document:ocr-page',
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
+  appCloseCancelled: 'app:close-cancelled',
   appInfo: 'app:info',
   uiLanguageSet: 'app:ui-language-set',
   appUpdatePhase: 'app:update-phase',
@@ -907,7 +913,8 @@ export interface ReaderApi {
   /** Opens a recorded web source in the system browser; the main process re-checks the URL. */
   openWebSource(input: { bookId: string; url: string }): Promise<boolean>
   onLlmEvent(listener: (event: LlmEvent) => void): () => void
-  onBeforeClose(listener: () => void | Promise<void>): () => void
+  onBeforeClose(listener: () => boolean | Promise<boolean>): () => void
+  onCloseCancelled(listener: () => void): () => void
   minimizeWindow(): Promise<void>
   toggleMaximizeWindow(): Promise<void>
   closeWindow(): Promise<void>

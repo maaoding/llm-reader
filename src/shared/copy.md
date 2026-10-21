@@ -1033,3 +1033,12 @@
 | workbench.cancelled | 回答已停止。 |
 | workbench.load | 重新加载 |
 | workbench.editing | 正在编辑上一问，沿用该轮书籍。 |
+
+| assistant.unsavedSessions | 部分会话或标签尚未保存。内容仍保留在当前窗口，请重试。 |
+| assistant.closeSaveFailed | 会话尚未保存，已取消退出。请重试保存后再关闭。 |
+| assistant.savingBeforeClose | 正在保存会话，请稍候… |
+| window.closeWaitTitle | 正在保存会话 |
+| window.closeWaitMessage | 会话保存尚未完成。 |
+| window.closeWaitDetail | 继续等待可保留尚未保存的内容。强制退出可能丢失最近的会话和草稿。 |
+| window.closeWait | 继续等待 |
+| window.closeForce | 放弃未保存内容并退出 |

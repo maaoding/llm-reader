@@ -102,7 +102,8 @@ async function openWindow(): Promise<void> {
     knowledge, knowledgeHttp, semantic, documents,
     updater,
     allowedRendererOrigins: created.allowedOrigins,
-    completeClose: created.completeClose
+    requestClose: created.requestClose,
+    respondToClose: created.respondToClose
   })
   await loadMainWindow(created.window)
   updater.scheduleStartupCheck()
