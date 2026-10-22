@@ -235,8 +235,16 @@ test('TXT indexes completed batches, pauses across restart and retrieves synonym
     await ask(page)
     expect(lastContext?.passages.some((passage) => passage.text.includes('群体压力'))).toBe(true)
     await page.screenshot({ path: test.info().outputPath('semantic-answer.png') })
-    await page.evaluate((id) => window.readerApi.deleteBook(id), bookId)
+    // Delete through the UI so the active session and its pending saves are
+    // removed together with the book before exercising the normal close path.
+    await page.getByTestId('book-details-button').click()
+    await page.getByTestId('book-details-delete').click()
+    await page.getByTestId('book-details-delete-confirm').click()
+    await expect(page.getByTestId('book-details-modal')).toHaveCount(0)
+    await expect(page.getByTestId('book-item')).toHaveCount(0)
     expect(await page.evaluate(() => window.readerApi.listBooks())).toEqual([])
+    await application.close()
+    application = undefined
   } finally { server.closeAllConnections(); await cleanupE2eWorkspace(application, workspace.root) }
 })
 

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { resolve } from 'node:path'
+import { access } from 'node:fs/promises'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 
 test('uses a frameless window with working window controls', async () => {
@@ -42,6 +43,35 @@ test('uses a frameless window with working window controls', async () => {
     await maximizeButton.click()
     await expect.poll(isMaximized).toBe(false)
     await expect(maximizeButton).toHaveAttribute('aria-label', '最大化')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('disposes a test profile even when its close acknowledgement is blocked', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-window-disposal-')
+  const { application, page } = await launchReader({ userData: workspace.userData })
+  const electronProcess = application.process()
+  try {
+    await expect(page.getByTestId('app-shell')).toBeVisible()
+    await application.evaluate(({ BrowserWindow, ipcMain }) => {
+      const fixture = globalThis as typeof globalThis & { blockedCloseAcknowledgements: number }
+      fixture.blockedCloseAcknowledgements = 0
+      ipcMain.removeHandler('app:close-ready')
+      ipcMain.handle('app:close-ready', () => { fixture.blockedCloseAcknowledgements++ })
+      BrowserWindow.getAllWindows()[0].close()
+    })
+    await expect.poll(() => application.evaluate(() => (
+      globalThis as typeof globalThis & { blockedCloseAcknowledgements: number }
+    ).blockedCloseAcknowledgements)).toBe(1)
+    // The production guard must still leave the window open without approval.
+    expect(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+    let disposed = false
+    const cleanup = cleanupE2eWorkspace(application, workspace.root).then(() => { disposed = true })
+    await expect.poll(() => disposed, { timeout: 10_000 }).toBe(true)
+    await cleanup
+    expect(electronProcess.exitCode).not.toBeNull()
+    await expect(access(workspace.root)).rejects.toMatchObject({ code: 'ENOENT' })
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

@@ -15,16 +15,6 @@ interface RecoveryFixture {
 }
 type RecoveryGlobal = typeof globalThis & { sessionTabsRecovery: RecoveryFixture }
 
-async function cleanupRecoveryFixture(application: ElectronApplication | undefined, root: string): Promise<void> {
-  // These tests deliberately intercept close acknowledgements (and sometimes
-  // leave the renderer in a simulated closing state). Tear down that fixture
-  // explicitly; production must no longer force-close it after 1.5 seconds.
-  await application?.evaluate(({ BrowserWindow }) => {
-    for (const window of BrowserWindow.getAllWindows()) window.destroy()
-  }).catch(() => undefined)
-  await cleanupE2eWorkspace(application, root)
-}
-
 async function installRecoveryFixture(application: ElectronApplication, page: Page, mode: ReadMode, empty = false, inactiveBook = false): Promise<SessionTabsState> {
   await expect(page.getByTestId('app-shell')).toHaveAttribute('data-session-tabs-state', 'ready')
   const data = await page.evaluate(async ({ emptyState, inactive }) => {
@@ -119,7 +109,7 @@ test('waits for a slow tab read before saving restored order, active tab and arc
       fixture.release?.()
     })
     await expectRestored(application, page, saved)
-  } finally { await cleanupRecoveryFixture(application, workspace.root) }
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
 
 for (const mode of ['tabs-error', 'archives-error'] as const) {
@@ -150,7 +140,7 @@ for (const mode of ['tabs-error', 'archives-error'] as const) {
       await application.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].webContents.send('app:before-close', 1) })
       await expect.poll(async () => (await fixtureState(application!)).closeReady).toBe(1)
       await expectPreserved(application, saved)
-    } finally { await cleanupRecoveryFixture(application, workspace.root) }
+    } finally { await cleanupE2eWorkspace(application, workspace.root) }
   })
 }
 
@@ -174,7 +164,7 @@ test('ignores a tab read that completes after the close handshake starts', async
     await expectPreserved(application, saved)
     await expect(page.getByTestId('app-shell')).toHaveAttribute('data-session-tabs-state', 'loading')
     await expect(page.locator('[data-testid="assistant-session-tab"][data-tab-kind="archive"]')).toHaveCount(0)
-  } finally { await cleanupRecoveryFixture(application, workspace.root) }
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
 
 for (const edit of ['untouched', 'changed', 'cleared'] as const) {
@@ -199,7 +189,7 @@ for (const edit of ['untouched', 'changed', 'cleared'] as const) {
       await application.evaluate(() => { (globalThis as RecoveryGlobal).sessionTabsRecovery.mode = 'ready' })
       await page.getByTestId('session-tabs-retry').click()
       await expectRestored(application, page, saved)
-    } finally { await cleanupRecoveryFixture(application, workspace.root) }
+    } finally { await cleanupE2eWorkspace(application, workspace.root) }
   })
 }
 
@@ -218,7 +208,7 @@ test('retains a saved empty live tab even when its book is not currently open', 
     await page.getByTestId('nav-archives').click()
     await page.getByTestId('insight-item').first().locator('.insight-content').click()
     await expectRestored(application, page, saved)
-  } finally { await cleanupRecoveryFixture(application, workspace.root) }
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
 
 test('respects an archive tab closed before retry and allows reopening it afterward', async () => {
@@ -249,7 +239,7 @@ test('respects an archive tab closed before retry and allows reopening it afterw
     await expect(archiveTab).toHaveCount(1)
     await expect(page.locator('.assistant-dialog [data-testid="followup-input"]')).toHaveValue('')
     await expect.poll(async () => (await fixtureState(application!)).saved.tabs).toHaveLength(2)
-  } finally { await cleanupRecoveryFixture(application, workspace.root) }
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
 
 test('treats an empty saved tab list as restored and persists newly opened tabs', async () => {
@@ -262,5 +252,5 @@ test('treats an empty saved tab list as restored and persists newly opened tabs'
     await installRecoveryFixture(application, page, 'ready', true)
     await expect(page.getByTestId('app-shell')).toHaveAttribute('data-session-tabs-state', 'ready')
     await expect.poll(async () => (await fixtureState(application!)).saved.tabs).toMatchObject([{ kind: 'live' }])
-  } finally { await cleanupRecoveryFixture(application, workspace.root) }
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
