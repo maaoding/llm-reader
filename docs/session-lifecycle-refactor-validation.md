@@ -13,6 +13,12 @@
 - 原有标签恢复测试使用统一清理入口，移除其重复的销毁窗口代码。`restartReader` 和关窗行为测试继续使用正常关闭协议。
 - 新增实际 Electron 测试：拦截关闭确认，确认生产窗口仍保持打开，再验证隔离窗口和目录可完成清理。
 
+## Windows 回归中的 PDF 时序问题
+
+[首轮 PR CI](https://github.com/maaoding/llm-reader/actions/runs/39753283321) 的代码检查通过；Windows 桌面回归 136 项通过、1 项失败、1 项可选私有 PDF 跳过。原 TXT 关窗用例、新增清理用例和全部会话回归通过，剩余失败是深色、125% 界面缩放下的 PDF 框选提问用例。
+
+该用例缩小窗口后立即拖拽；PDF 阅读器响应宽度变化时会清空并重建文字层，重绘完成前不接受框选。诊断时临时延迟 PDF worker 的文字层请求 1 秒，复现了相同的校对弹窗缺失，指针按下时文字层节点数为 0。测试改为复用 `resizeWorkspace` 等待实际窗口尺寸和布局更新，再等待带文字偏移标记的文字层节点。相同延迟条件下修复后用例通过，开始拖拽时文字层已有 27 个节点。诊断注入已移除，提交不引入固定等待、重试或生产阅读器行为修改。
+
 ## 代码职责
 
 - `conversation-session.ts`：会话和轮次类型、归档转换、落库载荷及保留上限。
@@ -31,6 +37,9 @@
 - `pnpm test`：62 个文件、533 项单元测试通过。新增 4 项关闭协调测试覆盖保存失败、等待两类会话、退出准备异常及安装取消后的恢复。
 - Linux 桌面回归：43 个不同用例经分批验证通过，无重试、无跳过，覆盖原 CI 失败用例、保存与读取故障、正常关窗、重启恢复、删书、多书工作台、归档、后台回答与窗口清理。已查看保存失败提示截图。
 - 首轮桌面回归中原有 42 项通过；新增清理测试在进程关闭后调用 Playwright 的 `application.process()` 访问已释放句柄而失败。改为预先保留进程对象，并明确拦截 invoke handler、等待确认已被拦截后，窗口测试最终 2 项通过，耗时 2.2 秒。未修改生产关闭行为来消除此失败。
+- PDF 时序修复后再次通过 lint、类型检查；完整 PDF 桌面回归 14 项通过、1 项可选私有 PDF 跳过，耗时 53.8 秒，无重试。
 - Windows 完整回归由本分支 PR 的 Application CI 单独记录。
 
 本机记录位于忽略目录 `output/session-ci-baseline-*`、`output/session-ci-fix-*`、`output/session-refactor-*`、`output/session-lifecycle-regression-*` 及 `output/session-disposal-final-*`。本轮不推进版本号，不构建安装包或发布。
+
+PDF 诊断及最终回归记录位于 `output/pdf-region-delayed-*`、`output/pdf-region-delayed-fixed-*` 和 `output/pdf-region-final-*`。
