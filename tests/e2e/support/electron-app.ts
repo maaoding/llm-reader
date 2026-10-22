@@ -58,6 +58,12 @@ export async function cleanupE2eWorkspace(
   application: ElectronApplication | undefined,
   root: string
 ): Promise<void> {
+  // This profile is being discarded after assertions. Fault-injection tests may
+  // leave saves or close acknowledgements blocked, so dispose their windows
+  // explicitly. Restarts and close-behavior assertions still use normal close.
+  await application?.evaluate(({ BrowserWindow }) => {
+    for (const window of BrowserWindow.getAllWindows()) window.destroy()
+  }).catch(() => undefined)
   await application?.close().catch(() => undefined)
   await rm(root, { recursive: true, force: true })
 }
