@@ -184,7 +184,9 @@
   color: var(--ui-ink); background: var(--ui-bg); font-size: calc(var(--ui-text-size) * var(--interface-scale));
 }
 .workspace-shell[data-page="library"], .workspace-shell[data-page="archives"] { grid-template-rows: 56px 0 minmax(0, 1fr); }
-.session-tabs-recovery { position: absolute; top: 64px; right: 16px; z-index: 80; display: flex; align-items: center; gap: 12px; width: min(560px, calc(100% - 32px)); padding: 12px 16px; border: 1px solid var(--ui-line-strong); border-radius: var(--radius-md); background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-shadow-md); }
+.session-recovery-stack { position: absolute; top: 64px; right: 16px; z-index: 80; display: grid; gap: 8px; width: min(560px, calc(100% - 32px)); }
+.session-close-saving { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; gap: 12px; background: rgb(245 243 238 / 92%); color: #252b30; font: 16px/1.5 system-ui, sans-serif; }
+.session-tabs-recovery { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; border: 1px solid var(--ui-line-strong); border-radius: var(--radius-md); background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-shadow-md); }
 .session-tabs-recovery > svg { flex-shrink: 0; color: var(--danger); }
 .session-tabs-recovery > span { flex: 1; min-width: 0; line-height: 1.5; }
 .session-tabs-recovery > button { flex-shrink: 0; }

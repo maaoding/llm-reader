@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { IPC_CHANNELS } from '../../src/shared/contracts'
 import { pdfImageRegionAnchor } from '../../src/shared/pdf-image-region'
@@ -11,6 +11,10 @@ const electronMocks = vi.hoisted(() => ({
   showOpenDialog: vi.fn(),
   writeText: vi.fn(),
   openExternal: vi.fn(),
+  requestClose: vi.fn(),
+  respondToClose: vi.fn(),
+  updatePhase: vi.fn(() => ({ status: 'idle' })),
+  installUpdate: vi.fn(),
   getVersion: vi.fn(() => '0.3.0')
 }))
 
@@ -51,9 +55,10 @@ function register(bookImporter: {
     bookImporter,
     provider: {},
     llm: extras.llm ?? {},
-    updater: {},
+    updater: { getPhase: electronMocks.updatePhase, install: electronMocks.installUpdate },
     allowedRendererOrigins: new Set<string>(),
-    completeClose: vi.fn()
+    requestClose: electronMocks.requestClose,
+    respondToClose: electronMocks.respondToClose
   } as unknown as Parameters<typeof registerIpcHandlers>[0])
 }
 
@@ -80,6 +85,50 @@ describe('book import IPC', () => {
     electronMocks.removeHandler.mockClear()
     electronMocks.showOpenDialog.mockReset()
     electronMocks.writeText.mockReset()
+    electronMocks.requestClose.mockReset()
+    electronMocks.respondToClose.mockReset()
+    electronMocks.updatePhase.mockReset().mockReturnValue({ status: 'idle' })
+    electronMocks.installUpdate.mockReset()
+  })
+
+  afterEach(() => { vi.useRealTimers() })
+
+  it('accepts only validated close decisions from the trusted renderer', async () => {
+    vi.useFakeTimers()
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.appCloseReady)!
+    const response = { requestId: 2, approved: false }
+    await handler(trustedEvent(), response)
+    expect(electronMocks.respondToClose).not.toHaveBeenCalled()
+    await vi.runAllTimersAsync()
+    expect(electronMocks.respondToClose).toHaveBeenCalledExactlyOnceWith(response)
+    for (const value of [undefined, { approved: true }, { requestId: 0, approved: true }, { requestId: 2, approved: 'yes' }, { ...response, ignored: true }]) {
+      await expect(handler(trustedEvent(), value)).rejects.toThrow('[INVALID_INPUT]')
+    }
+    await expect(handler({ sender: { id: 99 }, senderFrame: null }, response)).rejects.toThrow('[UNTRUSTED_SENDER]')
+    await vi.runAllTimersAsync()
+    expect(electronMocks.respondToClose).toHaveBeenCalledOnce()
+  })
+
+  it('runs update installation only after the same save-before-close guard approves it', async () => {
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.appUpdateInstall)!
+    await handler(trustedEvent())
+    expect(electronMocks.requestClose).not.toHaveBeenCalled()
+    electronMocks.updatePhase.mockReturnValue({ status: 'downloaded' })
+    await handler(trustedEvent())
+    expect(electronMocks.requestClose).toHaveBeenCalledOnce()
+    expect(electronMocks.installUpdate).not.toHaveBeenCalled()
+    expect(electronMocks.requestClose.mock.calls[0][0]()).toBe(true)
+    expect(electronMocks.installUpdate).toHaveBeenCalledOnce()
+  })
+
+  it('reports an installer failure so the close guard can restore the workspace', async () => {
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
+    electronMocks.updatePhase.mockReturnValue({ status: 'downloaded' })
+    electronMocks.installUpdate.mockImplementation(() => electronMocks.updatePhase.mockReturnValue({ status: 'error' }))
+    await electronMocks.handlers.get(IPC_CHANNELS.appUpdateInstall)!(trustedEvent())
+    expect(electronMocks.requestClose.mock.calls[0][0]()).toBe(false)
   })
 
   it('writes bounded text to the clipboard only from the trusted main frame', async () => {

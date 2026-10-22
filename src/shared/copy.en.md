@@ -1030,3 +1030,12 @@
 | workbench.cancelled | Answer stopped. |
 | workbench.load | Reload |
 | workbench.editing | Editing the last question using its original books. |
+
+| assistant.unsavedSessions | Some conversations or tabs have not been saved. Your content remains in this window. Please retry. |
+| assistant.closeSaveFailed | Your conversations have not been saved, so closing was cancelled. Retry saving before closing again. |
+| assistant.savingBeforeClose | Saving conversations. Please wait… |
+| window.closeWaitTitle | Saving conversations |
+| window.closeWaitMessage | Your conversations have not finished saving. |
+| window.closeWaitDetail | Keep waiting to preserve unsaved content. Forcing the app to close may lose recent conversations and drafts. |
+| window.closeWait | Keep waiting |
+| window.closeForce | Discard unsaved content and quit |

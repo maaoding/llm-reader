@@ -1,3 +1,4 @@
+import { PendingSaves } from './pending-saves'
 import { SettingsModal, type InterfaceScale, type SettingsSectionId, type ThemePreference } from './SettingsModal'
 import { AssistantActionIconView } from './AssistantActionIcon'
 import { Select } from './Select'
@@ -75,6 +76,7 @@ import type {
   LlmUsage,
   BookSessionTurn,
   SaveBookSessionInput,
+  ReaderApi,
   SessionTabsState,
   ProviderSettings,
   ProviderOverview,
@@ -1214,6 +1216,8 @@ export default function App(): ReactNode {
   const [libraryState, setLibraryState] = useState<'loading' | 'ready' | 'error'>('loading')
   const workbenches = useWorkbenches(books, libraryState === 'ready')
   const closeWorkbenches = workbenches.beforeClose
+  const resumeWorkbenches = workbenches.resumeAfterClose
+  const retryWorkbenchSaves = workbenches.retrySaves
   const [archiveView, setArchiveView] = useState<'archived' | 'workbenches'>(() => { try { return localStorage.getItem('llm-reader-archive-view') === 'workbenches' ? 'workbenches' : 'archived' } catch { return 'archived' } })
   useEffect(() => { try { localStorage.setItem('llm-reader-archive-view', archiveView) } catch { /* Keep the in-memory choice. */ } }, [archiveView])
   const [libraryError, setLibraryError] = useState('')
@@ -1306,6 +1310,11 @@ export default function App(): ReactNode {
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastProgressFlushRef = useRef(0)
   const closingRef = useRef(false)
+  const deletingBooksRef = useRef(new Set<string>())
+  const deletingInsightsRef = useRef(new Set<string>())
+  const [closing, setClosing] = useState(false)
+  const [closeSaveFailed, setCloseSaveFailed] = useState(false)
+  const [retryingSaves, setRetryingSaves] = useState(false)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingProgressRef = useRef<{ bookId: string; locator: string; progress: number } | null>(null)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1791,31 +1800,45 @@ export default function App(): ReactNode {
     }
   }, [])
 
-  // 去抖保存 live 会话，包括空会话的模式与角色，以及后台完成的回答。
-  const savedSessionsRef = useRef(new Map<string, string>())
-  const sessionWritesRef = useRef(new Map<string, Promise<unknown>>())
+  // Only acknowledged snapshots are saved. Failed payloads remain available for retry.
+  const [, setSaveRevision] = useState(0)
+  const [sessionSaves] = useState(() => new PendingSaves<SaveBookSessionInput>(
+    (_key, payload) => window.readerApi.saveBookSession(payload),
+    () => setSaveRevision((version) => version + 1)
+  ))
+  const [tabSaves] = useState(() => new PendingSaves<SessionTabsState>(
+    (_key, payload) => window.readerApi.saveSessionTabs(payload),
+    () => setSaveRevision((version) => version + 1)
+  ))
+  const [archiveSaves] = useState(() => new PendingSaves<Parameters<ReaderApi['updateInsightHistory']>[0]>(
+    async (_key, payload) => {
+      const updated = await window.readerApi.updateInsightHistory(payload)
+      if (deletingBooksRef.current.has(payload.bookId) || deletingInsightsRef.current.has(payload.id)) return
+      setInsights((current) => current.map((insight) => insight.id === updated.id
+        ? { ...insight, history: updated.history, persona: updated.persona, webSearch: updated.webSearch } : insight))
+    },
+    () => setSaveRevision((version) => version + 1)
+  ))
   const sessionTransitionsRef = useRef(new Set<string>())
   const [changingSessions, setChangingSessions] = useState<string[]>([])
   const persistLiveSession = useCallback(async (tab: ConversationTab): Promise<void> => {
-    if (!loadedSessionsRef.current.has(tab.bookId)) return
-    if (tab.kind !== 'live') return
-    const payload = sessionPayload(tab)
-    const snapshot = JSON.stringify(payload)
-    if (savedSessionsRef.current.get(tab.bookId) === snapshot) {
-      await sessionWritesRef.current.get(tab.bookId)
+    if (tab.kind !== 'live' || deletingBooksRef.current.has(tab.bookId)) return
+    if (!loadedSessionsRef.current.has(tab.bookId)) {
+      if (tab.draft || tab.turns.length) throw new Error('Session restoration must finish before saving new content')
       return
     }
-    savedSessionsRef.current.set(tab.bookId, snapshot)
-    const pending = window.readerApi.saveBookSession(payload)
-    sessionWritesRef.current.set(tab.bookId, pending)
-    try { await pending }
-    catch (error) {
-      if (savedSessionsRef.current.get(tab.bookId) === snapshot) savedSessionsRef.current.delete(tab.bookId)
-      throw error
-    } finally {
-      if (sessionWritesRef.current.get(tab.bookId) === pending) sessionWritesRef.current.delete(tab.bookId)
+    const current = conversationTabsRef.current.find((candidate) => candidate.id === tab.id)
+    if (!current || current.conversationId !== tab.conversationId) return
+    await sessionSaves.save(tab.bookId, sessionPayload(current))
+  }, [sessionPayload, sessionSaves])
+  const persistSessionTabs = useCallback(async (): Promise<void> => {
+    if (!restoredSessionTabsRef.current) {
+      if (editedArchiveDraftsRef.current.size) throw new Error('Restore saved tabs before saving edited archive drafts')
+      return
     }
-  }, [sessionPayload])
+    if (deletingBooksRef.current.size || deletingInsightsRef.current.size) return
+    await tabSaves.save('tabs', sessionTabsState())
+  }, [sessionTabsState, tabSaves])
 
   // Save before replacing the selection; a failed write leaves the old conversation intact.
   const replaceSession = async (tab: ConversationTab, next: () => Promise<Partial<ConversationTab>>): Promise<boolean> => {
@@ -1827,7 +1850,6 @@ export default function App(): ReactNode {
       const changes = await next()
       if (conversationTabsRef.current.find((item) => item.id === tab.id) !== tab) return false
       updateConversationTab(tab.id, (current) => ({ ...current, ...changes }))
-      savedSessionsRef.current.delete(tab.bookId)
       return true
     } catch {
       pushToast(copy('assistant.sessionSaveFailed'), 'error')
@@ -1840,13 +1862,14 @@ export default function App(): ReactNode {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      for (const tab of conversationTabs) {
+      if (closingRef.current) return
+      for (const tab of conversationTabsRef.current) {
         if (sessionTransitionsRef.current.has(tab.id)) continue
-        void persistLiveSession(tab).catch(() => pushToast(copy('assistant.sessionSaveFailed'), 'error'))
+        void persistLiveSession(tab).catch(() => undefined)
       }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [conversationTabs, persistLiveSession, pushToast])
+  }, [changingSessions, conversationTabs, persistLiveSession])
 
   const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'reading', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
     // landingPage 为 null 表示不再切换页面（后台打开书籍）。
@@ -2017,27 +2040,36 @@ export default function App(): ReactNode {
     else { if (saved.page === 'archives') setPage('archives'); setWorkspaceReady(true) }
   }, [books, libraryState, openBook])
 
-  const archiveWritesRef = useRef(new Map<string, Promise<void>>())
   const persistArchiveHistory = useCallback(async (bookId: string, insightId: string, sessionTurns: ConversationTurn[], persona: PersonaSelection | null, webSearch?: 'off' | 'auto'): Promise<void> => {
+    if (deletingBooksRef.current.has(bookId) || deletingInsightsRef.current.has(insightId)) return
     const history = historyFromTurns(sessionTurns)
     if (history.length < 2) return
-    const previous = archiveWritesRef.current.get(insightId) ?? Promise.resolve()
-    const pending = previous.catch(() => undefined).then(async () => {
-      try {
-        const updated = await window.readerApi.updateInsightHistory({ bookId, id: insightId, history, persona, ...(webSearch ? { webSearch } : {}) })
-        setInsights((current) => current.map((insight) => insight.id === updated.id ? { ...insight, history: updated.history, persona: updated.persona, webSearch: updated.webSearch } : insight))
-      } catch (error) {
-        pushToast(readableError(error, copy('insights.saveFailed')), 'error')
-      }
-    })
-    archiveWritesRef.current.set(insightId, pending)
-    await pending
-    if (archiveWritesRef.current.get(insightId) === pending) archiveWritesRef.current.delete(insightId)
-  }, [pushToast])
+    await archiveSaves.save(insightId, { bookId, id: insightId, history, persona, ...(webSearch ? { webSearch } : {}) })
+  }, [archiveSaves])
+
+  const flushSessionSaves = useCallback(async (): Promise<boolean> => {
+    const writes: Promise<unknown>[] = []
+    for (const tab of conversationTabsRef.current) {
+      if (tab.kind === 'live') writes.push(persistLiveSession(tab))
+      else if (tab.insightId) writes.push(persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, tab.persona, tab.webSearch))
+    }
+    writes.push(persistSessionTabs())
+    const results = await Promise.allSettled(writes)
+    return results.every((result) => result.status === 'fulfilled')
+  }, [persistArchiveHistory, persistLiveSession, persistSessionTabs])
+
+  const retrySessionSaves = async (): Promise<void> => {
+    if (retryingSaves || closingRef.current || sessionTransitionsRef.current.size || deletingBooksRef.current.size || deletingInsightsRef.current.size) return
+    setRetryingSaves(true)
+    try {
+      const [sessions, workbenchesResult] = await Promise.allSettled([flushSessionSaves(), retryWorkbenchSaves()])
+      if (sessions.status === 'fulfilled' && sessions.value && workbenchesResult.status === 'fulfilled') setCloseSaveFailed(false)
+    } finally { setRetryingSaves(false) }
+  }
 
   const changeSessionPersona = (tab: ConversationTab, persona: PersonaSelection | null): void => {
     updateConversationTab(tab.id, (current) => ({ ...current, persona }))
-    if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, persona)
+    if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, persona).catch(() => undefined)
   }
 
   const savePersonaAs = (persona: PersonaSelection): PersonaSelection | null => {
@@ -2087,7 +2119,10 @@ export default function App(): ReactNode {
 
   // 清空会话：先取消该书排队中与进行中的请求，否则名额释放后模型仍会被调用，
   // 而对应的轮次已经被清掉，回答无处落地。
-  const clearLiveSession = (tab: ConversationTab): void => {
+  const clearLiveSession = async (tab: ConversationTab): Promise<void> => {
+    if (sessionTransitionsRef.current.has(tab.id) || closingRef.current) return
+    sessionTransitionsRef.current.add(tab.id)
+    setChangingSessions([...sessionTransitionsRef.current])
     setPendingClearSession(false)
     const queued = pendingRequestsRef.current.filter((item) => item.tabId === tab.id)
     if (queued.length > 0) {
@@ -2100,18 +2135,31 @@ export default function App(): ReactNode {
       requestProviderRevisionRef.current.delete(requestId)
       void window.readerApi.cancelLlm(requestId).catch(() => undefined)
     }
-    updateConversationTab(tab.id, (current) => ({
-      ...current,
-      conversationId: crypto.randomUUID(),
-      scope: 'book',
-      persona: defaultPersona(personaSettings),
-      webSearch: webSearchEnabled ? 'auto' : 'off',
-      selection: null,
-      draft: '',
-      turns: []
-    }))
-    savedSessionsRef.current.delete(tab.bookId)
-    void window.readerApi.deleteBookSession(tab.bookId, tab.conversationId).catch(() => pushToast(copy('assistant.sessionSaveFailed'), 'error'))
+    updateConversationTab(tab.id, (current) => ({ ...current, turns: current.turns.map((turn) =>
+      turn.status === 'streaming' || turn.status === 'queued'
+        ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
+        : turn) }))
+    try {
+      // Finish older writes before deleting, so they cannot recreate the cleared conversation.
+      await sessionSaves.wait(tab.bookId).catch(() => undefined)
+      await window.readerApi.deleteBookSession(tab.bookId, tab.conversationId)
+      sessionSaves.forget(tab.bookId)
+      updateConversationTab(tab.id, (current) => ({
+        ...current,
+        conversationId: crypto.randomUUID(),
+        scope: 'book',
+        persona: defaultPersona(personaSettings),
+        webSearch: webSearchEnabled ? 'auto' : 'off',
+        selection: null,
+        draft: '',
+        turns: []
+      }))
+    } catch {
+      pushToast(copy('assistant.sessionSaveFailed'), 'error')
+    } finally {
+      sessionTransitionsRef.current.delete(tab.id)
+      setChangingSessions([...sessionTransitionsRef.current])
+    }
     // 释放出来的并发位让后面的排队请求补位。
     pumpRequestQueue()
   }
@@ -2139,7 +2187,7 @@ export default function App(): ReactNode {
         const turns = applyUpdate(tab.turns)
         updateConversationTab(tab.id, (current) => ({ ...current, turns }))
         if (event.type === 'completed' && tab.kind === 'archive' && tab.insightId) {
-          void persistArchiveHistory(tab.bookId, tab.insightId, turns, tab.persona, tab.webSearch)
+          void persistArchiveHistory(tab.bookId, tab.insightId, turns, tab.persona, tab.webSearch).catch(() => undefined)
         }
       }
 
@@ -2169,24 +2217,57 @@ export default function App(): ReactNode {
   useEffect(() => {
     if (!window.readerApi) return undefined
     return window.readerApi.onBeforeClose(async () => {
+      if (closingRef.current) return false
+      if (sessionTransitionsRef.current.size || deletingBooksRef.current.size || deletingInsightsRef.current.size) {
+        setCloseSaveFailed(true)
+        return false
+      }
       closingRef.current = true
-      await closeWorkbenches()
-      coverCache.dispose()
-      if (progressTimerRef.current) {
-        clearTimeout(progressTimerRef.current)
-        progressTimerRef.current = null
+      setClosing(true)
+      let saved = false
+      try {
+        if (progressTimerRef.current) {
+          clearTimeout(progressTimerRef.current)
+          progressTimerRef.current = null
+        }
+        const requestIds = [...requestSessionRef.current.keys()]
+        pendingRequestsRef.current = []
+        requestSessionRef.current.clear()
+        requestProviderRevisionRef.current.clear()
+        commitConversationTabs((tabs) => tabs.map((tab) => ({ ...tab, turns: tab.turns.map((turn) =>
+          turn.status === 'streaming' || turn.status === 'queued'
+            ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
+            : turn) })))
+        await Promise.allSettled(requestIds.map((id) => window.readerApi.cancelLlm(id)))
+        await flushProgress()
+        const [sessions, workbenchesResult] = await Promise.allSettled([flushSessionSaves(), closeWorkbenches()])
+        saved = sessions.status === 'fulfilled' && sessions.value && workbenchesResult.status === 'fulfilled' && workbenchesResult.value
+        return saved
+      } finally {
+        if (!saved) {
+          closingRef.current = false
+          resumeWorkbenches()
+          setClosing(false)
+          setCloseSaveFailed(true)
+          // A restoration interrupted by this attempt may be tried again in the open window.
+          setSessionTabsRestoreAttempt((attempt) => attempt + 1)
+        }
       }
-      await flushProgress()
-      // 退出前补写去抖中的会话与标签列表，也保存空会话的角色和联网模式。
-      const flushTabs = conversationTabsRef.current.filter((candidate) => (
-        candidate.kind === 'live' && loadedSessionsRef.current.has(candidate.bookId)
-      ))
-      for (const tab of flushTabs) {
-        await window.readerApi.saveBookSession(sessionPayload(tab)).catch(() => undefined)
-      }
-      if (workspaceReady && restoredSessionTabsRef.current) await window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
     })
-  }, [closeWorkbenches, coverCache, flushProgress, sessionPayload, sessionTabsState, workspaceReady])
+  }, [closeWorkbenches, commitConversationTabs, flushProgress, flushSessionSaves, resumeWorkbenches])
+
+  useEffect(() => window.readerApi.onCloseCancelled(() => {
+    closingRef.current = false
+    resumeWorkbenches()
+    setClosing(false)
+    setSessionTabsRestoreAttempt((attempt) => attempt + 1)
+  }), [resumeWorkbenches])
+
+  useEffect(() => {
+    const dispose = (): void => coverCache.dispose()
+    window.addEventListener('unload', dispose)
+    return () => window.removeEventListener('unload', dispose)
+  }, [coverCache])
 
   useEffect(() => {
     if (!window.readerApi) return undefined
@@ -2943,13 +3024,18 @@ export default function App(): ReactNode {
   const deleteBook = async (book: BookRecord): Promise<void> => {
     if (deletingBookId) return
     setDeletingBookId(book.id)
+    deletingBooksRef.current.add(book.id)
+    const archiveIds = conversationTabsRef.current.filter((tab) => tab.bookId === book.id && tab.insightId).map((tab) => tab.insightId!)
     try {
-      if (activeBookRef.current?.id === book.id) {
-        await closeBookSession(book.id, { dropConversations: true })
-      } else {
-        cancelBookRequests(book.id)
-      }
+      cancelBookRequests(book.id)
+      await Promise.allSettled([sessionSaves.wait(book.id), tabSaves.wait('tabs'), ...archiveIds.map((id) => archiveSaves.wait(id))])
       const deleted = await window.readerApi.deleteBook(book.id)
+      sessionSaves.forget(book.id)
+      for (const id of archiveIds) archiveSaves.forget(id)
+      await closeBookSession(book.id, { dropConversations: true })
+      removeConversationTabsForBook(book.id)
+      deletingBooksRef.current.delete(book.id)
+      void persistSessionTabs().catch(() => undefined)
       coverCache.remove(book.id)
       if (detailsBook?.id === book.id) setDetailsBook(null)
       if (deleted) {
@@ -2966,6 +3052,7 @@ export default function App(): ReactNode {
     } catch (error) {
       pushToast(readableError(error, copy('library.deleteFailed')), 'error')
     } finally {
+      deletingBooksRef.current.delete(book.id)
       setDeletingBookId(null)
     }
   }
@@ -2982,9 +3069,13 @@ export default function App(): ReactNode {
   }
 
   const deleteInsight = async (insightId: string): Promise<void> => {
+    if (deletingInsightsRef.current.has(insightId)) return
+    deletingInsightsRef.current.add(insightId)
     try {
+      await Promise.allSettled([archiveSaves.wait(insightId), tabSaves.wait('tabs')])
       const target = insights.find((insight) => insight.id === insightId)
       const deleted = await window.readerApi.deleteInsight(insightId)
+      archiveSaves.forget(insightId)
       setPendingDeleteInsightId(null)
       setInsights((current) => current.filter((insight) => insight.id !== insightId))
 
@@ -3010,11 +3101,13 @@ export default function App(): ReactNode {
         setActiveTabId(fallback?.id ?? null)
       }
 
+      deletingInsightsRef.current.delete(insightId)
+      void persistSessionTabs().catch(() => undefined)
       if (!deleted) void refreshInsights()
       pushToast(deleted ? copy('insights.removed') : copy('insights.alreadyRemoved'), 'neutral')
     } catch (error) {
       pushToast(readableError(error, copy('insights.removeFailed')), 'error')
-    }
+    } finally { deletingInsightsRef.current.delete(insightId) }
   }
 
   const handleExportInsights = async (scope: InsightExportScope): Promise<void> => {
@@ -3058,17 +3151,29 @@ export default function App(): ReactNode {
     }
   }
 
-  const closeConversationTab = (tabId: string): void => {
+  const closeConversationTab = async (tabId: string): Promise<void> => {
     const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
-    if (!tab || (tab.kind === 'live' && tab.bookId === activeBookRef.current?.id)) return
-    if (!restoredSessionTabsRef.current) closedSessionTabsDuringRestoreRef.current.add(tab.id)
-    editedArchiveDraftsRef.current.delete(tab.id)
-    const remaining = commitConversationTabs((current) => current.filter((candidate) => candidate.id !== tabId))
-    if (activeTabIdRef.current === tabId) {
-      const activeBookId = activeBookRef.current?.id
-      const fallback = remaining.find((candidate) => candidate.kind === 'live' && candidate.bookId === activeBookId) ?? remaining[0]
-      activeTabIdRef.current = fallback?.id ?? null
-      setActiveTabId(fallback?.id ?? null)
+    if (!tab || sessionTransitionsRef.current.has(tab.id) || closingRef.current || (tab.kind === 'live' && tab.bookId === activeBookRef.current?.id)) return
+    sessionTransitionsRef.current.add(tab.id)
+    setChangingSessions([...sessionTransitionsRef.current])
+    try {
+      if (tab.kind === 'live') await persistLiveSession(tab)
+      else if (tab.insightId) await persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, tab.persona, tab.webSearch)
+      if (conversationTabsRef.current.find((candidate) => candidate.id === tab.id) !== tab) return
+      if (!restoredSessionTabsRef.current) closedSessionTabsDuringRestoreRef.current.add(tab.id)
+      editedArchiveDraftsRef.current.delete(tab.id)
+      const remaining = commitConversationTabs((current) => current.filter((candidate) => candidate.id !== tabId))
+      if (activeTabIdRef.current === tabId) {
+        const activeBookId = activeBookRef.current?.id
+        const fallback = remaining.find((candidate) => candidate.kind === 'live' && candidate.bookId === activeBookId) ?? remaining[0]
+        activeTabIdRef.current = fallback?.id ?? null
+        setActiveTabId(fallback?.id ?? null)
+      }
+    } catch {
+      // Keep the tab and its latest draft available until its save can be retried.
+    } finally {
+      sessionTransitionsRef.current.delete(tab.id)
+      setChangingSessions([...sessionTransitionsRef.current])
     }
   }
 
@@ -3128,11 +3233,11 @@ export default function App(): ReactNode {
     if (!workspaceReady || sessionTabsRestoreState !== 'ready' || !restoredSessionTabsRef.current || closingRef.current) return undefined
     const timer = window.setTimeout(() => {
       if (!closingRef.current && restoredSessionTabsRef.current) {
-        void window.readerApi.saveSessionTabs(sessionTabsState()).catch(() => undefined)
+        void persistSessionTabs().catch(() => undefined)
       }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [activeTabId, sessionTabsRestoreState, sessionTabsState, visibleSessionTabs, workspaceReady])
+  }, [activeTabId, persistSessionTabs, sessionTabsRestoreState, visibleSessionTabs, workspaceReady])
   useEffect(() => {
     if (activeBook?.id) void refreshAnalysis(activeBook.id)
     if (activeConversationTab?.bookId && activeConversationTab.bookId !== activeBook?.id) void refreshAnalysis(activeConversationTab.bookId)
@@ -3145,7 +3250,7 @@ export default function App(): ReactNode {
       imageQuestion={isPdfImageRegion(tab.selection)} changing={changingSessions.includes(tab.id)}
       onChange={(webSearch) => {
         updateConversationTab(tab.id, (current) => ({ ...current, webSearch }))
-        if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, tab.persona, webSearch)
+        if (tab.kind === 'archive' && tab.insightId) void persistArchiveHistory(tab.bookId, tab.insightId, tab.turns, tab.persona, webSearch).catch(() => undefined)
       }} />
   }
   const changeConversationScope = async (tab: ConversationTab, scope: 'selection' | 'book'): Promise<void> => {
@@ -3281,6 +3386,8 @@ export default function App(): ReactNode {
   }, [activeTabId, assistantDialogOpen])
 
   return (
+    <>
+      {closing && <div className="session-close-saving" role="status" data-testid="session-close-saving"><LoaderCircle className="spin" size={20} />{copy('assistant.savingBeforeClose')}</div>}
     <div
       className="app-shell workspace-shell"
       data-page={page}
@@ -3288,6 +3395,7 @@ export default function App(): ReactNode {
       data-pdf-display={pdfDisplayOpen}
       data-workspace-ready={workspaceReady}
       data-session-tabs-state={sessionTabsRestoreState}
+      inert={closing}
       data-testid="app-shell"
       data-theme={resolvedTheme}
       data-theme-preference={themePreference}
@@ -3355,6 +3463,14 @@ export default function App(): ReactNode {
           <i className={'connection-status-dot is-' + providerConnection.status} data-testid="provider-connection-status" role="status" aria-label={providerStatusLabel(providerConnection.status)} title={providerConnection.message || providerStatusLabel(providerConnection.status)} />
         </button><WindowControls />
       </header>
+      <div className="session-recovery-stack">
+      {(sessionSaves.failed || tabSaves.failed || archiveSaves.failed || Object.values(workbenches.errors).some(Boolean) || closeSaveFailed) && <div className="session-tabs-recovery session-save-recovery" data-testid="session-save-recovery" role="alert">
+        <AlertCircle size={18} />
+        <span>{copy(closeSaveFailed ? 'assistant.closeSaveFailed' : 'assistant.unsavedSessions')}</span>
+        <button className="secondary-button" data-testid="session-save-retry" type="button" disabled={retryingSaves || closing || changingSessions.length > 0 || Boolean(deletingBookId)} onClick={() => void retrySessionSaves()}>
+          {retryingSaves ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}{copy('common.retry')}
+        </button>
+      </div>}
       {sessionTabsRestoreError && <div className="session-tabs-recovery" data-testid="session-tabs-recovery" role="alert">
         <AlertCircle size={18} />
         <span>{copy('assistant.tabsRestoreFailed')}</span>
@@ -3362,6 +3478,7 @@ export default function App(): ReactNode {
           {sessionTabsRestoreState === 'loading' ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}{copy('common.retry')}
         </button>
       </div>}
+      </div>
       {activeBook && !['library', 'archives'].includes(page) && <header className="workspace-bookbar">
         <div className="workspace-book-title"><span className="format-chip">{activeBook.sourceFormat.toUpperCase()}</span><div className="workspace-book-identity"><h1 title={activeBook.title}>{activeBook.title}</h1>{page === 'reading' && <div className="workspace-reading-position reader-heading" data-testid="workspace-reading-position" aria-label={copy('reader.progressAria', { percent: Math.round(currentChapterProgress * 100) })}><span title={currentChapterTitle}>{currentChapterTitle || copy('common.currentChapter')}</span><strong>{Math.round(currentChapterProgress * 100)}%</strong><div className="workspace-reading-progress" data-testid="workspace-reading-progress" aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, currentChapterProgress * 100))}%` }} /></div></div>}</div></div>
         <nav aria-label={copy('workspace.tabs')}>{(['reading', 'notes', 'conversation'] as const).map((item) => <button type="button" key={item} data-testid={'workspace-tab-' + item} aria-current={page === item ? 'page' : undefined} onClick={() => setPage(item)}>{copy(('workspace.' + item) as 'workspace.reading' | 'workspace.notes' | 'workspace.conversation')}</button>)}</nav>
@@ -3665,7 +3782,7 @@ export default function App(): ReactNode {
         </section>
       </main>
 
-      <aside className="right-sidebar" data-testid="ai-panel" inert={page !== 'reading'}>
+      <aside className="right-sidebar" data-testid="ai-panel" inert={page !== 'reading' || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))}>
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
           <div className="assistant-header-actions">
@@ -3812,7 +3929,7 @@ export default function App(): ReactNode {
                 )
               )}
             </nav>}
-            <div className="assistant-dialog-body">
+            <div className="assistant-dialog-body" inert={assistantDialogView === 'conversation' && Boolean(activeConversationTab && changingSessions.includes(activeConversationTab.id))}>
               {assistantDialogView === 'insights' ? (archiveView === 'workbenches' ? <WorkbenchesView
                 controller={workbenches} books={books} coverCache={coverCache} states={analysis.states} refresh={analysis.refresh} provider={provider} personas={personaSettings} webSearchEnabled={webSearchEnabled} onSavePersonaAs={savePersonaAs} onArchiveViewChange={setArchiveView}
                 onPrepare={(id) => openPreparation(id)} onNavigate={(id, anchor, title) => void navigateWorkbenchSource(id, anchor, title)} onConfigure={(trigger) => openSettings('model', trigger)} /> :
@@ -3938,5 +4055,6 @@ export default function App(): ReactNode {
         </div>
       )}
     </div>
+    </>
   )
 }

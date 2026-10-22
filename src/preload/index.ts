@@ -101,13 +101,20 @@ export const readerApi: ReaderApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.llmEvent, handler)
   },
   onBeforeClose: (listener) => {
-    const handler = (): void => {
-      void Promise.resolve(listener())
+    const handler = (_event: Electron.IpcRendererEvent, requestId: unknown): void => {
+      if (!Number.isSafeInteger(requestId) || (requestId as number) < 1) return
+      void Promise.resolve().then(listener)
+        .then((approved) => approved === true, () => false)
+        .then((approved) => ipcRenderer.invoke(IPC_CHANNELS.appCloseReady, { requestId, approved }))
         .catch(() => undefined)
-        .finally(() => ipcRenderer.invoke(IPC_CHANNELS.appCloseReady).catch(() => undefined))
     }
     ipcRenderer.on(IPC_CHANNELS.appBeforeClose, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.appBeforeClose, handler)
+  },
+  onCloseCancelled: (listener) => {
+    const handler = (): void => listener()
+    ipcRenderer.on(IPC_CHANNELS.appCloseCancelled, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.appCloseCancelled, handler)
   },
   minimizeWindow: () => ipcRenderer.invoke(IPC_CHANNELS.windowMinimize),
   toggleMaximizeWindow: () => ipcRenderer.invoke(IPC_CHANNELS.windowToggleMaximize),

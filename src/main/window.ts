@@ -1,11 +1,13 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, session } from 'electron'
-import { IPC_CHANNELS } from '@shared/contracts'
+import { app, BrowserWindow, dialog, session } from 'electron'
+import { IPC_CHANNELS, type AppCloseResponse } from '@shared/contracts'
+import { copy } from '@shared/copy'
 
 export interface CreatedWindow {
   window: BrowserWindow
   allowedOrigins: ReadonlySet<string>
-  completeClose: () => void
+  requestClose: (afterSave?: () => boolean) => void
+  respondToClose: (response: AppCloseResponse) => void
 }
 
 function isAllowedNavigation(target: string, allowedOrigins: ReadonlySet<string>): boolean {
@@ -49,27 +51,92 @@ export function createMainWindow(): CreatedWindow {
   })
 
   let closeApproved = false
-  let closeRequested = false
-  let closeFallback: ReturnType<typeof setTimeout> | undefined
+  let closeSequence = 0
+  let closeRequest: { id: number; afterSave?: () => boolean } | undefined
+  let closeTimer: ReturnType<typeof setTimeout> | undefined
+  let closePrompt: number | undefined
+  let closePromptController: AbortController | undefined
+  let rendererUnavailable = false
+  const clearCloseTimer = (): void => {
+    if (closeTimer) clearTimeout(closeTimer)
+    closeTimer = undefined
+  }
   const completeClose = (): void => {
     if (closeApproved || window.isDestroyed()) return
+    const afterSave = closeRequest?.afterSave
     closeApproved = true
-    if (closeFallback) clearTimeout(closeFallback)
-    window.close()
+    closeRequest = undefined
+    clearCloseTimer()
+    closePromptController?.abort()
+    if (!afterSave) { window.close(); return }
+    try { if (afterSave()) return } catch { /* Installation errors keep the saved workspace open. */ }
+    closeApproved = false
+    if (!window.webContents.isDestroyed()) window.webContents.send(IPC_CHANNELS.appCloseCancelled)
   }
-  window.on('close', (event) => {
-    if (closeApproved || window.webContents.isDestroyed()) {
-      closeApproved = true
+  const scheduleClosePrompt = (requestId: number): void => {
+    clearCloseTimer()
+    closeTimer = setTimeout(() => { void showClosePrompt(requestId) }, 15_000)
+  }
+  const showClosePrompt = async (requestId: number): Promise<void> => {
+    if (closeApproved || window.isDestroyed() || closeRequest?.id !== requestId || closePrompt !== undefined) return
+    clearCloseTimer()
+    closePrompt = requestId
+    const controller = new AbortController()
+    closePromptController = controller
+    try {
+      const result = await dialog.showMessageBox(window, {
+        type: 'warning',
+        title: copy('window.closeWaitTitle'),
+        message: copy('window.closeWaitMessage'),
+        detail: copy('window.closeWaitDetail'),
+        buttons: [copy('window.closeWait'), copy('window.closeForce')],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        signal: controller.signal
+      })
+      if (closeRequest?.id === requestId && result.response === 1) completeClose()
+    } catch { /* A failed or dismissed prompt never authorizes discarding unsaved content. */ }
+    finally {
+      if (closePrompt === requestId) closePrompt = undefined
+      if (closePromptController === controller) closePromptController = undefined
+      if (closeRequest && !closeApproved && !window.isDestroyed()) scheduleClosePrompt(closeRequest.id)
+    }
+  }
+  const requestClose = (afterSave?: () => boolean): void => {
+    if (closeApproved || closeRequest || window.isDestroyed()) return
+    const requestId = ++closeSequence
+    closeRequest = { id: requestId, afterSave }
+    if (rendererUnavailable || window.webContents.isDestroyed()) {
+      void showClosePrompt(requestId)
       return
     }
+    try {
+      window.webContents.send(IPC_CHANNELS.appBeforeClose, requestId)
+      scheduleClosePrompt(requestId)
+    } catch { void showClosePrompt(requestId) }
+  }
+  const respondToClose = ({ requestId, approved }: AppCloseResponse): void => {
+    if (closeApproved || closeRequest?.id !== requestId || window.isDestroyed()) return
+    if (approved) completeClose()
+    else {
+      closeRequest = undefined
+      clearCloseTimer()
+      closePromptController?.abort()
+    }
+  }
+  window.on('close', (event) => {
+    if (closeApproved) return
     event.preventDefault()
-    if (closeRequested) return
-    closeRequested = true
-    window.webContents.send(IPC_CHANNELS.appBeforeClose)
-    closeFallback = setTimeout(completeClose, 1_500)
+    requestClose()
   })
-  window.on('closed', () => {
-    if (closeFallback) clearTimeout(closeFallback)
+  window.on('closed', clearCloseTimer)
+  window.on('unresponsive', () => {
+    if (closeRequest) void showClosePrompt(closeRequest.id)
+  })
+  window.webContents.on('render-process-gone', () => {
+    rendererUnavailable = true
+    if (closeRequest) void showClosePrompt(closeRequest.id)
   })
 
   const sendMaximizedChange = (): void => {
@@ -88,7 +155,7 @@ export function createMainWindow(): CreatedWindow {
     if (!isAllowedNavigation(target, allowedOrigins)) event.preventDefault()
   })
   window.webContents.on('will-attach-webview', (event) => event.preventDefault())
-  window.webContents.on('did-finish-load', () => window.show())
+  window.webContents.on('did-finish-load', () => { rendererUnavailable = false; window.show() })
 
   const guardedSession = session.defaultSession
   guardedSession.setPermissionCheckHandler(() => false)
@@ -112,7 +179,7 @@ export function createMainWindow(): CreatedWindow {
     }
   })
 
-  return { window, allowedOrigins, completeClose }
+  return { window, allowedOrigins, requestClose, respondToClose }
 }
 
 export async function loadMainWindow(window: BrowserWindow): Promise<void> {

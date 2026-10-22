@@ -16,6 +16,7 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
   const [loadError, setLoadError] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState<string[]>([])
+  const dirtyIds = useRef(new Set<string>())
   const revisions = useRef(new Map<string, number>())
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const writes = useRef(new Map<string, Promise<void>>())
@@ -48,11 +49,16 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
       try {
         await window.readerApi.saveWorkbench(payload)
         if ((revisions.current.get(id) ?? 0) === version) {
+          dirtyIds.current.delete(id)
           setDirty((current) => current.filter((value) => value !== id))
           setErrors((current) => ({ ...current, [id]: '' }))
         }
       } catch (error) {
-        setErrors((current) => ({ ...current, [id]: readableError(error, copy('workbench.saveFailed')) }))
+        if (recordsRef.current.some((item) => item.id === id)) {
+          dirtyIds.current.add(id)
+          setDirty((current) => current.includes(id) ? current : [...current, id])
+          setErrors((current) => ({ ...current, [id]: readableError(error, copy('workbench.saveFailed')) }))
+        }
         throw error
       }
     })
@@ -64,9 +70,11 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     if (!recordsRef.current.some((record) => record.id === id)) return
     publish(recordsRef.current.map((record) => record.id === id ? change(record) : record))
     revisions.current.set(id, (revisions.current.get(id) ?? 0) + 1)
+    dirtyIds.current.add(id)
     setDirty((current) => current.includes(id) ? current : [...current, id])
     clearTimeout(timers.current.get(id))
-    timers.current.set(id, setTimeout(() => { void flush(id).catch(() => undefined) }, 350))
+    timers.current.delete(id)
+    if (!closing.current) timers.current.set(id, setTimeout(() => { void flush(id).catch(() => undefined) }, 350))
   }, [flush, publish])
 
   useEffect(() => {
@@ -111,11 +119,41 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     }
   }, [update])
 
-  const beforeClose = useCallback(async () => {
+  // A close or explicit retry must acknowledge edits made while an earlier write was pending.
+  const flushLatest = useCallback(async (id: string): Promise<void> => {
+    while (recordsRef.current.some((record) => record.id === id)) {
+      const version = revisions.current.get(id) ?? 0
+      try { await flush(id) }
+      catch (error) {
+        if ((revisions.current.get(id) ?? 0) === version) throw error
+      }
+      if ((revisions.current.get(id) ?? 0) === version) return
+    }
+  }, [flush])
+
+  const retrySaves = useCallback(async (): Promise<void> => {
+    const results = await Promise.allSettled([...dirtyIds.current].map(flushLatest))
+    const failed = results.find((result) => result.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
+  }, [flushLatest])
+
+  const resumeAfterClose = useCallback((): void => { closing.current = false }, [])
+
+  const beforeClose = useCallback(async (): Promise<boolean> => {
     closing.current = true
-    for (const id of new Set(requests.current.values())) await cancel(id).catch(() => undefined)
-    for (const record of recordsRef.current) await flush(record.id).catch(() => undefined)
-  }, [cancel, flush])
+    for (const timer of timers.current.values()) clearTimeout(timer)
+    timers.current.clear()
+    const cancellations = await Promise.allSettled([...new Set(requests.current.values())].map(cancel))
+    let ids = recordsRef.current.map((record) => record.id)
+    do {
+      const saves = await Promise.allSettled(ids.map(flushLatest))
+      if (saves.some((result) => result.status === 'rejected')) return false
+      // A different workbench may be edited after its own write settled, while
+      // another workbench is still saving. Include those edits before approving.
+      ids = [...dirtyIds.current]
+    } while (ids.length > 0)
+    return cancellations.every((result) => result.status === 'fulfilled')
+  }, [cancel, flushLatest])
 
   const create = useCallback(async (name: string, bookIds: string[], persona: PersonaSelection | null) => {
     const record = await window.readerApi.createWorkbench({ name, bookIds })
@@ -129,6 +167,9 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     await flush(id)
     await window.readerApi.deleteWorkbench(id)
     clearTimeout(timers.current.get(id)); timers.current.delete(id)
+    dirtyIds.current.delete(id)
+    setDirty((current) => current.filter((value) => value !== id))
+    setErrors((current) => { const next = { ...current }; delete next[id]; return next })
     publish(recordsRef.current.filter((record) => record.id !== id))
     activate(null)
   }, [activate, cancel, flush, publish])
@@ -162,5 +203,5 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     }
   }, [flush, update])
 
-  return { records, activeId, active: records.find((record) => record.id === activeId), activate, create, remove, update, submit, cancel, flush, beforeClose, loading, loadError, load, errors, dirty }
+  return { records, activeId, active: records.find((record) => record.id === activeId), activate, create, remove, update, submit, cancel, flush, beforeClose, resumeAfterClose, retrySaves, loading, loadError, load, errors, dirty }
 }

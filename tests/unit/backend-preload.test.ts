@@ -235,4 +235,51 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.sessionTabsList)
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.sessionTabsSave, state)
   })
+
+  it('waits for a successful save before approving the matching close request', async () => {
+    let finish!: (approved: boolean) => void
+    const listener = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve }))
+    const unsubscribe = readerApi.onBeforeClose(listener)
+    const handler = electronMocks.on.mock.calls[0][1]
+
+    handler({}, 7)
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalledOnce()
+    expect(electronMocks.invoke).not.toHaveBeenCalled()
+    finish(true)
+    await vi.waitFor(() => expect(electronMocks.invoke).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.appCloseReady, { requestId: 7, approved: true }))
+    unsubscribe()
+    expect(electronMocks.removeListener).toHaveBeenCalledWith(IPC_CHANNELS.appBeforeClose, handler)
+  })
+
+  it.each([
+    { name: 'a rejected save', listener: () => Promise.reject(new Error('write failed')) },
+    { name: 'a synchronous save exception', listener: () => { throw new Error('write failed') } },
+    { name: 'an explicit refusal', listener: () => false }
+  ])('keeps the window open after $name', async ({ listener }) => {
+    readerApi.onBeforeClose(listener)
+    electronMocks.on.mock.calls[0][1]({}, 8)
+    await vi.waitFor(() => expect(electronMocks.invoke).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.appCloseReady, { requestId: 8, approved: false }))
+  })
+
+  it('ignores close events without a valid request identity', async () => {
+    const listener = vi.fn(() => true)
+    readerApi.onBeforeClose(listener)
+    const handler = electronMocks.on.mock.calls[0][1]
+    for (const requestId of [undefined, 0, -1, 1.5, '1', Number.MAX_SAFE_INTEGER + 1]) handler({}, requestId)
+    await Promise.resolve()
+    expect(listener).not.toHaveBeenCalled()
+    expect(electronMocks.invoke).not.toHaveBeenCalled()
+  })
+
+  it('notifies the renderer when a failed installation cancels a saved close', () => {
+    const listener = vi.fn()
+    const unsubscribe = readerApi.onCloseCancelled(listener)
+    const handler = electronMocks.on.mock.calls[0][1]
+    handler({})
+    expect(listener).toHaveBeenCalledOnce()
+    unsubscribe()
+    expect(electronMocks.on).toHaveBeenCalledWith(IPC_CHANNELS.appCloseCancelled, handler)
+    expect(electronMocks.removeListener).toHaveBeenCalledWith(IPC_CHANNELS.appCloseCancelled, handler)
+  })
 })
