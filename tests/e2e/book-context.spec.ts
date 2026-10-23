@@ -96,8 +96,14 @@ async function profiles(page: Page): Promise<{ analysisId: string; questionId: s
 }
 async function ask(page: Page, question: string): Promise<void> {
   const surface = await page.getByTestId('assistant-dialog').count() ? page.getByTestId('assistant-dialog') : page
-  await surface.getByTestId('followup-input').fill(question)
-  await surface.getByTestId('followup-input').press('Enter')
+  const input = surface.getByTestId('followup-input')
+  // Scope changes save the previous session with the composer temporarily inert.
+  // Click waits for it to receive input; fill alone does not wait for inert.
+  await input.click()
+  await input.fill(question)
+  await expect(input).toHaveValue(question)
+  await expect(surface.getByTestId('send-question')).toBeEnabled()
+  await input.press('Enter')
   await expect(surface.getByTestId('answer-current')).toContainText('从众的定义来自书中原文')
   await expect(surface.getByTestId('answer-current').getByTestId('citation-valid')).toHaveCount(1)
   await expect(surface.getByTestId('cancel-request')).toHaveCount(0)
