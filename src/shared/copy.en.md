@@ -382,6 +382,7 @@
 | about.updateStatusDownloading | Downloading update… {percent}% |
 | about.updateStatusDownloaded | Update downloaded |
 | about.updateStatusError | Update failed. Try again later. |
+| about.updateStatusInstallError | Update installation failed. You can continue reading. Close and reopen the app before trying the update again. |
 | about.updateStatusUnsupported | Update checks are not supported in this environment |
 | about.updateCheckAction | Check for updates |
 | about.updateDownloadAction | Download update |

@@ -2923,7 +2923,7 @@ export default function App(): ReactNode {
 
   return (
     <>
-      {closing && <div className="session-close-saving" role="status" data-testid="session-close-saving"><LoaderCircle className="spin" size={20} />{copy('assistant.savingBeforeClose')}</div>}
+      {closing && <div className="session-close-saving" data-interface-scale={interfaceScale} role="status" data-testid="session-close-saving"><LoaderCircle className="spin" size="1.25em" />{copy('assistant.savingBeforeClose')}</div>}
     <div
       className="app-shell workspace-shell"
       data-page={page}

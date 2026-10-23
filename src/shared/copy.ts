@@ -527,6 +527,7 @@ export const COPY_KEYS = [
   'about.updateStatusDownloading',
   'about.updateStatusDownloaded',
   'about.updateStatusError',
+  'about.updateStatusInstallError',
   'about.updateStatusUnsupported',
   'about.updateCheckAction',
   'about.updateDownloadAction',

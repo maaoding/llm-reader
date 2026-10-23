@@ -242,6 +242,8 @@ function updateStatusText(phase: AppUpdatePhase): string {
       return copy('about.updateStatusDownloaded')
     case 'error':
       return copy('about.updateStatusError')
+    case 'installError':
+      return copy('about.updateStatusInstallError')
     case 'unsupported':
       return copy('about.updateStatusUnsupported')
     case 'idle':
@@ -300,6 +302,7 @@ function AboutPanel(): ReactNode {
     updateBusy ||
     updatePhase.status === 'checking' ||
     updatePhase.status === 'downloading' ||
+    updatePhase.status === 'installError' ||
     updatePhase.status === 'unsupported'
 
   const handleUpdateAction = (): void => {

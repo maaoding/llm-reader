@@ -72,6 +72,7 @@ export class UpdaterService {
   private phase: AppUpdatePhase = { status: 'idle' }
   private checkMode: 'startup' | 'manual' = 'manual'
   private startupTimer: ReturnType<typeof setTimeout> | null = null
+  private installation: { onFailure?: () => void; handedOff: boolean } | undefined
 
   constructor(
     private readonly emit: (phase: AppUpdatePhase) => void,
@@ -94,10 +95,15 @@ export class UpdaterService {
       if (percent !== null && this.phase.status === 'downloading') this.setPhase({ status: 'downloading', percent })
     })
     updater.on('update-downloaded', (payload: unknown) => {
+      if (this.phase.status === 'installError') return
       const version = readVersion(payload)
       if (version) this.setPhase({ status: 'downloaded', version, releaseNotes: readReleaseNotes(payload) })
     })
     updater.on('error', (payload: unknown) => {
+      if (this.installation) {
+        this.failInstallation()
+        return
+      }
       if (this.phase.status !== 'checking' && this.phase.status !== 'downloading') return
       console.error(
         'LLM Reader update failed:',
@@ -120,6 +126,7 @@ export class UpdaterService {
   }
 
   async check(mode: 'startup' | 'manual'): Promise<AppUpdatePhase> {
+    if (this.phase.status === 'installError') return this.phase
     if (!this.supportsUpdate) {
       return mode === 'manual' ? this.setPhase({ status: 'unsupported' }) : this.phase
     }
@@ -157,12 +164,34 @@ export class UpdaterService {
     return this.phase
   }
 
-  install(): void {
-    if (this.phase.status !== 'downloaded') return
-    this.updater.quitAndInstall(false, true)
+  /** True means the handoff is pending; later error events can still cancel it. */
+  install(onFailure?: () => void): boolean {
+    if (this.phase.status !== 'downloaded' || this.installation) return false
+    const attempt = { onFailure, handedOff: false }
+    this.installation = attempt
+    try {
+      this.updater.quitAndInstall(false, true)
+    } catch {
+      this.failInstallation()
+    }
+    attempt.handedOff = true
+    return this.installation === attempt
+  }
+
+  private failInstallation(): void {
+    const attempt = this.installation
+    if (!attempt) return
+    this.installation = undefined
+    // Installation is always explicit, even when discovery happened at startup.
+    // BaseUpdater retains its install guard after asynchronous failure. A fresh
+    // process is required before retrying; otherwise quitAndInstall can silently
+    // decline the next attempt without emitting another error.
+    this.setPhase({ status: attempt.handedOff ? 'installError' : 'error' })
+    attempt.onFailure?.()
   }
 
   dispose(): void {
+    this.installation = undefined
     if (this.startupTimer !== null) {
       clearTimeout(this.startupTimer)
       this.startupTimer = null

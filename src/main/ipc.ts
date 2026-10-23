@@ -70,7 +70,7 @@ interface IpcDependencies {
   documents?: DocumentProcessingService
   updater: UpdaterService
   allowedRendererOrigins: ReadonlySet<string>
-  requestClose: (afterSave?: () => boolean) => void
+  requestClose: (afterSave?: (cancel: () => void) => boolean) => void
   respondToClose: (response: AppCloseResponse) => void
 }
 
@@ -144,10 +144,9 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.appUpdateCheck, dependencies, () => dependencies.updater.check('manual'))
   handle(IPC_CHANNELS.appUpdateDownload, dependencies, () => dependencies.updater.download())
   handle(IPC_CHANNELS.appUpdateInstall, dependencies, () => {
-    if (dependencies.updater.getPhase().status === 'downloaded') dependencies.requestClose(() => {
-      dependencies.updater.install()
-      return dependencies.updater.getPhase().status === 'downloaded'
-    })
+    if (dependencies.updater.getPhase().status === 'downloaded') {
+      dependencies.requestClose((cancel) => dependencies.updater.install(cancel))
+    }
   })
   handle(IPC_CHANNELS.booksList, dependencies, () => dependencies.library.listBooks())
   handle(IPC_CHANNELS.booksImport, dependencies, async () => {

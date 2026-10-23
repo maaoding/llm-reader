@@ -6,6 +6,14 @@ type Listener = (...args: unknown[]) => void
 const mocks = vi.hoisted(() => {
   const events = new Map<string, Listener>()
   const contentsEvents = new Map<string, Listener>()
+  const quitEvents = new Map<string, Listener>()
+  const app = {
+    isPackaged: false,
+    once: vi.fn((event: string, listener: Listener) => { quitEvents.set(event, listener) }),
+    removeListener: vi.fn((event: string, listener: Listener) => {
+      if (quitEvents.get(event) === listener) quitEvents.delete(event)
+    })
+  }
   const window = {
     on: vi.fn((event: string, listener: Listener) => { events.set(event, listener) }),
     close: vi.fn(),
@@ -18,11 +26,11 @@ const mocks = vi.hoisted(() => {
       setWindowOpenHandler: vi.fn()
     }
   }
-  return { events, contentsEvents, window, showMessageBox: vi.fn() }
+  return { app, quitEvents, events, contentsEvents, window, showMessageBox: vi.fn() }
 })
 
 vi.mock('electron', () => ({
-  app: { isPackaged: false },
+  app: mocks.app,
   BrowserWindow: vi.fn(function () { return mocks.window }),
   dialog: { showMessageBox: mocks.showMessageBox },
   session: { defaultSession: {
@@ -35,6 +43,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.events.clear()
   mocks.contentsEvents.clear()
+  mocks.quitEvents.clear()
   mocks.window.isDestroyed.mockReturnValue(false)
   mocks.window.webContents.isDestroyed.mockReturnValue(false)
   mocks.showMessageBox.mockReset().mockResolvedValue({ response: 0 })
@@ -157,5 +166,31 @@ describe('save-before-close handshake', () => {
     expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appBeforeClose, 2)
     created.respondToClose({ requestId: 2, approved: true })
     expect(mocks.window.close).toHaveBeenCalledOnce()
+  })
+
+  it('restores editing after a delayed installer error and cancels the already queued quit', async () => {
+    const created = createMainWindow()
+    let rejectInstall!: () => void
+    const queuedQuit = { preventDefault: vi.fn() }
+    created.requestClose((cancel) => {
+      rejectInstall = cancel
+      setImmediate(() => mocks.quitEvents.get('before-quit')?.(queuedQuit))
+      return true
+    })
+    created.respondToClose({ requestId: 1, approved: true })
+    rejectInstall()
+    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appCloseCancelled)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(queuedQuit.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.quitEvents.size).toBe(0)
+    requestWindowClose()
+    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appBeforeClose, 2)
+    // Duplicate and stale failures cannot cancel a later close attempt.
+    rejectInstall()
+    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appBeforeClose, 2)
+    created.respondToClose({ requestId: 2, approved: true })
+    expect(mocks.window.close).toHaveBeenCalledOnce()
+    rejectInstall()
+    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appBeforeClose, 2)
   })
 })

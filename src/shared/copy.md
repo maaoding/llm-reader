@@ -384,6 +384,7 @@
 | about.updateStatusDownloading | 正在下载更新… {percent}% |
 | about.updateStatusDownloaded | 更新已下载完成 |
 | about.updateStatusError | 更新失败，请稍后重试 |
+| about.updateStatusInstallError | 更新安装失败，已恢复操作。你可以继续阅读；请退出并重新打开应用后重试更新。 |
 | about.updateStatusUnsupported | 当前环境不支持更新检查 |
 | about.updateCheckAction | 检查更新 |
 | about.updateDownloadAction | 下载更新 |

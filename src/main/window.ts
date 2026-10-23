@@ -6,7 +6,7 @@ import { copy } from '@shared/copy'
 export interface CreatedWindow {
   window: BrowserWindow
   allowedOrigins: ReadonlySet<string>
-  requestClose: (afterSave?: () => boolean) => void
+  requestClose: (afterSave?: (cancel: () => void) => boolean) => void
   respondToClose: (response: AppCloseResponse) => void
 }
 
@@ -52,7 +52,7 @@ export function createMainWindow(): CreatedWindow {
 
   let closeApproved = false
   let closeSequence = 0
-  let closeRequest: { id: number; afterSave?: () => boolean } | undefined
+  let closeRequest: { id: number; afterSave?: (cancel: () => void) => boolean } | undefined
   let closeTimer: ReturnType<typeof setTimeout> | undefined
   let closePrompt: number | undefined
   let closePromptController: AbortController | undefined
@@ -63,15 +63,27 @@ export function createMainWindow(): CreatedWindow {
   }
   const completeClose = (): void => {
     if (closeApproved || window.isDestroyed()) return
+    const requestId = closeRequest?.id
     const afterSave = closeRequest?.afterSave
     closeApproved = true
     closeRequest = undefined
     clearCloseTimer()
     closePromptController?.abort()
     if (!afterSave) { window.close(); return }
-    try { if (afterSave()) return } catch { /* Installation errors keep the saved workspace open. */ }
-    closeApproved = false
-    if (!window.webContents.isDestroyed()) window.webContents.send(IPC_CHANNELS.appCloseCancelled)
+    const cancel = (): void => {
+      if (!closeApproved || closeSequence !== requestId || window.isDestroyed()) return
+      closeApproved = false
+      // electron-updater can emit an installation error after queuing app.quit()
+      // for the next check phase. Cancel that queued quit as well as its UI guard.
+      const preventQueuedQuit = (event: Electron.Event): void => {
+        if (!window.isDestroyed()) event.preventDefault()
+      }
+      app.once('before-quit', preventQueuedQuit)
+      setImmediate(() => app.removeListener('before-quit', preventQueuedQuit))
+      if (!window.webContents.isDestroyed()) window.webContents.send(IPC_CHANNELS.appCloseCancelled)
+    }
+    try { if (afterSave(cancel)) return } catch { /* Installation errors keep the saved workspace open. */ }
+    cancel()
   }
   const scheduleClosePrompt = (requestId: number): void => {
     clearCloseTimer()
@@ -103,7 +115,7 @@ export function createMainWindow(): CreatedWindow {
       if (closeRequest && !closeApproved && !window.isDestroyed()) scheduleClosePrompt(closeRequest.id)
     }
   }
-  const requestClose = (afterSave?: () => boolean): void => {
+  const requestClose = (afterSave?: (cancel: () => void) => boolean): void => {
     if (closeApproved || closeRequest || window.isDestroyed()) return
     const requestId = ++closeSequence
     closeRequest = { id: requestId, afterSave }

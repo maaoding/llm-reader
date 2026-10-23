@@ -135,6 +135,7 @@ export type AppUpdatePhase =
   | { status: 'downloading'; percent: number }
   | { status: 'downloaded'; version: string; releaseNotes: string | null }
   | { status: 'error' }
+  | { status: 'installError' }
   | { status: 'unsupported' }
 
 export interface BookRecord {

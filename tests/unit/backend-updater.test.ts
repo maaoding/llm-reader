@@ -181,6 +181,68 @@ describe('UpdaterService', () => {
     expect(quitAndInstall).not.toHaveBeenCalled()
   })
 
+  it.each(['event', 'throw', 'delayed event'] as const)('recovers from installation failure reported by %s, including startup-discovered updates', async (failure) => {
+    const { service, updater } = makeUpdaterService()
+    updater.checkForUpdatesResult = 'available'
+    await service.check('startup')
+    await service.download()
+    const onFailure = vi.fn()
+    const error = new Error('Synthetic installer failure')
+    vi.spyOn(updater, 'quitAndInstall').mockImplementation(() => {
+      if (failure === 'throw') throw error
+      if (failure === 'event') updater.emit('error', error)
+      if (failure === 'delayed event') queueMicrotask(() => updater.emit('error', error))
+    })
+
+    expect(service.install(onFailure)).toBe(failure === 'delayed event')
+    await Promise.resolve()
+    expect(onFailure).toHaveBeenCalledOnce()
+    expect(service.getPhase()).toEqual({ status: failure === 'delayed event' ? 'installError' : 'error' })
+    updater.emit('error', error)
+    expect(onFailure).toHaveBeenCalledOnce()
+    if (failure === 'delayed event') {
+      // The native updater retains its install guard after asynchronous failure.
+      const check = vi.spyOn(updater, 'checkForUpdates')
+      await expect(service.check('manual')).resolves.toEqual({ status: 'installError' })
+      await expect(service.download()).resolves.toEqual({ status: 'installError' })
+      updater.emit('update-downloaded', { version: '1.0.1' })
+      expect(service.getPhase()).toEqual({ status: 'installError' })
+      expect(service.install(onFailure)).toBe(false)
+      expect(check).not.toHaveBeenCalled()
+      expect(updater.quitAndInstall).toHaveBeenCalledOnce()
+      return
+    }
+    // A new explicit check and download permit another installation attempt.
+    await service.check('manual')
+    await service.download()
+    vi.mocked(updater.quitAndInstall).mockImplementation(() => undefined)
+    expect(service.install(onFailure)).toBe(true)
+    expect(onFailure).toHaveBeenCalledOnce()
+  })
+
+  it('does not start another install or replace its failure callback during a handoff', async () => {
+    const { service, updater } = makeUpdaterService()
+    updater.emit('update-downloaded', { version: '1.0.1' })
+    const install = vi.spyOn(updater, 'quitAndInstall')
+    const originalFailure = vi.fn(), duplicateFailure = vi.fn()
+    expect(service.install(originalFailure)).toBe(true)
+    expect(service.install(duplicateFailure)).toBe(false)
+    expect(install).toHaveBeenCalledOnce()
+    updater.emit('error', new Error('Synthetic delayed failure'))
+    expect(originalFailure).toHaveBeenCalledOnce()
+    expect(duplicateFailure).not.toHaveBeenCalled()
+  })
+
+  it('does not resume a disposed window when an installation error arrives late', () => {
+    const { service, updater } = makeUpdaterService()
+    updater.emit('update-downloaded', { version: '1.0.1' })
+    const onFailure = vi.fn()
+    expect(service.install(onFailure)).toBe(true)
+    service.dispose()
+    updater.emit('error', new Error('Synthetic late failure'))
+    expect(onFailure).not.toHaveBeenCalled()
+  })
+
   it('returns the in-flight phase instead of starting a concurrent check', async () => {
     const { service, updater } = makeUpdaterService()
     let settleCheck: (() => void) | undefined
