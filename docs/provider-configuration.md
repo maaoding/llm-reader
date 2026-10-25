@@ -26,6 +26,12 @@ Anthropic 协议用于划词问答、全书问答、检索规划与章节笔记�
 提供 Claude 模型但仅实现 OpenAI 协议的服务，应继续选择“OpenAI 兼容”。
 不包含 AWS Bedrock 签名、Vertex OAuth 或工具调用循环。
 
+## OpenCode Go 请求适配
+
+“请求适配”默认为“自动”，会识别 OpenCode Go 官方地址（如 `https://opencode.ai/zen/go/v1`）。通过中转调用 Go 时，选择“OpenCode Go”；测试连接和获取模型列表会直接使用当前表单选项。中转需透传会话标识；Go 请求遇到重定向时，请填写最终接口地址。此选项仅适配请求头，仍需选择支持 `/v1/chat/completions` 的模型。
+
+应用以 `LLM-Reader/<实际版本>` 标识客户端；Go 请求使用随机 UUID 作为 `x-opencode-session`。追问、规划和重试复用对话 ID，问答集重开保留该 ID；章节笔记生成单独维护 ID，暂停和继续保持不变，重新生成时更换。详见 [Go 兼容验证记录](go-compatibility-validation.md)。
+
 ## 模型连接测试
 
 模型设置中的“测试文本回复”和“测试流式回复”使用当前表单配置发送简短请求。

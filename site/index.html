@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="LLM Reader v1.3.0：本地优先的 Windows 阅读器。阅读 EPUB、TXT 与 PDF，自动排版 Markdown 文本，在多书工作台比较观点，让每次理解都能核对来源。"
+      content="LLM Reader v1.3.0：本地优先的 Windows 阅读器。连续阅读 EPUB、TXT 与 PDF，从选中原文到多书对读，用原文核对每次理解。"
     />
     <meta name="theme-color" content="#f7f8f6" />
     <meta property="og:type" content="website" />
@@ -13,7 +13,7 @@
     <meta property="og:title" content="LLM Reader — 读懂复杂内容，始终锚定原文" />
     <meta
       property="og:description"
-      content="从一句原文到整本书：可恢复的阅读对话、自定义助手设定、单轮联网搜索、PDF 图片区域提问与逐页 OCR。"
+      content="连续阅读 EPUB、TXT 与 PDF，从选中原文到多书对读，用原文核对每次理解。支持 TXT Markdown 排版，书库与阅读记录保存在本机。"
     />
     <meta property="og:url" content="https://llm-reader.maaoding.icu/" />
     <title>LLM Reader — 读懂复杂内容，始终锚定原文</title>
@@ -23,7 +23,7 @@
     <link rel="icon" type="image/png" sizes="128x128" href="./icon-128.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="./icon-256.png" />
     <link rel="apple-touch-icon" sizes="256x256" href="./icon-256.png" />
-    <link rel="stylesheet" href="./styles.css?v=1.3.0" />
+    <link rel="stylesheet" href="./styles.css?v=1.3.0.1" />
   </head>
   <body>
     <header class="site-header" id="top">
@@ -49,7 +49,7 @@
           <p class="eyebrow"><span aria-hidden="true"></span>v1.3.0 · Windows · 本地优先</p>
           <h1 id="page-title">读懂复杂内容，<br /><em>始终锚定原文。</em></h1>
           <p class="hero-lead">
-            从难懂的一段，到几本书之间的观点。连续阅读、整理章节笔记，也能在多书工作台对照提问，用原文核对每次理解，下次打开接着读。
+            连续阅读 EPUB、TXT 与 PDF。从选中原文到多书对读，用原文核对每次理解，下次打开接着读。
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/maaoding/llm-reader/releases/latest">
@@ -240,96 +240,38 @@
               </div>
             </div>
           </div>
-          <figcaption class="demo-caption">按 v1.3.0 工作台展示 · 选区提问、整本书问答、助手设定与引用返回可交互。书籍、模型配置和回答均为预设示例，不调用模型或搜索服务。<span class="demo-mobile-hint">左右滑动查看完整工作台。</span><noscript>启用 JavaScript 后可体验交互。</noscript></figcaption>
+          <figcaption class="demo-caption">交互演示：试试选区提问与引用返回。内容均为预设，不调用外部服务。<span class="demo-mobile-hint">左右滑动查看完整工作台。</span><noscript>启用 JavaScript 后可体验交互。</noscript></figcaption>
         </figure>
-      </section>
-
-      <section class="promise-strip shell" aria-label="产品特点">
-        <article>
-          <span class="promise-index">01</span>
-          <div>
-            <strong>以原文为锚</strong>
-            <p>沿引用核对原文，再回到自然阅读位置。</p>
-          </div>
-        </article>
-        <article>
-          <span class="promise-index">02</span>
-          <div>
-            <strong>从一段到整本书</strong>
-            <p>准备原文后即可整本书提问，增强按需开启。</p>
-          </div>
-        </article>
-        <article>
-          <span class="promise-index">03</span>
-          <div>
-            <strong>把阅读留在本机</strong>
-            <p>书籍、笔记、草稿与会话在本机保存。</p>
-          </div>
-        </article>
       </section>
 
       <section class="section shell" id="capabilities" aria-labelledby="capabilities-title">
         <div class="section-heading">
           <p class="section-kicker">产品能力</p>
           <h2 id="capabilities-title">阅读，不离开语境。</h2>
-          <p>
-            从书库进入工作台，把问题、章节笔记、回答与原文位置连成一条可以复查的阅读路径。
-          </p>
         </div>
 
         <div class="capability-grid">
-          <article class="capability-card capability-card-wide">
+          <article class="capability-card">
             <span class="capability-number">01</span>
             <div class="capability-copy">
-              <h3>一本书，一个连续的工作台</h3>
-              <p>紧凑卡片书库与多书标签，打开书籍直接阅读，也能切换到章节笔记。进度放在标题栏，工具收在左侧，给正文留出空间。</p>
-            </div>
-            <div class="library-demo" aria-hidden="true">
-              <div><strong>书库</strong><span>最近打开</span></div>
-              <article><strong>概念与边界</strong><small>阅读进度 42%</small></article>
-              <article><strong>阅读与思考</strong><small>阅读进度 18%</small></article>
-              <article><strong>论证的方法</strong><small>阅读进度 6%</small></article>
+              <h3>连续阅读</h3>
+              <p>目录、搜索、摘录与阅读位置恢复。TXT 可自动排版 Markdown，也可按书切回纯文本。</p>
             </div>
           </article>
 
           <article class="capability-card">
             <span class="capability-number">02</span>
             <div class="capability-copy">
-              <h3>从选中内容，问到整本书</h3>
-              <p>选中难懂句段获得解释，或准备原文后围绕整本书提问。按需联网补充资料，分别核对书内原文与网页摘录。</p>
-            </div>
-            <div class="citation-demo" aria-hidden="true">
-              <span>原文</span>
-              <p>模型必须与适用边界一起理解。</p>
-              <strong>← 回到原文</strong>
+              <h3>有来源的问答</h3>
+              <p>选中原文即可提问；准备原文后，围绕整本书或最多 5 本书对读。有效引用可回到原文，未知引用标记为未验证。</p>
             </div>
           </article>
 
           <article class="capability-card">
             <span class="capability-number">03</span>
             <div class="capability-copy">
-              <h3>几本书，放在一起对读</h3>
-              <p>在独立工作台选择最多 5 本已准备原文的书，比较观点、综合提问，沿引用核对各书原文。草稿与历史随重启恢复，支持导出 Markdown。</p>
-            </div>
-            <div class="archive-demo" aria-hidden="true">
-              <span></span><span></span><span></span>
-              <i>问答集</i>
-            </div>
-          </article>
-
-          <article class="capability-card capability-card-compact">
-            <span class="capability-number">04</span>
-            <div class="capability-copy">
-              <h3>章节笔记，按书的结构阅读</h3>
-              <p>按需用模型整理概述、观点、条件、例外和概念。按真实章节浏览已完成笔记，支持 Markdown 与来源回跳。</p>
-            </div>
-          </article>
-
-          <article class="capability-card capability-card-compact">
-            <span class="capability-number">05</span>
-            <div class="capability-copy">
-              <h3>阅读增强，按需准备</h3>
-              <p>原文就绪即可提问。扫描 PDF 可主动逐页 OCR，也能框选单页图片向支持视觉的问答模型提问；章节笔记与检索增强按需开启。</p>
+              <h3>笔记与归档</h3>
+              <p>按章节整理笔记，将有价值的回答归档到“问答集”。支持搜索、继续追问和 Markdown 导出。</p>
             </div>
           </article>
         </div>
@@ -337,9 +279,8 @@
 
       <section class="section shell format-section" id="formats" aria-labelledby="formats-title">
         <div class="format-intro">
-          <p class="section-kicker">阅读核心</p>
+          <p class="section-kicker">支持格式</p>
           <h2 id="formats-title">常用格式，统一阅读。</h2>
-          <p>连续滚动、目录、搜索与自然阅读位置恢复，让不同文件回到同一套阅读体验。</p>
         </div>
         <div class="format-list" aria-label="支持的书籍格式">
           <article>
@@ -359,29 +300,14 @@
             <span>通过本机 Calibre 转换无 DRM 文件</span>
           </article>
         </div>
-        <p class="format-note">扫描 PDF 可直接浏览，也能框选单页图片区域提问。整书原文准备可选 MinerU、Docling 或逐页 OCR；处理由你主动启动，识别结果不替换原 PDF 页面。应用不内置这些服务，不处理 DRM 内容。</p>
-      </section>
-
-      <section class="section shell local-section" aria-labelledby="local-title">
-        <div class="local-copy">
-          <p class="section-kicker">本地优先</p>
-          <h2 id="local-title">你的阅读记录，<br />首先属于你的电脑。</h2>
-          <p>
-            无需注册 LLM Reader 账号。书库与阅读记录保存在本机，模型接口由你配置，API Key 加密保存。问答、笔记及可选增强会将所需输入发送到你选择的服务，可能产生费用。
-          </p>
-        </div>
-        <ul class="local-list">
-          <li><span aria-hidden="true">✓</span>书籍、进度、摘录、笔记与会话保存在本机</li>
-          <li><span aria-hidden="true">✓</span>API Key 明文不进入数据库、日志或渲染进程持久状态</li>
-          <li><span aria-hidden="true">✓</span>EPUB 与 PDF 内容按不可信输入隔离处理</li>
-          <li><span aria-hidden="true">✓</span>不包含账号、同步或遥测，PDF 处理由你主动开始</li>
-        </ul>
+        <p class="format-note">扫描 PDF 可直接浏览；图片提问、原文解析与 OCR 需配置相应服务，处理由你主动开始。<a href="https://github.com/maaoding/llm-reader#开始使用">查看使用与配置说明 →</a></p>
       </section>
 
       <section class="final-cta shell" aria-labelledby="cta-title">
         <p class="section-kicker">LLM READER</p>
-        <h2 id="cta-title">让每次理解，都能回到原文。</h2>
-        <p>v1.3.0 · Windows x64 · GPL-3.0-or-later 开源。安装包未签名，已有版本可在“设置 → 关于”检查更新。</p>
+        <h2 id="cta-title">从下一页开始。</h2>
+        <p>书库与阅读记录保存在本机。普通阅读无需模型；AI 功能需自行配置服务，会发送所需资料，调用可能产生费用。</p>
+        <p>v1.3.0 · Windows x64 · GPL-3.0-or-later。安装包未签名，已有版本可在“设置 → 关于”检查更新。</p>
         <a class="button button-primary" href="https://github.com/maaoding/llm-reader/releases/latest">
           下载最新版本
           <span aria-hidden="true">↓</span>
