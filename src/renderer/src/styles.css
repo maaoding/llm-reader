@@ -1169,6 +1169,27 @@ button:disabled {
 
 /* ===================== 阅读区:框架 / 纸张主题 / 正文 / 划词工具栏 ===================== */
 
+.reader-document--txt[data-text-rendering="markdown"] :is(h1, h2, h3, h4, h5, h6) { margin: 1.8em 0 .8em; line-height: 1.4; color: var(--ink); }
+.reader-document--txt[data-text-rendering="markdown"] > :is(h1, h2, h3, h4, h5, h6):first-of-type { margin-top: 0; }
+.reader-document--txt[data-text-rendering="markdown"] h1 { font-size: 1.8em; }
+.reader-document--txt[data-text-rendering="markdown"] h2 { font-size: 1.5em; }
+.reader-document--txt[data-text-rendering="markdown"] h3 { font-size: 1.25em; }
+.reader-document--txt[data-text-rendering="markdown"] :is(h4, h5, h6) { font-size: 1.1em; }
+.reader-document--txt[data-text-rendering="markdown"] p { white-space: pre-line; }
+.reader-document--txt[data-text-rendering="markdown"] :is(ul, ol) { padding-left: 1.6em; margin: .8em 0 1.2em; }
+.reader-document--txt[data-text-rendering="markdown"] li { margin: .35em 0; }
+.reader-document--txt[data-text-rendering="markdown"] li[data-checked="true"]::marker { content: '☑ '; }
+.reader-document--txt[data-text-rendering="markdown"] li[data-checked="false"]::marker { content: '☐ '; }
+.reader-document--txt[data-text-rendering="markdown"] blockquote { margin: 1.2em 0; padding: .3em 1em; border-left: 3px solid var(--accent); color: var(--ink-soft); }
+.reader-document--txt[data-text-rendering="markdown"] code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: .88em; background: var(--paper-deep); border-radius: var(--radius-sm); padding: .12em .3em; }
+.reader-document--txt[data-text-rendering="markdown"] pre { max-width: 100%; margin: 1.2em 0; padding: 1em; white-space: pre; overflow: auto; background: var(--paper-deep); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.reader-document--txt[data-text-rendering="markdown"] pre code { display: block; padding: 0; white-space: pre; overflow-wrap: normal; background: transparent; border-radius: 0; }
+.reader-document--txt[data-text-rendering="markdown"] .reader-markdown-table { max-width: 100%; margin: 1.2em 0; overflow: auto; }
+.reader-document--txt[data-text-rendering="markdown"] table { width: 100%; border-collapse: collapse; font-size: .92em; }
+.reader-document--txt[data-text-rendering="markdown"] :is(th, td) { padding: .55em .8em; border: 1px solid var(--line); text-align: left; }
+.reader-document--txt[data-text-rendering="markdown"] th { background: var(--paper-deep); font-weight: 650; }
+.reader-document--txt[data-text-rendering="markdown"] hr { margin: 1.6em 0; border: 0; border-top: 1px solid var(--line); }
+
 .reader-column {
   --bg: var(--reader-frame);
   --panel: var(--reader-header);

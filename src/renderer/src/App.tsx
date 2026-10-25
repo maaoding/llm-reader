@@ -4,6 +4,7 @@ import { createArchiveTab, type ConversationTab, type ConversationTurn } from '.
 import { SettingsModal, type InterfaceScale, type SettingsSectionId, type ThemePreference } from './SettingsModal'
 import { AssistantActionIconView } from './AssistantActionIcon'
 import { Select } from './Select'
+import { isTextReadingMode, readTextReadingMode, saveTextReadingMode } from './text-reading-mode'
 import { AssistantComposer } from './AssistantComposer'
 import { WebSearchControl } from './WebSearchControl'
 import { PersonaSessionControl } from './AssistantPersonaSettings'
@@ -79,6 +80,7 @@ import type {
   PersonaSelection,
   PersonaSettings,
   SavedInsight,
+  TextReadingMode,
   TocItem
 } from '@shared/contracts'
 import { copy, isUiLanguage, setCopyLanguage, type UiLanguage } from '@shared/copy'
@@ -1046,6 +1048,8 @@ export default function App(): ReactNode {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(themePreference))
   const [interfaceScale, setInterfaceScale] = useState<InterfaceScale>(readInterfaceScale)
   const [readingPreferences, setReadingPreferences] = useState<ReadingPreferences>(readReadingPreferences)
+  const [textReadingMode, setTextReadingMode] = useState<TextReadingMode>('auto')
+  const [textRendering, setTextRendering] = useState<'plain' | 'markdown'>('plain')
   const [paperThemePreference, setPaperThemePreference] = useState<PaperThemePreference>(readPaperThemePreference)
   const [assistantActions, setAssistantActions] = useState<AssistantActionSettings>(readAssistantActionSettings)
   const [personaSettings, setPersonaSettings] = useState<PersonaSettings>(readPersonaSettings)
@@ -1634,12 +1638,16 @@ export default function App(): ReactNode {
       })
       adapterRef.current = adapter
       await adapter.setPreferences(readingPreferencesRef.current)
+      const textMode = readTextReadingMode(book.id)
+      await adapter.setTextMode?.(textMode)
       const result = await adapter.open(payload.bytes, book.lastLocator)
       if (sequence !== openSequenceRef.current) {
         adapter.destroy()
         return
       }
       setToc(result.toc)
+      setTextReadingMode(textMode)
+      setTextRendering(result.textRendering ?? 'plain')
       setBookState('ready')
       if (leftViewRevision === leftViewRevisionRef.current) {
         setLeftView('toc')
@@ -1671,6 +1679,20 @@ export default function App(): ReactNode {
       setBookError(readableError(error, copy('reader.openFailed')))
     }
   }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress, openSettings])
+
+  const changeTextReadingMode = useCallback(async (mode: TextReadingMode): Promise<void> => {
+    if (!isTextReadingMode(mode)) return
+    const adapter = adapterRef.current, book = activeBookRef.current
+    if (!adapter?.setTextMode || book?.format !== 'txt') return
+    try {
+      const result = await adapter.setTextMode(mode)
+      if (adapterRef.current !== adapter || activeBookRef.current?.id !== book.id) return
+      setTextReadingMode(mode)
+      if (result) { setToc(result.toc); setTextRendering(result.textRendering ?? 'plain') }
+      setSelection(null); setSearchResults([]); setExecutedSearchQuery('')
+      if (!saveTextReadingMode(book.id, mode)) pushToast(copy('settings.textModeSaveFailed'), 'error')
+    } catch (error) { pushToast(readableError(error, copy('reader.openFailed')), 'error') }
+  }, [pushToast])
 
   useEffect(() => {
     let alive = true
@@ -3531,6 +3553,7 @@ export default function App(): ReactNode {
           interfaceScale={interfaceScale}
           uiLanguage={uiLanguage}
           readingPreferences={readingPreferences}
+          textReading={activeBook?.format === 'txt' && bookState === 'ready' ? { mode: textReadingMode, rendering: textRendering, onChange: (mode) => void changeTextReadingMode(mode) } : undefined}
           paperThemePreference={paperThemePreference}
           assistantActions={assistantActions}
           personaSettings={personaSettings}

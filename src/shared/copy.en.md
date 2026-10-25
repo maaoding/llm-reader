@@ -4,6 +4,15 @@
 
 | key | text |
 | --- | --- |
+| reader.markdownFallback | This content is too large or could not be fully parsed. Showing plain text. |
+| settings.textReadingMode | Current TXT presentation |
+| settings.textModeAuto | Detect automatically |
+| settings.textModePlain | Plain text |
+| settings.textModeMarkdown | Markdown |
+| settings.textModeHint | Applies to this book only. The original text and reading position are preserved. |
+| settings.textRenderedPlain | Currently showing plain text. |
+| settings.textRenderedMarkdown | Currently showing Markdown formatting. |
+| settings.textModeSaveFailed | Presentation changed, but the preference could not be saved. |
 | workspace.navigation | Main navigation |
 | workspace.reading | Reading |
 | workspace.notes | Notes |

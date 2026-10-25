@@ -1,4 +1,4 @@
-import type { BookFormat, PdfImageRegionSource, ReaderSource, TocItem } from '@shared/contracts'
+import type { BookFormat, PdfImageRegionSource, ReaderSource, TextReadingMode, TocItem } from '@shared/contracts'
 
 export interface ReaderMetadata {
   title: string
@@ -8,6 +8,7 @@ export interface ReaderMetadata {
 export interface ReaderDocumentInfo {
   metadata: ReaderMetadata
   toc: TocItem[]
+  textRendering?: 'plain' | 'markdown'
 }
 
 export type ReaderRelocationReason = 'restore' | 'navigation' | 'natural'
@@ -113,4 +114,5 @@ export interface ReaderAdapter {
   clearHighlight(): void
   setHighlights(highlights: ReadonlyArray<ReaderHighlightAnchor>): Promise<void>
   setPreferences(preferences: ReadingPreferences): Promise<void>
+  setTextMode?(mode: TextReadingMode): Promise<ReaderDocumentInfo | undefined>
 }

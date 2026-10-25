@@ -1,4 +1,5 @@
-import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
+import type { BookFormat, SelectionContext, TextReadingMode, TocItem } from '@shared/contracts'
+import { looksLikeMarkdown, markdownAnchor, renderMarkdownDocument, visibleOffset, type MarkdownParagraph } from './markdown-document'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
 import {
@@ -70,7 +71,8 @@ interface TextParagraph {
   start: number
   end: number
   chapterIndex: number
-  element: HTMLParagraphElement | HTMLHeadingElement
+  element: HTMLElement
+  markdown?: MarkdownParagraph
 }
 
 interface ParsedTextParagraph {
@@ -79,6 +81,8 @@ interface ParsedTextParagraph {
   start: number
   end: number
   heading: boolean
+  label?: string
+  level?: number
 }
 
 function createUtf16ToCodePointMap(value: string): Uint32Array {
@@ -244,6 +248,9 @@ export class TextReaderAdapter implements ReaderAdapter {
   private readonly originalPosition: string
   private root: HTMLElement | null = null
   private text = ''
+  private textMode: TextReadingMode = 'auto'
+  private lastTextLocator: string | null = null
+  private changingTextMode = false
   private textCharacters: string[] = []
   private paragraphs: TextParagraph[] = []
   private chapters: TextChapter[] = []
@@ -270,10 +277,17 @@ export class TextReaderAdapter implements ReaderAdapter {
   }
 
   async open(bytes: Uint8Array, lastLocator?: string | null): Promise<ReaderDocumentInfo> {
+    const nextText = decodeUtf8(bytes)
+    let markdown: ReturnType<typeof renderMarkdownDocument> | null = null
+    if (this.textMode === 'markdown' || this.textMode === 'auto' && looksLikeMarkdown(nextText)) {
+      try { markdown = renderMarkdownDocument(nextText, this.document) }
+      catch { this.callbacks.onNotice?.({ message: copy('reader.markdownFallback'), tone: 'info' }) }
+    }
     this.resetDocument()
-    this.text = decodeUtf8(bytes)
+    this.text = nextText
     this.textCharacters = Array.from(this.text)
-    const parsedParagraphs = parseTextParagraphs(this.text)
+    const originalParagraphs = parseTextParagraphs(this.text)
+    const parsedParagraphs: ParsedTextParagraph[] = markdown?.paragraphs ?? originalParagraphs
     if (parsedParagraphs.length === 0) {
       throw new Error(copy('reader.txtEmpty'))
     }
@@ -285,6 +299,7 @@ export class TextReaderAdapter implements ReaderAdapter {
 
     const root = this.document.createElement('article')
     root.className = 'reader-document reader-document--txt'
+    root.dataset.textRendering = markdown ? 'markdown' : 'plain'
     root.tabIndex = 0
     root.style.boxSizing = 'border-box'
     root.style.margin = '0 auto'
@@ -294,7 +309,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     root.style.paddingBottom = TXT_BOTTOM_READING_TAIL
     root.style.paddingLeft = DEFAULT_TXT_PAGE_MARGIN_INLINE
     root.style.paddingRight = DEFAULT_TXT_PAGE_MARGIN_INLINE
-    root.style.whiteSpace = 'pre-wrap'
+    root.style.whiteSpace = markdown ? 'normal' : 'pre-wrap'
     root.style.overflowWrap = 'break-word'
     root.style.lineHeight = '1.82'
 
@@ -303,22 +318,24 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.highlightStyleElement = style
     root.append(style)
 
-    const chapterHeadingIndexes = navigationalHeadingIndexes(parsedParagraphs)
+    const chapterHeadingIndexes = markdown ? new Set(parsedParagraphs.filter((item) => item.heading).map((item) => item.index)) : navigationalHeadingIndexes(parsedParagraphs)
     this.chapters = this.buildChapters(parsedParagraphs, chapterHeadingIndexes)
+    if (markdown) root.append(markdown.fragment)
     this.paragraphs = parsedParagraphs.map((paragraph) => {
       const isChapterHeading = chapterHeadingIndexes.has(paragraph.index)
-      const element = this.document.createElement(isChapterHeading ? 'h2' : 'p')
-      element.textContent = paragraph.text
+      const mapped = markdown?.paragraphs[paragraph.index]
+      const element = mapped?.element ?? this.document.createElement(isChapterHeading ? 'h2' : 'p')
+      if (!mapped) element.textContent = paragraph.text
       element.dataset.readerParagraph = String(paragraph.index)
       element.dataset.readerStart = String(paragraph.start)
       element.dataset.readerEnd = String(paragraph.end)
       element.style.scrollMarginTop = '32px'
-      if (isChapterHeading) {
+      if (!mapped && isChapterHeading) {
         element.style.margin = paragraph.index === 0 ? '0 0 1.2em' : '2.4em 0 1.2em'
-      } else {
+      } else if (!mapped) {
         element.style.margin = '0 0 1.35em'
       }
-      root.append(element)
+      if (!mapped) root.append(element)
 
       const chapterIndex = this.chapters.findIndex((chapter) =>
         chapter.paragraphIndexes.includes(paragraph.index)
@@ -326,7 +343,8 @@ export class TextReaderAdapter implements ReaderAdapter {
       return {
         ...paragraph,
         chapterIndex: Math.max(0, chapterIndex),
-        element
+        element,
+        ...(mapped ? { markdown: mapped } : {})
       }
     })
 
@@ -344,7 +362,7 @@ export class TextReaderAdapter implements ReaderAdapter {
         id: `txt-toc-${index + 1}`,
         label: chapter.title,
         href: makeTextAnchor(chapter.start),
-        depth: 0
+        depth: markdown ? Math.max(0, (parsedParagraphs.find((item) => item.start === chapter.start)?.level ?? 1) - 1) : 0
       }))
 
     this.programmaticScroll = true
@@ -363,9 +381,24 @@ export class TextReaderAdapter implements ReaderAdapter {
     }
 
     return {
-      metadata: { title: titleFromParagraphs(parsedParagraphs), author: null },
-      toc
+      metadata: { title: titleFromParagraphs(originalParagraphs), author: null },
+      toc,
+      textRendering: markdown ? 'markdown' : 'plain'
     }
+  }
+
+  async setTextMode(mode: TextReadingMode): Promise<ReaderDocumentInfo | undefined> {
+    if (mode !== 'auto' && mode !== 'plain' && mode !== 'markdown') return undefined
+    if (mode === this.textMode) return undefined
+    this.textMode = mode
+    if (!this.root) return undefined
+    const saved = this.persistentHighlightAnchors.slice()
+    this.changingTextMode = true
+    try {
+      const info = await this.open(new TextEncoder().encode(this.text), this.lastTextLocator)
+      await this.setHighlights(saved)
+      return info
+    } finally { this.changingTextMode = false }
   }
 
   destroy(): void {
@@ -397,24 +430,25 @@ export class TextReaderAdapter implements ReaderAdapter {
     for (let paragraphIndex = 0; paragraphIndex < this.paragraphs.length; paragraphIndex += 1) {
       if (revision !== this.searchRevision) return []
       const paragraph = this.paragraphs[paragraphIndex]
+      const searchText = paragraph.markdown?.visibleText ?? paragraph.text
       const expression = literalSearchExpression(query)
       let previousUtf16 = 0
       let previousCodePoints = 0
-      let match = expression.exec(paragraph.text)
+      let match = expression.exec(searchText)
       while (match) {
         const localStart = previousCodePoints + codePointLength(
-          paragraph.text.slice(previousUtf16, match.index)
+          searchText.slice(previousUtf16, match.index)
         )
         const localEnd = localStart + codePointLength(match[0])
         results.push({
-          anchor: makeTextAnchor(paragraph.start + localStart, paragraph.start + localEnd),
-          excerpt: searchExcerpt(paragraph.text, match.index, match.index + match[0].length),
+          anchor: paragraph.markdown ? markdownAnchor(paragraph.markdown, match.index, match.index + match[0].length) : makeTextAnchor(paragraph.start + localStart, paragraph.start + localEnd),
+          excerpt: searchExcerpt(searchText, match.index, match.index + match[0].length),
           chapterTitle: this.chapters[paragraph.chapterIndex]?.title ?? copy('reader.txtFullText')
         })
         if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
         previousUtf16 = match.index
         previousCodePoints = localStart
-        match = expression.exec(paragraph.text)
+        match = expression.exec(searchText)
       }
       if (paragraphIndex > 0 && paragraphIndex % 120 === 0) {
         await yieldSearchWork()
@@ -624,12 +658,12 @@ export class TextReaderAdapter implements ReaderAdapter {
       return
     }
 
-    const start = startParagraph.start + this.offsetWithinElement(
+    const start = startParagraph.markdown ? startParagraph.markdown.sourceOffset(visibleOffset(startParagraph.element, range.startContainer, range.startOffset)) : startParagraph.start + this.offsetWithinElement(
       startParagraph.element,
       range.startContainer,
       range.startOffset
     )
-    const end = endParagraph.start + this.offsetWithinElement(
+    const end = endParagraph.markdown ? endParagraph.markdown.sourceOffset(visibleOffset(endParagraph.element, range.endContainer, range.endOffset), true) : endParagraph.start + this.offsetWithinElement(
       endParagraph.element,
       range.endContainer,
       range.endOffset
@@ -770,7 +804,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       const isChapterHeading = headingIndexes.has(paragraph.index)
       if (isChapterHeading || chapters.length === 0) {
         chapters.push({
-          title: isChapterHeading ? cleanHeading(paragraph.text) : copy('reader.txtOpening'),
+          title: isChapterHeading ? paragraph.label ?? cleanHeading(paragraph.text) : copy('reader.txtOpening'),
           start: paragraph.start,
           paragraphIndexes: []
         })
@@ -843,6 +877,14 @@ export class TextReaderAdapter implements ReaderAdapter {
     const rangeInfo = this.paragraphRangeForAnchor(anchor)
     if (!rangeInfo) return null
     const { startParagraph, endParagraph } = rangeInfo
+    if (startParagraph.markdown && endParagraph.markdown) {
+      const start = startParagraph.markdown.point(parsed.start)
+      const end = endParagraph.markdown.point(parsed.end, true)
+      if (!start || !end) return null
+      const range = this.document.createRange()
+      range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset)
+      return range
+    }
     const startTextNode = startParagraph.element.firstChild
     const endTextNode = endParagraph.element.firstChild
     if (!startTextNode || !endTextNode) return null
@@ -918,6 +960,8 @@ export class TextReaderAdapter implements ReaderAdapter {
   }
 
   private emitRelocation(relocation: ReaderRelocation): void {
+    if (this.changingTextMode && relocation.reason === 'restore') relocation = { ...relocation, reason: 'navigation' }
+    this.lastTextLocator = relocation.locator
     this.callbacks.onRelocated?.({
       locator: relocation.locator,
       progress: Math.min(1, Math.max(0, relocation.progress)),

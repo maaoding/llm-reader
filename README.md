@@ -12,17 +12,18 @@
   <a href="https://llm-reader.maaoding.icu/">项目主页</a>
 </p>
 
-## 当前版本 · v1.2.0
+## 候选版本 · v1.3.0（发布准备）
 
 LLM Reader 提供连续阅读、章节笔记与可恢复的对话。支持从选中原文、整本书或 PDF 单页图片区域提问，也可在独立工作台中选择最多 5 本书比较观点、综合提问；可保存助手设定，并在文字问答中按需联网搜索。回答附带本次实际参考的原文与网页摘录，方便核对。
 
-v1.2.0 更新 Electron 运行时与构建工具链，并验证从 v1.1.0 覆盖升级时的本机数据保留。变化与验证范围见[发布说明](docs/releases/v1.2.0.md)和[验收记录](docs/releases/v1.2.0-validation.md)。
+v1.3.0 候选版新增 TXT 内容的 Markdown 自动排版与按书切换，完善会话恢复、退出保护和跨语言取材回退。变化与本轮验证范围见[发布说明](docs/releases/v1.3.0.md)和[验收记录](docs/releases/v1.3.0-validation.md)。候选版尚未公开发布，页面顶部的下载入口仍指向最新已发布版本。
 
 ## 功能
 
 ### 书库与阅读
 
 - 支持导入无 DRM 的 EPUB、UTF-8 TXT 或 PDF；本机已安装 Calibre 时，还可将无 DRM 的 MOBI/AZW3 转换为 EPUB 后导入。
+- TXT 内容可自动识别为 Markdown，支持标题、强调、列表、引用、代码与表格；阅读设置可为当前书籍选择自动、纯文本或 Markdown，原始文件、摘录及来源定位保留。
 - 支持文件多选与整窗拖拽批量导入（最多 300 个）：逐本顺序处理、单项失败不中断批次，可随时取消，完成后显示汇总；单文件上限为 250 MB，其中 TXT 为 64 MB。
 - 导入文件复制到应用数据目录并按 SHA-256 去重，重复导入会直接打开已有书籍。
 - 书库使用紧凑卡片，宽窗口每行三本，支持书名／作者搜索、最近打开排序和继续阅读入口；可查看格式、大小、语言、出版社、出版日期、简介等书籍详情。
@@ -136,7 +137,7 @@ pnpm build:win
 
 [应用 CI](.github/workflows/ci.yml) 在推送到 `main`、提交 Pull Request 或手动触发时运行：先在 Linux 执行 lint、typecheck、完整单元测试与应用构建，再在 Windows Server 2025 的 1920×1080 桌面执行完整 Electron E2E。CI 从 `package.json` 安装固定版本的 pnpm，按锁文件安装依赖，并安装 Electron 与 Calibre；桌面测试报告、截图及失败 trace 保留 7 天。测试使用隔离书库、合成资料与本机模拟服务，不调用真实付费接口；需要私有 PDF 的用例仍按原条件跳过。CI 检查源码构建与桌面行为，Windows 安装包、覆盖升级及真实服务质量仍需单独验收。
 
-依赖升级的结果及边界见[收尾记录](docs/dependency-upgrade-closeout.md)。另有 [Windows 安装验收工作流](.github/workflows/windows-package-validation.yml)，可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.1.0 覆盖安装及已安装程序的专项回归。
+依赖升级的结果及边界见[收尾记录](docs/dependency-upgrade-closeout.md)。另有 [Windows 安装验收工作流](.github/workflows/windows-package-validation.yml)，可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.2.0 覆盖安装及已安装程序的专项回归。
 
 验收已安装版本时，将 `LLM_READER_E2E_EXECUTABLE` 指向安装目录中的 `LLM Reader.exe`，再运行 `pnpm test:e2e:run`。测试仍会为每个用例创建并清理隔离的临时用户数据目录，不会读写日常书库。
 

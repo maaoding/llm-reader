@@ -2,6 +2,15 @@ import copySource from './copy.md?raw'
 import copyEnSource from './copy.en.md?raw'
 
 export const COPY_KEYS = [
+  'reader.markdownFallback',
+  'settings.textReadingMode',
+  'settings.textModeAuto',
+  'settings.textModePlain',
+  'settings.textModeMarkdown',
+  'settings.textModeHint',
+  'settings.textRenderedPlain',
+  'settings.textRenderedMarkdown',
+  'settings.textModeSaveFailed',
   'assistant.unsavedSessions',
   'assistant.closeSaveFailed',
   'assistant.savingBeforeClose',

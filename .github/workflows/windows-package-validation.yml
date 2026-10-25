@@ -51,14 +51,14 @@ jobs:
           pnpm build:app
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm exec electron-builder --win nsis --publish never
-      - name: Verify installation and upgrade from public v1.1.0
+      - name: Verify installation and upgrade from public v1.2.0
         run: node scripts/validate-windows-package.mjs --output release
       - name: Run installed application regression
         run: |
           if (!$env:LLM_READER_E2E_EXECUTABLE -or !(Test-Path -LiteralPath $env:LLM_READER_E2E_EXECUTABLE)) {
             throw 'The installed application executable is required for package regression.'
           }
-          pnpm exec playwright test tests/e2e/about-panel.spec.ts tests/e2e/pdf-reader.spec.ts tests/e2e/workbenches.spec.ts tests/e2e/session-persistence.spec.ts tests/e2e/vision-ocr.spec.ts
+          pnpm exec playwright test tests/e2e/about-panel.spec.ts tests/e2e/pdf-reader.spec.ts tests/e2e/workbenches.spec.ts tests/e2e/session-persistence.spec.ts tests/e2e/vision-ocr.spec.ts tests/e2e/text-markdown.spec.ts tests/e2e/retrieval-quality.spec.ts
       - name: Upload verified unsigned installer
         uses: actions/upload-artifact@v4
         with:

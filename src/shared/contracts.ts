@@ -95,6 +95,9 @@ export const IPC_CHANNELS = {
 } as const
 
 export type BookFormat = 'epub' | 'txt' | 'pdf'
+
+/** Presentation only: TXT storage, extraction and source coordinates stay unchanged. */
+export type TextReadingMode = 'auto' | 'plain' | 'markdown'
 export interface PreparedDocumentSearch {
   available: boolean
   results: ReaderSearchResult[]

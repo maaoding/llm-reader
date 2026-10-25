@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { AlertCircle, BookOpen, Check, Cpu, Info, LoaderCircle, MessageSquareText, Palette, Plus, RefreshCw, Save, Sparkles, Trash2, Unplug, X } from 'lucide-react'
-import type { AppUpdatePhase, PersonaSettings, ProviderCompatibility, ProviderOverview, ProviderProfile, ProviderProtocol, RequestSettingsInput } from '@shared/contracts'
+import type { AppUpdatePhase, PersonaSettings, ProviderCompatibility, ProviderOverview, ProviderProfile, ProviderProtocol, RequestSettingsInput, TextReadingMode } from '@shared/contracts'
 import { copy, type CopyKey, type UiLanguage } from '@shared/copy'
 import { publicRequestSettings } from '@shared/request-settings'
 import appIcon from '../../../resources/icon.png'
@@ -392,6 +392,7 @@ export function SettingsModal({
   interfaceScale,
   uiLanguage,
   readingPreferences,
+  textReading,
   paperThemePreference,
   assistantActions,
   personaSettings,
@@ -415,6 +416,7 @@ export function SettingsModal({
   interfaceScale: InterfaceScale
   uiLanguage: UiLanguage
   readingPreferences: ReadingPreferences
+  textReading?: { mode: TextReadingMode; rendering: 'plain' | 'markdown'; onChange: (mode: TextReadingMode) => void }
   paperThemePreference: PaperThemePreference
   assistantActions: AssistantActionSettings
   personaSettings: PersonaSettings
@@ -857,10 +859,18 @@ export function SettingsModal({
               <section className="settings-section" id="settings-panel-reading" role="tabpanel" aria-labelledby="settings-tab-reading">
             <div className="settings-section-heading">
               <h3 id="reading-settings-title">{copy('settings.readingTitle')}</h3>
-              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onPaperThemePreferenceChange('default'); onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }) }}>{copy('settings.restoreDefaults')}</button>
+              <button className="text-button" data-testid="reading-reset" type="button" onClick={() => { onPaperThemePreferenceChange('default'); onReadingPreferencesChange({ ...DEFAULT_READING_PREFERENCES }); textReading?.onChange('auto') }}>{copy('settings.restoreDefaults')}</button>
             </div>
             <p className="field-hint">{copy('settings.immediateHint')}</p>
             <p className="field-hint">{copy('settings.readingScopeHint')}</p>
+            {textReading && <div className="settings-select-grid">
+              <label className="settings-select-full" htmlFor="text-reading-mode"><span>{copy('settings.textReadingMode')}</span>
+                <Select id="text-reading-mode" data-testid="text-reading-mode" value={textReading.mode} onChange={(event) => textReading.onChange(event.target.value as TextReadingMode)}>
+                  <option value="auto">{copy('settings.textModeAuto')}</option><option value="plain">{copy('settings.textModePlain')}</option><option value="markdown">{copy('settings.textModeMarkdown')}</option>
+                </Select>
+              </label>
+              <p className="field-hint settings-select-full" data-testid="text-reading-status">{copy(textReading.rendering === 'markdown' ? 'settings.textRenderedMarkdown' : 'settings.textRenderedPlain')} {copy('settings.textModeHint')}</p>
+            </div>}
             <label className="settings-range" htmlFor="reading-font-scale">
               <span><strong>{copy('settings.fontLabel')}</strong><output>{readingPreferences.fontScale}%</output></span>
               <input

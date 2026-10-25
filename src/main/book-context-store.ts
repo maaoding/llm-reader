@@ -30,7 +30,7 @@ export interface DocumentRecord {
 
 /** A future hybrid retriever can implement this interface without changing context assembly. */
 export interface BookRetriever {
-  search(bookId: string, text: string, limit?: number, chapterIds?: string[]): Passage[]
+  search(bookId: string, text: string, limit?: number, chapterIds?: string[], plannedTerms?: string[]): Passage[]
 }
 
 const segmenter = new Intl.Segmenter('zh', { granularity: 'word' })
@@ -284,10 +284,20 @@ export class BookContextStore implements BookRetriever {
     } catch (error) { this.db.exec('ROLLBACK'); throw error }
   }
 
-  search(bookId: string, text: string, limit = 24, chapterIds: string[] = []): Passage[] {
-    const terms = [...new Set(searchTokens(text).split(' ').filter((term) => term.length > 1 || /\p{Script=Han}/u.test(term)))].slice(0, 64)
-    if (!terms.length) return []
-    const query = terms.map((term) => `"${term.replaceAll('"', '""')}"`).join(' OR ')
+  search(bookId: string, text: string, limit = 24, chapterIds: string[] = [], plannedTerms: string[] = []): Passage[] {
+    // A long question or planning phrase must not consume the whole budget before
+    // translated terms and aliases are considered. Without a plan, retain the old order.
+    const groups = [text, ...plannedTerms.slice(0, 8)].map((value) =>
+      [...new Set(searchTokens(value).split(' ').filter((term) => term.length > 1 || /\p{Script=Han}/u.test(term)))])
+    const terms = new Set<string>()
+    for (let index = 0; terms.size < 64 && groups.some((group) => index < group.length); index++) {
+      for (const group of groups) {
+        if (group[index]) terms.add(group[index])
+        if (terms.size === 64) break
+      }
+    }
+    if (!terms.size) return []
+    const query = [...terms].map((term) => `"${term.replaceAll('"', '""')}"`).join(' OR ')
     const chapters = chapterIds.slice(0, 6)
     const boost = chapters.length ? `CASE WHEN b.chapter_id IN (${chapters.map(() => '?').join(',')}) THEN 1.25 ELSE 1 END` : '1'
     return this.db.prepare(`SELECT b.* FROM book_fts JOIN book_blocks b ON b.id = book_fts.rowid

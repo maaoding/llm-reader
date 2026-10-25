@@ -14,6 +14,10 @@ lockfile and dependency packages.
 | epub.js | 0.3.93 | BSD-2-Clause | Copyright (c) 2013, FuturePress |
 | JSZip | 3.10.2 | MIT OR GPL-3.0-or-later | Copyright (c) 2009-2025 Stuart Knightley and contributors |
 | parse5 | 8.0.1 | MIT | Copyright (c) 2013-2019 Ivan Nikulin |
+| mdast-util-from-markdown | 2.1.0 | MIT | Copyright (c) Titus Wormer |
+| mdast-util-gfm | 3.1.0 | MIT | Copyright (c) Titus Wormer |
+| micromark-extension-gfm | 3.0.0 | MIT | Copyright (c) 2020 Titus Wormer |
+| micromark-util-decode-string | 2.0.1 | MIT | Copyright (c) Titus Wormer |
 | localforage | 1.10.0 | Apache-2.0 | Copyright 2014 Mozilla |
 | PDF.js | 6.4.299 | Apache-2.0 | Copyright 2012 Mozilla Foundation |
 | lucide-react | 1.57.0 | ISC | Copyright (c) 2026 Lucide Icons and Contributors |
@@ -30,6 +34,9 @@ each option is available in that package.
 MIT License
 
 Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Copyright (c) Titus Wormer <tituswormer@gmail.com>.
+Copyright (c) 2020 Titus Wormer <tituswormer@gmail.com>.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

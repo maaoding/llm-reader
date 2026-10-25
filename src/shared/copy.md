@@ -4,6 +4,15 @@
 
 | key | text |
 | --- | --- |
+| reader.markdownFallback | 内容较大或无法完整解析，已按纯文本显示。 |
+| settings.textReadingMode | 当前 TXT 显示方式 |
+| settings.textModeAuto | 自动识别 |
+| settings.textModePlain | 纯文本 |
+| settings.textModeMarkdown | Markdown |
+| settings.textModeHint | 仅应用于当前书籍，切换后保留原文和阅读位置。 |
+| settings.textRenderedPlain | 当前按纯文本显示。 |
+| settings.textRenderedMarkdown | 当前按 Markdown 排版显示。 |
+| settings.textModeSaveFailed | 显示方式已切换，但未能记住选择。 |
 | workspace.navigation | 主导航 |
 | workspace.reading | 阅读 |
 | workspace.notes | 笔记 |

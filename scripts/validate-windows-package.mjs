@@ -35,13 +35,13 @@ const executablePath = join(installDir, 'LLM Reader.exe')
 const cleanProfile = join(testRoot, 'clean-profile')
 const upgradeProfile = join(testRoot, 'upgrade-profile')
 const fixturePath = join(testRoot, 'upgrade-fixture.txt')
-const oldInstaller = join(testRoot, 'LLM-Reader-1.1.0-setup.exe')
+const oldInstaller = join(testRoot, 'LLM-Reader-1.2.0-setup.exe')
 const oldRelease = {
-  version: '1.1.0',
-  electron: '43.5.0',
-  bytes: 127_346_352,
-  sha256: '82f5c20a09cf02707b700327a560e768b14e059e72ff982aefc800bf0f09ab22',
-  url: 'https://github.com/maaoding/llm-reader/releases/download/v1.1.0/LLM-Reader-1.1.0-setup.exe'
+  version: '1.2.0',
+  electron: '44.7.2',
+  bytes: 143_848_401,
+  sha256: 'a0597a3ef09b1780e3202afe3aedbf3b44bfee5f09d435657f9e8956ca229e96',
+  url: 'https://github.com/maaoding/llm-reader/releases/download/v1.2.0/LLM-Reader-1.2.0-setup.exe'
 }
 const syntheticKey = `package-validation-${randomUUID()}`
 const marker = 'package-validation-preserved'

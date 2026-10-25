@@ -2,7 +2,7 @@
 import json
 import sys
 from pathlib import Path
-import fitz
+import pymupdf as fitz
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
