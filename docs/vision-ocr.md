@@ -1,6 +1,6 @@
 # 视觉模型 OCR
 
-扫描 PDF 没有可提取的文字层时，可使用支持图片输入的模型识别原文，再在书内检索、提问和生成章节笔记。也适用于原有文字提取质量较差的 PDF。逐页 OCR 与“识别文字”阅读已纳入 [v0.6.0 及后续版本](releases/v0.6.0.md)；当前 v1.1.0 的安装包与升级验收范围见[发布验收记录](releases/v1.1.0-validation.md)。
+扫描 PDF 没有可提取的文字层时，可使用支持图片输入的模型识别原文，再在书内检索、提问和生成章节笔记。也适用于原有文字提取质量较差的 PDF。面向使用者的操作步骤见[官网 PDF 与 OCR 文档](https://llm-reader.maaoding.icu/docs/pdf.html)，当前安装与升级说明见[更新日志](https://llm-reader.maaoding.icu/docs/changelog.html)。本页保留详细限制与带日期的历史验证记录。
 
 ## 使用
 

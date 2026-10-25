@@ -3,6 +3,7 @@ out/
 release/
 coverage/
 dist/
+/docs/.vitepress/cache/
 playwright-report/
 test-results/
 *.log

@@ -38,6 +38,21 @@ pnpm build:win --publish never
 
 验收已安装版本时，将 `LLM_READER_E2E_EXECUTABLE` 指向安装目录中的 `LLM Reader.exe`，再运行 `pnpm test:e2e:run`。测试仍会为每个用例创建并清理隔离的临时用户数据目录，不会读写日常书库。
 
+## 官网与使用文档
+
+官网首页和 VitePress 用户手册使用同一份 GitHub Pages 部署产物：
+
+```powershell
+pnpm docs:dev
+pnpm site:build
+```
+
+`docs:dev` 启动文档预览；`site:build` 将首页与 `/docs/` 生成到 `dist/`，并检查站内链接、资源、锚点和站点地图。`pnpm site:check` 可单独复查已有构建。
+
+公开教程放在 `docs/manual/`，配置与主题在 `docs/.vitepress/`。发布说明通过 Markdown include 复用 `docs/releases/` 的原文，验收记录与协议参考不在文档构建目录中。新增教程时，在 VitePress 侧栏中加入入口；版本变化时同步更新手册首页与更新日志。
+
+[Pages 工作流](../.github/workflows/pages.yml)在 PR 中构建检查，合入 `main` 后部署；仅改动文档也会触发。文档工具位于独立的 `@llm-reader/docs` 工作区包，不进入桌面应用运行时依赖。
+
 ## 真实服务与质量评测
 
 需要使用日常设置中已保存的真实兼容 API 做发布前冒烟时，运行 `pnpm test:real-api`。该命令不会加入 `test:all`，只在主动运行时发送少量合成测试内容；它会把 Base URL、model、`safeStorage` 加密后的密钥文件及其本机加密上下文复制到临时用户数据目录，不输出或修改密钥，也不复制日常书库，并在结束后清理测试数据。
