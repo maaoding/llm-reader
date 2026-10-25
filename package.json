@@ -18,6 +18,10 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
+    "docs:dev": "pnpm --filter @llm-reader/docs dev",
+    "docs:build": "pnpm --filter @llm-reader/docs build",
+    "site:build": "pnpm docs:build && node scripts/prepare-site.mjs && node scripts/check-site.mjs",
+    "site:check": "node scripts/check-site.mjs",
     "copy:check": "vitest run tests/unit/ui-copy.test.ts",
     "build:electron": "electron-vite build",
     "build:app": "pnpm copy:check && pnpm build:electron",

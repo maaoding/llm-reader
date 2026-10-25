@@ -735,7 +735,7 @@ h1 em {
   }
 
   .nav-links {
-    gap: 0;
+    gap: 8px;
   }
 
   .nav-link-optional {

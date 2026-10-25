@@ -10,6 +10,8 @@
   <a href="https://github.com/maaoding/llm-reader/releases/latest">下载 Windows x64 版本</a>
   ·
   <a href="https://llm-reader.maaoding.icu/">项目主页与交互演示</a>
+  ·
+  <a href="https://llm-reader.maaoding.icu/docs/">使用文档</a>
 </p>
 
 当前版本 **v1.3.0**：TXT Markdown 阅读与恢复优化。[发布说明](docs/releases/v1.3.0.md) · [验收记录](docs/releases/v1.3.0-validation.md)
@@ -58,6 +60,8 @@ pnpm build:win --publish never
 
 ## 文档
 
+- [快速开始](https://llm-reader.maaoding.icu/docs/getting-started.html) · [常见问题](https://llm-reader.maaoding.icu/docs/faq.html)
+- [用户手册源码](docs/manual/index.md)
 - [模型与服务配置](docs/provider-configuration.md)
 - [阅读增强](docs/knowledge-processing.md) · [视觉模型 OCR](docs/vision-ocr.md)
 - [开发与验证](docs/development.md) · [Linux 环境](docs/development-environment.md)
