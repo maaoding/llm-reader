@@ -625,10 +625,12 @@ h1 em {
 
 .footer-links {
   display: flex;
-  gap: 22px;
+  flex-wrap: wrap;
+  gap: 12px 22px;
 }
 
 .footer-links a {
+  white-space: nowrap;
   text-underline-offset: 4px;
 }
 
@@ -827,7 +829,7 @@ h1 em {
 
   .footer {
     min-height: 220px;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr;
     gap: 13px 20px;
     padding-block: 42px;
   }
@@ -838,8 +840,7 @@ h1 em {
   }
 
   .footer-links {
-    grid-row: 1;
-    grid-column: 2;
+    grid-column: 1 / -1;
   }
 
   .footer-copy {

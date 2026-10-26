@@ -26,8 +26,9 @@ export default defineConfig({
     siteTitle: 'LLM Reader',
     nav: [
       { text: '官网', link: `${origin}/` },
-      { text: '使用文档', link: '/getting-started' },
-      { text: '更新日志', link: '/changelog' }
+      { text: '使用文档', link: '/' },
+      { text: '更新日志', link: '/changelog' },
+      { text: '开发者资料', link: 'https://github.com/maaoding/llm-reader/blob/main/docs/README.md' }
     ],
     sidebar: [
       {
@@ -35,32 +36,30 @@ export default defineConfig({
         items: [
           { text: '文档首页', link: '/' },
           { text: '快速开始', link: '/getting-started' },
-          { text: '书库与阅读', link: '/reading' }
+          { text: '书库与阅读', link: '/reading' },
+          { text: '配置问答模型', link: '/models' }
         ]
       },
       {
-        text: 'AI 辅助阅读',
+        text: '问答与笔记',
         items: [
-          { text: '配置问答模型', link: '/models' },
           { text: '提问与核对引用', link: '/asking' },
-          { text: '章节笔记与问答集', link: '/notes' },
-          { text: 'PDF 解析与 OCR', link: '/pdf' }
+          { text: '章节笔记与问答集', link: '/notes' }
         ]
       },
       {
-        text: '进阶与帮助',
+        text: '可选增强',
         items: [
-          { text: '阅读增强与联网搜索', link: '/enhancements' },
+          { text: 'PDF 解析与 OCR', link: '/pdf' },
+          { text: '阅读增强与联网搜索', link: '/enhancements' }
+        ]
+      },
+      {
+        text: '帮助与更新',
+        items: [
           { text: '数据、隐私与费用', link: '/privacy' },
           { text: '常见问题', link: '/faq' },
           { text: '更新日志', link: '/changelog' }
-        ]
-      },
-      {
-        text: '开发者资料',
-        items: [
-          { text: '开发与验证', link: 'https://github.com/maaoding/llm-reader/blob/main/docs/development.md' },
-          { text: '协议与高级配置', link: 'https://github.com/maaoding/llm-reader/blob/main/docs/provider-configuration.md' }
         ]
       }
     ],

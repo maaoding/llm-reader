@@ -11,7 +11,7 @@ description: 查看 LLM Reader 当前版本变化、历史发布说明，以及 
 
 [v1.3.0 — TXT Markdown 阅读与恢复优化](./releases/v1.3.0.md)
 
-完整发布说明在官网和仓库使用同一份内容。安装、升级及真实服务的验证范围以各版本对应的验收记录为准。
+安装、升级及真实服务的验证范围见 [v1.3.0 验收记录](https://github.com/maaoding/llm-reader/blob/main/docs/releases/v1.3.0-validation.md)。
 
 ## 历史版本
 
