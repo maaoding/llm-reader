@@ -6,7 +6,7 @@ LLM Reader 是一个 Windows 优先、本地优先的桌面阅读器，帮助用
 
 本文约定当前产品能力及行为边界。普通阅读无需模型服务；问答、章节笔记和阅读增强使用用户自行配置的外部服务。当前安装交付面为 Windows x64 NSIS；Linux 支持源码开发、构建和测试环境，以及系统字体、窗口图标适配，尚不承诺 Linux 安装包交付。
 
-应用版本和依赖以 [package.json](package.json) 及锁文件为准。版本变化与已执行的验收分别见 [v1.2.0 发布说明](docs/releases/v1.2.0.md)、[发布验收记录](docs/releases/v1.2.0-validation.md)和[依赖升级记录](docs/dependency-upgrade-closeout.md)；这些带日期的记录不代表后续提交重新通过相同验证。
+应用版本和依赖以 [package.json](package.json) 及锁文件为准。版本变化与已执行的验收分别见 [v1.3.0 发布说明](docs/releases/v1.3.0.md)和[发布验收记录](docs/releases/v1.3.0-validation.md)；这些带日期的记录不代表后续提交重新通过相同验证。
 
 ## 书库与阅读
 

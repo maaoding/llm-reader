@@ -64,7 +64,7 @@ pnpm build:win --publish never
 - [用户手册源码](docs/manual/index.md)
 - [模型与服务配置](docs/provider-configuration.md)
 - [阅读增强](docs/knowledge-processing.md) · [视觉模型 OCR](docs/vision-ocr.md)
-- [开发与验证](docs/development.md) · [Linux 环境](docs/development-environment.md)
+- [开发与验证](docs/development.md) · [Linux 环境](docs/development-environment.md) · [质量评测](docs/evaluation.md)
 - [产品契约](PRODUCT.md) · [v1.3.0 发布说明](docs/releases/v1.3.0.md)
 
 ## 许可证
