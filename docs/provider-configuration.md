@@ -32,7 +32,7 @@ Anthropic 协议用于划词问答、全书问答、检索规划与章节笔记�
 
 “请求适配”默认为“自动”，会识别 OpenCode Go 官方地址（如 `https://opencode.ai/zen/go/v1`）。通过中转调用 Go 时，选择“OpenCode Go”；测试连接和获取模型列表会直接使用当前表单选项。中转需透传会话标识；Go 请求遇到重定向时，请填写最终接口地址。此选项仅适配请求头，仍需选择支持 `/v1/chat/completions` 的模型。
 
-应用以 `LLM-Reader/<实际版本>` 标识客户端；Go 请求使用随机 UUID 作为 `x-opencode-session`。追问、规划和重试复用对话 ID，问答集重开保留该 ID；章节笔记生成单独维护 ID，暂停和继续保持不变，重新生成时更换。详见 [Go 兼容验证记录](go-compatibility-validation.md)。
+应用以 `LLM-Reader/<实际版本>` 标识客户端；Go 请求使用随机 UUID 作为 `x-opencode-session`。追问、规划和重试复用对话 ID，问答集重开保留该 ID；章节笔记生成单独维护 ID，暂停和继续保持不变，重新生成时更换。历史证据见 [Go 兼容验证记录](https://github.com/maaoding/llm-reader/blob/5a89563048a0bd4bbe110081c310a41fea756c74/docs/go-compatibility-validation.md)。
 
 ## 模型连接测试
 
@@ -79,7 +79,7 @@ Mistral 的 Markdown、页眉和页脚以及 Unstructured 的元素文本进入�
 
 服务启用后，新会话默认自动联网，由当前问答模型判断是否需要查询外部资料。输入区的联网按钮可切换自动或关闭，选择随会话保存；升级前没有联网模式的旧会话保持关闭。每轮最多发送一次搜索请求，可设置 1–5 个结果，默认 5 个，不额外抓取网页正文；搜索失败时会显示状态，并继续按可用的书内资料回答。
 
-搜索服务接收模型生成的检索词；结果摘录会与本轮资料一起发送给问答模型。回答中的网页引用可查看实际摘录，再主动打开来源；问答集和 Markdown 导出保留当轮来源，恢复历史不会重新搜索。当前只支持文字选区和整本书问答，PDF 图片问答、章节笔记与 OCR 不联网。流程验收和限制见[联网搜索验证记录](web-search-validation.md)。
+搜索服务接收模型生成的检索词；结果摘录会与本轮资料一起发送给问答模型。回答中的网页引用可查看实际摘录，再主动打开来源；问答集和 Markdown 导出保留当轮来源，恢复历史不会重新搜索。当前只支持文字选区和整本书问答，PDF 图片问答、章节笔记与 OCR 不联网。历史流程验收见[联网搜索验证记录](https://github.com/maaoding/llm-reader/blob/5a89563048a0bd4bbe110081c310a41fea756c74/docs/web-search-validation.md)。
 
 ## 高级请求设置
 

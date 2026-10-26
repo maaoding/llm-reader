@@ -30,7 +30,7 @@
 
 协议使用 `POST <baseUrl>/rerank`，请求 `model`、`query`、字符串数组 `documents`、覆盖全部候选的 `top_n`、`return_documents: false`。只读取 `results[].index` 与有限的 `relevance_score`；部分有效结果后追加未返回的候选，分数相同保持原顺序。空、重复或越界结果会整体回退；供应商返回的正文和引用编号不进入上下文。响应最多 1 MiB，不自动重试或跳转，不支持多模态候选；可自定义请求头及不覆盖输入和关键返回格式的额外参数。
 
-升级迁移保留旧设置 JSON、加密密钥和 revision；默认重排关闭且地址、模型为空。旧版保存输入没有 `rerank` 时保持现有重排配置。新归档记录本轮重排状态、模型、候选数量、耗时及受控原因，旧归档无需迁移也能读取、追问、导出。实现与对照边界见[重排验收记录](rerank-validation.md)。
+升级迁移保留旧设置 JSON、加密密钥和 revision；默认重排关闭且地址、模型为空。旧版保存输入没有 `rerank` 时保持现有重排配置。新归档记录本轮重排状态、模型、候选数量、耗时及受控原因，旧归档无需迁移也能读取、追问、导出。对照方法见[质量评测](evaluation.md#重排对照)，历史结果见[重排验收记录](https://github.com/maaoding/llm-reader/blob/5a89563048a0bd4bbe110081c310a41fea756c74/docs/rerank-validation.md)。
 
 接口依据：2026-09-08 核对[硅基流动重排 API](https://docs.siliconflow.cn/docs/api/rerank-post)。
 
@@ -55,7 +55,7 @@ Docling 请求 JSON 输出、占位图片，并使用 EasyOCR 的中文/英文�
 - 上传过程中断、提交结果不确定、任务失败或远端任务已过期时，需要点击“重新准备原文”。应用不会自动创建第二个付费任务。重新准备优先复用同一配置下可用的原始产物，否则可能重新上传；相关笔记与向量待重建，已有归档快照保留。“重新生成章节笔记”只重建笔记，“重建语义索引”只重建向量。
 - 删除书籍取消本机任务，并清理分析、原文索引、向量和处理结果；不自动删除第三方服务保存的文件或任务。第三方保存期限由其配置和政策决定。
 - 数据库迁移不改旧配置更新时间、分析指纹、会话 UUID、笔记或归档。新增密钥使用系统 safeStorage 加密后写入 SQLite，主进程负责解密和请求。
-- 自动回归使用固定数据和本地模拟服务。2026-09-07 另经用户授权，以自建短样本完成硅基流动 `BAAI/bge-m3` 与 OpenCode Go 的[真实接口验收](knowledge-live-validation.md)。2026-09-08 完成 [MinerU 云端扫描 PDF 验收](mineru-live-validation.md)，覆盖中文、表格、全书问答和页码引用，未上传个人书籍。Docling、MinerU 本地服务和复杂文档 OCR 准确率仍未实测；不同服务的限额和连通性以实际配置为准。
+- 自动回归使用固定数据和本地模拟服务。历史记录包括 2026-09-07 的硅基流动 `BAAI/bge-m3` 与 OpenCode Go [真实接口验收](https://github.com/maaoding/llm-reader/blob/5a89563048a0bd4bbe110081c310a41fea756c74/docs/knowledge-live-validation.md)，以及 2026-09-08 的 [MinerU 云端扫描 PDF 验收](https://github.com/maaoding/llm-reader/blob/5a89563048a0bd4bbe110081c310a41fea756c74/docs/mineru-live-validation.md)。这些带日期的小样本记录不代表当前版本或任意文档的识别质量；不同服务的限额与连通性以实际配置为准。
 
 ## 接口依据
 

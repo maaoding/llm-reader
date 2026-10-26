@@ -34,7 +34,7 @@ pnpm build:win --publish never
 
 [应用 CI](../.github/workflows/ci.yml) 在推送到 `main`、提交 Pull Request 或手动触发时运行：先在 Linux 执行 lint、typecheck、完整单元测试与应用构建，再在 Windows Server 2025 的 1920×1080 桌面执行完整 Electron E2E。CI 从 `package.json` 安装固定版本的 pnpm，按锁文件安装依赖，并安装 Electron 与 Calibre；桌面测试报告、截图及失败 trace 保留 7 天。测试使用隔离书库、合成资料与本机模拟服务，不调用真实付费接口；需要私有 PDF 的用例仍按原条件跳过。CI 检查源码构建与桌面行为，Windows 安装包、覆盖升级及真实服务质量仍需单独验收。
 
-依赖升级的结果及边界见[收尾记录](dependency-upgrade-closeout.md)。另有 [Windows 安装验收工作流](../.github/workflows/windows-package-validation.yml)，可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.2.0 覆盖安装及已安装程序的专项回归。
+[Windows 安装验收工作流](../.github/workflows/windows-package-validation.yml)可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.2.0 覆盖安装及已安装程序的专项回归。
 
 验收已安装版本时，将 `LLM_READER_E2E_EXECUTABLE` 指向安装目录中的 `LLM Reader.exe`，再运行 `pnpm test:e2e:run`。测试仍会为每个用例创建并清理隔离的临时用户数据目录，不会读写日常书库。
 
@@ -51,12 +51,12 @@ pnpm site:build
 
 公开教程放在 `docs/manual/`，配置与主题在 `docs/.vitepress/`。发布说明通过 Markdown include 复用 `docs/releases/` 的原文，验收记录与协议参考不在文档构建目录中。新增教程时，在 VitePress 侧栏中加入入口；版本变化时同步更新手册首页与更新日志。
 
+`docs/` 保留长期维护的指南与发布记录；单次任务的日志、截图和阶段报告放在忽略目录 `output/` 或 `tmp/`，交付摘要记录在 PR 或对应发布验收中。
+
 [Pages 工作流](../.github/workflows/pages.yml)在 PR 中构建检查，合入 `main` 后部署；仅改动文档也会触发。文档工具位于独立的 `@llm-reader/docs` 工作区包，不进入桌面应用运行时依赖。
 
 ## 真实服务与质量评测
 
 需要使用日常设置中已保存的真实兼容 API 做发布前冒烟时，运行 `pnpm test:real-api`。该命令不会加入 `test:all`，只在主动运行时发送少量合成测试内容；它会把 Base URL、model、`safeStorage` 加密后的密钥文件及其本机加密上下文复制到临时用户数据目录，不输出或修改密钥，也不复制日常书库，并在结束后清理测试数据。
 
-全书理解质量检查先运行 `pnpm build:app`，再运行 `pnpm eval:book-context` 检查样本与模型配置；此时不会调用模型。显式执行 `pnpm eval:book-context --run` 后，会发送合成书籍内容并比较固定问题的回答。默认使用当前配置，可通过 `LLM_READER_REAL_API_PROFILE_ID` 指定另一已有配置。报告写入 `tmp/book-context-eval-*/`，逐轮保留实际来源、回答、引用与接口返回的用量；程序检查证据召回，回答含义仍需人工复核。详见 [全书上下文验证记录](book-context-validation.md)。
-
-独立阅读样本另覆盖长篇 EPUB、复杂 PDF、扫描 PDF 和跨书问题。先运行 `node scripts/independent-reading-generate.mjs` 固定材料与题目，再用 `pnpm eval:independent-reading` 检查条件；`--offline` 只验证导入与本地 EPUB 原文准备，`--run` 才使用已保存的模型和 PDF 服务配置调用真实接口。`--simulate` 使用本机模拟服务，并等待读者仅依据每题实际检索上下文填写队列回答，可在没有真实配置时检查完整流程；它不代表真实解析、OCR 或供应商质量。报告区分未运行、离线验证、模拟与真实回答、语义复核，详见[评测说明](independent-reading-validation.md)及[本机模拟结果](independent-reading-simulation.md)。
+全书问答对照、重排、文档结构和独立阅读样本的命令与判定方式统一见[质量评测](evaluation.md)。该指南区分条件检查、离线验证、本机模拟、真实服务和人工语义复核；历史分数不作为当前版本的验证结果。
