@@ -1,6 +1,6 @@
 # 开发与验证
 
-本文集中说明源码开发、持续集成、Windows 安装验收与质量评测。产品使用见 [README](../README.md)，版本验收见 [发布记录](releases/v1.3.0-validation.md)。
+本文集中说明源码开发、持续集成、Windows 安装验收与质量评测。日常操作见[官网使用文档](https://llm-reader.maaoding.icu/docs/)，协议参考与历次发布验收见[仓库文档索引](README.md)。
 
 ## 开发
 
@@ -49,9 +49,7 @@ pnpm site:build
 
 `docs:dev` 启动文档预览；`site:build` 将首页与 `/docs/` 生成到 `dist/`，并检查站内链接、资源、锚点和站点地图。`pnpm site:check` 可单独复查已有构建。
 
-公开教程放在 `docs/manual/`，配置与主题在 `docs/.vitepress/`。发布说明通过 Markdown include 复用 `docs/releases/` 的原文，验收记录与协议参考不在文档构建目录中。新增教程时，在 VitePress 侧栏中加入入口；版本变化时同步更新手册首页与更新日志。
-
-`docs/` 保留长期维护的指南与发布记录；单次任务的日志、截图和阶段报告放在忽略目录 `output/` 或 `tmp/`，交付摘要记录在 PR 或对应发布验收中。
+文档目录分工、导航维护和发布说明复用方式统一见[文档放在哪里](README.md#文档放在哪里)。新增教程或调整导航后，预览桌面与手机页面，确认搜索和侧栏入口可用。
 
 [Pages 工作流](../.github/workflows/pages.yml)在 PR 中构建检查，合入 `main` 后部署；仅改动文档也会触发。文档工具位于独立的 `@llm-reader/docs` 工作区包，不进入桌面应用运行时依赖。
 

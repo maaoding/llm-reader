@@ -14,7 +14,7 @@
   <a href="https://llm-reader.maaoding.icu/docs/">使用文档</a>
 </p>
 
-当前版本 **v1.3.0**：TXT Markdown 阅读与恢复优化。[发布说明](docs/releases/v1.3.0.md) · [验收记录](docs/releases/v1.3.0-validation.md)
+当前版本 **v1.3.0**：TXT Markdown 阅读与恢复优化。[发布说明](https://llm-reader.maaoding.icu/docs/releases/v1.3.0.html) · [更新日志](https://llm-reader.maaoding.icu/docs/changelog.html)
 
 ## 核心功能
 
@@ -25,22 +25,21 @@
 
 书籍、进度、摘录、笔记和会话保存在本机，无需注册 LLM Reader 账号，不提供同步或遥测。普通阅读无需模型；AI 功能需自行配置服务，会发送所需文本、检索词、PDF 或图片，调用可能产生费用。凭据在本机加密保存，PDF 处理由你主动开始。
 
-## 安装
+## 安装与使用
 
 - 从 [GitHub Releases](https://github.com/maaoding/llm-reader/releases/latest) 下载 Windows x64 安装程序。安装包未签名，Windows 可能显示安全提示。
 - 已有版本可在“设置 → 关于”检查更新，点击“重启并安装”，或退出后手动运行新安装器；本机书库和配置继续沿用。
 - MOBI/AZW3 导入需本机已安装 [Calibre](https://calibre-ebook.com/)，仅支持无 DRM 文件。
 
-## 开始使用
+导入书籍即可阅读。想使用 AI 时，先配置 OpenAI 兼容或 Anthropic / Claude 模型，再选中原文提问；整本书或多书问答需要先完成“本书准备 → 原文准备”。章节笔记和检索增强均为可选。
 
-1. 导入书籍，直接开始阅读。
-2. 在“设置 → 模型服务”填写协议、Base URL、API Key 和模型，测试后保存并启用。
-3. 选中原文点击“解释这段”；整本书或多书提问前，先完成“本书准备 → 原文准备”。
-4. 按需生成章节笔记、开启阅读增强，在“问答集”归档回答或建立多书工作台。
+操作教程集中在[官网使用文档](https://llm-reader.maaoding.icu/docs/)：
 
-支持 OpenAI 兼容与 Anthropic / Claude 原生协议。原文就绪即可提问，章节笔记和检索增强均为可选。
+- [快速开始](https://llm-reader.maaoding.icu/docs/getting-started.html)：从安装到第一次提问。
+- [配置问答模型](https://llm-reader.maaoding.icu/docs/models.html)：地址、协议、测试与保存。
+- [常见问题](https://llm-reader.maaoding.icu/docs/faq.html)：排查连接、原文准备与恢复问题。
 
-## 开发
+## 源码开发
 
 Node.js 范围与 pnpm 版本以 [package.json](package.json) 为准。
 
@@ -49,23 +48,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-## 验证
-
-```powershell
-pnpm test:all
-pnpm build:win --publish never
-```
-
-完整回归、CI、Windows 安装验收及真实服务评测见[开发与验证](docs/development.md)。源码测试、安装升级和真实服务质量分别验收。
-
-## 文档
-
-- [快速开始](https://llm-reader.maaoding.icu/docs/getting-started.html) · [常见问题](https://llm-reader.maaoding.icu/docs/faq.html)
-- [用户手册源码](docs/manual/index.md)
-- [模型与服务配置](docs/provider-configuration.md)
-- [阅读增强](docs/knowledge-processing.md) · [视觉模型 OCR](docs/vision-ocr.md)
-- [开发与验证](docs/development.md) · [Linux 环境](docs/development-environment.md) · [质量评测](docs/evaluation.md)
-- [产品契约](PRODUCT.md) · [v1.3.0 发布说明](docs/releases/v1.3.0.md)
+构建、测试、打包和 CI 见[开发与验证](docs/development.md)。协议参考、产品约定、发布验收与官网文档维护入口统一收录在[仓库文档索引](docs/README.md)。
 
 ## 许可证
 
