@@ -12,6 +12,7 @@ import type { PreparedDocumentSearch } from '@shared/contracts'
 import { literalSearchExpression, normalizeReaderSearchQuery, READER_SEARCH_RESULT_LIMIT, searchExcerpt, yieldSearchWork } from '@shared/reader-search'
 
 const notesCursorSchema = z.object({ bookId: z.string(), chapterId: z.string(), revision: z.string(), ordinal: z.number().int().nonnegative() }).strict()
+export const MAX_PASSAGE_LOOKUP = 100
 
 export interface AnalysisRecord {
   session_id: string
@@ -25,7 +26,7 @@ export interface StoredSection { section: DocumentSection; note: SectionNote | n
 export interface DocumentRecord {
   book_id: string; job_id: string; fingerprint: string; embedding_identity: string; version: number
   status: BookDocumentState['status']; characters: number; completed: number; total: number
-  message: string | null; document_json: string | null; diagnostics_json: string
+  message: string | null; has_document: number; diagnostics_json: string
 }
 
 /** A future hybrid retriever can implement this interface without changing context assembly. */
@@ -36,7 +37,8 @@ export interface BookRetriever {
 const segmenter = new Intl.Segmenter('zh', { granularity: 'word' })
 export function searchTokens(text: string): string {
   const normalized = text.normalize('NFKC').toLocaleLowerCase()
-  const terms = [...segmenter.segment(normalized)].filter((part) => part.isWordLike).map((part) => part.segment)
+  const terms: string[] = []
+  for (const part of segmenter.segment(normalized)) if (part.isWordLike) terms.push(part.segment)
   for (const run of normalized.match(/\p{Script=Han}{2,}/gu) ?? []) {
     const points = Array.from(run)
     for (let index = 0; index < points.length - 1; index++) terms.push(points[index] + points[index + 1])
@@ -57,7 +59,10 @@ export class BookContextStore implements BookRetriever {
   }
 
   document(bookId: string): DocumentRecord | undefined {
-    return this.db.prepare('SELECT * FROM book_documents WHERE book_id = ?').get(bookId) as unknown as DocumentRecord | undefined
+    // Status and identity checks must not materialize the potentially large document cache.
+    return this.db.prepare(`SELECT book_id, job_id, fingerprint, embedding_identity, version, status,
+      characters, completed, total, message, diagnostics_json, document_json IS NOT NULL AS has_document
+      FROM book_documents WHERE book_id = ?`).get(bookId) as unknown as DocumentRecord | undefined
   }
 
   documentState(bookId: string): BookDocumentState {
@@ -93,8 +98,18 @@ export class BookContextStore implements BookRetriever {
   }
 
   structure(bookId: string): NormalizedDocument | null {
-    const row = this.document(bookId)
-    return row?.document_json ? JSON.parse(row.document_json) as NormalizedDocument : null
+    const row = this.db.prepare('SELECT document_json FROM book_documents WHERE book_id = ?').get(bookId)
+    return row?.document_json ? JSON.parse(String(row.document_json)) as NormalizedDocument : null
+  }
+
+  chapterDirectory(bookId: string): Array<{ id: string; title: string }> {
+    // Planning needs only headings; keep the cached original text inside SQLite.
+    const row = this.db.prepare("SELECT json_extract(document_json, '$.nodes') AS nodes FROM book_documents WHERE book_id = ?").get(bookId)
+    if (row?.nodes) return (JSON.parse(String(row.nodes)) as NormalizedDocument['nodes'])
+      .filter((node) => node.kind === 'section').map((node) => ({ id: node.id, title: node.title }))
+    const rows = this.db.prepare('SELECT chapter_id, chapter_title FROM book_sections WHERE book_id = ? ORDER BY ordinal').all(bookId)
+    // Legacy chapters keep their first position and the last stored title, as before.
+    return [...new Map(rows.map((row) => [String(row.chapter_id), { id: String(row.chapter_id), title: String(row.chapter_title) }])).values()]
   }
 
   /** Search local prepared text only; never start OCR or send the query to a provider. */
@@ -106,8 +121,9 @@ export class BookContextStore implements BookRetriever {
     if (!query) throw new AppError('INVALID_SEARCH', copy('reader.searchInvalid'))
     if (book.format !== 'pdf') return unavailable
     const row = this.document(bookId)
-    if (row?.status !== 'ready' || row.version !== DOCUMENT_STRUCTURE_VERSION || !row.document_json) return unavailable
-    const document = JSON.parse(row.document_json) as NormalizedDocument
+    if (row?.status !== 'ready' || row.version !== DOCUMENT_STRUCTURE_VERSION) return unavailable
+    const document = this.structure(bookId)
+    if (!document) return unavailable
     const results: PreparedDocumentSearch['results'] = []
     const expression = literalSearchExpression(query)
     let visited = 0
@@ -189,14 +205,22 @@ export class BookContextStore implements BookRetriever {
   append(bookId: string, sections: DocumentSection[]): void {
     this.db.exec('BEGIN')
     try {
+      const insertSection = this.db.prepare('INSERT INTO book_sections(book_id, section_id, chapter_id, chapter_title, ordinal, content_json) VALUES (?, ?, ?, ?, ?, ?)')
+      const insertBlock = this.db.prepare('INSERT INTO book_blocks(book_id, block_id, section_id, chapter_id, chapter_title, ordinal, text, anchor, metadata_json, searchable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const insertFts = this.db.prepare('INSERT INTO book_fts(rowid, title, body, aliases) VALUES (?, ?, ?, ?)')
+      const titleTokens = new Map<string, string>()
       let added = 0
       for (const section of sections) {
-        this.db.prepare('INSERT INTO book_sections(book_id, section_id, chapter_id, chapter_title, ordinal, content_json) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(bookId, section.id, section.chapterId, section.chapterTitle, section.order, JSON.stringify(section))
+        insertSection.run(bookId, section.id, section.chapterId, section.chapterTitle, section.order, JSON.stringify(section))
         for (const [index, block] of section.blocks.entries()) {
-          const result = this.db.prepare('INSERT INTO book_blocks(book_id, block_id, section_id, chapter_id, chapter_title, ordinal, text, anchor, metadata_json, searchable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            .run(bookId, block.id, section.id, section.chapterId, section.chapterTitle, section.order * 48 + index, block.text, block.anchor, JSON.stringify(block), block.searchable === false ? 0 : 1)
-          if (block.searchable !== false) this.db.prepare('INSERT INTO book_fts(rowid, title, body, aliases) VALUES (?, ?, ?, ?)').run(result.lastInsertRowid, searchTokens(block.headingPath?.join(' / ') ?? section.chapterTitle), searchTokens(block.text), '')
+          const result = insertBlock.run(bookId, block.id, section.id, section.chapterId, section.chapterTitle,
+            section.order * 48 + index, block.text, block.anchor, JSON.stringify(block), block.searchable === false ? 0 : 1)
+          if (block.searchable !== false) {
+            const title = block.headingPath?.join(' / ') ?? section.chapterTitle
+            let tokens = titleTokens.get(title)
+            if (tokens === undefined) { tokens = searchTokens(title); titleTokens.set(title, tokens) }
+            insertFts.run(result.lastInsertRowid, tokens, searchTokens(block.text), '')
+          }
           added += characters(block.text)
         }
       }
@@ -306,36 +330,56 @@ export class BookContextStore implements BookRetriever {
 
   passages(bookId: string, blockIds: string[]): Passage[] {
     const statement = this.db.prepare('SELECT * FROM book_blocks WHERE book_id = ? AND block_id = ? AND searchable = 1')
-    return blockIds.slice(0, 100).flatMap((id) => { const row = statement.get(bookId, id); return row ? [mapPassage(row)] : [] })
+    return blockIds.slice(0, MAX_PASSAGE_LOOKUP).flatMap((id) => { const row = statement.get(bookId, id); return row ? [mapPassage(row)] : [] })
   }
 
   originals(bookId: string): Passage[] {
     return this.db.prepare('SELECT * FROM book_blocks WHERE book_id = ? AND searchable = 1 ORDER BY ordinal').all(bookId).map(mapPassage)
   }
 
-  related(bookId: string, hits: Passage[]): Passage[] {
-    const document = this.structure(bookId)
+  related(bookId: string, hits: Passage[], preparedDocument?: NormalizedDocument, preparedOriginals?: Passage[]): Passage[] {
+    if (!hits.length) return []
+    const document = preparedDocument ?? this.structure(bookId)
     if (!document) return []
     const units = new Map(document.units.map((unit) => [unit.id, unit]))
-    const originals = this.originals(bookId)
+    const originals = preparedOriginals ?? this.originals(bookId)
+    const positions = new Map<Passage['blockId'], number>()
+    const byUnit = new Map<string, number[]>()
+    for (const [index, passage] of originals.entries()) {
+      if (!positions.has(passage.blockId)) positions.set(passage.blockId, index)
+      const unitId = passage.unitId ?? ''
+      const group = byUnit.get(unitId) ?? []
+      group.push(index); byUnit.set(unitId, group)
+    }
     const seen = new Set(hits.map((hit) => hit.blockId))
     const result: Passage[] = []
     for (const hit of hits) {
       const unit = units.get(hit.unitId ?? '')
       if (!unit) continue
-      const index = originals.findIndex((item) => item.blockId === hit.blockId)
-      const adjacent = [originals[index - 1], originals[index + 1]].filter((item) => item && item.unitId === unit.id)
-      const linked = originals.filter((item) => unit.relatedIds.includes(item.unitId ?? ''))
-      for (const item of [...linked, ...adjacent]) if (!seen.has(item.blockId)) {
+      const index = positions.get(hit.blockId) ?? -1
+      const adjacent = [index - 1, index + 1].filter((position) => originals[position]?.unitId === unit.id)
+      // Relations may list IDs in any order; evidence must retain the original reading order.
+      const linked = [...new Set(unit.relatedIds)].flatMap((id) => byUnit.get(id) ?? []).sort((a, b) => a - b)
+      for (const position of [...linked, ...adjacent]) {
+        const item = originals[position]
+        if (seen.has(item.blockId)) continue
         seen.add(item.blockId); result.push({ ...item, evidenceRole: 'extension' })
+        if (result.length === 12) return result
       }
     }
-    return result.slice(0, 12)
+    return result
   }
 
   summary(bookId: string, nodeId: string): string | null {
     const row = this.db.prepare('SELECT summary FROM book_summaries WHERE book_id = ? AND node_id = ?').get(bookId, nodeId)
     return row ? String(row.summary) : null
+  }
+
+  summaries(bookId: string, nodeIds: string[]): Map<string, string> {
+    if (!nodeIds.length) return new Map()
+    const rows = this.db.prepare(`SELECT node_id, summary FROM book_summaries WHERE book_id = ?
+      AND node_id IN (SELECT value FROM json_each(?))`).all(bookId, JSON.stringify(nodeIds))
+    return new Map(rows.map((row) => [String(row.node_id), String(row.summary)]))
   }
 
   saveSummary(bookId: string, nodeId: string, summary: string): void {

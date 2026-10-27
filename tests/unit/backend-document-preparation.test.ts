@@ -65,6 +65,29 @@ function prepare(state: ReturnType<typeof setup>, document = fixture()) {
 }
 
 describe('independent preparation, notes and semantic lifecycle', () => {
+  it('reads lightweight document metadata while preserving cached text and extraction state', () => {
+    const state = setup(), document = fixture()
+    expect(state.store.document(state.bookId)).toBeUndefined()
+    expect(state.store.structure(state.bookId)).toBeNull()
+    expect(state.service.needsExtraction(state.bookId)).toBe(false)
+
+    const job = state.service.prepare({ bookId: state.bookId }).document!
+    expect(state.store.document(state.bookId)).toMatchObject({ job_id: job.jobId, has_document: 0, status: 'preparing' })
+    expect(state.service.needsExtraction(state.bookId)).toBe(true)
+
+    state.store.cacheDocument(state.bookId, document, documentSections(document).length)
+    expect(state.store.document(state.bookId)).toMatchObject({ job_id: job.jobId, has_document: 1, total: 2 })
+    expect(state.store.document(state.bookId)).not.toHaveProperty('document_json')
+    expect(state.service.needsExtraction(state.bookId)).toBe(false)
+    expect(state.store.structure(state.bookId)).toEqual(document)
+    expect(state.service.state(state.bookId).document).toMatchObject({ status: 'preparing', jobId: job.jobId, total: 2, diagnostics: [] })
+
+    state.service.prepare({ bookId: state.bookId, rebuild: true })
+    expect(state.store.document(state.bookId)).toMatchObject({ has_document: 0, total: 0 })
+    expect(state.store.structure(state.bookId)).toBeNull()
+    expect(state.service.needsExtraction(state.bookId)).toBe(true)
+  })
+
   it('pauses an active PDF preparation when disabled and can resume with the same configuration', () => {
     const state = setup('pdf')
     const embedding = { enabled: false, baseUrl: '', model: '' }
@@ -122,7 +145,11 @@ describe('independent preparation, notes and semantic lifecycle', () => {
       selection: { bookId: state.bookId, quote: selected.text, anchor: selected.anchor, chapterTitle: selected.chapterTitle,
         passages: [selected, ...representatives.slice(0, 2)] }
     }
+    const readStructure = vi.spyOn(state.store, 'structure')
+    const readOriginals = vi.spyOn(state.store, 'originals')
     const context = await state.service.context(request, credentials, new AbortController().signal)
+    expect(readStructure).toHaveBeenCalledTimes(1)
+    expect(readOriginals).toHaveBeenCalledTimes(1)
     expect(context.passages).toHaveLength(12)
     expect(new Set(context.passages.map((passage) => passage.blockId)).size).toBe(12)
     expect(context.passages.slice(0, ranked.length).map((passage) => passage.blockId)).toEqual([...representatives, best, directNote].map((passage) => passage.blockId))
@@ -138,6 +165,54 @@ describe('independent preparation, notes and semantic lifecycle', () => {
     expect(state.generate).toHaveBeenCalledTimes(1)
     expect(rankFetch).toHaveBeenCalledTimes(rerank ? 1 : 0)
   })
+
+  it.each([0, 12])('avoids loading every original when whole-book retrieval returns %i direct hits', async (hitCount) => {
+    const state = setup(), document = fixture()
+    document.nodes = document.nodes.slice(0, 1)
+    document.units = Array.from({ length: 16 }, (_, index) => ({ ...document.units[0], id: `unit-${index}`, order: index,
+      text: `共同核验条件${index}。`, sources: [{ anchor: `txt:${index * 100}:${index * 100 + 10}`, precision: 'text' as const }] }))
+    prepare(state, document)
+    const direct = state.store.originals(state.bookId).slice(0, hitCount)
+    vi.spyOn(state.store, 'search').mockReturnValue(direct)
+    const readOriginals = vi.spyOn(state.store, 'originals')
+    const context = await state.service.context(state.request, credentials, new AbortController().signal)
+    expect(context.passages.map((passage) => passage.blockId)).toEqual(direct.map((passage) => passage.blockId))
+    expect(readOriginals).not.toHaveBeenCalled()
+  })
+
+  it('reads fresh evidence on the next request after rebuilding the original document', async () => {
+    const state = setup()
+    prepare(state)
+    const before = await state.service.context(state.request, credentials, new AbortController().signal)
+    const updated = fixture()
+    updated.units[0].text = '共同核验的新条件：两位复核者必须分别签字。'
+    const job = state.service.prepare({ bookId: state.bookId, rebuild: true }).document!
+    state.service.append({ bookId: state.bookId, jobId: job.jobId, sections: documentSections(updated), document: updated })
+    state.service.finish({ bookId: state.bookId, jobId: job.jobId })
+    const after = await state.service.context(state.request, credentials, new AbortController().signal)
+    expect(after.passages.some((passage) => passage.text === updated.units[0].text)).toBe(true)
+    expect(after.passages.some((passage) => passage.text === fixture().units[0].text)).toBe(false)
+    expect(before.passages.some((passage) => passage.text === fixture().units[0].text)).toBe(true)
+  })
+
+  it('discards the captured evidence if the document is rebuilt while reranking', async () => {
+    const state = setup()
+    prepare(state)
+    const originals = state.store.originals(state.bookId)
+    vi.spyOn(state.store, 'search').mockReturnValue(originals)
+    const rankFetch = vi.fn<typeof fetch>(async () => {
+      state.store.prepare(state.bookId, randomUUID(), 'new-document')
+      return Response.json({ results: originals.map((_passage, index) => ({ index, relevance_score: 1 })) })
+    })
+    state.settings.save({ embedding: { enabled: false, baseUrl: '', model: '' }, document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch' },
+      rerank: { enabled: true, baseUrl: credentials.baseUrl, model: 'fixture-rerank' } })
+    state.service.rerank = new RerankService(state.settings, new KnowledgeHttp(rankFetch))
+    const related = vi.spyOn(state.store, 'related')
+    await expect(state.service.context(state.request, credentials, new AbortController().signal)).rejects.toMatchObject({ code: 'BOOK_NOT_READY' })
+    expect(rankFetch).toHaveBeenCalledTimes(1)
+    expect(related).not.toHaveBeenCalled()
+  })
+
   it('recovers missing MinerU annotations from cached raw output on explicit rebuild without uploading again', async () => {
     const state = setup('pdf')
     state.settings.save({ embedding: { enabled: false, baseUrl: '', model: '' }, document: { processor: 'mineru-local', baseUrl: credentials.baseUrl, ocr: true, language: 'ch' } })

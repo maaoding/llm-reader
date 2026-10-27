@@ -12,7 +12,7 @@ import type {
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { cropPassage } from '@shared/document-structure'
-import { addUsage } from '@shared/book-context'
+import { addUsage, characters as unicodeLength, fitEncodedText } from '@shared/book-context'
 import { AppError, toPublicError } from './errors'
 import { isPdfImageRegion } from '@shared/contracts'
 import { abortable } from './abortable'
@@ -67,10 +67,6 @@ type LlmEventPayload = LlmEvent extends infer Event
   : never
 
 class ContextLengthError extends Error {}
-
-function unicodeLength(value: string): number {
-  return Array.from(value).length
-}
 
 function unicodeSlice(value: string, start: number, end?: number): string {
   return Array.from(value).slice(start, end).join('')
@@ -273,18 +269,6 @@ function boundRerankedContext(request: LlmRequest, source: ContextSnapshot, cont
   }
   history.reverse()
   return { context: { ...source, passages, background }, history }
-}
-
-function fitEncodedText(value: string, budget: number, fromEnd = false): string {
-  const points = Array.from(value)
-  const slice = (length: number): string => (fromEnd ? points.slice(points.length - length) : points.slice(0, length)).join('')
-  let low = 0, high = Math.min(points.length, Math.max(0, budget))
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2)
-    if (unicodeLength(JSON.stringify(slice(middle))) <= budget) low = middle
-    else high = middle - 1
-  }
-  return slice(low)
 }
 
 /** Reserve at most one third of the space remaining after the selected original. */

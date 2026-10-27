@@ -113,6 +113,54 @@ describe('answer markdown parser', () => {
     expect(parseInline('`未闭合')).toEqual([{ type: 'text', text: '`未闭合' }])
     expect(parseInline('\\*不是斜体\\*')).toEqual([{ type: 'text', text: '*不是斜体*' }])
   })
+
+  it('preserves nested formatting, escaped markers and literal inline code', () => {
+    expect(parseInline('前缀 \\*字面\\*，**重点 *嵌套* 和 `*代码*`**。')).toEqual([
+      { type: 'text', text: '前缀 *字面*，' },
+      { type: 'strong', children: [
+        { type: 'text', text: '重点 ' },
+        { type: 'emphasis', children: [{ type: 'text', text: '嵌套' }] },
+        { type: 'text', text: ' 和 ' },
+        { type: 'code', text: '*代码*' }
+      ] },
+      { type: 'text', text: '。' }
+    ])
+  })
+
+  it.each(['*', '**', '`'])('distinguishes escaped and unescaped %s after backslashes', (marker) => {
+    const escapedMarker = [...marker].map((character) => `\\${character}`).join('')
+    const escaped = `${'\\'.repeat(2)}${escapedMarker}正文${escapedMarker}`
+    expect(parseInline(escaped)).toEqual([{ type: 'text', text: `\\${marker}正文${marker}` }])
+
+    const unescaped = `${'\\'.repeat(2)}${marker}正文${marker}`
+    expect(parseInline(unescaped)).toEqual([
+      { type: 'text', text: '\\' },
+      marker === '`' ? { type: 'code', text: '正文' }
+        : { type: marker === '**' ? 'strong' : 'emphasis', children: [{ type: 'text', text: '正文' }] }
+    ])
+  })
+
+  it('keeps overlapping markers and incomplete streaming suffixes in their existing order', () => {
+    expect(parseInline('***重点*** 后续 `未闭合')).toEqual([
+      { type: 'strong', children: [{ type: 'text', text: '*重点' }] },
+      { type: 'text', text: '* 后续 `未闭合' }
+    ])
+    expect(parseInline('**重点\\*** 结尾')).toEqual([
+      { type: 'strong', children: [{ type: 'text', text: '重点*' }] },
+      { type: 'text', text: ' 结尾' }
+    ])
+  })
+
+  it.each(['*', '**', '`'])('parses a long paragraph of %s spans with a partial citation suffix', (marker) => {
+    const count = 2_000
+    const text = `${marker}内容😀${marker}。`.repeat(count) + '待补充 [P'
+    const nodes = parseInline(text)
+    expect(nodes).toHaveLength(count * 2)
+    expect(nodes.filter((node) => node.type !== 'text')).toEqual(Array.from({ length: count }, () =>
+      marker === '`' ? { type: 'code', text: '内容😀' }
+        : { type: marker === '**' ? 'strong' : 'emphasis', children: [{ type: 'text', text: '内容😀' }] }))
+    expect(nodes.at(-1)).toEqual({ type: 'text', text: '。待补充 [P' })
+  })
 })
 
 describe('answer markdown component', () => {
@@ -177,6 +225,28 @@ describe('answer markdown component', () => {
 
     rerender(<AnswerText text={'加粗 **未完成'} selection={selection} onNavigate={vi.fn()} />)
     expect(container.textContent).toContain('**未完成')
+  })
+
+  it('updates highlights, citation sources, callbacks and read-only mode while the answer stays unchanged', () => {
+    const text = '**重点** 依据 [P2]。'
+    const firstNavigate = vi.fn(), nextNavigate = vi.fn()
+    const { container, rerender } = render(<AnswerText text={text} selection={selection} onNavigate={firstNavigate} />)
+    fireEvent.click(screen.getByTestId('citation-valid'))
+    expect(firstNavigate).toHaveBeenCalledExactlyOnceWith('txt:80:150')
+
+    const updatedSelection: SelectionContext = { ...selection, passages: [{ id: 'P2', text: '更新后的原文', anchor: 'txt:200:206' }] }
+    rerender(<AnswerText text={text} selection={updatedSelection} onNavigate={nextNavigate} highlight="重点" />)
+    expect(container.querySelector('strong mark')?.textContent).toBe('重点')
+    expect(screen.getByTestId('citation-valid').textContent).toContain('更新后的原文')
+    fireEvent.click(screen.getByTestId('citation-valid'))
+    expect(nextNavigate).toHaveBeenCalledExactlyOnceWith('txt:200:206')
+    expect(firstNavigate).toHaveBeenCalledOnce()
+
+    rerender(<AnswerText text={text} selection={updatedSelection} onNavigate={nextNavigate} readOnly />)
+    expect(container.querySelector('mark')).toBeNull()
+    expect(screen.getByTestId('citation-valid').tagName).toBe('SPAN')
+    fireEvent.click(screen.getByTestId('citation-valid'))
+    expect(nextNavigate).toHaveBeenCalledOnce()
   })
 
   it('renders citations as non-interactive spans in read-only previews', () => {

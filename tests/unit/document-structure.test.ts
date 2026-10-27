@@ -18,7 +18,7 @@ describe('logical document units and source positions', () => {
     expect(documentSections(numbered).at(-1)?.blocks[0].headingPath).toEqual(['第一卷 总论', '第一章 定义', '第一节 限制'])
   })
   it('keeps duplicate headings and paragraphs at distinct Unicode positions, including long units', () => {
-    const paragraph = '😀𠮷 é，必须核对真实位置。'.repeat(240)
+    const paragraph = '😀𠮷 é，必须核对真实位置。'.repeat(4_000)
     const original = '\uFEFF# 重复章\r\n\r\n' + paragraph + '\r\n\r\n# 重复章\r\n\r\n' + paragraph
     const normalized = Array.from(original.replace(/^\uFEFF/u, '').replace(/\r\n?/gu, '\n'))
     const document = extractTextDocument(original), sections = documentSections(document)

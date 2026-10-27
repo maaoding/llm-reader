@@ -21,21 +21,35 @@ export function literalSearchExpression(query: string): RegExp {
   return new RegExp(escaped, 'giu')
 }
 
+function moveCodePoints(text: string, offset: number, count: number): number {
+  while (count > 0 && offset < text.length) {
+    offset += text.codePointAt(offset)! > 0xffff ? 2 : 1
+    count--
+  }
+  while (count < 0 && offset > 0) {
+    const last = text.charCodeAt(--offset)
+    if (last >= 0xdc00 && last <= 0xdfff && offset > 0) {
+      const previous = text.charCodeAt(offset - 1)
+      if (previous >= 0xd800 && previous <= 0xdbff) offset--
+    }
+    count++
+  }
+  return offset
+}
+
 export function searchExcerpt(text: string, startUtf16: number, endUtf16: number): string {
-  const characters = Array.from(text)
-  const start = codePointLength(text.slice(0, startUtf16))
-  const end = start + codePointLength(text.slice(startUtf16, endUtf16))
-  const matchLength = Math.max(1, end - start)
+  // Only inspect the excerpt's neighborhood, even for many hits in a long paragraph.
+  const matchEnd = Math.min(endUtf16, moveCodePoints(text, startUtf16, SEARCH_EXCERPT_LENGTH))
+  const matchLength = Math.max(1, codePointLength(text.slice(startUtf16, matchEnd)))
   const surrounding = Math.max(0, SEARCH_EXCERPT_LENGTH - matchLength)
-  const excerptStart = Math.max(0, start - Math.floor(surrounding / 2))
-  const excerptEnd = Math.min(characters.length, excerptStart + SEARCH_EXCERPT_LENGTH)
-  const adjustedStart = Math.max(0, excerptEnd - SEARCH_EXCERPT_LENGTH)
-  const excerpt = characters
+  const excerptStart = moveCodePoints(text, startUtf16, -Math.floor(surrounding / 2))
+  const excerptEnd = moveCodePoints(text, excerptStart, SEARCH_EXCERPT_LENGTH)
+  const adjustedStart = moveCodePoints(text, excerptEnd, -SEARCH_EXCERPT_LENGTH)
+  const excerpt = text
     .slice(adjustedStart, excerptEnd)
-    .join('')
     .replace(/\s+/gu, ' ')
     .trim()
-  return `${adjustedStart > 0 ? '…' : ''}${excerpt}${excerptEnd < characters.length ? '…' : ''}`
+  return `${adjustedStart > 0 ? '…' : ''}${excerpt}${excerptEnd < text.length ? '…' : ''}`
 }
 
 export interface SearchExcerptSegment {

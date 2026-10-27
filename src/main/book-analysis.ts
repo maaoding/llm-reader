@@ -124,7 +124,10 @@ export class BookAnalysisService {
     return this.state(book.id)
   }
 
-  needsExtraction(bookId: string): boolean { return this.store.document(bookId)?.status === 'preparing' && !this.store.document(bookId)?.document_json }
+  needsExtraction(bookId: string): boolean {
+    const document = this.store.document(bookId)
+    return document?.status === 'preparing' && !document.has_document
+  }
 
   private currentPreparation(input: BookExtractionInput): void {
     const record = this.store.document(input.bookId)
@@ -452,9 +455,7 @@ export class BookAnalysisService {
     })
     const directory: Array<{ id: string; title: string; bookId: string; chapterId: string }> = []
     for (const [bookIndex, book] of books.entries()) {
-      const structure = this.store.structure(book.id)
-      const chapters = structure?.nodes.filter((node) => node.kind === 'section').map((node) => ({ id: node.id, title: node.title })) ??
-        [...new Map(this.store.sections(book.id).map(({ section }) => [section.chapterId, { id: section.chapterId, title: section.chapterTitle }])).values()]
+      const chapters = this.store.chapterDirectory(book.id)
       let budget = Math.floor(6_000 / books.length)
       for (const [index, chapter] of chapters.entries()) {
         const title = limitText(`《${book.title}》 ${chapter.title}`, 200)
@@ -543,15 +544,24 @@ export class BookAnalysisService {
       section.blocks.some((block) => hitIds.has(block.id) || block.anchor === selected?.anchor || (rankConfig?.enabled && localAnchors.has(block.anchor))))
     const sourceIds = relevant.flatMap(({ note }) => note ? [...note.claims, ...note.conditions, ...note.exceptions, ...note.concepts].flatMap((point) => point.sourceIds) : [])
     // Each chapter contributes evidence for whole-book questions, including chapters absent from top-k search.
-    if (request.scope === 'book') for (const chapter of chapters) {
-      const note = sections.find(({ section }) => section.chapterId === chapter.id)?.note
-      if (note) sourceIds.push(...[...note.claims, ...note.concepts].slice(0, 1).flatMap((point) => point.sourceIds))
+    if (request.scope === 'book') {
+      const firstNotes = new Map<string, SectionNote | null>()
+      for (const { section, note } of sections) {
+        // Preserve a missing first note rather than substituting a later section's note.
+        if (!firstNotes.has(section.chapterId)) firstNotes.set(section.chapterId, note)
+      }
+      for (const chapter of chapters) {
+        const note = firstNotes.get(chapter.id)
+        if (note) sourceIds.push(...[...note.claims, ...note.concepts].slice(0, 1).flatMap((point) => point.sourceIds))
+      }
     }
-    const local = selected ? this.llm.localContext(request).passages : []
-    let references: Passage[] = [...local, ...hits.slice(0, 12), ...this.store.passages(bookId, [...new Set(sourceIds)])]
+    // Reuse source rows within this request; job checks still guard each async step.
+    let originals: Passage[] | undefined
+    const readOriginals = (): Passage[] => originals ??= this.store.originals(bookId)
+    let references: Passage[]
     let rerankRecord: ContextSnapshot['rerank']
     if (rankConfig?.enabled && this.rerank) {
-      const originals = this.store.originals(bookId)
+      const originals = readOriginals()
       const ids = new Set(sourceIds)
       const targets = targetChapters(chosenChapters, hits)
       const pool = rerankCandidates(hits, originals.filter((item) => ids.has(item.blockId!)), targets)
@@ -561,18 +571,24 @@ export class BookAnalysisService {
       if (this.store.document(bookId)?.job_id !== document.job_id || this.store.document(bookId)?.status !== 'ready') return this.llm.localContext(request)
       references = organizeEvidence(result.passages, nearbyEvidence(selected, originals), targets)
       rerankRecord = result.record
+    } else if (structure) {
+      references = organizeEvidence([...hits, ...this.store.passages(bookId, [...new Set(sourceIds)])],
+        selected ? nearbyEvidence(selected, readOriginals()) : [], targetChapters(chosenChapters, hits))
+    } else {
+      const local = selected ? this.llm.localContext(request).passages : []
+      references = [...local, ...hits.slice(0, 12), ...this.store.passages(bookId, [...new Set(sourceIds)])]
     }
-    if (structure) {
-      if (!rerankRecord) references = organizeEvidence([...hits, ...this.store.passages(bookId, [...new Set(sourceIds)])], nearbyEvidence(selected, this.store.originals(bookId)), targetChapters(chosenChapters, hits))
+    if (structure && references.length > 0 && references.length < 12) {
       // Related originals use spare slots only; exclude every existing hit from expansion.
-      if (references.length < 12) references.push(...this.store.related(bookId, references).slice(0, 12 - references.length))
+      references.push(...this.store.related(bookId, references, structure, readOriginals()).slice(0, 12 - references.length))
     }
     const relevantChapters = new Set(relevant.map(({ section }) => section.chapterId))
-    const chapterSummaries = chapters.flatMap((chapter) => {
-      const summary = this.store.summary(bookId, `chapter-${chapter.id}-final`)
+    const summaryChapters = request.scope === 'book' ? chapters : chapters.filter((chapter) => relevantChapters.has(chapter.id))
+    const summaries = this.store.summaries(bookId, summaryChapters.map((chapter) => `chapter-${chapter.id}-final`))
+    const candidates = summaryChapters.flatMap((chapter) => {
+      const summary = summaries.get(`chapter-${chapter.id}-final`)
       return summary ? [{ id: chapter.id, text: `${chapter.title}: ${summary}` }] : []
     })
-    const candidates = request.scope === 'book' ? chapterSummaries : chapterSummaries.filter((chapter) => relevantChapters.has(chapter.id))
     // Small books include every chapter note; large books use the complete hierarchical overview plus relevant chapters.
     const chapterNotes = (characters(candidates.map((chapter) => chapter.text).join('\n')) <= 2_500
       ? candidates : candidates.filter((chapter) => relevantChapters.has(chapter.id)).slice(0, 2)).map((chapter) => chapter.text).join('\n')
