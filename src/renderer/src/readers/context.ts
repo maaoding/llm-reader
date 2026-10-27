@@ -18,11 +18,18 @@ export interface ContextFocus {
 interface PositionedBlock extends ContextBlock {
   start: number
   end: number
-  characters: string[]
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum)
+}
+
+function advanceCodePoints(value: string, start: number, count: number): number {
+  let offset = start
+  for (let remaining = Math.trunc(count); remaining > 0 && offset < value.length; remaining -= 1) {
+    offset += value.codePointAt(offset)! > 0xffff ? 2 : 1
+  }
+  return offset
 }
 
 /**
@@ -41,12 +48,10 @@ export function buildBoundedPassages(
 
   let cursor = 0
   const positioned: PositionedBlock[] = blocks.map((block, index) => {
-    const characters = Array.from(block.text)
     const positioned = {
       ...block,
       start: cursor,
-      end: cursor + characters.length,
-      characters
+      end: cursor + codePointLength(block.text)
     }
     cursor = positioned.end + (index === blocks.length - 1 ? 0 : 2)
     return positioned
@@ -56,8 +61,8 @@ export function buildBoundedPassages(
   const endBlockIndex = clamp(focus.endBlock, startBlockIndex, positioned.length - 1)
   const startBlock = positioned[startBlockIndex]
   const endBlock = positioned[endBlockIndex]
-  const focusStart = startBlock.start + clamp(focus.startOffset, 0, startBlock.characters.length)
-  const focusEnd = endBlock.start + clamp(focus.endOffset, 0, endBlock.characters.length)
+  const focusStart = startBlock.start + clamp(focus.startOffset, 0, startBlock.end - startBlock.start)
+  const focusEnd = endBlock.start + clamp(focus.endOffset, 0, endBlock.end - endBlock.start)
   const orderedFocusEnd = Math.max(focusStart, focusEnd)
 
   const documentLength = positioned[positioned.length - 1].end
@@ -83,7 +88,11 @@ export function buildBoundedPassages(
 
     const localStart = intersectionStart - block.start
     const localEnd = intersectionEnd - block.start
-    const text = block.characters.slice(localStart, localEnd).join('')
+    // Only translate offsets for returned passages; keep the chapter as strings.
+    const start = advanceCodePoints(block.text, 0, localStart)
+    const end = advanceCodePoints(block.text, start, Math.trunc(localEnd) - Math.trunc(localStart))
+    // Copy only the bounded result so saved passages do not retain a large source string.
+    const text = Array.from(block.text.slice(start, end)).join('')
     if (text.length === 0) {
       return []
     }
@@ -99,5 +108,9 @@ export function buildBoundedPassages(
 }
 
 export function codePointLength(value: string): number {
-  return Array.from(value).length
+  let length = 0
+  for (let offset = 0; offset < value.length; length += 1) {
+    offset += value.codePointAt(offset)! > 0xffff ? 2 : 1
+  }
+  return length
 }

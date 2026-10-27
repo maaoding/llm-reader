@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from 'react'
+import { memo, useMemo, type ReactNode } from 'react'
 import { copy } from '@shared/copy'
 import { isPdfImageRegion, type ReaderSource, type SelectionContext } from '@shared/contracts'
 import { parseMarkdown, type AnswerInline, type MarkdownBlock } from './answer-markdown'
@@ -165,7 +165,7 @@ export const AnswerText = memo(function AnswerText({
   readOnly?: boolean
   highlight?: string
 }): ReactNode {
-  const blocks = parseMarkdown(text)
+  const blocks = useMemo(() => parseMarkdown(text), [text])
   const navigate = readOnly ? null : (onNavigate ?? null)
   const source: CitationContext = { availableBookIds, passages: context?.passages ?? (selection && !isPdfImageRegion(selection) ? selection.passages : []), bookId: context?.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context?.bookId ?? selection?.bookId ?? '', webSources: context?.webSearch?.sources ?? [] }
   return (

@@ -83,6 +83,43 @@ test('renders safe TXT Markdown across themes, scales and desktop/minimum window
   } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
 
+test('tracks natural TXT positions through table rows and layout changes in both reading modes', async () => {
+  const workspace = await createE2eWorkspace('reader-text-positions-')
+  const fixture = join(workspace.root, title + '.txt')
+  await writeFile(fixture, source, 'utf8')
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const page = launched.page
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+    const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
+    const host = page.getByTestId('reader-host')
+    for (const width of [1180, 940]) {
+      await resizeWorkspace(application, page, width, 700)
+      for (const rendering of ['markdown', 'plain'] as const) {
+        await mode(page, rendering)
+        await expect(page.locator('.reader-document--txt')).toHaveAttribute('data-text-rendering', rendering)
+        await page.evaluate(() => document.fonts.ready.then(() => undefined))
+        for (const target of ['end', 'table', 'start']) {
+          const expected = await host.evaluate((element, target) => {
+            const paragraphs = [...element.querySelectorAll<HTMLElement>('[data-reader-paragraph]')]
+            const paragraph = target === 'start' ? paragraphs[0] : target === 'end' ? paragraphs.at(-1)!
+              : element.querySelector<HTMLElement>('tbody td') ?? paragraphs[Math.floor(paragraphs.length / 2)]
+            element.dispatchEvent(new WheelEvent('wheel', { bubbles: true }))
+            element.scrollTop += paragraph.getBoundingClientRect().top - element.getBoundingClientRect().top
+            element.dispatchEvent(new Event('scroll'))
+            const top = element.getBoundingClientRect().top + 8
+            const visible = paragraphs.find((item) => item.getBoundingClientRect().bottom > top) ?? paragraphs.at(-1)!
+            return `txt:${visible.dataset.readerStart}:${visible.dataset.readerStart}`
+          }, target)
+          await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.listBooks()).find((book) => book.id === id)?.lastLocator, bookId)).toBe(expected)
+        }
+      }
+    }
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
+})
+
 test('keeps original anchors through Markdown selection, answering, search, per-book mode and restart', async () => {
   test.setTimeout(90_000)
   const workspace = await createE2eWorkspace('reader-markdown-sources-')

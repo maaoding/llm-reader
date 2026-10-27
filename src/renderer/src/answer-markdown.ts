@@ -84,8 +84,15 @@ function isEscaped(text: string, index: number): boolean {
 }
 
 function findUnescaped(text: string, token: string, start = 0): number {
-  for (let index = start; index <= text.length - token.length; index += 1) {
-    if (text.startsWith(token, index) && !isEscaped(text, index)) return index
+  for (let index = text.indexOf(token, start); index >= 0; index = text.indexOf(token, index + 1)) {
+    if (!isEscaped(text, index)) return index
+  }
+  return -1
+}
+
+function findInlineStart(text: string, start: number): number {
+  for (let index = start; index < text.length; index += 1) {
+    if ((text[index] === '`' || text[index] === '*') && !isEscaped(text, index)) return index
   }
   return -1
 }
@@ -102,18 +109,15 @@ export function parseInline(text: string): AnswerInline[] {
   const nodes: AnswerInline[] = []
   let cursor = 0
   while (cursor < text.length) {
-    const codeStart = findUnescaped(text, '`', cursor)
-    const strongStart = findUnescaped(text, '**', cursor)
-    const emphasisStart = findUnescaped(text, '*', cursor)
-    const starts = [codeStart, strongStart, emphasisStart].filter((index) => index >= 0)
-    if (starts.length === 0) {
+    // Separate searches for each marker rescan the remaining text for every span.
+    const first = findInlineStart(text, cursor)
+    if (first < 0) {
       appendText(nodes, text.slice(cursor))
       break
     }
 
-    const first = Math.min(...starts)
     appendText(nodes, text.slice(cursor, first))
-    if (first === codeStart) {
+    if (text[first] === '`') {
       const end = findUnescaped(text, '`', first + 1)
       if (end < 0) {
         appendText(nodes, text.slice(first))
@@ -123,7 +127,7 @@ export function parseInline(text: string): AnswerInline[] {
       cursor = end + 1
       continue
     }
-    if (first === strongStart) {
+    if (text.startsWith('**', first)) {
       const end = findUnescaped(text, '**', first + 2)
       if (end < 0) {
         appendText(nodes, text.slice(first))

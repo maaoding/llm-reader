@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { mergeRequestHeaders } from '@shared/request-settings'
 import type { Passage, SemanticIndexState, StartSemanticIndexInput } from '@shared/contracts'
 import { copy } from '@shared/copy'
-import { BookContextStore } from './book-context-store'
+import { BookContextStore, MAX_PASSAGE_LOOKUP } from './book-context-store'
 import { AppError, toPublicError } from './errors'
 import { KnowledgeSettingsService, type EmbeddingCredentials } from './knowledge-settings'
 import { KnowledgeHttp } from './knowledge-http'
@@ -90,11 +90,17 @@ export class SemanticIndexService {
   }
   dispose(): void { if (this.active) this.cancel(this.active.bookId) }
   private async run(bookId: string, config: EmbeddingCredentials, signal: AbortSignal): Promise<void> {
+    const pending = this.store.db.prepare(`SELECT id, ordinal, text, chapter_title, metadata_json FROM book_blocks b
+      WHERE book_id = ? AND searchable = 1 AND (ordinal, id) > (?, ?)
+      AND NOT EXISTS (SELECT 1 FROM book_vectors v WHERE v.block_rowid = b.id) ORDER BY ordinal, id LIMIT 16`)
+    const insertVector = this.store.db.prepare('INSERT INTO book_vectors(block_rowid, book_id, vector) VALUES (?, ?, ?)')
+    const updateDimension = this.store.db.prepare('UPDATE semantic_indexes SET dimension = ? WHERE book_id = ?')
+    // A resumed run starts at the beginning to fill gaps; committed batches advance locally.
+    let lastOrdinal = -1, lastId = 0
     while (true) {
       signal.throwIfAborted()
       while (this.foregroundBusy()) await delay(100, undefined, { signal })
-      const rows = this.store.db.prepare(`SELECT id, text, chapter_title, metadata_json FROM book_blocks b WHERE book_id = ? AND searchable = 1
-        AND NOT EXISTS (SELECT 1 FROM book_vectors v WHERE v.block_rowid = b.id) ORDER BY ordinal LIMIT 16`).all(bookId)
+      const rows = pending.all(bookId, lastOrdinal, lastId)
       if (!rows.length) break
       const vectors = await embed(this.http, config, rows.map((row) => {
         const metadata = row.metadata_json ? JSON.parse(String(row.metadata_json)) as Passage : null
@@ -107,11 +113,12 @@ export class SemanticIndexService {
       if (this.state(bookId).total * dimension * 4 > MAX_VECTOR_BYTES) throw new AppError('SEMANTIC_TOO_LARGE', copy('knowledge.tooLarge'))
       this.store.db.exec('BEGIN')
       try {
-        for (const [index, row] of rows.entries()) this.store.db.prepare('INSERT INTO book_vectors(block_rowid, book_id, vector) VALUES (?, ?, ?)')
-          .run(row.id, bookId, Buffer.from(vectors[index].buffer))
-        this.store.db.prepare('UPDATE semantic_indexes SET dimension = ? WHERE book_id = ?').run(dimension, bookId)
+        for (const [index, row] of rows.entries()) insertVector.run(row.id, bookId, Buffer.from(vectors[index].buffer))
+        updateDimension.run(dimension, bookId)
         this.store.db.exec('COMMIT')
       } catch (error) { this.store.db.exec('ROLLBACK'); throw error }
+      lastOrdinal = Number(rows.at(-1)!.ordinal)
+      lastId = Number(rows.at(-1)!.id)
       this.onChange(bookId)
     }
     this.store.db.prepare("UPDATE semantic_indexes SET status = 'ready', message = NULL WHERE book_id = ?").run(bookId)
@@ -125,6 +132,10 @@ export class SemanticIndexService {
       const [query] = await embed(this.http, config, [question], AbortSignal.any([signal, AbortSignal.timeout(12_000)]))
       if (this.state(bookId).status !== 'ready' || this.row(bookId)?.fingerprint !== fingerprint || this.row(bookId)?.dimension !== query.length) return lexical
       const ranked: { id: string; score: number }[] = []
+      const end = Math.trunc(limit) || 0
+      // Passage lookups are capped; a negative slice end also depends on the total row count.
+      const maximum = end < 0 ? MAX_PASSAGE_LOOKUP : Math.min(end, MAX_PASSAGE_LOOKUP)
+      let count = 0
       // Iterate blobs instead of materializing the whole vector matrix in memory.
       for (const row of this.store.db.prepare('SELECT b.block_id, v.vector FROM book_vectors v JOIN book_blocks b ON b.id = v.block_rowid WHERE v.book_id = ?').iterate(bookId)) {
         const bytes = row.vector as Uint8Array
@@ -132,10 +143,20 @@ export class SemanticIndexService {
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
         let score = 0
         for (let index = 0; index < query.length; index++) score += query[index] * view.getFloat32(index * 4, true)
-        ranked.push({ id: String(row.block_id), score })
+        if (!Number.isFinite(score)) return lexical
+        count++
+        if (!maximum || ranked.length === maximum && score <= ranked[ranked.length - 1].score) continue
+        let low = 0, high = ranked.length
+        while (low < high) {
+          const middle = Math.floor((low + high) / 2)
+          // Insert after equal scores to preserve the original stable sort order.
+          if (score > ranked[middle].score) high = middle
+          else low = middle + 1
+        }
+        ranked.splice(low, 0, { id: String(row.block_id), score })
+        if (ranked.length > maximum) ranked.pop()
       }
-      ranked.sort((a, b) => b.score - a.score)
-      const semantic = this.store.passages(bookId, ranked.slice(0, limit).map((item) => item.id))
+      const semantic = this.store.passages(bookId, ranked.slice(0, end < 0 ? Math.max(0, count + end) : maximum).map((item) => item.id))
       const combined = new Map<string, { passage: Passage; score: number }>()
       for (const list of [lexical, semantic]) for (const [rank, passage] of list.entries()) {
         const id = passage.blockId ?? passage.id

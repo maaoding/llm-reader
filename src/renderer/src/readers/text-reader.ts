@@ -321,7 +321,9 @@ export class TextReaderAdapter implements ReaderAdapter {
     const chapterHeadingIndexes = markdown ? new Set(parsedParagraphs.filter((item) => item.heading).map((item) => item.index)) : navigationalHeadingIndexes(parsedParagraphs)
     this.chapters = this.buildChapters(parsedParagraphs, chapterHeadingIndexes)
     if (markdown) root.append(markdown.fragment)
+    let chapterIndex = 0
     this.paragraphs = parsedParagraphs.map((paragraph) => {
+      if (this.chapters[chapterIndex + 1]?.paragraphIndexes[0] === paragraph.index) chapterIndex++
       const isChapterHeading = chapterHeadingIndexes.has(paragraph.index)
       const mapped = markdown?.paragraphs[paragraph.index]
       const element = mapped?.element ?? this.document.createElement(isChapterHeading ? 'h2' : 'p')
@@ -337,12 +339,9 @@ export class TextReaderAdapter implements ReaderAdapter {
       }
       if (!mapped) root.append(element)
 
-      const chapterIndex = this.chapters.findIndex((chapter) =>
-        chapter.paragraphIndexes.includes(paragraph.index)
-      )
       return {
         ...paragraph,
-        chapterIndex: Math.max(0, chapterIndex),
+        chapterIndex,
         element,
         ...(mapped ? { markdown: mapped } : {})
       }
@@ -362,7 +361,7 @@ export class TextReaderAdapter implements ReaderAdapter {
         id: `txt-toc-${index + 1}`,
         label: chapter.title,
         href: makeTextAnchor(chapter.start),
-        depth: markdown ? Math.max(0, (parsedParagraphs.find((item) => item.start === chapter.start)?.level ?? 1) - 1) : 0
+        depth: markdown ? Math.max(0, (parsedParagraphs[chapter.paragraphIndexes[0]]?.level ?? 1) - 1) : 0
       }))
 
     this.programmaticScroll = true
@@ -727,9 +726,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       return
     }
     const hostTop = this.host.getBoundingClientRect().top
-    const firstVisible =
-      this.paragraphs.find((paragraph) => paragraph.element.getBoundingClientRect().bottom > hostTop + 8) ??
-      this.paragraphs[this.paragraphs.length - 1]
+    const firstVisible = this.findOrderedParagraph((paragraph) => paragraph.element.getBoundingClientRect().bottom > hostTop + 8)
     if (!firstVisible) {
       return
     }
@@ -815,11 +812,19 @@ export class TextReaderAdapter implements ReaderAdapter {
   }
 
   private findParagraphAt(offset: number): TextParagraph | undefined {
-    return (
-      this.paragraphs.find((paragraph) => offset >= paragraph.start && offset <= paragraph.end) ??
-      this.paragraphs.find((paragraph) => paragraph.start > offset) ??
-      this.paragraphs[this.paragraphs.length - 1]
-    )
+    return this.findOrderedParagraph((paragraph) => paragraph.end >= offset)
+  }
+
+  /** Source ranges and rendered bottoms follow reading order, including equal-bottom table cells.
+   * Predicates stay true after the first match; positions past the end use the final paragraph. */
+  private findOrderedParagraph(matches: (paragraph: TextParagraph) => boolean): TextParagraph | undefined {
+    let low = 0, high = this.paragraphs.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if (matches(this.paragraphs[middle])) high = middle
+      else low = middle + 1
+    }
+    return this.paragraphs[Math.min(low, this.paragraphs.length - 1)]
   }
 
   private findParagraphForNode(node: Node): TextParagraph | undefined {
