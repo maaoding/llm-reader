@@ -35,15 +35,21 @@ export async function launchReader(options: LaunchReaderOptions): Promise<{
       LLM_READER_UPDATER_DISABLED: '1'
     }
   })
-  // Headless Linux runners may have no OS keyring. Opt in only for disposable
-  // test profiles with synthetic credentials; the application never enables this.
-  if (process.platform === 'linux' && process.env.LLM_READER_E2E_BASIC_TEXT === '1') {
-    await application.evaluate(({ safeStorage }) => {
-      if (safeStorage.getSelectedStorageBackend() !== 'basic_text') throw new Error('Expected a test-only basic_text backend')
-      safeStorage.setUsePlainTextEncryption(true)
-    })
+  try {
+    // Headless Linux runners may have no OS keyring. Opt in only for disposable
+    // test profiles with synthetic credentials; the application never enables this.
+    if (process.platform === 'linux' && process.env.LLM_READER_E2E_BASIC_TEXT === '1') {
+      await application.evaluate(({ safeStorage }) => {
+        if (safeStorage.getSelectedStorageBackend() !== 'basic_text') throw new Error('Expected a test-only basic_text backend')
+        safeStorage.setUsePlainTextEncryption(true)
+      })
+    }
+    return { application, page: await application.firstWindow() }
+  } catch (error) {
+    // The caller cannot own the process until launchReader returns successfully.
+    await disposeReader(application)
+    throw error
   }
-  return { application, page: await application.firstWindow() }
 }
 
 export async function restartReader(
@@ -58,6 +64,11 @@ export async function cleanupE2eWorkspace(
   application: ElectronApplication | undefined,
   root: string
 ): Promise<void> {
+  await disposeReader(application)
+  await rm(root, { recursive: true, force: true })
+}
+
+async function disposeReader(application: ElectronApplication | undefined): Promise<void> {
   // This profile is being discarded after assertions. Fault-injection tests may
   // leave saves or close acknowledgements blocked, so dispose their windows
   // explicitly. Restarts and close-behavior assertions still use normal close.
@@ -65,5 +76,4 @@ export async function cleanupE2eWorkspace(
     for (const window of BrowserWindow.getAllWindows()) window.destroy()
   }).catch(() => undefined)
   await application?.close().catch(() => undefined)
-  await rm(root, { recursive: true, force: true })
 }
