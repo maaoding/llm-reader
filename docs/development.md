@@ -19,6 +19,8 @@ Node.js 范围与 pnpm 固定版本以 [package.json](../package.json) 为准；
 
 ## 本地验证与打包
 
+渲染层的 `App.tsx` 负责组合工作区、阅读器与会话流程。书籍详情、批量导入、PDF 选区确认、对话展示和窗口控件各自保存在同名组件中；`use-app-preferences` 管理语言、主题与阅读偏好，`use-book-import` 管理导入事件和拖放生命周期，`use-selection-toolbar` 管理选区工具栏定位。新增行为应放入对应模块，跨书导航和会话协调继续由应用层组合。
+
 ```powershell
 pnpm lint
 pnpm typecheck
@@ -37,6 +39,8 @@ pnpm build:win --publish never
 [Windows 安装验收工作流](../.github/workflows/windows-package-validation.yml)可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.2.0 覆盖安装及已安装程序的专项回归。
 
 验收已安装版本时，将 `LLM_READER_E2E_EXECUTABLE` 指向安装目录中的 `LLM Reader.exe`，再运行 `pnpm test:e2e:run`。测试仍会为每个用例创建并清理隔离的临时用户数据目录，不会读写日常书库。
+
+`tests/e2e/support/reader-test.ts` 提供带独立启动、清理预算的 Electron fixture，目前用于取材回归。业务断言仍受用例超时约束；窗口启动缓慢或测试失败时，由 fixture 清理隔离进程和资料。PDF 缩放用例等待页面的 `aria-busy` 恢复为 `false` 后再检查文字层，避免把窗口尺寸变化误当成绘制完成。
 
 ## 官网与使用文档
 
