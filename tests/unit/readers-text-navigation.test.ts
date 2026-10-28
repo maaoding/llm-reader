@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TextReadingMode } from '../../src/shared/contracts'
 import { copy } from '../../src/shared/copy'
-import { TextReaderAdapter } from '../../src/renderer/src/readers/text-reader'
+import { parseTextParagraphs, TextReaderAdapter } from '../../src/renderer/src/readers/text-reader'
 
 const adapters: TextReaderAdapter[] = []
 afterEach(() => {
@@ -26,6 +26,20 @@ async function setup(source: string, mode: TextReadingMode = 'plain') {
 }
 
 describe('ordered TXT paragraph navigation', () => {
+  it('keeps exact source spans across trimmed Unicode whitespace, empty blocks and unpaired surrogates', () => {
+    const texts = ['😀甲\n𠮷乙', '# 第二章', '\uD800丙\uDC00', '👩🏽‍💻é尾']
+    const source = `\uFEFF \t\n\n\u2003${texts[0]}\u3000\n\n \t\n\n${texts[1]}  \n\n${texts[2]}\n\n\t${texts[3]}\u00a0\n\n \t`
+    const paragraphs = parseTextParagraphs(source)
+    expect(paragraphs.map((paragraph) => paragraph.text)).toEqual(texts)
+    expect(paragraphs.map((paragraph) => paragraph.heading)).toEqual([false, true, false, false])
+    const points = Array.from(source)
+    for (const paragraph of paragraphs) {
+      expect(points.slice(paragraph.start, paragraph.end).join('')).toBe(paragraph.text)
+      expect(paragraph.start).toBe(Array.from(source.slice(0, source.indexOf(paragraph.text))).length)
+    }
+    expect(parseTextParagraphs('\n\n\t \u3000\n')).toEqual([])
+  })
+
   it.each(['plain', 'markdown'] as const)('keeps chapter membership and TOC depth in %s mode', async (mode) => {
     const source = '开篇内容😀\n\n# 第一章\n\n甲段落。\n\n| 左 | 右 |\n| --- | --- |\n| 甲 | 乙 |\n\n## 小节\n\n> 引用内容\n>\n> - 嵌套段落😀\n\n# 第二章\n\n最后一段。'
     const { adapter, paragraphs, onRelocated, info } = await setup(source, mode)
@@ -111,5 +125,41 @@ describe('ordered TXT paragraph navigation', () => {
       const start = paragraphs[expectedIndex].dataset.readerStart!
       expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ locator: `txt:${start}:${start}`, reason: 'natural' }))
     }
+  })
+
+  it.each(['plain', 'markdown'] as const)('locates nested selection nodes without walking every paragraph in %s mode', async (mode) => {
+    const source = Array.from({ length: 1_024 }, (_, index) => `段落${index} 甲**😀乙**丙。`).join('\n\n')
+    const { adapter, paragraphs } = await setup(source, mode)
+    const paragraph = paragraphs[1_000]
+    const node = mode === 'markdown' ? paragraph.querySelector('strong')!.firstChild! : paragraph.firstChild!
+    const start = node.textContent!.indexOf('😀'), end = start + '😀乙'.length
+    const range = document.createRange()
+    range.setStart(node, start); range.setEnd(node, end)
+    const selection = document.getSelection()!
+    selection.removeAllRanges(); selection.addRange(range)
+    const contains = vi.spyOn(Node.prototype, 'contains')
+    document.dispatchEvent(new Event('selectionchange'))
+    const result = adapter.getSelection()!
+    expect(result.quote).toBe('😀乙')
+    const offsets = result.anchor.split(':').slice(1).map(Number)
+    expect(Array.from(source).slice(...offsets).join('')).toBe('😀乙')
+    expect(result.passages.some((passage) => passage.id === 'P1001')).toBe(true)
+    expect(result.passages.reduce((sum, passage) => sum + Array.from(passage.text).length, 0)).toBeLessThanOrEqual(6_000)
+    expect(contains.mock.calls.length).toBeLessThanOrEqual(2)
+    selection.removeAllRanges()
+  })
+
+  it('validates fresh Unicode bounds after reopening and restores the previous anchor after mode changes', async () => {
+    const source = '# 标题😀\n\n甲**𠮷乙**丙  '
+    const { adapter, onRelocated } = await setup(source)
+    const offset = Array.from(source.slice(0, source.indexOf('𠮷'))).length
+    const anchor = `txt:${offset}:${offset}`
+    await adapter.goTo(anchor)
+    await adapter.setTextMode('markdown')
+    expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ locator: anchor, progress: offset / Array.from(source).length }))
+    await adapter.open(new TextEncoder().encode('😀终'))
+    await adapter.goTo('txt:2:2')
+    expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ progress: 1 }))
+    await expect(adapter.goTo('txt:3:3')).rejects.toThrow(copy('reader.txtInvalidAnchor'))
   })
 })

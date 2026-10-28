@@ -15,6 +15,12 @@ export interface ContextFocus {
   endOffset: number
 }
 
+// Arrays and lazy chapter accessors share the same bounded traversal.
+interface ContextBlocks {
+  readonly length: number
+  at(index: number): ContextBlock | undefined
+}
+
 interface PositionedBlock extends ContextBlock {
   start: number
   end: number
@@ -38,7 +44,7 @@ function advanceCodePoints(value: string, start: number, count: number): number 
  * characters consume one unit of the 6,000-character budget.
  */
 export function buildBoundedPassages(
-  blocks: ContextBlock[],
+  blocks: readonly ContextBlock[] | ContextBlocks,
   focus: ContextFocus,
   maximumCharacters = MAX_CONTEXT_CHARACTERS
 ): Passage[] {
@@ -46,26 +52,32 @@ export function buildBoundedPassages(
     return []
   }
 
-  let cursor = 0
-  const positioned: PositionedBlock[] = blocks.map((block, index) => {
-    const positioned = {
-      ...block,
-      start: cursor,
-      end: cursor + codePointLength(block.text)
-    }
-    cursor = positioned.end + (index === blocks.length - 1 ? 0 : 2)
-    return positioned
-  })
-
-  const startBlockIndex = clamp(focus.startBlock, 0, positioned.length - 1)
-  const endBlockIndex = clamp(focus.endBlock, startBlockIndex, positioned.length - 1)
-  const startBlock = positioned[startBlockIndex]
-  const endBlock = positioned[endBlockIndex]
+  const startBlockIndex = clamp(focus.startBlock, 0, blocks.length - 1)
+  const endBlockIndex = clamp(focus.endBlock, startBlockIndex, blocks.length - 1)
+  const block = blocks.at(startBlockIndex)!
+  const startBlock: PositionedBlock = { ...block, start: 0, end: codePointLength(block.text) }
   const focusStart = startBlock.start + clamp(focus.startOffset, 0, startBlock.end - startBlock.start)
-  const focusEnd = endBlock.start + clamp(focus.endOffset, 0, endBlock.end - endBlock.start)
+  // A full budget on either side is enough even when an edge shifts the window.
+  // Keep coordinates relative to the first selected block; distant text is never read.
+  const before: PositionedBlock[] = [], after: PositionedBlock[] = []
+  let first = startBlock, last = startBlock
+  for (let index = startBlockIndex - 1; index >= 0 && focusStart - first.start < maximumCharacters; index--) {
+    const block = blocks.at(index)!
+    const end = first.start - 2
+    first = { ...block, start: end - codePointLength(block.text), end }
+    before.push(first)
+  }
+  for (let index = startBlockIndex + 1; index < blocks.length && last.end - focusStart < maximumCharacters; index++) {
+    const block = blocks.at(index)!
+    const start = last.end + 2
+    last = { ...block, start, end: start + codePointLength(block.text) }
+    after.push(last)
+  }
+  const endBlock = endBlockIndex === startBlockIndex ? startBlock : after[endBlockIndex - startBlockIndex - 1]
+  // A selection ending beyond the scanned window already fills the whole budget.
+  const focusEnd = endBlock ? endBlock.start + clamp(focus.endOffset, 0, endBlock.end - endBlock.start) : last.end
   const orderedFocusEnd = Math.max(focusStart, focusEnd)
 
-  const documentLength = positioned[positioned.length - 1].end
   const selectedLength = orderedFocusEnd - focusStart
   let windowStart: number
 
@@ -76,10 +88,10 @@ export function buildBoundedPassages(
     windowStart = focusStart - Math.floor(surroundingBudget / 2)
   }
 
-  windowStart = clamp(windowStart, 0, Math.max(0, documentLength - maximumCharacters))
-  const windowEnd = Math.min(documentLength, windowStart + maximumCharacters)
+  windowStart = clamp(windowStart, first.start, Math.max(first.start, last.end - maximumCharacters))
+  const windowEnd = Math.min(last.end, windowStart + maximumCharacters)
 
-  return positioned.flatMap((block) => {
+  return [...before.reverse(), startBlock, ...after].flatMap((block) => {
     const intersectionStart = Math.max(windowStart, block.start)
     const intersectionEnd = Math.min(windowEnd, block.end)
     if (intersectionEnd <= intersectionStart) {
