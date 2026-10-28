@@ -66,4 +66,33 @@ describe('reader context Unicode offsets', () => {
     ])
     expect(input[0].anchorForSlice).toHaveBeenCalledExactlyOnceWith(97_001, 103_001)
   })
+
+  it.each([25_000, 49_999])('reads only nearby text in a large chapter when the selection ends in block %s', (endBlock) => {
+    const visited: number[] = []
+    const input = {
+      length: 50_000,
+      at: (index: number) => {
+        // Accessing distant source text is unnecessary even for an oversized selection.
+        if (Math.abs(index - 25_000) > 6) throw new Error('Read outside the context window')
+        visited.push(index)
+        return { id: `P${index}`, text: '甲😀'.repeat(500), anchorForSlice: (start: number, end: number) => `${index}:${start}:${end}` }
+      }
+    }
+    const result = buildBoundedPassages(input, { startBlock: 25_000, startOffset: 500, endBlock, endOffset: 501 })
+    const first = endBlock === 25_000 ? 24_997 : 25_000
+    expect(result.map((passage) => passage.id)).toEqual(Array.from({ length: 7 }, (_, index) => `P${first + index}`))
+    expect(result[0].anchor).toBe(endBlock === 25_000 ? '24997:507:1000' : '25000:500:1000')
+    expect(result.at(-1)!.anchor).toBe(endBlock === 25_000 ? '25003:0:495' : '25006:0:488')
+    expect(result.reduce((sum, passage) => sum + codePointLength(passage.text), 0)).toBe(5_988)
+    expect(visited).toHaveLength(13)
+    expect(new Set(visited).size).toBe(visited.length)
+  })
+
+  it('shifts the window back from the last selected block across empty paragraphs', () => {
+    const input = blocks(['甲😀乙丙丁', '', '', '终点'])
+    expect(buildBoundedPassages(input, { startBlock: 3, startOffset: 1, endBlock: 3, endOffset: 2 }, 10)).toEqual([
+      { id: 'P1', text: '丙丁', anchor: 'P1:3:5' },
+      { id: 'P4', text: '终点', anchor: 'P4:0:2' }
+    ])
+  })
 })
