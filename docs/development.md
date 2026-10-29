@@ -19,7 +19,19 @@ Node.js 范围与 pnpm 固定版本以 [package.json](../package.json) 为准；
 
 ## 本地验证与打包
 
-渲染层的 `App.tsx` 负责组合工作区、阅读器与会话流程。书籍详情、批量导入、PDF 选区确认、对话展示和窗口控件各自保存在同名组件中；`use-app-preferences` 管理语言、主题与阅读偏好，`use-book-import` 管理导入事件和拖放生命周期，`use-selection-toolbar` 管理选区工具栏定位。新增行为应放入对应模块，跨书导航和会话协调继续由应用层组合。
+渲染层的 `App.tsx` 负责组合工作区、阅读器与会话流程。书籍详情、批量导入、PDF 选区确认、对话展示和窗口控件各自保存在同名组件中。行为模块按职责划分：
+
+| 模块 | 职责 |
+| --- | --- |
+| `use-app-preferences` | 语言、主题与阅读偏好的持久化 |
+| `use-book-import` | 导入事件、取消操作和拖放生命周期 |
+| `use-selection-toolbar` | 选区工具栏定位和滚动监听 |
+| `use-provider-connection` | 服务配置恢复、连接检查与版本校验，忽略旧服务的检测结果 |
+| `use-conversation-requests` | 两路并发、先进先出的请求队列、流式事件和取消清理 |
+| `use-conversation-sessions` | 会话恢复、可渲染的加载状态和保存顺序 |
+| `use-reader-search` | 书内查询、PDF 索引回退，以及切书和切换阅读模式时的结果失效 |
+
+新增行为应放入对应模块，跨书导航和会话协调继续由应用层组合。请求队列通过取消单个请求、会话或书籍的接口清理任务，应用层不直接修改队列；连接检查通过配置版本接收请求结果，避免旧请求覆盖新服务的状态。异步回归测试使用可控 Promise 验证完成顺序，无需等待固定时长。
 
 ```powershell
 pnpm lint

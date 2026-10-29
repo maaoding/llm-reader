@@ -120,6 +120,7 @@ export function useConversationSessions({
   // 打开书籍时恢复该书的最后一个临时会话（草稿 + 未归档轮次），并复用原会话标识。
   const restoredSessionsRef = useRef(new Set<string>())
   const loadedSessionsRef = useRef(new Set<string>())
+  const [loadedSessions, setLoadedSessions] = useState<ReadonlySet<string>>(new Set())
   const [failedSessionLoads, setFailedSessionLoads] = useState<string[]>([])
   useEffect(() => {
     const selectedTab = conversationTabs.find((tab) => tab.id === activeTabId && tab.kind === 'live')
@@ -129,6 +130,7 @@ export function useConversationSessions({
       void window.readerApi.getBookSession(bookId).then(async (record) => {
         const freshMode = !record ? (await window.readerApi.getKnowledgeSettings()).webSearch.enabled ? 'auto' as const : 'off' as const : undefined
         loadedSessionsRef.current.add(bookId)
+        setLoadedSessions(new Set(loadedSessionsRef.current))
         const tab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
         if (!tab) return
         if (!record) { updateConversationTab(tab.id, (current) => ({ ...current, webSearch: freshMode ?? 'off' })); return }
@@ -309,7 +311,7 @@ export function useConversationSessions({
     conversationTabs, conversationTabsRef, activeTabId, activeTabIdRef,
     commitConversationTabs, updateConversationTab, focusConversationTab,
     ensureLiveTab, removeConversationTabsForBook, visibleSessionTabs, markArchiveOpened,
-    loadedSessionsRef, failedSessionLoads, retrySessionRestoration,
+    loadedSessions, loadedSessionsRef, failedSessionLoads, retrySessionRestoration,
     sessionTabsRestoreState, sessionTabsRestoreError, retryTabRestoration,
     sessionSaves, tabSaves, archiveSaves, sessionTransitionsRef, changingSessions, setSessionChanging,
     persistLiveSession, persistSessionTabs, persistArchiveHistory, flushSessionSaves, closeConversationTab

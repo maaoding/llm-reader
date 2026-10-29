@@ -7,6 +7,9 @@ import { EmptyState } from './EmptyState'
 import { useAppPreferences } from './use-app-preferences'
 import { useBookImport } from './use-book-import'
 import { useSelectionToolbar } from './use-selection-toolbar'
+import { useProviderConnection, providerStatusLabel } from './use-provider-connection'
+import { useConversationRequests } from './use-conversation-requests'
+import { useReaderSearch } from './use-reader-search'
 import { useAppClose } from './use-app-close'
 import { useConversationSessions } from './use-conversation-sessions'
 import { createArchiveTab, type ConversationTab, type ConversationTurn } from './conversation-session'
@@ -17,7 +20,7 @@ import { WebSearchControl } from './WebSearchControl'
 import { PersonaSessionControl } from './AssistantPersonaSettings'
 import { defaultPersona, MAX_PERSONAS, persistPersonaSettings, personaFromPreset, readPersonaSettings } from './assistant-personas'
 import { RecentConversations } from './RecentConversations'
-import { providerIsConfigured, publicRequestSettings } from '@shared/request-settings'
+import { providerIsConfigured } from '@shared/request-settings'
 import {
   AlertCircle,
   BookOpen,
@@ -62,11 +65,6 @@ import type {
   InsightArchiveRecord,
   InsightExportScope,
   LlmAction,
-  LlmEvent,
-  LlmRequest,
-  ProviderSettings,
-  ProviderOverview,
-  ProviderTestResult,
   PersonaSelection,
   PersonaSettings,
   SavedInsight,
@@ -103,16 +101,6 @@ import {
 type AssistantDialogView = 'conversation' | 'insights'
 type LeftView = 'library' | 'toc' | 'highlights' | 'search'
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
-type SearchState = 'idle' | 'searching' | 'ready' | 'error'
-type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
-interface ProviderConnectionState {
-  status: ProviderConnectionStatus
-  message: string
-}
-
-interface ProviderCheckOutcome extends ProviderTestResult {
-  current: boolean
-}
 
 function titleFromOriginalName(originalName: string, fallback: string): string {
   const withoutExtension = originalName.replace(/\.[^./\\]+$/u, '').trim()
@@ -125,35 +113,8 @@ interface ToastState {
   message: string
 }
 
-const EMPTY_PROVIDER: ProviderSettings = {
-  compatibility: 'auto',
-  baseUrl: 'https://api.openai.com',
-  model: '',
-  hasApiKey: false
-}
-
-const EMPTY_PROVIDER_OVERVIEW: ProviderOverview = {
-  profiles: [],
-  activeProfileId: null
-}
-
-const MAX_CONCURRENT_REQUESTS = 2
 function tocHrefMatchesCurrent(itemHref: string, currentHref: string | null): boolean {
   return Boolean(currentHref && itemHref.trim() === currentHref.trim())
-}
-
-function activeProviderSettings(overview: ProviderOverview): ProviderSettings {
-  const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
-  return active
-    ? { ...publicRequestSettings(active), protocol: active.protocol, hasCustomHeaders: active.hasCustomHeaders, baseUrl: active.baseUrl, model: active.model, compatibility: active.compatibility, hasApiKey: active.hasApiKey }
-    : EMPTY_PROVIDER
-}
-
-function providerStatusLabel(status: ProviderConnectionStatus): string {
-  if (status === 'checking') return copy('provider.statusChecking')
-  if (status === 'connected') return copy('provider.statusConnected')
-  if (status === 'disconnected') return copy('provider.statusDisconnected')
-  return copy('provider.statusNotConfigured')
 }
 
 function createId(): string {
@@ -245,11 +206,6 @@ export default function App(): ReactNode {
   const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
   const [currentChapterTitle, setCurrentChapterTitle] = useState('')
   const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [executedSearchQuery, setExecutedSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<ReadonlyArray<ReaderSearchResult>>([])
-  const [searchState, setSearchState] = useState<SearchState>('idle')
-  const [searchError, setSearchError] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialService, setSettingsInitialService] = useState<'document' | 'embedding'>()
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
@@ -258,12 +214,6 @@ export default function App(): ReactNode {
   const setAssistantDialogOpen = useCallback((open: boolean) => setPage(open ? 'conversation' : 'reading'), [])
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
-  const [providerOverview, setProviderOverview] = useState<ProviderOverview>(EMPTY_PROVIDER_OVERVIEW)
-  const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
-  const [providerConnection, setProviderConnection] = useState<ProviderConnectionState>({
-    status: 'not-configured',
-    message: providerStatusLabel('not-configured')
-  })
   const [toast, setToast] = useState<ToastState | null>(null)
 
   const hostRef = useRef<HTMLDivElement>(null)
@@ -271,9 +221,6 @@ export default function App(): ReactNode {
   const selectionToolbarRef = useRef<HTMLDivElement>(null)
   const adapterRef = useRef<ReaderAdapter | null>(null)
   const activeBookRef = useRef<BookRecord | null>(null)
-  const requestSessionRef = useRef(new Map<string, string>())
-  // 已达到并发上限、尚未真正发出的会话请求（按入队顺序）。
-  const pendingRequestsRef = useRef<Array<{ requestId: string; tabId: string; request: LlmRequest; providerRevision: number }>>([])
   const openSequenceRef = useRef(0)
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastProgressFlushRef = useRef(0)
@@ -289,16 +236,11 @@ export default function App(): ReactNode {
   const assistantExpandButtonRef = useRef<HTMLButtonElement>(null)
   const detailsReturnFocusRef = useRef<HTMLButtonElement>(null)
   const assistantDialogRef = useRef<HTMLElement>(null)
-  const searchInputRef = useRef<HTMLInputElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
   const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const naturalPositionRef = useRef<{ locator: string | null; progress: number }>({ locator: null, progress: 0 })
   const naturalChapterRef = useRef<{ title: string; href: string | null; progress: number } | null>(null)
   const chapterTitleOverrideRef = useRef<string | null>(null)
-  const providerRevisionRef = useRef(0)
-  const providerCheckSequenceRef = useRef(0)
-  const requestProviderRevisionRef = useRef(new Map<string, number>())
-  const searchSequenceRef = useRef(0)
   const leftViewRevisionRef = useRef(0)
   const selectLeftView = useCallback((view: LeftView): void => {
     leftViewRevisionRef.current += 1
@@ -342,11 +284,10 @@ export default function App(): ReactNode {
     activeBookRef.current = activeBook
   }, [activeBook])
 
-  useEffect(() => {
-    if (leftView !== 'search') return undefined
-    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus())
-    return () => window.cancelAnimationFrame(frame)
-  }, [leftView])
+  const {
+    searchQuery, setSearchQuery, executedSearchQuery, searchResults, searchState, searchError,
+    searchInputRef, submitSearch, resetSearch, invalidateSearch
+  } = useReaderSearch({ adapterRef, activeBookRef, visible: leftView === 'search' })
 
   const pushToast = useCallback((message: string, tone: ToastState['tone'] = 'neutral'): void => {    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setToast({ id: Date.now(), tone, message })
@@ -362,51 +303,7 @@ export default function App(): ReactNode {
     setToast(null)
   }, [])
 
-  const commitProviderSettings = useCallback((settings: ProviderSettings): number => {
-    const revision = providerRevisionRef.current + 1
-    providerRevisionRef.current = revision
-    providerCheckSequenceRef.current += 1
-    setProvider(settings)
-    const status: ProviderConnectionStatus = providerIsConfigured(settings) ? 'checking' : 'not-configured'
-    setProviderConnection({ status, message: providerStatusLabel(status) })
-    return revision
-  }, [])
-
-  const runProviderCheck = useCallback(async (revision: number): Promise<ProviderCheckOutcome> => {
-    const sequence = providerCheckSequenceRef.current + 1
-    providerCheckSequenceRef.current = sequence
-    if (revision === providerRevisionRef.current) {
-      setProviderConnection({ status: 'checking', message: providerStatusLabel('checking') })
-    }
-    let result: ProviderTestResult
-    try {
-      result = await window.readerApi.testProvider()
-    } catch (error) {
-      result = { ok: false, message: readableError(error, copy('provider.backgroundTestFailed')) }
-    }
-    const current = revision === providerRevisionRef.current && sequence === providerCheckSequenceRef.current
-    if (current) {
-      const status: ProviderConnectionStatus = result.ok ? 'connected' : 'disconnected'
-      setProviderConnection({ status, message: result.message || providerStatusLabel(status) })
-    }
-    return { ...result, current }
-  }, [])
-
-  const handleProviderOverviewChange = useCallback((overview: ProviderOverview, checkActive: boolean): void => {
-    setProviderOverview(overview)
-    const settings = activeProviderSettings(overview)
-    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey || settings.compatibility !== provider.compatibility || settings.protocol !== provider.protocol || JSON.stringify(publicRequestSettings(settings)) !== JSON.stringify(publicRequestSettings(provider)) || settings.hasCustomHeaders !== provider.hasCustomHeaders
-    if (!checkActive && !changed) return
-    const revision = commitProviderSettings(settings)
-    if (!checkActive || !providerIsConfigured(settings)) return
-    const check = runProviderCheck(revision)
-    const sequence = providerCheckSequenceRef.current
-    void check.then((result) => {
-      if (!result.ok && revision === providerRevisionRef.current && sequence === providerCheckSequenceRef.current) {
-        pushToast(result.message || copy('provider.backgroundTestFailed'), 'error')
-      }
-    })
-  }, [commitProviderSettings, provider, pushToast, runProviderCheck])
+  const { provider, providerOverview, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult } = useProviderConnection(pushToast)
 
   useEffect(() => {
     readingPreferencesRef.current = effectiveReadingPreferences
@@ -502,7 +399,7 @@ export default function App(): ReactNode {
   }, [flushProgress])
 
   const destroyReader = useCallback((): void => {
-    searchSequenceRef.current += 1
+    invalidateSearch()
     if (progressTimerRef.current) {
       clearTimeout(progressTimerRef.current)
       progressTimerRef.current = null
@@ -516,7 +413,7 @@ export default function App(): ReactNode {
     adapterRef.current = null
     setSelectionDraft(null)
     if (hostRef.current) hostRef.current.replaceChildren()
-  }, [flushProgress])
+  }, [flushProgress, invalidateSearch])
 
   const onSessionRestoreError = useCallback(() => pushToast(copy('assistant.sessionRestoreFailed'), 'error'), [pushToast])
   const onArchiveSaved = useCallback((updated: SavedInsight) => {
@@ -528,7 +425,7 @@ export default function App(): ReactNode {
     conversationTabs, conversationTabsRef, activeTabId, activeTabIdRef,
     commitConversationTabs, updateConversationTab, focusConversationTab,
     ensureLiveTab, removeConversationTabsForBook, visibleSessionTabs, markArchiveOpened,
-    loadedSessionsRef, failedSessionLoads, retrySessionRestoration,
+    loadedSessions, loadedSessionsRef, failedSessionLoads, retrySessionRestoration,
     sessionTabsRestoreState, sessionTabsRestoreError, retryTabRestoration,
     sessionSaves, tabSaves, archiveSaves, sessionTransitionsRef, changingSessions, setSessionChanging,
     persistLiveSession, persistSessionTabs, persistArchiveHistory, flushSessionSaves, closeConversationTab
@@ -538,34 +435,22 @@ export default function App(): ReactNode {
     onRestoreError: onSessionRestoreError, onArchiveSaved
   })
 
+  const { hasConversationRequest, enqueueConversationRequest, cancelRequest, cancelBookRequests, cancelTabRequests, cancelAllRequests } = useConversationRequests({
+    conversationTabsRef, closingRef, updateConversationTab, persistArchiveHistory, reportProviderResult
+  })
+
   const changePersonaSettings = (settings: PersonaSettings): boolean => {
     if (!persistPersonaSettings(settings)) return false
     setPersonaSettings(settings)
     return true
   }
 
-  // 同一本书只允许一个进行中的请求；切换书籍不会取消其他书中正在生成的回答。
+  // 同一会话只允许一个进行中的请求；切换书籍不会取消其他书中正在生成的回答。
   const tabHasActiveRequest = (tabId: string): boolean => {
-    if (sessionTransitionsRef.current.has(tabId)) return true
-    const live = conversationTabsRef.current.find((item) => item.id === tabId && item.kind === 'live')
-    if (live && !loadedSessionsRef.current.has(live.bookId)) return true
-    for (const value of requestSessionRef.current.values()) if (value === tabId) return true
-    return pendingRequestsRef.current.some((item) => item.tabId === tabId)
-  }
-  const cancelBookRequests = (bookId: string): void => {
-    for (const [requestId, tabId] of [...requestSessionRef.current]) {
-      const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
-      if (tab?.bookId !== bookId) continue
-      requestSessionRef.current.delete(requestId)
-      requestProviderRevisionRef.current.delete(requestId)
-      void window.readerApi.cancelLlm(requestId).catch(() => undefined)
-      updateConversationTab(tabId, (current) => ({
-        ...current,
-        turns: current.turns.map((turn) => turn.requestId === requestId
-          ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
-          : turn)
-      }))
-    }
+    const tab = conversationTabsRef.current.find((item) => item.id === tabId)
+    if (!tab || closingRef.current || sessionTransitionsRef.current.has(tabId) || deletingBooksRef.current.has(tab.bookId) || (tab.insightId && deletingInsightsRef.current.has(tab.insightId))) return true
+    if (tab.kind === 'live' && !loadedSessionsRef.current.has(tab.bookId)) return true
+    return hasConversationRequest(tabId)
   }
 
   // Save before replacing the selection; a failed write leaves the old conversation intact.
@@ -625,10 +510,7 @@ export default function App(): ReactNode {
     setCurrentChapterProgress(0)
     setCurrentChapterTitle('')
     setCurrentChapterHref(null)
-    setSearchQuery('')
-    setSearchResults([])
-    setSearchState('idle')
-    setSearchError('')
+    resetSearch()
     naturalPositionRef.current = { locator: book.lastLocator, progress: book.progress }
 
     try {
@@ -715,52 +597,40 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress, openSettings])
+  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress, openSettings, resetSearch])
 
   const changeTextReadingMode = useCallback(async (mode: TextReadingMode): Promise<void> => {
     if (!isTextReadingMode(mode)) return
     const adapter = adapterRef.current, book = activeBookRef.current
     if (!adapter?.setTextMode || book?.format !== 'txt') return
+    resetSearch(true)
     try {
       const result = await adapter.setTextMode(mode)
       if (adapterRef.current !== adapter || activeBookRef.current?.id !== book.id) return
       setTextReadingMode(mode)
       if (result) { setToc(result.toc); setTextRendering(result.textRendering ?? 'plain') }
-      setSelection(null); setSearchResults([]); setExecutedSearchQuery('')
+      setSelection(null)
+      resetSearch(true)
       if (!saveTextReadingMode(book.id, mode)) pushToast(copy('settings.textModeSaveFailed'), 'error')
     } catch (error) { pushToast(readableError(error, copy('reader.openFailed')), 'error') }
-  }, [pushToast])
+  }, [pushToast, resetSearch])
 
   useEffect(() => {
-    let alive = true
     const initialize = async (): Promise<void> => {
       if (!window.readerApi) {
         setLibraryState('error')
         setLibraryError(copy('reader.bridgeFailed'))
         return
       }
-      const [, , overview] = await Promise.all([
-        refreshBooks(),
-        refreshInsights(),
-        window.readerApi.getProviderOverview().catch(() => EMPTY_PROVIDER_OVERVIEW)
-      ])
-      if (!alive || providerRevisionRef.current !== 0) return
-      setProviderOverview(overview)
-      const settings = activeProviderSettings(overview)
-      const revision = commitProviderSettings(settings)
-      if (providerIsConfigured(settings)) void runProviderCheck(revision)
+      await Promise.all([refreshBooks(), refreshInsights()])
     }
     void initialize()
-    const requestSessions = requestSessionRef.current
     return () => {
-      alive = false
       openSequenceRef.current += 1
-      // 退出时取消所有仍在生成的回答。
-      for (const requestId of [...requestSessions.keys()]) void window.readerApi.cancelLlm(requestId).catch(() => undefined)
       destroyReader()
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
-  }, [commitProviderSettings, destroyReader, refreshBooks, refreshInsights, runProviderCheck])
+  }, [destroyReader, refreshBooks, refreshInsights])
 
   useEffect(() => {
     if (libraryState !== 'ready' || workspaceRestored.current) return
@@ -794,57 +664,14 @@ export default function App(): ReactNode {
     if (saved) changeSessionPersona(tab, saved)
   }
 
-  // 并发上限：超出上限的会话请求排队等待，响应结束后按入队顺序补位。
-  const pumpRequestQueue = useCallback(function pump(): void {
-    while (requestSessionRef.current.size < MAX_CONCURRENT_REQUESTS && pendingRequestsRef.current.length > 0) {
-      const next = pendingRequestsRef.current.shift()
-      if (!next) return
-      requestSessionRef.current.set(next.requestId, next.tabId)
-      requestProviderRevisionRef.current.set(next.requestId, next.providerRevision)
-      updateConversationTab(next.tabId, (current) => ({
-        ...current,
-        turns: current.turns.map((turn) => turn.requestId === next.requestId ? { ...turn, status: 'streaming', startedAt: Date.now() } : turn)
-      }))
-      void window.readerApi.startLlm(next.request).catch((error: unknown) => {
-        const message = readableError(error, copy('error.requestStartFailed'))
-        updateConversationTab(next.tabId, (current) => ({
-          ...current,
-          turns: current.turns.map((turn) => turn.requestId === next.requestId ? { ...turn, status: 'error', error: message } : turn)
-        }))
-        requestProviderRevisionRef.current.delete(next.requestId)
-        requestSessionRef.current.delete(next.requestId)
-        if (next.providerRevision === providerRevisionRef.current && requestSessionRef.current.size === 0) {
-          providerCheckSequenceRef.current += 1
-          setProviderConnection({ status: 'disconnected', message })
-        }
-        // 启动失败同样会空出并发位，继续补位下一个排队请求。
-        pump()
-      })
-    }
-  }, [updateConversationTab])
-
   // 清空会话：先取消该书排队中与进行中的请求，否则名额释放后模型仍会被调用，
   // 而对应的轮次已经被清掉，回答无处落地。
   const clearLiveSession = async (tab: ConversationTab): Promise<void> => {
     if (sessionTransitionsRef.current.has(tab.id) || closingRef.current) return
     setSessionChanging(tab.id, true)
     setPendingClearSession(false)
-    const queued = pendingRequestsRef.current.filter((item) => item.tabId === tab.id)
-    if (queued.length > 0) {
-      pendingRequestsRef.current = pendingRequestsRef.current.filter((item) => item.tabId !== tab.id)
-      for (const item of queued) requestProviderRevisionRef.current.delete(item.requestId)
-    }
-    for (const [requestId, tabId] of [...requestSessionRef.current]) {
-      if (tabId !== tab.id) continue
-      requestSessionRef.current.delete(requestId)
-      requestProviderRevisionRef.current.delete(requestId)
-      void window.readerApi.cancelLlm(requestId).catch(() => undefined)
-    }
-    updateConversationTab(tab.id, (current) => ({ ...current, turns: current.turns.map((turn) =>
-      turn.status === 'streaming' || turn.status === 'queued'
-        ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
-        : turn) }))
     try {
+      await cancelTabRequests(tab.id)
       // Finish older writes before deleting, so they cannot recreate the cleared conversation.
       await sessionSaves.wait(tab.bookId).catch(() => undefined)
       await window.readerApi.deleteBookSession(tab.bookId, tab.conversationId)
@@ -864,60 +691,8 @@ export default function App(): ReactNode {
     } finally {
       setSessionChanging(tab.id, false)
     }
-    // 释放出来的并发位让后面的排队请求补位。
-    pumpRequestQueue()
   }
 
-  useEffect(() => {
-    if (!window.readerApi) return undefined
-    return window.readerApi.onLlmEvent((event: LlmEvent) => {
-      const tabId = requestSessionRef.current.get(event.requestId)
-      const tab = tabId ? conversationTabsRef.current.find((candidate) => candidate.id === tabId) : undefined
-      const applyUpdate = (current: ConversationTurn[]): ConversationTurn[] => current.map((turn) => {
-        if (turn.requestId !== event.requestId) return turn
-        if (event.type === 'context') return { ...turn, context: event.context, webSearchPhase: undefined }
-        if (event.type === 'webSearch') return { ...turn, webSearchPhase: event.phase }
-        if (event.type === 'delta') return { ...turn, answer: turn.answer + event.delta }
-        if (event.type === 'usage') return { ...turn, usage: event.usage }
-        if (event.type === 'completed') return {
-          ...turn,
-          model: event.model,
-          status: 'completed',
-          ...(turn.startedAt === undefined ? {} : { durationMs: Math.max(0, Date.now() - turn.startedAt) })
-        }
-        return { ...turn, status: 'error', error: event.message }
-      })
-      if (tab) {
-        const turns = applyUpdate(tab.turns)
-        updateConversationTab(tab.id, (current) => ({ ...current, turns }))
-        if (event.type === 'completed' && tab.kind === 'archive' && tab.insightId) {
-          void persistArchiveHistory(tab.bookId, tab.insightId, turns, tab.persona, tab.webSearch).catch(() => undefined)
-        }
-      }
-
-      if (event.type === 'completed' || event.type === 'error') {
-        const requestRevision = requestProviderRevisionRef.current.get(event.requestId)
-        const failure = event.type === 'error' && event.code !== 'CANCELLED' ? event.message : ''
-        requestProviderRevisionRef.current.delete(event.requestId)
-        requestSessionRef.current.delete(event.requestId)
-        // 先让排队的请求补位，再按“是否还有请求在跑或排队”聚合连接状态，
-        // 避免并发时某一个失败就把状态点标成断开。
-        pumpRequestQueue()
-        const pendingWork = requestSessionRef.current.size + pendingRequestsRef.current.length
-        if (requestRevision === providerRevisionRef.current) {
-          if (pendingWork === 0) {
-            providerCheckSequenceRef.current += 1
-            setProviderConnection(failure
-              ? { status: 'disconnected', message: failure }
-              : { status: 'connected', message: providerStatusLabel('connected') })
-          } else if (!failure) {
-            providerCheckSequenceRef.current += 1
-            setProviderConnection({ status: 'connected', message: providerStatusLabel('connected') })
-          }
-        }
-      }
-    })
-  }, [conversationTabsRef, persistArchiveHistory, pumpRequestQueue, updateConversationTab])
   const sessionOperationInProgress = useCallback(() => Boolean(
     sessionTransitionsRef.current.size || deletingBooksRef.current.size || deletingInsightsRef.current.size
   ), [sessionTransitionsRef])
@@ -926,17 +701,9 @@ export default function App(): ReactNode {
       clearTimeout(progressTimerRef.current)
       progressTimerRef.current = null
     }
-    const requestIds = [...requestSessionRef.current.keys()]
-    pendingRequestsRef.current = []
-    requestSessionRef.current.clear()
-    requestProviderRevisionRef.current.clear()
-    commitConversationTabs((tabs) => tabs.map((tab) => ({ ...tab, turns: tab.turns.map((turn) =>
-      turn.status === 'streaming' || turn.status === 'queued'
-        ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
-        : turn) })))
-    await Promise.allSettled(requestIds.map((id) => window.readerApi.cancelLlm(id)))
+    await cancelAllRequests()
     await flushProgress()
-  }, [commitConversationTabs, flushProgress])
+  }, [cancelAllRequests, flushProgress])
   const { closing, closeSaveFailed, retryingSaves, retrySessionSaves } = useAppClose({
     closingRef, isBusy: sessionOperationInProgress, prepareClose, flushSessions: flushSessionSaves,
     closeWorkbenches, resumeWorkbenches, retryWorkbenchSaves, retryTabRestoration
@@ -967,48 +734,6 @@ export default function App(): ReactNode {
     else selectLeftView(view)
   }, [leftPanelOpen, leftView, openSearchView, selectLeftView])
 
-  const runSearch = useCallback(async (value: string): Promise<void> => {
-    const query = value.trim()
-    const queryLength = Array.from(query).length
-    if (queryLength < 1 || queryLength > READER_SEARCH_QUERY_MAX_LENGTH) {
-      searchSequenceRef.current += 1
-      setSearchResults([])
-      setExecutedSearchQuery('')
-      setSearchState('error')
-      setSearchError(copy('reader.searchInvalid'))
-      return
-    }
-    const adapter = adapterRef.current
-    const bookId = activeBookRef.current?.id
-    if (!adapter || !bookId) return
-    const sequence = ++searchSequenceRef.current
-    setSearchState('searching')
-    setSearchError('')
-    try {
-      const prepared = adapter.format === 'pdf' ? await window.readerApi.searchBookDocument({ bookId, query }) : null
-      const results = prepared?.available ? prepared.results : await adapter.search(query)
-      if (
-        sequence !== searchSequenceRef.current ||
-        adapterRef.current !== adapter ||
-        activeBookRef.current?.id !== bookId
-      ) return
-      setSearchResults(results)
-      setExecutedSearchQuery(query)
-      setSearchState('ready')
-    } catch (error) {
-      if (sequence !== searchSequenceRef.current || adapterRef.current !== adapter) return
-      setSearchResults([])
-      setExecutedSearchQuery('')
-      setSearchState('error')
-      setSearchError(readableError(error, copy('reader.searchFailed')))
-    }
-  }, [])
-
-  const submitSearch = useCallback((event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    void runSearch(searchQuery)
-  }, [runSearch, searchQuery])
-
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if (
@@ -1036,7 +761,7 @@ export default function App(): ReactNode {
     const cleanQuestion = question.trim()
     if (!cleanQuestion) return
     let tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
-    if (!tab || tabHasActiveRequest(tab.id)) return
+    if (!tab || closingRef.current || tabHasActiveRequest(tab.id)) return
     const scope = sourceSelection ? 'selection' : tab.scope
     const context = scope === 'book' ? null : sourceSelection ?? tab.selection
     if (scope === 'selection' && !context) return
@@ -1048,11 +773,13 @@ export default function App(): ReactNode {
         if (!imageDataUrl) throw new Error(copy('visual.renderFailed'))
       } catch { pushToast(copy('visual.renderFailed'), 'error'); return }
     }
+    if (closingRef.current || tabHasActiveRequest(tab.id) || conversationTabsRef.current.find((candidate) => candidate.id === tabId) !== tab) return
     const newContext = scope !== tab.scope || (scope === 'selection' && tab.selection?.anchor !== context?.anchor)
     if (newContext) {
       if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) return
       tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)!
     }
+    if (closingRef.current || tabHasActiveRequest(tab.id)) return
     const conversationId = tab.conversationId
     const priorTurns = newContext ? [] : tab.turns.filter((turn) => turn.id !== replaceTurnId && turn.status === 'completed' && turn.answer)
     const requestId = createId()
@@ -1080,30 +807,23 @@ export default function App(): ReactNode {
     focusConversationTab(tab.id)
     adapterRef.current?.clearSelection()
     setSelection(null)
-    const providerRevision = providerRevisionRef.current
-    pendingRequestsRef.current.push({
+    enqueueConversationRequest(tab.id, {
       requestId,
-      tabId: tab.id,
-      providerRevision,
-      request: {
-        requestId,
-        conversationId,
-        action,
-        question: cleanQuestion,
-        ...(tab.persona ? { persona: tab.persona.prompt } : {}),
-        webSearch: isPdfImageRegion(context) ? 'off' : tab.webSearch,
-        ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId }
-          : isPdfImageRegion(context) ? { scope: 'visual' as const, selection: context, imageDataUrl: imageDataUrl! }
-            : { scope: 'selection' as const, selection: context! }),
-        historyCandidateMessages: Math.min(priorTurns.length * 2, 1_000_000),
-        historyCandidateTruncated: priorTurns.slice(-15).some((item) => item.answer.length > 20_000),
-        history: priorTurns.slice(-15).flatMap((item) => [
-          { role: 'user' as const, content: item.question },
-          { role: 'assistant' as const, content: item.answer.slice(-20_000) }
-        ])
-      }
-    })
-    pumpRequestQueue()
+      conversationId,
+      action,
+      question: cleanQuestion,
+      ...(tab.persona ? { persona: tab.persona.prompt } : {}),
+      webSearch: isPdfImageRegion(context) ? 'off' : tab.webSearch,
+      ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId }
+        : isPdfImageRegion(context) ? { scope: 'visual' as const, selection: context, imageDataUrl: imageDataUrl! }
+          : { scope: 'selection' as const, selection: context! }),
+      historyCandidateMessages: Math.min(priorTurns.length * 2, 1_000_000),
+      historyCandidateTruncated: priorTurns.slice(-15).some((item) => item.answer.length > 20_000),
+      history: priorTurns.slice(-15).flatMap((item) => [
+        { role: 'user' as const, content: item.question },
+        { role: 'assistant' as const, content: item.answer.slice(-20_000) }
+      ])
+    }, getProviderRevision())
   }
   // 划词工具栏跟随选区:出现时同步定位,滚动/缩放时按帧重算并直接写样式,
   // 避免经过 React 状态造成级联渲染。
@@ -1128,45 +848,6 @@ export default function App(): ReactNode {
       return
     }
     await enqueueRequest(action, isPdfImageRegion(selection) ? copy('assistant.pdfRegionPrompt') : assistantActions[action].prompt, liveTabId, selection)
-  }
-
-  const cancelRequest = async (requestId: string | null): Promise<void> => {
-    if (!requestId) return
-    // 仍在排队的请求不需要打断接口，直接从队列里取出并标记为已取消。
-    const queueIndex = pendingRequestsRef.current.findIndex((item) => item.requestId === requestId)
-    if (queueIndex >= 0) {
-      const [removed] = pendingRequestsRef.current.splice(queueIndex, 1)
-      requestProviderRevisionRef.current.delete(requestId)
-      updateConversationTab(removed.tabId, (tab) => ({
-        ...tab,
-        turns: tab.turns.map((turn) => turn.requestId === requestId
-          ? { ...turn, status: 'error', error: copy('assistant.cancelledEmpty') }
-          : turn)
-      }))
-      return
-    }
-    const tabId = requestSessionRef.current.get(requestId)
-    try {
-      await window.readerApi.cancelLlm(requestId)
-    } finally {
-      if (tabId) {
-        updateConversationTab(tabId, (tab) => ({
-          ...tab,
-          turns: tab.turns.map((turn) => (
-            turn.requestId === requestId
-              ? {
-                  ...turn,
-                  status: 'error',
-                  error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty')
-                }
-              : turn
-          ))
-        }))
-      }
-      requestProviderRevisionRef.current.delete(requestId)
-      requestSessionRef.current.delete(requestId)
-      pumpRequestQueue()
-    }
   }
 
   const submitTabQuestion = (tabId: string): void => {
@@ -1408,17 +1089,14 @@ export default function App(): ReactNode {
     setCurrentChapterProgress(0)
     setCurrentChapterTitle('')
     setCurrentChapterHref(null)
-    setSearchQuery('')
-    setSearchResults([])
-    setSearchState('idle')
-    setSearchError('')
+    resetSearch()
     naturalPositionRef.current = { locator: null, progress: 0 }
     if (detailsBook?.id === bookId) setDetailsBook(null)
     setLeftView('library')
 
     if (options.dropConversations) {
       // 书籍被删除时丢弃它的会话与请求；关闭标签只是回到书库，保留逐书草稿与历史。
-      cancelBookRequests(bookId)
+      await cancelBookRequests(bookId)
       removeConversationTabsForBook(bookId)
     }
   }
@@ -1479,7 +1157,7 @@ export default function App(): ReactNode {
     deletingBooksRef.current.add(book.id)
     const archiveIds = conversationTabsRef.current.filter((tab) => tab.bookId === book.id && tab.insightId).map((tab) => tab.insightId!)
     try {
-      cancelBookRequests(book.id)
+      await cancelBookRequests(book.id)
       await Promise.allSettled([sessionSaves.wait(book.id), tabSaves.wait('tabs'), ...archiveIds.map((id) => archiveSaves.wait(id))])
       const deleted = await window.readerApi.deleteBook(book.id)
       sessionSaves.forget(book.id)
@@ -1524,6 +1202,8 @@ export default function App(): ReactNode {
     if (deletingInsightsRef.current.has(insightId)) return
     deletingInsightsRef.current.add(insightId)
     try {
+      const tab = conversationTabsRef.current.find((candidate) => candidate.insightId === insightId)
+      if (tab) await cancelTabRequests(tab.id)
       await Promise.allSettled([archiveSaves.wait(insightId), tabSaves.wait('tabs')])
       const target = insights.find((insight) => insight.id === insightId)
       const deleted = await window.readerApi.deleteInsight(insightId)
@@ -1631,37 +1311,34 @@ export default function App(): ReactNode {
     const context = scope === 'selection' ? (selection?.bookId === tab.bookId ? selection : tab.selection) : null
     if (await replaceSession(target, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) focusConversationTab(target.id)
   }
-  const recentConversations = (tab: ConversationTab | undefined): ReactNode => tab?.kind === 'live' && <RecentConversations
-    key={`${tab.id}:${tab.conversationId}`} currentId={tab.conversationId}
-    disabled={!loadedSessionsRef.current.has(tab.bookId) || Boolean(streamingRequestId(tab)) || changingSessions.includes(tab.id)}
-    onList={async () => {
-      const current = conversationTabsRef.current.find((item) => item.id === tab.id)
-      if (current) await persistLiveSession(current)
-      return window.readerApi.listRecentBookSessions(tab.bookId)
-    }}
-    onRestore={async (conversationId) => {
-      const restored = await replaceSession(tab, async () => {
-        const record = await window.readerApi.getRecentBookSession({ bookId: tab.bookId, conversationId })
-        if (!record) throw new Error(copy('assistant.sessionRestoreFailed'))
-        return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft, persona: record.persona ?? null, webSearch: record.webSearch ?? 'off',
-          turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })) }
-      })
-      if (!restored) throw new Error(copy('assistant.sessionRestoreFailed'))
-      setConversationQuery(''); setPendingClearSession(false)
-      focusConversationTab(tab.id)
-    }} />
+  const listRecentConversations = async (tab: ConversationTab) => {
+    const current = conversationTabsRef.current.find((item) => item.id === tab.id)
+    if (current) await persistLiveSession(current)
+    return window.readerApi.listRecentBookSessions(tab.bookId)
+  }
+  const restoreRecentConversation = async (tab: ConversationTab, conversationId: string): Promise<void> => {
+    const restored = await replaceSession(tab, async () => {
+      const record = await window.readerApi.getRecentBookSession({ bookId: tab.bookId, conversationId })
+      if (!record) throw new Error(copy('assistant.sessionRestoreFailed'))
+      return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft, persona: record.persona ?? null, webSearch: record.webSearch ?? 'off',
+        turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })) }
+    })
+    if (!restored) throw new Error(copy('assistant.sessionRestoreFailed'))
+    setConversationQuery(''); setPendingClearSession(false)
+    focusConversationTab(tab.id)
+  }
   const conversationNeedle = normalizeNeedle(conversationQuery)
   const conversationMatches = useMemo(() => {
     if (!conversationNeedle) return 0
     return (activeConversationTab?.turns ?? []).filter((turn) => [turn.question, turn.answer, turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.quote : '']
       .some((value) => value.toLocaleLowerCase('zh-CN').includes(conversationNeedle))).length
   }, [activeConversationTab, conversationNeedle])
-  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && (tab.kind !== 'live' || loadedSessionsRef.current.has(tab.bookId)) &&
+  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && (tab.kind !== 'live' || loadedSessions.has(tab.bookId)) &&
     providerIsConfigured(provider) && !streamingRequestId(tab) && (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status === 'ready' : tab.selection))
   const canAskSidebar = canAskTab(sidebarTab)
   const canAskWorkbench = canAskTab(activeConversationTab)
   const blockedReason = (tab: ConversationTab | undefined): string => {
-    if (tab?.kind === 'live' && !loadedSessionsRef.current.has(tab.bookId)) return copy(failedSessionLoads.includes(tab.bookId) ? 'assistant.sessionRestoreFailed' : 'assistant.sessionLoading')
+    if (tab?.kind === 'live' && !loadedSessions.has(tab.bookId)) return copy(failedSessionLoads.includes(tab.bookId) ? 'assistant.sessionRestoreFailed' : 'assistant.sessionLoading')
     if (streamingRequestId(tab)) return copy('assistant.busyHint')
     if (!providerIsConfigured(provider)) return copy('assistant.needModel')
     if (tab?.scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready') return copy('assistant.needDocument')
@@ -1669,7 +1346,7 @@ export default function App(): ReactNode {
   }
   const resolveProps = (tab: ConversationTab | undefined, showSelectionPending = false) => ({
     blockedReason: blockedReason(tab) || (showSelectionPending && tab?.scope === 'selection' && !tab.selection ? copy('assistant.selectionPending') : ''),
-    ...(tab?.kind === 'live' && !loadedSessionsRef.current.has(tab.bookId) ?
+    ...(tab?.kind === 'live' && !loadedSessions.has(tab.bookId) ?
       failedSessionLoads.includes(tab.bookId) ? { resolveLabel: copy('common.retry') } : {} :
       !streamingRequestId(tab) && !providerIsConfigured(provider) ? {
       resolveLabel: copy('preparation.configureModel')
@@ -2154,7 +1831,11 @@ export default function App(): ReactNode {
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
           <div className="assistant-header-actions">
-            {!assistantDialogOpen && recentConversations(sidebarTab)}
+            {!assistantDialogOpen && sidebarTab?.kind === 'live' && <RecentConversations
+              key={`${sidebarTab.id}:${sidebarTab.conversationId}`} currentId={sidebarTab.conversationId}
+              disabled={!loadedSessions.has(sidebarTab.bookId) || Boolean(streamingRequestId(sidebarTab)) || changingSessions.includes(sidebarTab.id)}
+              onList={() => listRecentConversations(sidebarTab)}
+              onRestore={(conversationId) => restoreRecentConversation(sidebarTab, conversationId)} />}
             <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => {
               if (sidebarTab) focusConversationTab(sidebarTab.id)
               else if (activeBook) focusConversationTab(ensureLiveTab(activeBook))
@@ -2167,7 +1848,7 @@ export default function App(): ReactNode {
           <ConversationPane
             scope={sidebarTab?.scope}
             controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />}
-            composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessionsRef.current.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
+            composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessions.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
               onChange={(persona) => changeSessionPersona(sidebarTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(sidebarTab, persona)} /></>}
             conversationSelection={sidebarTab?.selection ?? null}
             turns={sidebarTab?.turns ?? []}
@@ -2284,7 +1965,11 @@ export default function App(): ReactNode {
                   {conversationNeedle && <small data-testid="conversation-search-count">{copy('assistant.searchTurns', { count: conversationMatches })}</small>}
                 </label>
               )}
-              {assistantDialogView === 'conversation' && recentConversations(activeConversationTab)}
+              {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && <RecentConversations
+                key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} currentId={activeConversationTab.conversationId}
+                disabled={!loadedSessions.has(activeConversationTab.bookId) || Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)}
+                onList={() => listRecentConversations(activeConversationTab)}
+                onRestore={(conversationId) => restoreRecentConversation(activeConversationTab, conversationId)} />}
               {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && (activeConversationTab.turns.length > 0 || activeConversationTab.draft) && (
                 pendingClearSession ? (
                   <span className="assistant-session-clear is-confirming">
@@ -2321,8 +2006,8 @@ export default function App(): ReactNode {
                   scope={activeConversationTab.scope}
                   scopeControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />}
                   composerControls={<>
-                    {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && webSearchControl(activeConversationTab)}
-                    {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && <PersonaSessionControl key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} persona={activeConversationTab.persona} settings={personaSettings}
+                    {(activeConversationTab.kind !== 'live' || loadedSessions.has(activeConversationTab.bookId)) && webSearchControl(activeConversationTab)}
+                    {(activeConversationTab.kind !== 'live' || loadedSessions.has(activeConversationTab.bookId)) && <PersonaSessionControl key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} persona={activeConversationTab.persona} settings={personaSettings}
                       onChange={(persona) => changeSessionPersona(activeConversationTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(activeConversationTab, persona)} />}</>}
                   conversationSelection={activeConversationTab.selection}
                   turns={activeConversationTab.turns}
