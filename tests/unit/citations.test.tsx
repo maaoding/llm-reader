@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PdfImageRegionSource, SelectionContext } from '../../src/shared/contracts'
 import { AnswerText } from '../../src/renderer/src/AnswerText'
 import { EvidenceSources } from '../../src/renderer/src/EvidenceSources'
-import { citationExcerpt } from '../../src/renderer/src/citations'
+import { citationExcerpt, createCitationResolver } from '../../src/renderer/src/citations'
+import { copyIn, setCopyLanguage } from '../../src/shared/copy'
 
 const selection: SelectionContext = {
   bookId: 'book-citations',
@@ -22,7 +23,7 @@ const selection: SelectionContext = {
   ]
 }
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); setCopyLanguage('zh') })
 
 describe('citation presentation', () => {
   it('keeps source and PDF page navigation book-specific while preserving single-book navigation', () => {
@@ -63,6 +64,32 @@ describe('citation presentation', () => {
     expect(citationExcerpt('中'.repeat(24))).toBe('中'.repeat(24))
     expect(citationExcerpt('😀'.repeat(25))).toBe(`${'😀'.repeat(24)}…`)
     expect(citationExcerpt('   ')).toBe('原文片段')
+    expect(citationExcerpt('中'.repeat(24) + '\n\t  ')).toBe('中'.repeat(24))
+    expect(citationExcerpt('中'.repeat(23) + '\n\t😀尾文')).toBe('中'.repeat(23) + ' …')
+    expect(citationExcerpt('\u00a0😀\u2003中\ufeff')).toBe('😀 中')
+    expect(citationExcerpt('😀'.repeat(1_000_000))).toBe('😀'.repeat(24) + '…')
+  })
+
+  it('reuses cited excerpts across answer fragments without reading uncited passages', () => {
+    const read = vi.fn(() => '引用原文'.repeat(5_000))
+    const source: SelectionContext = { ...selection, passages: [
+      { id: 'P1', anchor: 'txt:1:2', get text() { return read() } },
+      { id: 'P2', anchor: 'txt:2:3', get text(): string { throw new Error('Uncited source should stay lazy') } }
+    ] }
+    const navigate = vi.fn()
+    const view = render(<AnswerText text={'引用 [P1]。\n\n'.repeat(30)} selection={source} onNavigate={navigate} />)
+    view.rerender(<AnswerText text={'引用 [P1]。\n\n'.repeat(40)} selection={source} onNavigate={navigate} />)
+    expect(read).toHaveBeenCalledOnce()
+    fireEvent.click(view.getAllByTestId('citation-valid')[0])
+    expect(navigate).toHaveBeenCalledWith('txt:1:2')
+  })
+
+  it('refreshes translated labels and empty fallbacks while reusing the same source index', () => {
+    const resolve = createCitationResolver([{ id: 'P1', text: ' \n ', anchor: 'txt:1:2' }])
+    expect(resolve('[P1]')).toContainEqual(expect.objectContaining({ label: '原文：原文片段' }))
+    setCopyLanguage('en')
+    expect(resolve('[P1] [P99]')).toContainEqual(expect.objectContaining({ label: copyIn('en', 'assistant.citationExcerpt', { excerpt: copyIn('en', 'assistant.citationSourceFallback') }) }))
+    expect(resolve('[P99]')).toContainEqual(expect.objectContaining({ label: copyIn('en', 'assistant.citationUnverified') }))
   })
 
   it('renders valid citations as excerpt buttons without exposing internal ids', () => {

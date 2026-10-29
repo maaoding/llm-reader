@@ -25,6 +25,7 @@
     "tests/unit/readers*.test.ts",
     "tests/unit/ui*.test.ts",
     "tests/unit/ui*.test.tsx",
-    "tests/unit/support/deferred.ts"
+    "tests/unit/support/deferred.ts",
+    "tests/performance/**/*.ts"
   ]
 }

@@ -20,9 +20,9 @@ async function setup(records = [record('first')]) {
   const api = {
     listWorkbenches: vi.fn(async () => records),
     saveWorkbench: vi.fn<ReaderApi['saveWorkbench']>(async (payload) => ({ ...payload, createdAt: '', updatedAt: '' })),
-    onLlmEvent: vi.fn(() => () => undefined),
+    onLlmEvent: vi.fn<ReaderApi['onLlmEvent']>(() => () => undefined),
     cancelLlm: vi.fn(async () => undefined),
-    startLlm: vi.fn(async () => undefined)
+    startLlm: vi.fn<ReaderApi['startLlm']>(async () => undefined)
   }
   Object.defineProperty(window, 'readerApi', { configurable: true, value: api })
   const hook = renderHook(() => useWorkbenches([], false))
@@ -141,4 +141,54 @@ it('revisits a workbench edited while another workbench is still saving on close
   expect(api.saveWorkbench).toHaveBeenCalledTimes(3)
   expect(api.saveWorkbench).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'first', draft: 'Edit after first saved' }))
   expect(result.current.dirty).toEqual([])
+})
+
+it('saves all buffered text when closing a streaming workbench', async () => {
+  const { result, api } = await setup()
+  await act(async () => { await result.current.submit('first', 'model') })
+  const requestId = api.startLlm.mock.calls[0][0].requestId
+  const emit = api.onLlmEvent.mock.calls.at(-1)![0]
+  act(() => {
+    emit({ type: 'delta', requestId, delta: 'first' })
+    emit({ type: 'delta', requestId, delta: 'last' })
+  })
+  expect(result.current.records[0].turns[0].answer).toBe('first')
+  await act(async () => { expect(await result.current.beforeClose()).toBe(true) })
+  expect(api.saveWorkbench).toHaveBeenLastCalledWith(expect.objectContaining({ turns: [expect.objectContaining({ answer: 'firstlast', status: 'error' })] }))
+  const saved = api.saveWorkbench.mock.calls.length
+  await act(async () => { await vi.advanceTimersByTimeAsync(1_000) })
+  expect(api.saveWorkbench).toHaveBeenCalledTimes(saved)
+})
+
+it('flushes the final fragment before saving a completed workbench', async () => {
+  const { result, api } = await setup()
+  await act(async () => { await result.current.submit('first', 'model') })
+  const requestId = api.startLlm.mock.calls[0][0].requestId
+  const emit = api.onLlmEvent.mock.calls.at(-1)![0]
+  await act(async () => {
+    emit({ type: 'delta', requestId, delta: 'first' })
+    emit({ type: 'delta', requestId, delta: 'last' })
+    emit({ type: 'completed', requestId, model: 'test-model' })
+  })
+  expect(api.saveWorkbench).toHaveBeenLastCalledWith(expect.objectContaining({ turns: [expect.objectContaining({ answer: 'firstlast', status: 'completed', model: 'test-model' })] }))
+  act(() => emit({ type: 'delta', requestId, delta: 'stale' }))
+  expect(result.current.records[0].turns[0].answer).toBe('firstlast')
+})
+
+it('preserves cancellation and its buffered text when starting fails late', async () => {
+  const { result, api } = await setup(), start = deferred()
+  api.startLlm.mockReturnValueOnce(start.promise)
+  let submit!: Promise<void>
+  await act(async () => { submit = result.current.submit('first', 'model') })
+  const requestId = api.startLlm.mock.calls[0][0].requestId
+  const emit = api.onLlmEvent.mock.calls.at(-1)![0]
+  act(() => {
+    emit({ type: 'delta', requestId, delta: 'first' })
+    emit({ type: 'delta', requestId, delta: 'last' })
+  })
+  await act(async () => { await result.current.cancel('first') })
+  const cancelled = result.current.records[0].turns[0]
+  expect(cancelled).toMatchObject({ answer: 'firstlast', status: 'error' })
+  await act(async () => { start.reject(new Error('Late failure')); await submit })
+  expect(result.current.records[0].turns[0]).toEqual(cancelled)
 })

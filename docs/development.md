@@ -30,8 +30,13 @@ Node.js 范围与 pnpm 固定版本以 [package.json](../package.json) 为准；
 | `use-conversation-requests` | 两路并发、先进先出的请求队列、流式事件和取消清理 |
 | `use-conversation-sessions` | 会话恢复、可渲染的加载状态和保存顺序 |
 | `use-reader-search` | 书内查询、PDF 索引回退，以及切书和切换阅读模式时的结果失效 |
+| `llm-event-buffer` | 对话与工作台共用的流式片段合并、控制事件顺序和缓冲清理 |
 
 新增行为应放入对应模块，跨书导航和会话协调继续由应用层组合。请求队列通过取消单个请求、会话或书籍的接口清理任务，应用层不直接修改队列；连接检查通过配置版本接收请求结果，避免旧请求覆盖新服务的状态。异步回归测试使用可控 Promise 验证完成顺序，无需等待固定时长。
+
+流式订阅使用 `subscribeToBufferedLlmEvents`：先检查请求归属，立即发布每批的首个片段，其余片段按 32 毫秒窗口合并。完成、错误、引用上下文等控制事件前会先发布该请求的缓冲文本；取消请求或关闭应用也必须先调用 `flush`，再移除请求、保存会话。缓冲区只合并文本，业务状态和保存规则仍由对应的 hook 管理。
+
+`AnswerText` 按来源数组复用引用索引，摘录仅在第一次引用时计算，扫描到显示长度就停止；语言相关标签在渲染时生成。替换来源应使用新的数组，以便更新索引。
 
 ```powershell
 pnpm lint
@@ -41,6 +46,8 @@ pnpm test:e2e
 pnpm test:all
 pnpm build:win --publish never
 ```
+
+运行 `pnpm bench:renderer` 可复现渲染热点微基准：比较长段引用摘录，以及 1,000 个连续片段触发的 Markdown 解析工作。基线保留自 `4294da5` 的处理方式，先验证最终文本一致，再比较耗时；原始统计写入 `output/benchmarks/renderer/`。突发片段场景的状态更新由 1,000 次减为 2 次，实际流的合并比例取决于片段到达间隔。微基准只反映这些处理步骤的 CPU 成本，不含网络、IPC 和窗口绘制时间。
 
 `pnpm test:e2e` 会先执行文案校验和应用构建，再运行 Playwright；`pnpm test:all` 依次执行 lint、typecheck、完整单元测试、应用构建与 Playwright，避免重复运行文案测试。`pnpm build:win --publish never` 会在 `release/` 生成未签名的 Windows x64 NSIS 安装包，以及自动更新所需的 `latest.yml` 元数据；更新源在 `electron-builder.yml` 的 `publish` 中配置为 GitHub Releases。
 

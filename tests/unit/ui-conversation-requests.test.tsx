@@ -6,7 +6,7 @@ import type { ConversationTab, ConversationTurn } from '../../src/renderer/src/c
 import { useConversationRequests } from '../../src/renderer/src/use-conversation-requests'
 import { deferred } from './support/deferred'
 
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 function setup() {
   let listener: ((event: LlmEvent) => void) | undefined
@@ -62,10 +62,11 @@ it('removes every queued and running request for a deleted book before filling i
   view.enqueue('c', { bookId: 'deleted', archive: true })
   view.enqueue('d')
   view.emit({ requestId: 'a', type: 'delta', delta: 'Partial answer' })
+  view.emit({ requestId: 'a', type: 'delta', delta: ' including buffered text' })
   await act(async () => view.result.current.cancelBookRequests('deleted'))
   expect(view.started()).toEqual(['a', 'b', 'd'])
   expect(view.cancelLlm).toHaveBeenCalledExactlyOnceWith('a')
-  expect(view.turn('a')).toMatchObject({ answer: 'Partial answer', status: 'error' })
+  expect(view.turn('a')).toMatchObject({ answer: 'Partial answer including buffered text', status: 'error' })
   expect(view.turn('c').status).toBe('error')
   expect(view.result.current.hasConversationRequest('a')).toBe(false)
   expect(view.result.current.hasConversationRequest('c')).toBe(false)
@@ -73,7 +74,7 @@ it('removes every queued and running request for a deleted book before filling i
   view.emit({ requestId: 'a', type: 'completed', model: 'old-model' })
   view.emit({ requestId: 'b', type: 'completed', model: 'test-model' })
   expect(view.started()).toEqual(['a', 'b', 'd'])
-  expect(view.turn('a')).toMatchObject({ answer: 'Partial answer', status: 'error' })
+  expect(view.turn('a')).toMatchObject({ answer: 'Partial answer including buffered text', status: 'error' })
 })
 
 it('ignores late start failures and events after cancelling a request', async () => {
@@ -147,4 +148,33 @@ it('cancels active work on unmount and discards pending work and late failures',
   expect(view.started()).toEqual(['a', 'b'])
   expect(view.updateConversationTab).not.toHaveBeenCalled()
   expect(view.reportProviderResult).not.toHaveBeenCalled()
+})
+
+it('batches a thousand stream fragments into two state updates and archives the complete answer', () => {
+  vi.useFakeTimers()
+  const view = setup()
+  view.enqueue('archive', { archive: true })
+  view.updateConversationTab.mockClear()
+  for (let i = 0; i < 1_000; i++) view.emit({ requestId: 'archive', type: 'delta', delta: '文😀' })
+  expect(view.turn('archive').answer).toBe('文😀')
+  expect(view.updateConversationTab).toHaveBeenCalledOnce()
+  act(() => vi.advanceTimersByTime(32))
+  expect(view.turn('archive').answer).toBe('文😀'.repeat(1_000))
+  expect(view.updateConversationTab).toHaveBeenCalledTimes(2)
+  view.emit({ requestId: 'archive', type: 'delta', delta: ' final' })
+  view.emit({ requestId: 'archive', type: 'delta', delta: ' tail' })
+  view.emit({ requestId: 'archive', type: 'completed', model: 'model' })
+  expect(view.persistArchiveHistory).toHaveBeenCalledWith('archive', 'insight-archive', [expect.objectContaining({
+    answer: '文😀'.repeat(1_000) + ' final tail', status: 'completed'
+  })], null, 'off')
+})
+
+it('retains buffered text when starting fails after streaming has begun', async () => {
+  const view = setup(), start = deferred<void>()
+  view.startLlm.mockReturnValueOnce(start.promise)
+  view.enqueue('a')
+  view.emit({ requestId: 'a', type: 'delta', delta: 'first' })
+  view.emit({ requestId: 'a', type: 'delta', delta: 'last' })
+  await act(async () => start.reject(new Error('Interrupted')))
+  expect(view.turn('a')).toMatchObject({ answer: 'firstlast', status: 'error', error: 'Interrupted' })
 })

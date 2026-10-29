@@ -1,12 +1,14 @@
 import { memo, useMemo, type ReactNode } from 'react'
 import { copy } from '@shared/copy'
-import { isPdfImageRegion, type ReaderSource, type SelectionContext } from '@shared/contracts'
+import { isPdfImageRegion, type ReaderSource, type Passage, type WebSearchSource } from '@shared/contracts'
 import { parseMarkdown, type AnswerInline, type MarkdownBlock } from './answer-markdown'
-import { citationSegments, withoutIncompleteCitationMarker } from './citations'
+import { createCitationResolver, withoutIncompleteCitationMarker } from './citations'
 import { MarkedText } from './MarkedText'
 import { WebCitation } from './WebSources'
 
-type CitationContext = Pick<SelectionContext, 'passages'> & { bookId: string; webSources: import('@shared/contracts').WebSearchSource[]; availableBookIds?: string[] }
+type CitationContext = { bookId: string; resolve: ReturnType<typeof createCitationResolver>; availableBookIds?: string[] }
+const NO_PASSAGES: Passage[] = []
+const NO_WEB_SOURCES: WebSearchSource[] = []
 
 function TextContent({
   text,
@@ -19,7 +21,7 @@ function TextContent({
   onNavigate: ((anchor: string, bookId?: string) => void) | null
   highlight: string
 }): ReactNode {
-  const segments = citationSegments(withoutIncompleteCitationMarker(text), selection.passages, selection.webSources)
+  const segments = selection.resolve(withoutIncompleteCitationMarker(text))
   return segments.map((segment, index) => {
     if (segment.type === 'text') {
       return (
@@ -166,8 +168,11 @@ export const AnswerText = memo(function AnswerText({
   highlight?: string
 }): ReactNode {
   const blocks = useMemo(() => parseMarkdown(text), [text])
+  const passages = context?.passages ?? (selection && !isPdfImageRegion(selection) ? selection.passages : NO_PASSAGES)
+  const webSources = context?.webSearch?.sources ?? NO_WEB_SOURCES
+  const resolveCitations = useMemo(() => createCitationResolver(passages, webSources), [passages, webSources])
   const navigate = readOnly ? null : (onNavigate ?? null)
-  const source: CitationContext = { availableBookIds, passages: context?.passages ?? (selection && !isPdfImageRegion(selection) ? selection.passages : []), bookId: context?.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context?.bookId ?? selection?.bookId ?? '', webSources: context?.webSearch?.sources ?? [] }
+  const source: CitationContext = { availableBookIds, resolve: resolveCitations, bookId: context?.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context?.bookId ?? selection?.bookId ?? '' }
   return (
     <div className="answer-text answer-md">
       {blocks.map((block, index) => (
