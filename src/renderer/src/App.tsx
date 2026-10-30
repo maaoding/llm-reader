@@ -1,28 +1,33 @@
+import { WindowControls } from './WindowControls'
+import { BookDetailsModal } from './BookDetailsModal'
+import { BookImportDialog } from './BookImportDialog'
+import { PdfSelectionReviewDialog, PdfImageRegionReviewDialog } from './PdfSelectionReviewDialog'
+import { ConversationPane, AssistantContextControls, AssistantScopeControls } from './ConversationPane'
+import { EmptyState } from './EmptyState'
+import { useAppPreferences } from './use-app-preferences'
+import { useBookImport } from './use-book-import'
+import { useSelectionToolbar } from './use-selection-toolbar'
+import { useProviderConnection, providerStatusLabel } from './use-provider-connection'
+import { useConversationRequests } from './use-conversation-requests'
+import { useReaderSearch } from './use-reader-search'
 import { useAppClose } from './use-app-close'
 import { useConversationSessions } from './use-conversation-sessions'
 import { createArchiveTab, type ConversationTab, type ConversationTurn } from './conversation-session'
-import { SettingsModal, type InterfaceScale, type SettingsSectionId, type ThemePreference } from './SettingsModal'
+import { SettingsModal, type SettingsSectionId } from './SettingsModal'
 import { AssistantActionIconView } from './AssistantActionIcon'
-import { Select } from './Select'
 import { isTextReadingMode, readTextReadingMode, saveTextReadingMode } from './text-reading-mode'
-import { AssistantComposer } from './AssistantComposer'
 import { WebSearchControl } from './WebSearchControl'
 import { PersonaSessionControl } from './AssistantPersonaSettings'
 import { defaultPersona, MAX_PERSONAS, persistPersonaSettings, personaFromPreset, readPersonaSettings } from './assistant-personas'
 import { RecentConversations } from './RecentConversations'
-import { QuestionBubble } from './QuestionBubble'
-import { AnswerMetadata } from './AnswerMetadata'
-import { providerIsConfigured, publicRequestSettings } from '@shared/request-settings'
+import { providerIsConfigured } from '@shared/request-settings'
 import {
   AlertCircle,
-  ArrowLeft,
   BookOpen,
   Bookmark,
-  BookmarkCheck,
   Check,
   ChevronDown,
   ChevronRight,
-  CircleStop,
   FileText,
   Import,
   Info,
@@ -30,18 +35,14 @@ import {
   LoaderCircle,
   MessageSquareText,
   Maximize2,
-  Minimize2,
-  Minus,
   PanelLeftClose,
   PanelTop,
-  PenLine,
   RefreshCw,
   Search,
   SearchX,
   Settings,
   SlidersHorizontal,
   Sparkles,
-  Square,
   Trash2,
   Undo2,
   X
@@ -51,109 +52,55 @@ import {
   type FormEvent,
   Fragment,
   type ReactNode,
-  type RefObject,
   useCallback,
   useEffect,
-  useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState
 } from 'react'
 import { isPdfImageRegion, type ReaderSource } from '@shared/contracts'
 import type {
-  BookAnalysisState,
-  BookCoverPayload,
-  BookDetails,
-  BookImportBatchResult,
-  BookImportEvent,
   BookRecord,
   HighlightRecord,
   InsightArchiveRecord,
   InsightExportScope,
   LlmAction,
-  LlmEvent,
-  LlmRequest,
-  ProviderSettings,
-  ProviderOverview,
-  ProviderTestResult,
   PersonaSelection,
   PersonaSettings,
   SavedInsight,
   TextReadingMode,
   TocItem
 } from '@shared/contracts'
-import { copy, isUiLanguage, setCopyLanguage, type UiLanguage } from '@shared/copy'
-import { AnswerText } from './AnswerText'
+import { copy } from '@shared/copy'
 import { BookAnalysisControls } from './BookAnalysisControls'
 import { OcrPageReader } from './OcrPageReader'
 import { pdfPageFromLocator } from '@shared/ocr-reading'
 import { BookNotesView } from './BookNotesView'
 import { bookTabPage, readWorkspaceState, saveWorkspaceState, type BookTabState, type WorkspacePage } from './workspace-state'
 import { useBookAnalysis } from './use-book-analysis'
-import { FOCUSABLE, isSelectPickerOpen, useDialogFocus } from './use-dialog-focus'
-import { EvidenceSources } from './EvidenceSources'
-import { WebSources } from './WebSources'
+import { isSelectPickerOpen, useDialogFocus } from './use-dialog-focus'
 import { BookCoverCache } from './book-cover-cache'
-import { BookCover, BookCoverView } from './BookCover'
+import { BookCover } from './BookCover'
 import InsightsView from './InsightsView'
 import WorkbenchesView, { ArchiveViewSwitch } from './WorkbenchesView'
 import { useWorkbenches } from './use-workbenches'
 import { readableError } from './readable-error'
-import { MarkedText } from './MarkedText'
 import { normalizeNeedle } from './highlight'
-import {
-  assistantActionLabel,
-  normalizeAssistantActionSettings,
-  persistAssistantActionSettings,
-  readAssistantActionSettings,
-  type AssistantActionSettings
-} from './assistant-actions'
+import { assistantActionLabel } from './assistant-actions'
 import {
   createReaderAdapter,
-  DEFAULT_READING_PREFERENCES,
-  normalizePaperThemePreference,
-  normalizeReadingPreferences,
   READER_SEARCH_QUERY_MAX_LENGTH,
   READER_SEARCH_RESULT_LIMIT,
-  resolveEffectivePaperTheme,
   splitSearchExcerpt,
-  type PaperThemePreference,
   type ReaderAdapter,
   type ReaderSearchResult,
   type ReaderSelectionDraft,
-  type ReaderImageRegionDraft,
-  type ReadingPreferences
+  type ReaderImageRegionDraft
 } from './readers'
 
 type AssistantDialogView = 'conversation' | 'insights'
 type LeftView = 'library' | 'toc' | 'highlights' | 'search'
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
-type SearchState = 'idle' | 'searching' | 'ready' | 'error'
-type ResolvedTheme = Exclude<ThemePreference, 'system'>
-type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
-type BookImportDialogPhase = 'running' | 'stopping' | 'completed'
-type DropOverlayState = 'ready' | 'busy' | null
-
-interface BookImportDialogState {
-  phase: BookImportDialogPhase
-  total: number
-  processed: number
-  currentFileName: string
-  imported: number
-  duplicates: number
-  failed: number
-  result?: BookImportBatchResult
-}
-
-interface ProviderConnectionState {
-  status: ProviderConnectionStatus
-  message: string
-}
-
-interface ProviderCheckOutcome extends ProviderTestResult {
-  current: boolean
-}
 
 function titleFromOriginalName(originalName: string, fallback: string): string {
   const withoutExtension = originalName.replace(/\.[^./\\]+$/u, '').trim()
@@ -166,225 +113,8 @@ interface ToastState {
   message: string
 }
 
-const EMPTY_PROVIDER: ProviderSettings = {
-  compatibility: 'auto',
-  baseUrl: 'https://api.openai.com',
-  model: '',
-  hasApiKey: false
-}
-
-const EMPTY_PROVIDER_OVERVIEW: ProviderOverview = {
-  profiles: [],
-  activeProfileId: null
-}
-
-const MAX_CONCURRENT_REQUESTS = 2
-const THEME_STORAGE_KEY = 'llm-reader.theme'
-const INTERFACE_SCALE_STORAGE_KEY = 'llm-reader.interface-scale'
-const UI_LANGUAGE_STORAGE_KEY = 'llm-reader.ui-language'
-const READING_PREFERENCES_STORAGE_KEY = 'llm-reader.reading-preferences'
-const PAPER_THEME_PREFERENCE_STORAGE_KEY = 'llm-reader.paper-theme-preference'
-const LEGACY_PAPER_THEME_MODE_STORAGE_KEY = 'llm-reader.paper-theme-mode'
-
-function WindowControls(): ReactNode {
-  const [maximized, setMaximized] = useState(false)
-
-  useEffect(() => {
-    if (!window.readerApi) return undefined
-    let alive = true
-
-    void window.readerApi.isWindowMaximized().then((value) => {
-      if (alive) setMaximized(value)
-    })
-    const unsubscribe = window.readerApi.onWindowMaximizedChange(setMaximized)
-    return () => {
-      alive = false
-      unsubscribe()
-    }
-  }, [])
-
-  return (
-    <div className="window-controls" role="group" aria-label={copy('window.controlsAria')}>
-      <button
-        data-testid="window-minimize"
-        type="button"
-        aria-label={copy('window.minimizeAria')}
-        title={copy('window.minimizeAria')}
-        onClick={() => void window.readerApi.minimizeWindow()}
-      >
-        <Minus size={14} />
-      </button>
-      <button
-        data-testid="window-toggle-maximize"
-        type="button"
-        aria-label={copy(maximized ? 'window.restoreAria' : 'window.maximizeAria')}
-        title={copy(maximized ? 'window.restoreAria' : 'window.maximizeAria')}
-        onClick={() => void window.readerApi.toggleMaximizeWindow()}
-      >
-        {maximized ? <Minimize2 size={13} /> : <Square size={12} />}
-      </button>
-      <button
-        className="is-close"
-        data-testid="window-close"
-        type="button"
-        aria-label={copy('window.closeAria')}
-        title={copy('window.closeAria')}
-        onClick={() => void window.readerApi.closeWindow()}
-      >
-        <X size={15} />
-      </button>
-    </div>
-  )
-}
-
 function tocHrefMatchesCurrent(itemHref: string, currentHref: string | null): boolean {
   return Boolean(currentHref && itemHref.trim() === currentHref.trim())
-}
-
-function activeProviderSettings(overview: ProviderOverview): ProviderSettings {
-  const active = overview.profiles.find((profile) => profile.id === overview.activeProfileId)
-  return active
-    ? { ...publicRequestSettings(active), protocol: active.protocol, hasCustomHeaders: active.hasCustomHeaders, baseUrl: active.baseUrl, model: active.model, compatibility: active.compatibility, hasApiKey: active.hasApiKey }
-    : EMPTY_PROVIDER
-}
-
-function providerStatusLabel(status: ProviderConnectionStatus): string {
-  if (status === 'checking') return copy('provider.statusChecking')
-  if (status === 'connected') return copy('provider.statusConnected')
-  if (status === 'disconnected') return copy('provider.statusDisconnected')
-  return copy('provider.statusNotConfigured')
-}
-
-function isThemePreference(value: string | null): value is ThemePreference {
-  return value === 'light' || value === 'system' || value === 'dark'
-}
-
-function readThemePreference(): ThemePreference {
-  if (typeof window === 'undefined') return 'system'
-  try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-    return isThemePreference(stored) ? stored : 'system'
-  } catch {
-    return 'system'
-  }
-}
-
-// 应用启动渲染前读取一次并同步到 copy 模块，保证首帧就是所选语言。
-function readUiLanguage(): UiLanguage {
-  if (typeof window === 'undefined') return 'zh'
-  try {
-    const stored = window.localStorage.getItem(UI_LANGUAGE_STORAGE_KEY)
-    return isUiLanguage(stored) ? stored : 'zh'
-  } catch {
-    return 'zh'
-  }
-}
-
-function readSystemTheme(): ResolvedTheme {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
-function resolveTheme(preference: ThemePreference): ResolvedTheme {
-  return preference === 'system' ? readSystemTheme() : preference
-}
-
-function readInterfaceScale(): InterfaceScale {
-  try {
-    const value = Number(window.localStorage.getItem(INTERFACE_SCALE_STORAGE_KEY))
-    return value === 90 || value === 110 || value === 125 ? value : 100
-  } catch {
-    return 100
-  }
-}
-
-function readReadingPreferences(): ReadingPreferences {
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(READING_PREFERENCES_STORAGE_KEY) ?? '{}') as unknown
-    const value = stored && typeof stored === 'object' ? stored : {}
-    return {
-      ...normalizeReadingPreferences(value as ReadingPreferences),
-      paperTheme: DEFAULT_READING_PREFERENCES.paperTheme
-    }
-  } catch {
-    return { ...DEFAULT_READING_PREFERENCES }
-  }
-}
-
-function readPaperThemePreference(): PaperThemePreference {
-  try {
-    return normalizePaperThemePreference(
-      window.localStorage.getItem(PAPER_THEME_PREFERENCE_STORAGE_KEY)
-    )
-  } catch {
-    return 'default'
-  }
-}
-
-function PdfSelectionReviewDialog({ draft }: { draft: ReaderSelectionDraft }): ReactNode {
-  const [value, setValue] = useState(draft.quote)
-  const dialogRef = useRef<HTMLElement>(null)
-  const returnRef = useRef<HTMLElement>(null)
-  const close = useCallback(() => draft.cancel(), [draft])
-  useDialogFocus(true, close, dialogRef, returnRef)
-
-  const submit = (event: FormEvent): void => {
-    event.preventDefault()
-    const quote = value.trim()
-    if (!quote) return
-    draft.confirm(quote)
-  }
-
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-      <section
-        ref={dialogRef}
-        className="pdf-selection-review-modal"
-        data-testid="pdf-selection-review"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="pdf-selection-review-title"
-      >
-        <header className="modal-header">
-          <h2 id="pdf-selection-review-title">{copy('reader.pdfRegionReviewTitle')}</h2>
-          <button className="icon-button" type="button" onClick={close} aria-label={copy('reader.pdfRegionCancel')}><X size={16} /></button>
-        </header>
-        <form onSubmit={submit}>
-          <div className="pdf-selection-review-body">
-            <p>{copy('reader.pdfRegionReviewDetail')}</p>
-            <textarea
-              data-testid="pdf-selection-review-input"
-              aria-label={copy('reader.pdfRegionReviewInputAria')}
-              value={value}
-              maxLength={20_000}
-              onChange={(event) => setValue(event.target.value)}
-            />
-          </div>
-          <footer className="modal-actions">
-            <button ref={returnRef as RefObject<HTMLButtonElement>} className="secondary-button" data-testid="pdf-selection-review-cancel" type="button" onClick={close}>{copy('reader.pdfRegionCancel')}</button>
-            <button className="primary-button" data-testid="pdf-selection-review-confirm" type="submit" disabled={!value.trim()}>{copy('reader.pdfRegionConfirm')}</button>
-          </footer>
-        </form>
-      </section>
-    </div>
-  )
-}
-
-function PdfImageRegionReviewDialog({ draft }: { draft: ReaderImageRegionDraft }): ReactNode {
-  const dialogRef = useRef<HTMLElement>(null)
-  const returnRef = useRef<HTMLElement>(null)
-  const close = useCallback(() => draft.cancel(), [draft])
-  useDialogFocus(true, close, dialogRef, returnRef)
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-    <section ref={dialogRef} className="pdf-selection-review-modal" data-testid="pdf-image-region-review" role="dialog" aria-modal="true" aria-labelledby="pdf-image-region-review-title">
-      <header className="modal-header"><h2 id="pdf-image-region-review-title">{copy('visual.reviewTitle')}</h2>
-        <button className="icon-button" type="button" onClick={close} aria-label={copy('reader.pdfRegionCancel')}><X size={16} /></button></header>
-      <div className="pdf-selection-review-body"><p>{copy('visual.reviewHint')}</p>
-        <img className="pdf-image-region-preview" src={draft.imageDataUrl} alt={copy('visual.source', { page: draft.source.pageNumber })} /></div>
-      <footer className="modal-actions"><button ref={returnRef as RefObject<HTMLButtonElement>} className="secondary-button" type="button" onClick={close}>{copy('reader.pdfRegionCancel')}</button>
-        <button className="primary-button" data-testid="pdf-image-region-confirm" type="button" onClick={draft.confirm}>{copy('reader.pdfRegionConfirm')}</button></footer>
-    </section>
-  </div>
 }
 
 function createId(): string {
@@ -404,654 +134,15 @@ function formatDate(iso: string): string {
   }
 }
 
-interface SelectionAnchorRect {
-  top: number
-  bottom: number
-  centerX: number
-}
-
-function rectFromNativeSelection(selection: Selection | null): DOMRect | null {
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
-  const rect = selection.getRangeAt(0).getBoundingClientRect()
-  if (rect.width === 0 && rect.height === 0) return null
-  return rect
-}
-
-/**
- * 找到当前活跃选区的视口矩形:TXT 在主文档,EPUB 在同源 iframe 内,
- * PDF 区域框选则是确认后的 .pdf-region-overlay.is-selection 元素。
- */
-function findSelectionAnchorRect(host: HTMLElement | null): SelectionAnchorRect | null {
-  const own = rectFromNativeSelection(window.getSelection())
-  if (own) return { top: own.top, bottom: own.bottom, centerX: own.left + own.width / 2 }
-  if (!host) return null
-  for (const frame of Array.from(host.querySelectorAll('iframe'))) {
-    try {
-      const rect = rectFromNativeSelection(frame.contentWindow?.getSelection() ?? null)
-      if (!rect) continue
-      const frameRect = frame.getBoundingClientRect()
-      return {
-        top: frameRect.top + rect.top,
-        bottom: frameRect.top + rect.bottom,
-        centerX: frameRect.left + rect.left + rect.width / 2
-      }
-    } catch {
-      continue
-    }
-  }
-  const region = host.querySelector('.pdf-region-overlay.is-selection')
-  if (region) {
-    const rect = region.getBoundingClientRect()
-    return { top: rect.top, bottom: rect.bottom, centerX: rect.left + rect.width / 2 }
-  }
-  return null
-}
-
-function useCoverPayloadUrl(cover: BookCoverPayload | null | undefined): string | null {
-  const [loaded, setLoaded] = useState<{ cover: BookCoverPayload; url: string } | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    let objectUrl: string | null = null
-    if (!cover) return undefined
-
-    void Promise.resolve().then(() => {
-      if (!alive) return
-      try {
-        const blob = new Blob([cover.bytes as BlobPart], { type: cover.mimeType })
-        objectUrl = URL.createObjectURL(blob)
-        setLoaded({ cover, url: objectUrl })
-      } catch {
-        // The details modal falls back to the placeholder below.
-      }
-    })
-
-    return () => {
-      alive = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [cover])
-
-  return loaded !== null && loaded.cover === cover ? loaded.url : null
-}
-
-function formatFileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB'] as const
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  const text = unit === 0 ? String(value) : value >= 100 ? String(Math.round(value)) : value.toFixed(1)
-  return text + ' ' + units[unit]
-}
-
-function sourceFormatLabel(book: BookRecord): string {
-  if (book.sourceFormat === 'mobi') return copy('bookDetails.formatMobi')
-  if (book.sourceFormat === 'azw3') return copy('bookDetails.formatAzw3')
-  if (book.sourceFormat === 'pdf') return copy('bookDetails.formatPdf')
-  return book.sourceFormat === 'epub' ? copy('bookDetails.formatEpub') : copy('bookDetails.formatTxt')
-}
-
-function formatFullDate(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat('zh-CN', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(iso))
-  } catch {
-    return iso
-  }
-}
-
-function BookDetailRow({
-  label,
-  value,
-  wide = false
-}: {
-  label: string
-  value: string
-  wide?: boolean
-}): ReactNode {
-  return (
-    <div className={wide ? 'book-details-row is-wide' : 'book-details-row'}>
-      <dt>{label}</dt>
-      <dd title={value}>{value}</dd>
-    </div>
-  )
-}
-
-function BookProgressRow({ progress }: { progress: number }): ReactNode {
-  const percent = Math.round(Math.max(0, Math.min(1, progress || 0)) * 100)
-  return (
-    <div className="book-details-row is-progress">
-      <dt>{copy('bookDetails.progressLabel')}</dt>
-      <dd>
-        <span className="book-details-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-label={copy('reader.progressAria', { percent })}>
-          <i style={{ width: percent + '%' }} />
-        </span>
-        <strong>{percent}%</strong>
-      </dd>
-    </div>
-  )
-}
-
-function BookDetailsModal({
-  book,
-  returnFocusRef,
-  deleting,
-  onClose,
-  onDelete
-}: {
-  book: BookRecord
-  returnFocusRef: RefObject<HTMLButtonElement | null>
-  deleting: boolean
-  onClose: () => void
-  onDelete: (book: BookRecord) => void
-}): ReactNode {
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [details, setDetails] = useState<BookDetails | null>(null)
-  const [error, setError] = useState('')
-  const [attempt, setAttempt] = useState(0)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const dialogRef = useRef<HTMLElement>(null)
-  const coverUrl = useCoverPayloadUrl(details?.cover ?? null)
-
-  useDialogFocus(true, onClose, dialogRef, returnFocusRef)
-
-  useEffect(() => {
-    let alive = true
-
-    void window.readerApi
-      .getBookDetails(book.id)
-      .then((result) => {
-        if (alive) {
-          setDetails(result)
-          setState('ready')
-        }
-      })
-      .catch((cause) => {
-        if (alive) {
-          setError(readableError(cause, copy('bookDetails.readFailed')))
-          setState('error')
-        }
-      })
-
-    return () => {
-      alive = false
-    }
-  }, [attempt, book.id])
-
-  const retry = (): void => {
-    setState('loading')
-    setError('')
-    setDetails(null)
-    setAttempt((current) => current + 1)
-  }
-
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section ref={dialogRef} className="book-details-modal" data-testid="book-details-modal" role="dialog" aria-modal="true" aria-labelledby="book-details-title">
-        <header className="modal-header">
-          <div><h2 id="book-details-title">{copy('bookDetails.title')}</h2></div>
-          <button className="icon-button" data-testid="book-details-close" type="button" onClick={onClose} aria-label={copy('bookDetails.closeAria')}><X size={18} /></button>
-        </header>
-
-        {state === 'loading' && (
-          <div className="book-details-state"><LoaderCircle className="spin" size={22} />{copy('bookDetails.loading')}</div>
-        )}
-
-        {state === 'error' && (
-          <div className="book-details-state is-error">
-            <AlertCircle size={20} />
-            <span>{error}</span>
-            <button className="text-button" type="button" onClick={retry}><RefreshCw size={14} />{copy('common.retry')}</button>
-          </div>
-        )}
-
-        {state === 'ready' && details && (
-          <div className="book-details-body">
-            <div className="book-details-cover" data-testid="book-details-cover">
-              <BookCoverView url={coverUrl} book={details.book} size="large" />
-              {!coverUrl && <small>{copy('bookDetails.coverMissing')}</small>}
-            </div>
-            <div className="book-details-panel">
-              <div className="book-details-heading">
-                <h3>{details.book.title}</h3>
-                <p>{details.book.author || copy('common.unknownAuthor')}</p>
-              </div>
-              <dl className="book-details-list">
-                <BookDetailRow label={copy('bookDetails.titleLabel')} value={details.book.title} />
-                <BookDetailRow label={copy('bookDetails.authorLabel')} value={details.book.author || copy('common.unknownAuthor')} />
-                <BookDetailRow label={copy('bookDetails.formatLabel')} value={sourceFormatLabel(details.book)} />
-                <BookDetailRow label={copy('bookDetails.originalNameLabel')} value={details.book.originalName} />
-                <BookDetailRow label={copy('bookDetails.fileSizeLabel')} value={formatFileSize(details.fileSizeBytes)} />
-                <BookDetailRow label={copy('bookDetails.languageLabel')} value={details.metadata.language || copy('bookDetails.notProvided')} />
-                <BookDetailRow label={copy('bookDetails.publisherLabel')} value={details.metadata.publisher || copy('bookDetails.notProvided')} />
-                <BookDetailRow label={copy('bookDetails.publishedAtLabel')} value={details.metadata.publishedAt || copy('bookDetails.notProvided')} />
-                <BookDetailRow label={copy('bookDetails.identifierLabel')} value={details.metadata.identifier || copy('bookDetails.notProvided')} />
-                <BookDetailRow label={copy('bookDetails.importedAtLabel')} value={formatFullDate(details.book.importedAt)} />
-                <BookDetailRow label={copy('bookDetails.lastOpenedAtLabel')} value={details.book.lastOpenedAt ? formatFullDate(details.book.lastOpenedAt) : copy('bookDetails.neverOpened')} />
-                <BookProgressRow progress={details.book.progress} />
-                <BookDetailRow label={copy('bookDetails.descriptionLabel')} value={details.metadata.description || copy('bookDetails.notProvided')} wide />
-              </dl>
-            </div>
-          </div>
-        )}
-
-        <footer className="book-details-footer">
-          {confirmDelete ? (
-            <div
-              className="book-details-delete-confirmation"
-              data-testid="book-details-delete-confirmation"
-              role="group"
-              aria-label={copy('library.deleteQuestion', { title: book.title })}
-            >
-              <div>
-                <strong>{copy('library.deleteQuestion', { title: book.title })}</strong>
-                <p>{copy('library.deleteDetail')}</p>
-                <p>{copy('workbench.deleteBookHint')}</p>
-              </div>
-              <div className="book-details-delete-actions">
-                <button
-                  data-testid="book-details-delete-confirm"
-                  type="button"
-                  disabled={deleting}
-                  onClick={() => onDelete(book)}
-                >
-                  {deleting && <LoaderCircle className="spin" size={14} />}
-                  {copy('common.confirm')}
-                </button>
-                <button
-                  data-testid="book-details-delete-cancel"
-                  type="button"
-                  disabled={deleting}
-                  onClick={() => setConfirmDelete(false)}
-                >
-                  {copy('common.back')}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              className="book-details-delete"
-              data-testid="book-details-delete"
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-            >
-              <Trash2 size={14} />
-              {copy('library.deleteBook')}
-            </button>
-          )}
-        </footer>
-      </section>
-    </div>
-  )
-}
-
-function BookImportDialog({
-  state,
-  returnFocusRef,
-  onCancel,
-  onClose
-}: {
-  state: BookImportDialogState
-  returnFocusRef: RefObject<HTMLButtonElement | null>
-  onCancel: () => void
-  onClose: () => void
-}): ReactNode {
-  const dialogRef = useRef<HTMLElement>(null)
-  const completed = state.phase === 'completed'
-  const completedRef = useRef(completed)
-  const closeIfCompleted = useCallback(() => {
-    if (completedRef.current) onClose()
-  }, [onClose])
-  const result = state.result
-  const failures = result?.items.filter((item) => item.status === 'failed') ?? []
-  const percent = state.total > 0 ? Math.round((state.processed / state.total) * 100) : 0
-
-  useEffect(() => {
-    completedRef.current = completed
-  }, [completed])
-  useDialogFocus(true, closeIfCompleted, dialogRef, returnFocusRef)
-
-  useEffect(() => {
-    if (!completed) return undefined
-    const frame = window.requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus())
-    return () => window.cancelAnimationFrame(frame)
-  }, [completed])
-
-  return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => event.target === event.currentTarget && closeIfCompleted()}
-    >
-      <section
-        ref={dialogRef}
-        className="book-import-modal"
-        data-testid="book-import-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="book-import-title"
-      >
-        <header className="modal-header">
-          <div>
-            <h2 id="book-import-title">
-              {copy(completed ? 'library.importSummaryTitle' : 'library.importProgressTitle')}
-            </h2>
-          </div>
-          {completed && (
-            <button className="icon-button" type="button" onClick={onClose} aria-label={copy('library.importClose')}>
-              <X size={18} />
-            </button>
-          )}
-        </header>
-
-        <div className="book-import-body">
-          {!completed && (
-            <>
-              <div className="book-import-current" data-testid="book-import-current" role="status">
-                {state.phase === 'stopping' ? <CircleStop size={18} /> : <LoaderCircle className="spin" size={18} />}
-                <div>
-                  <strong>{state.phase === 'stopping' ? copy('library.importStopping') : copy('library.importCurrent', { fileName: state.currentFileName || copy('library.unknownFile') })}</strong>
-                  <span>{copy('library.importProgress', { processed: state.processed, total: state.total })}</span>
-                </div>
-              </div>
-              <div
-                className="book-import-progress"
-                data-testid="book-import-progress"
-                role="progressbar"
-                aria-label={copy('library.importProgressAria')}
-                aria-valuemin={0}
-                aria-valuemax={state.total}
-                aria-valuenow={state.processed}
-                aria-valuetext={copy('library.importProgress', { processed: state.processed, total: state.total })}
-              >
-                <i style={{ width: percent + '%' }} />
-              </div>
-              <p className="book-import-counts">
-                {copy('library.importSummary', {
-                  imported: state.imported,
-                  duplicates: state.duplicates,
-                  failed: state.failed,
-                  skipped: 0
-                })}
-              </p>
-            </>
-          )}
-
-          {completed && result && (
-            <>
-              <div className="book-import-summary" data-testid="book-import-summary" role="status">
-                <Check size={20} />
-                <div>
-                  <strong>{copy('library.importSummary', {
-                    imported: result.imported,
-                    duplicates: result.duplicates,
-                    failed: result.failed,
-                    skipped: result.skipped
-                  })}</strong>
-                  {result.canceled && <span>{copy('library.importCanceled')}</span>}
-                </div>
-              </div>
-              {failures.length > 0 && (
-                <section className="book-import-failures" aria-labelledby="book-import-failures-title">
-                  <h3 id="book-import-failures-title">{copy('library.importFailuresTitle')}</h3>
-                  <ul>
-                    {failures.map((failure, index) => (
-                      <li data-testid="book-import-failure" key={`${failure.fileName}-${index}`}>
-                        <strong>{failure.fileName}</strong>
-                        <span>{failure.message}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </>
-          )}
-        </div>
-
-        <footer className="book-import-actions">
-          {completed ? (
-            <button className="primary-button" data-testid="book-import-close" type="button" onClick={onClose}>
-              {copy('library.importClose')}
-            </button>
-          ) : (
-            <button
-              className="secondary-button"
-              data-testid="book-import-cancel"
-              type="button"
-              disabled={state.phase === 'stopping'}
-              onClick={onCancel}
-            >
-              {state.phase === 'stopping' ? <LoaderCircle className="spin" size={15} /> : <CircleStop size={15} />}
-              {state.phase === 'stopping' ? copy('library.importStopping') : copy('library.importCancel')}
-            </button>
-          )}
-        </footer>
-      </section>
-    </div>
-  )
-}
-
-function EmptyState({ icon, title, detail, action }: { icon: ReactNode; title: string; detail: string; action?: ReactNode }): ReactNode {
-  return (
-    <div className="empty-state">
-      <div className="empty-icon" aria-hidden="true">{icon}</div>
-      <strong>{title}</strong>
-      <p>{detail}</p>
-      {action}
-    </div>
-  )
-}
-
-function AssistantContextControls({ tab, state, busy, onScope }: { tab?: ConversationTab; state?: BookAnalysisState; busy: boolean; onScope: (scope: 'selection' | 'book') => void }) {
-  if (!tab) return null
-  return <div className="assistant-context-bar">
-    <div className="analysis-scope" role="group" aria-label={copy('analysis.scopeLabel')}>
-      <button type="button" aria-pressed={tab.scope === 'selection'} disabled={busy} onClick={() => onScope('selection')}>{copy('analysis.selection')}</button>
-      <button type="button" data-testid="scope-book" aria-pressed={tab.scope === 'book'} disabled={busy} onClick={() => onScope('book')}>{copy('analysis.book')}</button>
-    </div>
-    <small>{tab.scope === 'selection' ? copy(tab.selection ? 'assistant.selectionReady' : 'assistant.selectionPending') : copy(`preparation.document.${state?.document?.status ?? 'empty'}`)}</small>
-  </div>
-}
-
-function AssistantScopeControls({ tab, busy, onScope }: { tab: ConversationTab; busy: boolean; onScope: (scope: 'selection' | 'book') => void }) {
-  const tooltipId = useId()
-  const lastTurn = tab.turns.at(-1)
-  const context = lastTurn?.status === 'completed' ? lastTurn.context : undefined
-  const history = context?.historySummary
-  const source = context?.selection && isPdfImageRegion(context.selection)
-    ? copy('visual.source', { page: context.selection.pageNumber })
-    : context ? copy(context.scope === 'book' ? 'analysis.book' : 'analysis.selection') : ''
-  const summary = context ? copy('assistant.contextSummary', { source: context.selection && isPdfImageRegion(context.selection)
-    ? source : copy('assistant.contextPassages', { count: context.passages.length }) }) : ''
-  const hint = context && history ? [
-    copy('assistant.contextHintTitle'),
-    source,
-    ...(context.selection && isPdfImageRegion(context.selection) ? [] : [copy('assistant.contextPassages', { count: context.passages.length })]),
-    copy('assistant.contextHistory', { count: history.includedMessages }),
-    ...(history.truncated ? [copy('assistant.contextTruncated')] : [])
-  ].join(' · ') : ''
-  return <div className="composer-scope-controls">
-    <Select className="analysis-scope" data-testid="composer-scope" aria-label={copy('analysis.scopeLabel')} value={tab.scope} disabled={busy}
-      onChange={(event) => onScope(event.target.value as 'selection' | 'book')}>
-      <option value="selection">{copy('analysis.selection')}</option>
-      <option value="book">{copy('analysis.book')}</option>
-    </Select>
-    {hint && <span className="composer-context-summary" tabIndex={0} aria-label={hint} aria-describedby={tooltipId}>
-      <span className="assistant-context-hint" data-testid="assistant-context-hint">{summary}</span>
-      <span id={tooltipId} className="composer-tooltip" role="tooltip">{hint}</span>
-    </span>}
-  </div>
-}
-
-function ConversationPane({
-  conversationSelection,
-  turns,
-  provider,
-  activeRequestId,
-  draft,
-  canAsk,
-  followupRef,
-  onDraftChange,
-  onNavigate,
-  onSave,
-  onCancel,
-  onSubmit,
-  scope = 'selection',
-  controls,
-  scopeControls,
-  composerControls,
-  showSave = true,
-  blockedReason = '',
-  onResolve,
-  resolveLabel,
-  searchNeedle = '',
-  onRegenerate,
-  onEditQuestion,
-  canRegenerate = false
-}: {
-  conversationSelection: ReaderSource | null
-  scope?: 'selection' | 'book'
-  controls?: ReactNode
-  scopeControls?: ReactNode
-  composerControls?: ReactNode
-  turns: ConversationTurn[]
-  provider: ProviderSettings
-  activeRequestId: string | null
-  searchNeedle?: string
-  onRegenerate?: (turnId: string) => void
-  onEditQuestion?: (turnId: string) => void
-  canRegenerate?: boolean
-  draft: string
-  canAsk: boolean
-  followupRef: RefObject<HTMLTextAreaElement | null>
-  onDraftChange: (value: string) => void
-  onNavigate: (anchor: string, chapterTitle?: string) => void
-  onSave?: (turn: ConversationTurn) => void
-  showSave?: boolean
-  blockedReason?: string
-  onResolve?: (trigger: HTMLButtonElement) => void
-  resolveLabel?: string
-  onCancel: () => void
-  onSubmit: (event: FormEvent) => void
-}): ReactNode {
-  const selectedPassageCount = conversationSelection && !isPdfImageRegion(conversationSelection) ? conversationSelection.passages.length : 0
-  const assistantScrollRef = useRef<HTMLDivElement | null>(null)
-  const assistantFollowRef = useRef(true)
-
-  useLayoutEffect(() => {
-    const container = assistantScrollRef.current
-    if (!container || !assistantFollowRef.current) return
-    container.scrollTop = container.scrollHeight
-  }, [turns])
-
-  // 会话搜索：把第一处匹配带入视图，只调整助手区自身的滚动位置。
-  useEffect(() => {
-    const container = assistantScrollRef.current
-    if (!container || !searchNeedle) return
-    const mark = container.querySelector('mark')
-    if (!mark) return
-    container.scrollTop += mark.getBoundingClientRect().top - container.getBoundingClientRect().top - 24
-  }, [searchNeedle, turns])
-
-  return (
-    <>
-      {controls}
-      <div
-        className="assistant-scroll"
-        ref={assistantScrollRef}
-        onScroll={(event) => {
-          const container = event.currentTarget
-          assistantFollowRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 40
-        }}
-      >
-        {!conversationSelection && turns.length === 0 && scope !== 'book' && (
-          <EmptyState icon={<Sparkles size={21} />} title={copy('assistant.emptyTitle')} detail={copy('assistant.emptyDetail')} />
-        )}
-        {!conversationSelection && turns.length === 0 && scope === 'book' && <EmptyState icon={<BookOpen size={21} />} title={copy('assistant.bookEmptyTitle')} detail={copy('assistant.bookEmptyHint')} />}
-        {conversationSelection && scope !== 'book' && (
-          <div className="source-card">
-            <div className="source-card-header"><span>{copy('assistant.sourceTitle')}</span><small>{isPdfImageRegion(conversationSelection) ? copy('visual.source', { page: conversationSelection.pageNumber }) : copy('assistant.sourceSummary', { chapter: conversationSelection.chapterTitle || copy('common.currentChapter'), count: selectedPassageCount })}</small></div>
-            {isPdfImageRegion(conversationSelection) ? <p>{copy('visual.reviewHint')}</p> : <blockquote>“<MarkedText value={conversationSelection.quote} needle={searchNeedle} />”</blockquote>}
-            <button type="button" onClick={() => onNavigate(conversationSelection.anchor, isPdfImageRegion(conversationSelection) ? undefined : conversationSelection.chapterTitle)}><ArrowLeft size={13} />{copy('assistant.backToSource')}</button>
-          </div>
-        )}
-        <div className="conversation-list" aria-live="polite">
-          {turns.map((turn, index) => {
-            const isLatest = index === turns.length - 1
-            const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
-            return (
-              <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
-                <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
-                <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
-                  <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                  {turn.context && !isPdfImageRegion(turn.context.selection) && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
-                    {turn.context.webSearch && <strong>{copy('webSearch.bookSourcesTitle')}</strong>}
-                    {turn.context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', turn.context.coverage)}</p>}
-                    {turn.context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(turn.context.rerank.status === 'applied' ? 'rerank.applied' : turn.context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
-                    <EvidenceSources passages={turn.context.passages} onNavigate={onNavigate} /></details>}
-                  {turn.context?.webSearch && <WebSources context={turn.context} />}
-                  {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={searchNeedle} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy(turn.webSearchPhase === 'deciding' ? 'webSearch.deciding' : turn.webSearchPhase === 'searching' ? 'webSearch.searching' : 'assistant.thinking')}</span></div> : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
-                  {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
-                  {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
-                  {turn.status === 'error' && isLatest && !activeRequestId && onRegenerate && (
-                    <div className="answer-retry-actions">
-                      <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
-                    </div>
-                  )}
-                  {turn.status === 'completed' && (
-                    <footer className="answer-footer">
-                      <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />
-                      {isLatest && !activeRequestId && (onRegenerate || onEditQuestion) && (
-                        <span className="answer-retry-actions">
-                          {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
-                          {onEditQuestion && <button data-testid="answer-edit-question" type="button" onClick={() => onEditQuestion(turn.id)}><PenLine size={13} />{copy('assistant.editQuestion')}</button>}
-                        </span>
-                      )}
-                      {showSave && onSave && (
-                        <button data-testid={isLatest ? 'answer-save' : undefined} className={`answer-save${turn.saved ? ' is-saved' : ''}`} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
-                          {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
-                        </button>
-                      )}
-                    </footer>
-                  )}
-                </div>
-              </article>
-            )
-          })}
-        </div>
-      </div>
-      <AssistantComposer inputRef={followupRef} draft={draft} onDraftChange={onDraftChange}
-        placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')}
-        heading={scopeControls} controls={composerControls} blockedReason={blockedReason} resolveLabel={resolveLabel} onResolve={onResolve}
-        canAsk={canAsk} busy={Boolean(activeRequestId)} onSubmit={onSubmit} onCancel={onCancel} />
-    </>
-  )
-}
-
 export default function App(): ReactNode {
-  // 初始化阶段同时切换 copy 模块语言，保证首帧渲染的文案与持久化语言一致。
-  const [uiLanguage, setUiLanguage] = useState<UiLanguage>(() => {
-    const language = readUiLanguage()
-    setCopyLanguage(language)
-    return language
-  })
-  const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference)
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(themePreference))
-  const [interfaceScale, setInterfaceScale] = useState<InterfaceScale>(readInterfaceScale)
-  const [readingPreferences, setReadingPreferences] = useState<ReadingPreferences>(readReadingPreferences)
+  const {
+    uiLanguage, themePreference, resolvedTheme, interfaceScale,
+    readingPreferences, effectiveReadingPreferences, effectivePaperTheme, paperThemePreference, assistantActions,
+    changeUiLanguage, setThemePreference, setInterfaceScale,
+    setReadingPreferences, setPaperThemePreference, setAssistantActions
+  } = useAppPreferences()
   const [textReadingMode, setTextReadingMode] = useState<TextReadingMode>('auto')
   const [textRendering, setTextRendering] = useState<'plain' | 'markdown'>('plain')
-  const [paperThemePreference, setPaperThemePreference] = useState<PaperThemePreference>(readPaperThemePreference)
-  const [assistantActions, setAssistantActions] = useState<AssistantActionSettings>(readAssistantActionSettings)
   const [personaSettings, setPersonaSettings] = useState<PersonaSettings>(readPersonaSettings)
   const [webSearchEnabled, setWebSearchEnabled] = useState(false)
   useEffect(() => {
@@ -1073,9 +164,6 @@ export default function App(): ReactNode {
   const [archiveView, setArchiveView] = useState<'archived' | 'workbenches'>(() => { try { return localStorage.getItem('llm-reader-archive-view') === 'workbenches' ? 'workbenches' : 'archived' } catch { return 'archived' } })
   useEffect(() => { try { localStorage.setItem('llm-reader-archive-view', archiveView) } catch { /* Keep the in-memory choice. */ } }, [archiveView])
   const [libraryError, setLibraryError] = useState('')
-  const [importing, setImporting] = useState(false)
-  const [importDialogState, setImportDialogState] = useState<BookImportDialogState | null>(null)
-  const [dropOverlay, setDropOverlay] = useState<DropOverlayState>(null)
   const [coverCache] = useState(() => new BookCoverCache((bookId) => window.readerApi.getBookCover(bookId)))
   const [toc, setToc] = useState<TocItem[]>([])
   const [collapsedTocItems, setCollapsedTocItems] = useState<Set<string>>(() => new Set())
@@ -1118,11 +206,6 @@ export default function App(): ReactNode {
   const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
   const [currentChapterTitle, setCurrentChapterTitle] = useState('')
   const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [executedSearchQuery, setExecutedSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<ReadonlyArray<ReaderSearchResult>>([])
-  const [searchState, setSearchState] = useState<SearchState>('idle')
-  const [searchError, setSearchError] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialService, setSettingsInitialService] = useState<'document' | 'embedding'>()
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
@@ -1131,12 +214,6 @@ export default function App(): ReactNode {
   const setAssistantDialogOpen = useCallback((open: boolean) => setPage(open ? 'conversation' : 'reading'), [])
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
-  const [providerOverview, setProviderOverview] = useState<ProviderOverview>(EMPTY_PROVIDER_OVERVIEW)
-  const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
-  const [providerConnection, setProviderConnection] = useState<ProviderConnectionState>({
-    status: 'not-configured',
-    message: providerStatusLabel('not-configured')
-  })
   const [toast, setToast] = useState<ToastState | null>(null)
 
   const hostRef = useRef<HTMLDivElement>(null)
@@ -1144,9 +221,6 @@ export default function App(): ReactNode {
   const selectionToolbarRef = useRef<HTMLDivElement>(null)
   const adapterRef = useRef<ReaderAdapter | null>(null)
   const activeBookRef = useRef<BookRecord | null>(null)
-  const requestSessionRef = useRef(new Map<string, string>())
-  // 已达到并发上限、尚未真正发出的会话请求（按入队顺序）。
-  const pendingRequestsRef = useRef<Array<{ requestId: string; tabId: string; request: LlmRequest; providerRevision: number }>>([])
   const openSequenceRef = useRef(0)
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastProgressFlushRef = useRef(0)
@@ -1162,28 +236,12 @@ export default function App(): ReactNode {
   const assistantExpandButtonRef = useRef<HTMLButtonElement>(null)
   const detailsReturnFocusRef = useRef<HTMLButtonElement>(null)
   const assistantDialogRef = useRef<HTMLElement>(null)
-  const searchInputRef = useRef<HTMLInputElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
-  const effectivePaperTheme = resolveEffectivePaperTheme(paperThemePreference, resolvedTheme)
-  const effectiveReadingPreferences = useMemo(
-    () => ({ ...readingPreferences, paperTheme: effectivePaperTheme }),
-    [readingPreferences, effectivePaperTheme]
-  )
   const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const naturalPositionRef = useRef<{ locator: string | null; progress: number }>({ locator: null, progress: 0 })
   const naturalChapterRef = useRef<{ title: string; href: string | null; progress: number } | null>(null)
   const chapterTitleOverrideRef = useRef<string | null>(null)
-  const providerRevisionRef = useRef(0)
-  const providerCheckSequenceRef = useRef(0)
-  const requestProviderRevisionRef = useRef(new Map<string, number>())
-  const searchSequenceRef = useRef(0)
   const leftViewRevisionRef = useRef(0)
-  const importingRef = useRef(false)
-  const acceptImportEventsRef = useRef(false)
-  const importDialogStateRef = useRef<BookImportDialogState | null>(null)
-  const importReturnFocusRef = useRef<HTMLButtonElement>(null)
-  const dragDepthRef = useRef(0)
-
   const selectLeftView = useCallback((view: LeftView): void => {
     leftViewRevisionRef.current += 1
     setLeftView(view)
@@ -1226,81 +284,10 @@ export default function App(): ReactNode {
     activeBookRef.current = activeBook
   }, [activeBook])
 
-  useEffect(() => {
-    importDialogStateRef.current = importDialogState
-  }, [importDialogState])
-
-  useEffect(() => {
-    if (leftView !== 'search') return undefined
-    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus())
-    return () => window.cancelAnimationFrame(frame)
-  }, [leftView])
-
-  useLayoutEffect(() => {
-    try {
-      window.localStorage.setItem(INTERFACE_SCALE_STORAGE_KEY, String(interfaceScale))
-    } catch {
-      // Scaling remains active for this session when storage is unavailable.
-    }
-    document.documentElement.dataset.interfaceScale = String(interfaceScale)
-  }, [interfaceScale])
-
-  useLayoutEffect(() => {
-    setCopyLanguage(uiLanguage)
-    try {
-      window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, uiLanguage)
-    } catch {
-      // The chosen language remains active for this session when storage is unavailable.
-    }
-    document.documentElement.lang = uiLanguage === 'en' ? 'en' : 'zh-CN'
-    // 主进程的原生对话框与错误文案跟随同一语言。
-    void window.readerApi.setUiLanguage(uiLanguage).catch(() => undefined)
-  }, [uiLanguage])
-
-  useLayoutEffect(() => {
-    const systemTheme = typeof window.matchMedia === 'function'
-      ? window.matchMedia('(prefers-color-scheme: dark)')
-      : null
-
-    const applyTheme = (): void => {
-      const nextTheme = themePreference === 'system'
-        ? (systemTheme?.matches ? 'dark' : 'light')
-        : themePreference
-      setResolvedTheme(nextTheme)
-      document.documentElement.dataset.theme = nextTheme
-      document.documentElement.dataset.themePreference = themePreference
-      document.documentElement.style.colorScheme = nextTheme
-    }
-
-    try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, themePreference)
-    } catch {
-      // Theme switching still works for this session when storage is unavailable.
-    }
-
-    applyTheme()
-    if (themePreference !== 'system' || !systemTheme) return undefined
-
-    systemTheme.addEventListener('change', applyTheme)
-    return () => systemTheme.removeEventListener('change', applyTheme)
-  }, [themePreference])
-
-  useLayoutEffect(() => {
-    try {
-      window.localStorage.setItem(PAPER_THEME_PREFERENCE_STORAGE_KEY, paperThemePreference)
-      window.localStorage.removeItem(LEGACY_PAPER_THEME_MODE_STORAGE_KEY)
-    } catch {
-      // The selected paper preference still applies for this session when storage is unavailable.
-    }
-  }, [paperThemePreference])
-
-  // 先切换 copy 模块再触发渲染，保证本次 commit 的所有文案已用新语言；
-  // 仍为默认值的划词名称与提示词跟随语言，自定义值不受影响。
-  const changeUiLanguage = useCallback((language: UiLanguage) => {
-    setCopyLanguage(language)
-    setUiLanguage(language)
-    setAssistantActions((previous) => normalizeAssistantActionSettings(previous))
-  }, [])
+  const {
+    searchQuery, setSearchQuery, executedSearchQuery, searchResults, searchState, searchError,
+    searchInputRef, submitSearch, resetSearch, invalidateSearch
+  } = useReaderSearch({ adapterRef, activeBookRef, visible: leftView === 'search' })
 
   const pushToast = useCallback((message: string, tone: ToastState['tone'] = 'neutral'): void => {    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setToast({ id: Date.now(), tone, message })
@@ -1316,59 +303,10 @@ export default function App(): ReactNode {
     setToast(null)
   }, [])
 
-  const commitProviderSettings = useCallback((settings: ProviderSettings): number => {
-    const revision = providerRevisionRef.current + 1
-    providerRevisionRef.current = revision
-    providerCheckSequenceRef.current += 1
-    setProvider(settings)
-    const status: ProviderConnectionStatus = providerIsConfigured(settings) ? 'checking' : 'not-configured'
-    setProviderConnection({ status, message: providerStatusLabel(status) })
-    return revision
-  }, [])
-
-  const runProviderCheck = useCallback(async (revision: number): Promise<ProviderCheckOutcome> => {
-    const sequence = providerCheckSequenceRef.current + 1
-    providerCheckSequenceRef.current = sequence
-    if (revision === providerRevisionRef.current) {
-      setProviderConnection({ status: 'checking', message: providerStatusLabel('checking') })
-    }
-    let result: ProviderTestResult
-    try {
-      result = await window.readerApi.testProvider()
-    } catch (error) {
-      result = { ok: false, message: readableError(error, copy('provider.backgroundTestFailed')) }
-    }
-    const current = revision === providerRevisionRef.current && sequence === providerCheckSequenceRef.current
-    if (current) {
-      const status: ProviderConnectionStatus = result.ok ? 'connected' : 'disconnected'
-      setProviderConnection({ status, message: result.message || providerStatusLabel(status) })
-    }
-    return { ...result, current }
-  }, [])
-
-  const handleProviderOverviewChange = useCallback((overview: ProviderOverview, checkActive: boolean): void => {
-    setProviderOverview(overview)
-    const settings = activeProviderSettings(overview)
-    const changed = settings.baseUrl !== provider.baseUrl || settings.model !== provider.model || settings.hasApiKey !== provider.hasApiKey || settings.compatibility !== provider.compatibility || settings.protocol !== provider.protocol || JSON.stringify(publicRequestSettings(settings)) !== JSON.stringify(publicRequestSettings(provider)) || settings.hasCustomHeaders !== provider.hasCustomHeaders
-    if (!checkActive && !changed) return
-    const revision = commitProviderSettings(settings)
-    if (!checkActive || !providerIsConfigured(settings)) return
-    const check = runProviderCheck(revision)
-    const sequence = providerCheckSequenceRef.current
-    void check.then((result) => {
-      if (!result.ok && revision === providerRevisionRef.current && sequence === providerCheckSequenceRef.current) {
-        pushToast(result.message || copy('provider.backgroundTestFailed'), 'error')
-      }
-    })
-  }, [commitProviderSettings, provider, pushToast, runProviderCheck])
+  const { provider, providerOverview, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult } = useProviderConnection(pushToast)
 
   useEffect(() => {
     readingPreferencesRef.current = effectiveReadingPreferences
-    try {
-      window.localStorage.setItem(READING_PREFERENCES_STORAGE_KEY, JSON.stringify(readingPreferences))
-    } catch {
-      // Reading preferences remain active for this session when storage is unavailable.
-    }
     if (!adapterRef.current) return undefined
     if (preferencesTimerRef.current) clearTimeout(preferencesTimerRef.current)
     preferencesTimerRef.current = setTimeout(() => {
@@ -1381,10 +319,6 @@ export default function App(): ReactNode {
       if (preferencesTimerRef.current) clearTimeout(preferencesTimerRef.current)
     }
   }, [pushToast, readingPreferences, effectiveReadingPreferences])
-
-  useEffect(() => {
-    persistAssistantActionSettings(normalizeAssistantActionSettings(assistantActions))
-  }, [assistantActions])
 
   const refreshBooks = useCallback(async (): Promise<BookRecord[]> => {
     setLibraryState('loading')
@@ -1465,7 +399,7 @@ export default function App(): ReactNode {
   }, [flushProgress])
 
   const destroyReader = useCallback((): void => {
-    searchSequenceRef.current += 1
+    invalidateSearch()
     if (progressTimerRef.current) {
       clearTimeout(progressTimerRef.current)
       progressTimerRef.current = null
@@ -1479,7 +413,7 @@ export default function App(): ReactNode {
     adapterRef.current = null
     setSelectionDraft(null)
     if (hostRef.current) hostRef.current.replaceChildren()
-  }, [flushProgress])
+  }, [flushProgress, invalidateSearch])
 
   const onSessionRestoreError = useCallback(() => pushToast(copy('assistant.sessionRestoreFailed'), 'error'), [pushToast])
   const onArchiveSaved = useCallback((updated: SavedInsight) => {
@@ -1491,7 +425,7 @@ export default function App(): ReactNode {
     conversationTabs, conversationTabsRef, activeTabId, activeTabIdRef,
     commitConversationTabs, updateConversationTab, focusConversationTab,
     ensureLiveTab, removeConversationTabsForBook, visibleSessionTabs, markArchiveOpened,
-    loadedSessionsRef, failedSessionLoads, retrySessionRestoration,
+    loadedSessions, loadedSessionsRef, failedSessionLoads, retrySessionRestoration,
     sessionTabsRestoreState, sessionTabsRestoreError, retryTabRestoration,
     sessionSaves, tabSaves, archiveSaves, sessionTransitionsRef, changingSessions, setSessionChanging,
     persistLiveSession, persistSessionTabs, persistArchiveHistory, flushSessionSaves, closeConversationTab
@@ -1501,34 +435,22 @@ export default function App(): ReactNode {
     onRestoreError: onSessionRestoreError, onArchiveSaved
   })
 
+  const { hasConversationRequest, enqueueConversationRequest, cancelRequest, cancelBookRequests, cancelTabRequests, cancelAllRequests } = useConversationRequests({
+    conversationTabsRef, closingRef, updateConversationTab, persistArchiveHistory, reportProviderResult
+  })
+
   const changePersonaSettings = (settings: PersonaSettings): boolean => {
     if (!persistPersonaSettings(settings)) return false
     setPersonaSettings(settings)
     return true
   }
 
-  // 同一本书只允许一个进行中的请求；切换书籍不会取消其他书中正在生成的回答。
+  // 同一会话只允许一个进行中的请求；切换书籍不会取消其他书中正在生成的回答。
   const tabHasActiveRequest = (tabId: string): boolean => {
-    if (sessionTransitionsRef.current.has(tabId)) return true
-    const live = conversationTabsRef.current.find((item) => item.id === tabId && item.kind === 'live')
-    if (live && !loadedSessionsRef.current.has(live.bookId)) return true
-    for (const value of requestSessionRef.current.values()) if (value === tabId) return true
-    return pendingRequestsRef.current.some((item) => item.tabId === tabId)
-  }
-  const cancelBookRequests = (bookId: string): void => {
-    for (const [requestId, tabId] of [...requestSessionRef.current]) {
-      const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
-      if (tab?.bookId !== bookId) continue
-      requestSessionRef.current.delete(requestId)
-      requestProviderRevisionRef.current.delete(requestId)
-      void window.readerApi.cancelLlm(requestId).catch(() => undefined)
-      updateConversationTab(tabId, (current) => ({
-        ...current,
-        turns: current.turns.map((turn) => turn.requestId === requestId
-          ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
-          : turn)
-      }))
-    }
+    const tab = conversationTabsRef.current.find((item) => item.id === tabId)
+    if (!tab || closingRef.current || sessionTransitionsRef.current.has(tabId) || deletingBooksRef.current.has(tab.bookId) || (tab.insightId && deletingInsightsRef.current.has(tab.insightId))) return true
+    if (tab.kind === 'live' && !loadedSessionsRef.current.has(tab.bookId)) return true
+    return hasConversationRequest(tabId)
   }
 
   // Save before replacing the selection; a failed write leaves the old conversation intact.
@@ -1588,10 +510,7 @@ export default function App(): ReactNode {
     setCurrentChapterProgress(0)
     setCurrentChapterTitle('')
     setCurrentChapterHref(null)
-    setSearchQuery('')
-    setSearchResults([])
-    setSearchState('idle')
-    setSearchError('')
+    resetSearch()
     naturalPositionRef.current = { locator: book.lastLocator, progress: book.progress }
 
     try {
@@ -1678,52 +597,40 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress, openSettings])
+  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress, openSettings, resetSearch])
 
   const changeTextReadingMode = useCallback(async (mode: TextReadingMode): Promise<void> => {
     if (!isTextReadingMode(mode)) return
     const adapter = adapterRef.current, book = activeBookRef.current
     if (!adapter?.setTextMode || book?.format !== 'txt') return
+    resetSearch(true)
     try {
       const result = await adapter.setTextMode(mode)
       if (adapterRef.current !== adapter || activeBookRef.current?.id !== book.id) return
       setTextReadingMode(mode)
       if (result) { setToc(result.toc); setTextRendering(result.textRendering ?? 'plain') }
-      setSelection(null); setSearchResults([]); setExecutedSearchQuery('')
+      setSelection(null)
+      resetSearch(true)
       if (!saveTextReadingMode(book.id, mode)) pushToast(copy('settings.textModeSaveFailed'), 'error')
     } catch (error) { pushToast(readableError(error, copy('reader.openFailed')), 'error') }
-  }, [pushToast])
+  }, [pushToast, resetSearch])
 
   useEffect(() => {
-    let alive = true
     const initialize = async (): Promise<void> => {
       if (!window.readerApi) {
         setLibraryState('error')
         setLibraryError(copy('reader.bridgeFailed'))
         return
       }
-      const [, , overview] = await Promise.all([
-        refreshBooks(),
-        refreshInsights(),
-        window.readerApi.getProviderOverview().catch(() => EMPTY_PROVIDER_OVERVIEW)
-      ])
-      if (!alive || providerRevisionRef.current !== 0) return
-      setProviderOverview(overview)
-      const settings = activeProviderSettings(overview)
-      const revision = commitProviderSettings(settings)
-      if (providerIsConfigured(settings)) void runProviderCheck(revision)
+      await Promise.all([refreshBooks(), refreshInsights()])
     }
     void initialize()
-    const requestSessions = requestSessionRef.current
     return () => {
-      alive = false
       openSequenceRef.current += 1
-      // 退出时取消所有仍在生成的回答。
-      for (const requestId of [...requestSessions.keys()]) void window.readerApi.cancelLlm(requestId).catch(() => undefined)
       destroyReader()
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
-  }, [commitProviderSettings, destroyReader, refreshBooks, refreshInsights, runProviderCheck])
+  }, [destroyReader, refreshBooks, refreshInsights])
 
   useEffect(() => {
     if (libraryState !== 'ready' || workspaceRestored.current) return
@@ -1757,57 +664,14 @@ export default function App(): ReactNode {
     if (saved) changeSessionPersona(tab, saved)
   }
 
-  // 并发上限：超出上限的会话请求排队等待，响应结束后按入队顺序补位。
-  const pumpRequestQueue = useCallback(function pump(): void {
-    while (requestSessionRef.current.size < MAX_CONCURRENT_REQUESTS && pendingRequestsRef.current.length > 0) {
-      const next = pendingRequestsRef.current.shift()
-      if (!next) return
-      requestSessionRef.current.set(next.requestId, next.tabId)
-      requestProviderRevisionRef.current.set(next.requestId, next.providerRevision)
-      updateConversationTab(next.tabId, (current) => ({
-        ...current,
-        turns: current.turns.map((turn) => turn.requestId === next.requestId ? { ...turn, status: 'streaming', startedAt: Date.now() } : turn)
-      }))
-      void window.readerApi.startLlm(next.request).catch((error: unknown) => {
-        const message = readableError(error, copy('error.requestStartFailed'))
-        updateConversationTab(next.tabId, (current) => ({
-          ...current,
-          turns: current.turns.map((turn) => turn.requestId === next.requestId ? { ...turn, status: 'error', error: message } : turn)
-        }))
-        requestProviderRevisionRef.current.delete(next.requestId)
-        requestSessionRef.current.delete(next.requestId)
-        if (next.providerRevision === providerRevisionRef.current && requestSessionRef.current.size === 0) {
-          providerCheckSequenceRef.current += 1
-          setProviderConnection({ status: 'disconnected', message })
-        }
-        // 启动失败同样会空出并发位，继续补位下一个排队请求。
-        pump()
-      })
-    }
-  }, [updateConversationTab])
-
   // 清空会话：先取消该书排队中与进行中的请求，否则名额释放后模型仍会被调用，
   // 而对应的轮次已经被清掉，回答无处落地。
   const clearLiveSession = async (tab: ConversationTab): Promise<void> => {
     if (sessionTransitionsRef.current.has(tab.id) || closingRef.current) return
     setSessionChanging(tab.id, true)
     setPendingClearSession(false)
-    const queued = pendingRequestsRef.current.filter((item) => item.tabId === tab.id)
-    if (queued.length > 0) {
-      pendingRequestsRef.current = pendingRequestsRef.current.filter((item) => item.tabId !== tab.id)
-      for (const item of queued) requestProviderRevisionRef.current.delete(item.requestId)
-    }
-    for (const [requestId, tabId] of [...requestSessionRef.current]) {
-      if (tabId !== tab.id) continue
-      requestSessionRef.current.delete(requestId)
-      requestProviderRevisionRef.current.delete(requestId)
-      void window.readerApi.cancelLlm(requestId).catch(() => undefined)
-    }
-    updateConversationTab(tab.id, (current) => ({ ...current, turns: current.turns.map((turn) =>
-      turn.status === 'streaming' || turn.status === 'queued'
-        ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
-        : turn) }))
     try {
+      await cancelTabRequests(tab.id)
       // Finish older writes before deleting, so they cannot recreate the cleared conversation.
       await sessionSaves.wait(tab.bookId).catch(() => undefined)
       await window.readerApi.deleteBookSession(tab.bookId, tab.conversationId)
@@ -1827,60 +691,8 @@ export default function App(): ReactNode {
     } finally {
       setSessionChanging(tab.id, false)
     }
-    // 释放出来的并发位让后面的排队请求补位。
-    pumpRequestQueue()
   }
 
-  useEffect(() => {
-    if (!window.readerApi) return undefined
-    return window.readerApi.onLlmEvent((event: LlmEvent) => {
-      const tabId = requestSessionRef.current.get(event.requestId)
-      const tab = tabId ? conversationTabsRef.current.find((candidate) => candidate.id === tabId) : undefined
-      const applyUpdate = (current: ConversationTurn[]): ConversationTurn[] => current.map((turn) => {
-        if (turn.requestId !== event.requestId) return turn
-        if (event.type === 'context') return { ...turn, context: event.context, webSearchPhase: undefined }
-        if (event.type === 'webSearch') return { ...turn, webSearchPhase: event.phase }
-        if (event.type === 'delta') return { ...turn, answer: turn.answer + event.delta }
-        if (event.type === 'usage') return { ...turn, usage: event.usage }
-        if (event.type === 'completed') return {
-          ...turn,
-          model: event.model,
-          status: 'completed',
-          ...(turn.startedAt === undefined ? {} : { durationMs: Math.max(0, Date.now() - turn.startedAt) })
-        }
-        return { ...turn, status: 'error', error: event.message }
-      })
-      if (tab) {
-        const turns = applyUpdate(tab.turns)
-        updateConversationTab(tab.id, (current) => ({ ...current, turns }))
-        if (event.type === 'completed' && tab.kind === 'archive' && tab.insightId) {
-          void persistArchiveHistory(tab.bookId, tab.insightId, turns, tab.persona, tab.webSearch).catch(() => undefined)
-        }
-      }
-
-      if (event.type === 'completed' || event.type === 'error') {
-        const requestRevision = requestProviderRevisionRef.current.get(event.requestId)
-        const failure = event.type === 'error' && event.code !== 'CANCELLED' ? event.message : ''
-        requestProviderRevisionRef.current.delete(event.requestId)
-        requestSessionRef.current.delete(event.requestId)
-        // 先让排队的请求补位，再按“是否还有请求在跑或排队”聚合连接状态，
-        // 避免并发时某一个失败就把状态点标成断开。
-        pumpRequestQueue()
-        const pendingWork = requestSessionRef.current.size + pendingRequestsRef.current.length
-        if (requestRevision === providerRevisionRef.current) {
-          if (pendingWork === 0) {
-            providerCheckSequenceRef.current += 1
-            setProviderConnection(failure
-              ? { status: 'disconnected', message: failure }
-              : { status: 'connected', message: providerStatusLabel('connected') })
-          } else if (!failure) {
-            providerCheckSequenceRef.current += 1
-            setProviderConnection({ status: 'connected', message: providerStatusLabel('connected') })
-          }
-        }
-      }
-    })
-  }, [conversationTabsRef, persistArchiveHistory, pumpRequestQueue, updateConversationTab])
   const sessionOperationInProgress = useCallback(() => Boolean(
     sessionTransitionsRef.current.size || deletingBooksRef.current.size || deletingInsightsRef.current.size
   ), [sessionTransitionsRef])
@@ -1889,17 +701,9 @@ export default function App(): ReactNode {
       clearTimeout(progressTimerRef.current)
       progressTimerRef.current = null
     }
-    const requestIds = [...requestSessionRef.current.keys()]
-    pendingRequestsRef.current = []
-    requestSessionRef.current.clear()
-    requestProviderRevisionRef.current.clear()
-    commitConversationTabs((tabs) => tabs.map((tab) => ({ ...tab, turns: tab.turns.map((turn) =>
-      turn.status === 'streaming' || turn.status === 'queued'
-        ? { ...turn, status: 'error', error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty') }
-        : turn) })))
-    await Promise.allSettled(requestIds.map((id) => window.readerApi.cancelLlm(id)))
+    await cancelAllRequests()
     await flushProgress()
-  }, [commitConversationTabs, flushProgress])
+  }, [cancelAllRequests, flushProgress])
   const { closing, closeSaveFailed, retryingSaves, retrySessionSaves } = useAppClose({
     closingRef, isBusy: sessionOperationInProgress, prepareClose, flushSessions: flushSessionSaves,
     closeWorkbenches, resumeWorkbenches, retryWorkbenchSaves, retryTabRestoration
@@ -1911,195 +715,10 @@ export default function App(): ReactNode {
     return () => window.removeEventListener('unload', dispose)
   }, [coverCache])
 
-  useEffect(() => {
-    if (!window.readerApi) return undefined
-    return window.readerApi.onBookImportEvent((event: BookImportEvent) => {
-      if (!acceptImportEventsRef.current) return
-      if (event.type === 'started') {
-        setImportDialogState({
-          phase: 'running',
-          total: event.total,
-          processed: 0,
-          currentFileName: '',
-          imported: 0,
-          duplicates: 0,
-          failed: 0
-        })
-        return
-      }
-      if (event.type === 'itemStarted') {
-        setImportDialogState((current) => ({
-          phase: current?.phase === 'stopping' ? 'stopping' : 'running',
-          total: event.total,
-          processed: event.processed,
-          currentFileName: event.fileName,
-          imported: current?.imported ?? 0,
-          duplicates: current?.duplicates ?? 0,
-          failed: current?.failed ?? 0
-        }))
-        return
-      }
-      if (event.type === 'progress') {
-        setImportDialogState((current) => ({
-          phase: current?.phase === 'stopping' ? 'stopping' : 'running',
-          total: event.total,
-          processed: event.processed,
-          currentFileName: event.fileName,
-          imported: event.imported,
-          duplicates: event.duplicates,
-          failed: event.failed
-        }))
-        return
-      }
-      if (event.type === 'cancelRequested') {
-        setImportDialogState((current) => current ? { ...current, phase: 'stopping' } : current)
-        return
-      }
-      // The invoke result owns the final UI transition. IPC event delivery and invoke
-      // resolution are separate queues, so rendering completion here could reopen a
-      // summary that the user already closed or flash one for a single-file import.
-    })
-  }, [])
-
-  const runBookImport = useCallback(async (
-    start: () => Promise<BookImportBatchResult | null>,
-    trigger?: HTMLButtonElement
-  ): Promise<void> => {
-    if (importingRef.current || importDialogStateRef.current) {
-      pushToast(copy('library.importBusy'), 'neutral')
-      return
-    }
-    dismissToast()
-    importReturnFocusRef.current = trigger ?? (document.activeElement instanceof HTMLButtonElement ? document.activeElement : null)
-    importingRef.current = true
-    acceptImportEventsRef.current = true
-    setImporting(true)
-    try {
-      const result = await start()
-      acceptImportEventsRef.current = false
-      if (!result) {
-        importDialogStateRef.current = null
-        setImportDialogState(null)
-        return
-      }
-      await refreshBooks()
-
-      if (result.total === 1) {
-        importDialogStateRef.current = null
-        setImportDialogState(null)
-        const item = result.items[0]
-        if (item?.status === 'failed') {
-          pushToast(item.message, 'error')
-          return
-        }
-        if (item) {
-          pushToast(item.status === 'duplicate' ? copy('library.duplicateToast') : copy('library.importedToast'), item.status === 'duplicate' ? 'neutral' : 'success')
-          await openBook(item.book)
-        }
-        return
-      }
-
-      const completed: BookImportDialogState = {
-        phase: 'completed',
-        total: result.total,
-        processed: result.processed,
-        currentFileName: '',
-        imported: result.imported,
-        duplicates: result.duplicates,
-        failed: result.failed,
-        result
-      }
-      importDialogStateRef.current = completed
-      setImportDialogState(completed)
-      selectLeftView('library')
-    } catch (error) {
-      acceptImportEventsRef.current = false
-      importDialogStateRef.current = null
-      setImportDialogState(null)
-      pushToast(readableError(error, copy('library.importFailed')), 'error')
-    } finally {
-      acceptImportEventsRef.current = false
-      importingRef.current = false
-      setImporting(false)
-    }
-  }, [dismissToast, openBook, pushToast, refreshBooks, selectLeftView])
-
-  const importBooks = useCallback((trigger?: HTMLButtonElement): Promise<void> => (
-    runBookImport(() => window.readerApi.importBooks(), trigger)
-  ), [runBookImport])
-
-  const importDroppedBooks = useCallback((files: File[]): Promise<void> => (
-    runBookImport(() => window.readerApi.importDroppedBooks(files))
-  ), [runBookImport])
-
-  const cancelBookImport = useCallback(async (): Promise<void> => {
-    setImportDialogState((current) => current && current.phase !== 'completed' ? { ...current, phase: 'stopping' } : current)
-    try {
-      await window.readerApi.cancelBookImport()
-    } catch (error) {
-      pushToast(readableError(error, copy('library.importFailed')), 'error')
-    }
-  }, [pushToast])
-
-  const closeBookImportDialog = useCallback((): void => {
-    if (importDialogStateRef.current?.phase !== 'completed') return
-    importDialogStateRef.current = null
-    setImportDialogState(null)
-  }, [])
-
-  useEffect(() => {
-    const hasFiles = (event: globalThis.DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes('Files')
-    const importUiBusy = (): boolean => importingRef.current || importDialogStateRef.current !== null
-    const onDragEnter = (event: globalThis.DragEvent): void => {
-      if (!hasFiles(event)) return
-      event.preventDefault()
-      dragDepthRef.current += 1
-      setDropOverlay(importUiBusy() ? 'busy' : 'ready')
-    }
-    const onDragOver = (event: globalThis.DragEvent): void => {
-      if (!hasFiles(event)) return
-      event.preventDefault()
-      if (event.dataTransfer) event.dataTransfer.dropEffect = importUiBusy() ? 'none' : 'copy'
-      setDropOverlay(importUiBusy() ? 'busy' : 'ready')
-    }
-    const onDragLeave = (event: globalThis.DragEvent): void => {
-      if (dragDepthRef.current === 0) return
-      event.preventDefault()
-      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-      if (dragDepthRef.current === 0) setDropOverlay(null)
-    }
-    const onDrop = (event: globalThis.DragEvent): void => {
-      if (!hasFiles(event)) return
-      event.preventDefault()
-      dragDepthRef.current = 0
-      setDropOverlay(null)
-      if (importUiBusy()) {
-        pushToast(copy('library.importBusy'), 'neutral')
-        return
-      }
-      const files = Array.from(event.dataTransfer?.files ?? [])
-      if (files.length > 0) void importDroppedBooks(files)
-    }
-    const clearDropOverlay = (): void => {
-      dragDepthRef.current = 0
-      setDropOverlay(null)
-    }
-
-    window.addEventListener('dragenter', onDragEnter, true)
-    window.addEventListener('dragover', onDragOver, true)
-    window.addEventListener('dragleave', onDragLeave, true)
-    window.addEventListener('drop', onDrop, true)
-    window.addEventListener('dragend', clearDropOverlay, true)
-    window.addEventListener('blur', clearDropOverlay)
-    return () => {
-      window.removeEventListener('dragenter', onDragEnter, true)
-      window.removeEventListener('dragover', onDragOver, true)
-      window.removeEventListener('dragleave', onDragLeave, true)
-      window.removeEventListener('drop', onDrop, true)
-      window.removeEventListener('dragend', clearDropOverlay, true)
-      window.removeEventListener('blur', clearDropOverlay)
-    }
-  }, [importDroppedBooks, pushToast])
+  const showLibraryAfterImport = useCallback(() => selectLeftView('library'), [selectLeftView])
+  const { importing, importDialogState, dropOverlay, importReturnFocusRef, importBooks, cancelBookImport, closeBookImportDialog } = useBookImport({
+    refreshBooks, openBook, onShowLibrary: showLibraryAfterImport, pushToast, dismissToast
+  })
 
   const openSearchView = useCallback((): void => {
     if (!activeBookRef.current || !adapterRef.current) return
@@ -2114,48 +733,6 @@ export default function App(): ReactNode {
     if (view === 'search') openSearchView()
     else selectLeftView(view)
   }, [leftPanelOpen, leftView, openSearchView, selectLeftView])
-
-  const runSearch = useCallback(async (value: string): Promise<void> => {
-    const query = value.trim()
-    const queryLength = Array.from(query).length
-    if (queryLength < 1 || queryLength > READER_SEARCH_QUERY_MAX_LENGTH) {
-      searchSequenceRef.current += 1
-      setSearchResults([])
-      setExecutedSearchQuery('')
-      setSearchState('error')
-      setSearchError(copy('reader.searchInvalid'))
-      return
-    }
-    const adapter = adapterRef.current
-    const bookId = activeBookRef.current?.id
-    if (!adapter || !bookId) return
-    const sequence = ++searchSequenceRef.current
-    setSearchState('searching')
-    setSearchError('')
-    try {
-      const prepared = adapter.format === 'pdf' ? await window.readerApi.searchBookDocument({ bookId, query }) : null
-      const results = prepared?.available ? prepared.results : await adapter.search(query)
-      if (
-        sequence !== searchSequenceRef.current ||
-        adapterRef.current !== adapter ||
-        activeBookRef.current?.id !== bookId
-      ) return
-      setSearchResults(results)
-      setExecutedSearchQuery(query)
-      setSearchState('ready')
-    } catch (error) {
-      if (sequence !== searchSequenceRef.current || adapterRef.current !== adapter) return
-      setSearchResults([])
-      setExecutedSearchQuery('')
-      setSearchState('error')
-      setSearchError(readableError(error, copy('reader.searchFailed')))
-    }
-  }, [])
-
-  const submitSearch = useCallback((event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    void runSearch(searchQuery)
-  }, [runSearch, searchQuery])
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
@@ -2184,7 +761,7 @@ export default function App(): ReactNode {
     const cleanQuestion = question.trim()
     if (!cleanQuestion) return
     let tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
-    if (!tab || tabHasActiveRequest(tab.id)) return
+    if (!tab || closingRef.current || tabHasActiveRequest(tab.id)) return
     const scope = sourceSelection ? 'selection' : tab.scope
     const context = scope === 'book' ? null : sourceSelection ?? tab.selection
     if (scope === 'selection' && !context) return
@@ -2196,11 +773,13 @@ export default function App(): ReactNode {
         if (!imageDataUrl) throw new Error(copy('visual.renderFailed'))
       } catch { pushToast(copy('visual.renderFailed'), 'error'); return }
     }
+    if (closingRef.current || tabHasActiveRequest(tab.id) || conversationTabsRef.current.find((candidate) => candidate.id === tabId) !== tab) return
     const newContext = scope !== tab.scope || (scope === 'selection' && tab.selection?.anchor !== context?.anchor)
     if (newContext) {
       if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) return
       tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)!
     }
+    if (closingRef.current || tabHasActiveRequest(tab.id)) return
     const conversationId = tab.conversationId
     const priorTurns = newContext ? [] : tab.turns.filter((turn) => turn.id !== replaceTurnId && turn.status === 'completed' && turn.answer)
     const requestId = createId()
@@ -2228,79 +807,30 @@ export default function App(): ReactNode {
     focusConversationTab(tab.id)
     adapterRef.current?.clearSelection()
     setSelection(null)
-    const providerRevision = providerRevisionRef.current
-    pendingRequestsRef.current.push({
+    enqueueConversationRequest(tab.id, {
       requestId,
-      tabId: tab.id,
-      providerRevision,
-      request: {
-        requestId,
-        conversationId,
-        action,
-        question: cleanQuestion,
-        ...(tab.persona ? { persona: tab.persona.prompt } : {}),
-        webSearch: isPdfImageRegion(context) ? 'off' : tab.webSearch,
-        ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId }
-          : isPdfImageRegion(context) ? { scope: 'visual' as const, selection: context, imageDataUrl: imageDataUrl! }
-            : { scope: 'selection' as const, selection: context! }),
-        historyCandidateMessages: Math.min(priorTurns.length * 2, 1_000_000),
-        historyCandidateTruncated: priorTurns.slice(-15).some((item) => item.answer.length > 20_000),
-        history: priorTurns.slice(-15).flatMap((item) => [
-          { role: 'user' as const, content: item.question },
-          { role: 'assistant' as const, content: item.answer.slice(-20_000) }
-        ])
-      }
-    })
-    pumpRequestQueue()
+      conversationId,
+      action,
+      question: cleanQuestion,
+      ...(tab.persona ? { persona: tab.persona.prompt } : {}),
+      webSearch: isPdfImageRegion(context) ? 'off' : tab.webSearch,
+      ...(scope === 'book' ? { scope: 'book' as const, bookId: tab.bookId }
+        : isPdfImageRegion(context) ? { scope: 'visual' as const, selection: context, imageDataUrl: imageDataUrl! }
+          : { scope: 'selection' as const, selection: context! }),
+      historyCandidateMessages: Math.min(priorTurns.length * 2, 1_000_000),
+      historyCandidateTruncated: priorTurns.slice(-15).some((item) => item.answer.length > 20_000),
+      history: priorTurns.slice(-15).flatMap((item) => [
+        { role: 'user' as const, content: item.question },
+        { role: 'assistant' as const, content: item.answer.slice(-20_000) }
+      ])
+    }, getProviderRevision())
   }
   // 划词工具栏跟随选区:出现时同步定位,滚动/缩放时按帧重算并直接写样式,
   // 避免经过 React 状态造成级联渲染。
-  useLayoutEffect(() => {
-    const toolbar = selectionToolbarRef.current
-    const surface = readerSurfaceRef.current
-    if (!toolbar || !surface || !selection || bookState !== 'ready') return
-
-    const position = (): void => {
-      const anchor = findSelectionAnchorRect(hostRef.current)
-      const surfaceRect = surface.getBoundingClientRect()
-      const toolbarWidth = toolbar.offsetWidth
-      const toolbarHeight = toolbar.offsetHeight
-      let left: number
-      let top: number
-      if (anchor) {
-        const anchorTop = anchor.top - surfaceRect.top
-        const anchorBottom = anchor.bottom - surfaceRect.top
-        const anchorCenterX = anchor.centerX - surfaceRect.left
-        top = anchorTop - toolbarHeight - 10
-        if (top < 4) top = anchorBottom + 10
-        left = anchorCenterX - toolbarWidth / 2
-      } else {
-        left = (surfaceRect.width - toolbarWidth) / 2
-        top = surfaceRect.height - toolbarHeight - 24
-      }
-      left = Math.max(8, Math.min(left, surfaceRect.width - toolbarWidth - 8))
-      top = Math.max(4, Math.min(top, surfaceRect.height - toolbarHeight - 4))
-      toolbar.style.left = `${Math.round(left)}px`
-      toolbar.style.top = `${Math.round(top)}px`
-    }
-
-    position()
-    let frame = 0
-    const schedulePosition = (): void => {
-      if (frame) return
-      frame = requestAnimationFrame(() => {
-        frame = 0
-        position()
-      })
-    }
-    window.addEventListener('scroll', schedulePosition, true)
-    window.addEventListener('resize', schedulePosition)
-    return () => {
-      if (frame) cancelAnimationFrame(frame)
-      window.removeEventListener('scroll', schedulePosition, true)
-      window.removeEventListener('resize', schedulePosition)
-    }
-  }, [selection, bookState, interfaceScale])
+  useSelectionToolbar({
+    hostRef, surfaceRef: readerSurfaceRef, toolbarRef: selectionToolbarRef,
+    selection, ready: bookState === 'ready', interfaceScale
+  })
 
   const handleSelectionAction = async (action: LlmAction): Promise<void> => {
     if (compactWindow) setLeftPanelOpen(false)
@@ -2318,45 +848,6 @@ export default function App(): ReactNode {
       return
     }
     await enqueueRequest(action, isPdfImageRegion(selection) ? copy('assistant.pdfRegionPrompt') : assistantActions[action].prompt, liveTabId, selection)
-  }
-
-  const cancelRequest = async (requestId: string | null): Promise<void> => {
-    if (!requestId) return
-    // 仍在排队的请求不需要打断接口，直接从队列里取出并标记为已取消。
-    const queueIndex = pendingRequestsRef.current.findIndex((item) => item.requestId === requestId)
-    if (queueIndex >= 0) {
-      const [removed] = pendingRequestsRef.current.splice(queueIndex, 1)
-      requestProviderRevisionRef.current.delete(requestId)
-      updateConversationTab(removed.tabId, (tab) => ({
-        ...tab,
-        turns: tab.turns.map((turn) => turn.requestId === requestId
-          ? { ...turn, status: 'error', error: copy('assistant.cancelledEmpty') }
-          : turn)
-      }))
-      return
-    }
-    const tabId = requestSessionRef.current.get(requestId)
-    try {
-      await window.readerApi.cancelLlm(requestId)
-    } finally {
-      if (tabId) {
-        updateConversationTab(tabId, (tab) => ({
-          ...tab,
-          turns: tab.turns.map((turn) => (
-            turn.requestId === requestId
-              ? {
-                  ...turn,
-                  status: 'error',
-                  error: turn.answer ? copy('assistant.cancelledPartial') : copy('assistant.cancelledEmpty')
-                }
-              : turn
-          ))
-        }))
-      }
-      requestProviderRevisionRef.current.delete(requestId)
-      requestSessionRef.current.delete(requestId)
-      pumpRequestQueue()
-    }
   }
 
   const submitTabQuestion = (tabId: string): void => {
@@ -2598,17 +1089,14 @@ export default function App(): ReactNode {
     setCurrentChapterProgress(0)
     setCurrentChapterTitle('')
     setCurrentChapterHref(null)
-    setSearchQuery('')
-    setSearchResults([])
-    setSearchState('idle')
-    setSearchError('')
+    resetSearch()
     naturalPositionRef.current = { locator: null, progress: 0 }
     if (detailsBook?.id === bookId) setDetailsBook(null)
     setLeftView('library')
 
     if (options.dropConversations) {
       // 书籍被删除时丢弃它的会话与请求；关闭标签只是回到书库，保留逐书草稿与历史。
-      cancelBookRequests(bookId)
+      await cancelBookRequests(bookId)
       removeConversationTabsForBook(bookId)
     }
   }
@@ -2669,7 +1157,7 @@ export default function App(): ReactNode {
     deletingBooksRef.current.add(book.id)
     const archiveIds = conversationTabsRef.current.filter((tab) => tab.bookId === book.id && tab.insightId).map((tab) => tab.insightId!)
     try {
-      cancelBookRequests(book.id)
+      await cancelBookRequests(book.id)
       await Promise.allSettled([sessionSaves.wait(book.id), tabSaves.wait('tabs'), ...archiveIds.map((id) => archiveSaves.wait(id))])
       const deleted = await window.readerApi.deleteBook(book.id)
       sessionSaves.forget(book.id)
@@ -2714,6 +1202,8 @@ export default function App(): ReactNode {
     if (deletingInsightsRef.current.has(insightId)) return
     deletingInsightsRef.current.add(insightId)
     try {
+      const tab = conversationTabsRef.current.find((candidate) => candidate.insightId === insightId)
+      if (tab) await cancelTabRequests(tab.id)
       await Promise.allSettled([archiveSaves.wait(insightId), tabSaves.wait('tabs')])
       const target = insights.find((insight) => insight.id === insightId)
       const deleted = await window.readerApi.deleteInsight(insightId)
@@ -2821,37 +1311,34 @@ export default function App(): ReactNode {
     const context = scope === 'selection' ? (selection?.bookId === tab.bookId ? selection : tab.selection) : null
     if (await replaceSession(target, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) focusConversationTab(target.id)
   }
-  const recentConversations = (tab: ConversationTab | undefined): ReactNode => tab?.kind === 'live' && <RecentConversations
-    key={`${tab.id}:${tab.conversationId}`} currentId={tab.conversationId}
-    disabled={!loadedSessionsRef.current.has(tab.bookId) || Boolean(streamingRequestId(tab)) || changingSessions.includes(tab.id)}
-    onList={async () => {
-      const current = conversationTabsRef.current.find((item) => item.id === tab.id)
-      if (current) await persistLiveSession(current)
-      return window.readerApi.listRecentBookSessions(tab.bookId)
-    }}
-    onRestore={async (conversationId) => {
-      const restored = await replaceSession(tab, async () => {
-        const record = await window.readerApi.getRecentBookSession({ bookId: tab.bookId, conversationId })
-        if (!record) throw new Error(copy('assistant.sessionRestoreFailed'))
-        return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft, persona: record.persona ?? null, webSearch: record.webSearch ?? 'off',
-          turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })) }
-      })
-      if (!restored) throw new Error(copy('assistant.sessionRestoreFailed'))
-      setConversationQuery(''); setPendingClearSession(false)
-      focusConversationTab(tab.id)
-    }} />
+  const listRecentConversations = async (tab: ConversationTab) => {
+    const current = conversationTabsRef.current.find((item) => item.id === tab.id)
+    if (current) await persistLiveSession(current)
+    return window.readerApi.listRecentBookSessions(tab.bookId)
+  }
+  const restoreRecentConversation = async (tab: ConversationTab, conversationId: string): Promise<void> => {
+    const restored = await replaceSession(tab, async () => {
+      const record = await window.readerApi.getRecentBookSession({ bookId: tab.bookId, conversationId })
+      if (!record) throw new Error(copy('assistant.sessionRestoreFailed'))
+      return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft, persona: record.persona ?? null, webSearch: record.webSearch ?? 'off',
+        turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })) }
+    })
+    if (!restored) throw new Error(copy('assistant.sessionRestoreFailed'))
+    setConversationQuery(''); setPendingClearSession(false)
+    focusConversationTab(tab.id)
+  }
   const conversationNeedle = normalizeNeedle(conversationQuery)
   const conversationMatches = useMemo(() => {
     if (!conversationNeedle) return 0
     return (activeConversationTab?.turns ?? []).filter((turn) => [turn.question, turn.answer, turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.quote : '']
       .some((value) => value.toLocaleLowerCase('zh-CN').includes(conversationNeedle))).length
   }, [activeConversationTab, conversationNeedle])
-  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && (tab.kind !== 'live' || loadedSessionsRef.current.has(tab.bookId)) &&
+  const canAskTab = (tab: ConversationTab | undefined): boolean => Boolean(tab && (tab.kind !== 'live' || loadedSessions.has(tab.bookId)) &&
     providerIsConfigured(provider) && !streamingRequestId(tab) && (tab.scope === 'book' ? analysis.states[tab.bookId]?.document?.status === 'ready' : tab.selection))
   const canAskSidebar = canAskTab(sidebarTab)
   const canAskWorkbench = canAskTab(activeConversationTab)
   const blockedReason = (tab: ConversationTab | undefined): string => {
-    if (tab?.kind === 'live' && !loadedSessionsRef.current.has(tab.bookId)) return copy(failedSessionLoads.includes(tab.bookId) ? 'assistant.sessionRestoreFailed' : 'assistant.sessionLoading')
+    if (tab?.kind === 'live' && !loadedSessions.has(tab.bookId)) return copy(failedSessionLoads.includes(tab.bookId) ? 'assistant.sessionRestoreFailed' : 'assistant.sessionLoading')
     if (streamingRequestId(tab)) return copy('assistant.busyHint')
     if (!providerIsConfigured(provider)) return copy('assistant.needModel')
     if (tab?.scope === 'book' && analysis.states[tab.bookId]?.document?.status !== 'ready') return copy('assistant.needDocument')
@@ -2859,7 +1346,7 @@ export default function App(): ReactNode {
   }
   const resolveProps = (tab: ConversationTab | undefined, showSelectionPending = false) => ({
     blockedReason: blockedReason(tab) || (showSelectionPending && tab?.scope === 'selection' && !tab.selection ? copy('assistant.selectionPending') : ''),
-    ...(tab?.kind === 'live' && !loadedSessionsRef.current.has(tab.bookId) ?
+    ...(tab?.kind === 'live' && !loadedSessions.has(tab.bookId) ?
       failedSessionLoads.includes(tab.bookId) ? { resolveLabel: copy('common.retry') } : {} :
       !streamingRequestId(tab) && !providerIsConfigured(provider) ? {
       resolveLabel: copy('preparation.configureModel')
@@ -3344,7 +1831,11 @@ export default function App(): ReactNode {
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
           <div className="assistant-header-actions">
-            {!assistantDialogOpen && recentConversations(sidebarTab)}
+            {!assistantDialogOpen && sidebarTab?.kind === 'live' && <RecentConversations
+              key={`${sidebarTab.id}:${sidebarTab.conversationId}`} currentId={sidebarTab.conversationId}
+              disabled={!loadedSessions.has(sidebarTab.bookId) || Boolean(streamingRequestId(sidebarTab)) || changingSessions.includes(sidebarTab.id)}
+              onList={() => listRecentConversations(sidebarTab)}
+              onRestore={(conversationId) => restoreRecentConversation(sidebarTab, conversationId)} />}
             <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => {
               if (sidebarTab) focusConversationTab(sidebarTab.id)
               else if (activeBook) focusConversationTab(ensureLiveTab(activeBook))
@@ -3357,7 +1848,7 @@ export default function App(): ReactNode {
           <ConversationPane
             scope={sidebarTab?.scope}
             controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />}
-            composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessionsRef.current.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
+            composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessions.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
               onChange={(persona) => changeSessionPersona(sidebarTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(sidebarTab, persona)} /></>}
             conversationSelection={sidebarTab?.selection ?? null}
             turns={sidebarTab?.turns ?? []}
@@ -3474,7 +1965,11 @@ export default function App(): ReactNode {
                   {conversationNeedle && <small data-testid="conversation-search-count">{copy('assistant.searchTurns', { count: conversationMatches })}</small>}
                 </label>
               )}
-              {assistantDialogView === 'conversation' && recentConversations(activeConversationTab)}
+              {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && <RecentConversations
+                key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} currentId={activeConversationTab.conversationId}
+                disabled={!loadedSessions.has(activeConversationTab.bookId) || Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)}
+                onList={() => listRecentConversations(activeConversationTab)}
+                onRestore={(conversationId) => restoreRecentConversation(activeConversationTab, conversationId)} />}
               {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && (activeConversationTab.turns.length > 0 || activeConversationTab.draft) && (
                 pendingClearSession ? (
                   <span className="assistant-session-clear is-confirming">
@@ -3511,8 +2006,8 @@ export default function App(): ReactNode {
                   scope={activeConversationTab.scope}
                   scopeControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />}
                   composerControls={<>
-                    {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && webSearchControl(activeConversationTab)}
-                    {(activeConversationTab.kind !== 'live' || loadedSessionsRef.current.has(activeConversationTab.bookId)) && <PersonaSessionControl key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} persona={activeConversationTab.persona} settings={personaSettings}
+                    {(activeConversationTab.kind !== 'live' || loadedSessions.has(activeConversationTab.bookId)) && webSearchControl(activeConversationTab)}
+                    {(activeConversationTab.kind !== 'live' || loadedSessions.has(activeConversationTab.bookId)) && <PersonaSessionControl key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} persona={activeConversationTab.persona} settings={personaSettings}
                       onChange={(persona) => changeSessionPersona(activeConversationTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(activeConversationTab, persona)} />}</>}
                   conversationSelection={activeConversationTab.selection}
                   turns={activeConversationTab.turns}

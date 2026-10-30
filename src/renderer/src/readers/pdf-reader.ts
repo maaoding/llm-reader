@@ -75,6 +75,7 @@ interface PdfPageState {
   textLayer: TextLayer | null
   renderTask: RenderTask | null
   renderPromise: Promise<void> | null
+  renderRevision: number
   rendered: boolean
   textModel: PdfTextModel | null
 }
@@ -255,6 +256,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
         textLayer: null,
         renderTask: null,
         renderPromise: null,
+        renderRevision: 0,
         rendered: false,
         textModel: null
       })
@@ -832,12 +834,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.updateZoomUi()
     this.clearNativeTextSelectionForRerender()
     for (const page of this.pages) {
+      page.renderRevision += 1
       page.renderTask?.cancel()
       page.textLayer?.cancel()
       page.renderTask = null
       page.textLayer = null
       page.renderPromise = null
       page.rendered = false
+      page.element.setAttribute('aria-busy', 'true')
       page.textLayerElement.replaceChildren()
       page.linkLayerElement.replaceChildren()
       page.element.querySelector('.pdf-page-no-text')?.remove()
@@ -959,6 +963,11 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const state = this.pages[pageNumber - 1]
     if (!state || state.rendered) return
     if (state.renderPromise) return state.renderPromise
+    const revision = state.renderRevision
+    // Cancelling the canvas/TextLayer cannot cancel getTextContent or annotations.
+    // Every async stage must still belong to this page and zoom before committing.
+    const isCurrent = (): boolean => state.renderRevision === revision && this.pages[pageNumber - 1] === state
+    state.element.setAttribute('aria-busy', 'true')
     const run = async (): Promise<void> => {
       const scale = this.pageScale(state)
       const viewport = state.page.getViewport({ scale })
@@ -982,6 +991,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       })
       state.renderTask = renderTask
       await renderTask.promise
+      if (!isCurrent()) return
       state.renderTask = null
       state.canvas.width = renderCanvas.width
       state.canvas.height = renderCanvas.height
@@ -993,6 +1003,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       state.canvas.style.visibility = 'visible'
 
       const textContent = await state.page.getTextContent({ disableNormalization: false })
+      if (!isCurrent()) return
       state.textModel ??= createPdfTextModel(textContent.items.flatMap((item) => (
         'str' in item ? [{ str: item.str, hasEOL: item.hasEOL }] : []
       )))
@@ -1004,12 +1015,16 @@ export class PdfReaderAdapter implements ReaderAdapter {
       })
       state.textLayer = textLayer
       await textLayer.render()
+      if (!isCurrent()) return
       this.markTextOffsets(state, textLayer)
-      await this.renderInternalLinks(state, viewport)
+      await this.renderInternalLinks(state, viewport, isCurrent)
+      if (!isCurrent()) return
       state.rendered = true
+      state.element.setAttribute('aria-busy', 'false')
       await this.applyPersistentHighlights()
     }
     const renderPromise = run().catch((error) => {
+      if (!isCurrent()) return
       if (state.renderPromise === renderPromise) state.renderPromise = null
       if (error instanceof Error && error.name === 'RenderingCancelledException') return
       throw error
@@ -1058,8 +1073,13 @@ export class PdfReaderAdapter implements ReaderAdapter {
     }
   }
 
-  private async renderInternalLinks(state: PdfPageState, viewport: ReturnType<PDFPageProxy['getViewport']>): Promise<void> {
+  private async renderInternalLinks(
+    state: PdfPageState,
+    viewport: ReturnType<PDFPageProxy['getViewport']>,
+    isCurrent: () => boolean
+  ): Promise<void> {
     const annotations = await state.page.getAnnotations({ intent: 'display' })
+    if (!isCurrent()) return
     for (const annotation of annotations) {
       if (
         annotation?.subtype !== 'Link' ||
@@ -1073,6 +1093,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       ) continue
       const destination = annotation.dest as string | unknown[]
       const target = await this.positionForDestination(destination)
+      if (!isCurrent()) return
       if (!target) continue
       const rectangle = [
         ...viewport.convertToViewportPoint(annotation.rect[0], annotation.rect[1]),
@@ -1551,6 +1572,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.clearTemporaryHighlight()
     this.clearPersistentHighlights()
     for (const page of this.pages) {
+      page.renderRevision += 1
       page.renderTask?.cancel()
       page.textLayer?.cancel()
     }

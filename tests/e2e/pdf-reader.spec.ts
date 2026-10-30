@@ -569,8 +569,11 @@ test('uses edited PDF region text in a real question and keeps the dark review d
     await page.getByTestId('scale-125').click()
     await page.getByTestId('settings-close').click()
     await resizeWorkspace(application, page, 940, 600)
-    // Resizing rebuilds the text layer; dragging before it is ready is ignored.
-    await expect(page.locator('.pdf-page').first().locator('.pdf-text-layer span[data-pdf-text-start]').first()).toBeAttached()
+    // Wait for the whole resized page, including its text and links, to commit.
+    // On Windows the PDF worker can take longer than a simple DOM assertion.
+    const firstPage = page.locator('.pdf-page').first()
+    await expect(firstPage).toHaveAttribute('aria-busy', 'false', { timeout: 15_000 })
+    await expect(firstPage.locator('.pdf-text-layer span[data-pdf-text-start]').first()).toBeAttached()
     await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'dark')
     await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', '125')
 

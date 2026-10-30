@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { BookRecord, LlmEvent, PersonaSelection, WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
+import type { BookRecord, PersonaSelection, WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { readableError } from './readable-error'
+import { LlmEventBuffer, subscribeToBufferedLlmEvents } from './llm-event-buffer'
 
 const ACTIVE_KEY = 'llm-reader-workbench-active'
 const input = ({ id, name, bookIds, draft, turns, webSearch, persona }: WorkbenchRecord): WorkbenchInput => ({ id, name, bookIds, draft, turns, webSearch, persona })
@@ -23,6 +24,7 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
   const requests = useRef(new Map<string, string>())
   const requestStartedAt = useRef(new Map<string, number>())
   const closing = useRef(false)
+  const [events] = useState(() => new LlmEventBuffer())
   const publish = useCallback((next: WorkbenchRecord[]) => { recordsRef.current = next; setRecords(next) }, [])
 
   const activate = useCallback((id: string | null) => {
@@ -85,7 +87,7 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     }
   }, [books, libraryReady, loading, update])
 
-  useEffect(() => window.readerApi.onLlmEvent((event: LlmEvent) => {
+  useEffect(() => subscribeToBufferedLlmEvents(events, (id) => requests.current.has(id), (event) => {
     const id = requests.current.get(event.requestId)
     if (!id) return
     update(id, (record) => ({ ...record, turns: record.turns.map((turn) => {
@@ -106,18 +108,20 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
       requestStartedAt.current.delete(event.requestId)
       void flush(id).catch(() => undefined)
     }
-  }), [flush, update])
+  }), [events, flush, update])
 
   const cancel = useCallback(async (id: string) => {
     for (const [requestId, workbenchId] of [...requests.current]) {
       if (workbenchId !== id) continue
+      events.flush(requestId)
       await window.readerApi.cancelLlm(requestId)
+      events.flush(requestId)
       requests.current.delete(requestId)
       requestStartedAt.current.delete(requestId)
       update(id, (record) => ({ ...record, turns: record.turns.map((turn) => turn.id === requestId && (turn.status === 'queued' || turn.status === 'streaming')
         ? { ...turn, status: 'error', error: copy('workbench.cancelled') } : turn) }))
     }
-  }, [update])
+  }, [events, update])
 
   // A close or explicit retry must acknowledge edits made while an earlier write was pending.
   const flushLatest = useCallback(async (id: string): Promise<void> => {
@@ -196,12 +200,14 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
         history: historyTurns.flatMap((turn) => [{ role: 'user', content: turn.question }, { role: 'assistant', content: turn.answer.slice(-20_000) }]),
         historyCandidateMessages: Math.min(prior.length * 2, 1_000_000), historyCandidateTruncated: historyTurns.some((turn) => turn.answer.length > 20_000) })
     } catch (error) {
+      if (requests.current.get(requestId) !== id) return
+      events.flush(requestId)
       requests.current.delete(requestId)
       requestStartedAt.current.delete(requestId)
       update(id, (current) => ({ ...current, turns: current.turns.map((turn) => turn.id === requestId
         ? { ...turn, status: 'error', error: readableError(error, copy('error.requestStartFailed')) } : turn) }))
     }
-  }, [flush, update])
+  }, [events, flush, update])
 
   return { records, activeId, active: records.find((record) => record.id === activeId), activate, create, remove, update, submit, cancel, flush, beforeClose, resumeAfterClose, retrySaves, loading, loadError, load, errors, dirty }
 }
