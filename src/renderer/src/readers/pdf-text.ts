@@ -5,7 +5,7 @@ export interface PdfTextContentItem {
 
 type OffsetBias = 'start' | 'end'
 
-interface PdfTextRun {
+export interface PdfTextRun {
   rawStart: number
   rawEnd: number
   readableStart: number
@@ -63,7 +63,18 @@ function codePoints(value: string): string[] {
 }
 
 function codePointSlice(value: string, start: number, end: number): string {
-  return codePoints(value).slice(start, end).join('')
+  let point = 0, offset = 0
+  while (point < start && offset < value.length) {
+    offset += value.codePointAt(offset)! > 0xffff ? 2 : 1
+    point++
+  }
+  const from = offset
+  while (point < end && offset < value.length) {
+    offset += value.codePointAt(offset)! > 0xffff ? 2 : 1
+    point++
+  }
+  // Copy the selected text so a saved excerpt does not retain the page's source string.
+  return codePoints(value.slice(from, offset)).join('')
 }
 
 function isWhitespace(value: string | undefined): boolean {
@@ -72,6 +83,34 @@ function isWhitespace(value: string | undefined): boolean {
 
 function validOffset(value: number, maximum: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && value <= maximum
+}
+
+/** Runs have ordered, inclusive endpoints; shared boundaries retain both bias candidates. */
+export function pdfTextOffset(runs: ReadonlyArray<PdfTextRun>, offset: number, source: 'raw' | 'readable', bias: OffsetBias): number {
+  const sourceStart = source === 'raw' ? 'rawStart' : 'readableStart'
+  const sourceEnd = source === 'raw' ? 'rawEnd' : 'readableEnd'
+  const targetStart = source === 'raw' ? 'readableStart' : 'rawStart'
+  const targetEnd = source === 'raw' ? 'readableEnd' : 'rawEnd'
+  const sourceLength = runs.at(-1)?.[sourceEnd] ?? 0
+  const targetLength = runs.at(-1)?.[targetEnd] ?? 0
+  if (!validOffset(offset, sourceLength)) return bias === 'start' ? targetLength : 0
+  let low = 0, high = runs.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if (runs[middle][sourceEnd] < offset) low = middle + 1
+    else high = middle
+  }
+  let result: number | undefined
+  for (let index = low; index < runs.length; index++) {
+    const run = runs[index]
+    const start = run[sourceStart]
+    if (start > offset) break
+    const mapped = run.separator
+      ? run[bias === 'start' ? targetEnd : targetStart]
+      : run[targetStart] + offset - start
+    result = result === undefined ? mapped : bias === 'start' ? Math.max(result, mapped) : Math.min(result, mapped)
+  }
+  return result ?? (offset === 0 ? 0 : targetLength)
 }
 
 export function createPdfTextModel(items: ReadonlyArray<PdfTextContentItem>): PdfTextModel {
@@ -124,37 +163,8 @@ export function createPdfTextModel(items: ReadonlyArray<PdfTextContentItem>): Pd
   const rawText = rawParts.join('')
   const readableText = readableParts.join('')
 
-  const readableOffsetForRaw = (offset: number, bias: OffsetBias): number => {
-    if (!validOffset(offset, rawOffset)) return bias === 'start' ? readableOffset : 0
-    const candidates: number[] = []
-    for (const run of runs) {
-      if (offset < run.rawStart) break
-      if (offset > run.rawEnd) continue
-      if (run.separator) {
-        candidates.push(run.readableStart, run.readableEnd)
-      } else {
-        candidates.push(run.readableStart + offset - run.rawStart)
-      }
-    }
-    if (candidates.length === 0) return offset === 0 ? 0 : readableOffset
-    return bias === 'start' ? Math.max(...candidates) : Math.min(...candidates)
-  }
-
-  const rawOffsetForReadable = (offset: number, bias: OffsetBias): number => {
-    if (!validOffset(offset, readableOffset)) return bias === 'start' ? rawOffset : 0
-    const candidates: number[] = []
-    for (const run of runs) {
-      if (offset < run.readableStart) break
-      if (offset > run.readableEnd) continue
-      if (run.separator) {
-        candidates.push(run.rawStart)
-      } else {
-        candidates.push(run.rawStart + offset - run.readableStart)
-      }
-    }
-    if (candidates.length === 0) return offset === 0 ? 0 : rawOffset
-    return bias === 'start' ? Math.max(...candidates) : Math.min(...candidates)
-  }
+  const readableOffsetForRaw = (offset: number, bias: OffsetBias): number => pdfTextOffset(runs, offset, 'raw', bias)
+  const rawOffsetForReadable = (offset: number, bias: OffsetBias): number => pdfTextOffset(runs, offset, 'readable', bias)
 
   return {
     rawText,
@@ -165,6 +175,8 @@ export function createPdfTextModel(items: ReadonlyArray<PdfTextContentItem>): Pd
     rawOffsetForReadable,
     readableSliceForRaw(rawStart: number, rawEnd: number): string {
       if (!validOffset(rawStart, rawOffset) || !validOffset(rawEnd, rawOffset) || rawEnd < rawStart) return ''
+      if (rawStart === rawEnd) return ''
+      if (rawStart === 0 && rawEnd === rawOffset) return codePoints(readableText).join('')
       const start = readableOffsetForRaw(rawStart, 'start')
       const end = readableOffsetForRaw(rawEnd, 'end')
       return codePointSlice(readableText, start, Math.max(start, end))

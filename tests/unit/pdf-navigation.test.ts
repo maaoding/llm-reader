@@ -1,19 +1,85 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   makePdfPositionAnchor,
   parsePdfPositionAnchor,
   pdfDestinationFraction,
   pdfFitAvailableWidth,
+  pdfReadingPosition,
   pdfSectionAt,
   PdfZoomCoordinator,
   sortPdfOutlineLocations,
-  type PdfOutlineLocation
+  type PdfOutlineLocation,
+  type PdfPageBounds
 } from '../../src/renderer/src/readers/pdf-navigation'
 
 const viewport = {
   height: 1_000,
   convertToViewportPoint: (x: number, y: number): [number, number] => [x, 1_000 - y]
 }
+
+// Reference behavior before ordered lookup, including first-page tie breaking.
+function linearReadingPosition(pages: PdfPageBounds[], line: number) {
+  let best = 0, distance = Number.POSITIVE_INFINITY
+  for (const [index, rect] of pages.entries()) {
+    if (rect.top <= line && rect.bottom >= line) { best = index; break }
+    const candidate = Math.min(Math.abs(rect.top - line), Math.abs(rect.bottom - line))
+    if (candidate < distance) { best = index; distance = candidate }
+  }
+  const rect = pages[best]
+  return { pageNumber: best + 1, fraction: Math.min(1, Math.max(0, (line - rect.top) / Math.max(1, rect.height))) }
+}
+
+describe('PDF reading-line lookup', () => {
+  it('matches the previous scan across mixed heights, gaps, shared edges and zero-height pages', () => {
+    let top = -80
+    const pages = Array.from({ length: 180 }, (_, index) => {
+      const height = index % 13 ? 60 + (index * 97) % 480 : 0
+      const rect = { top, bottom: top + height, height }
+      top = rect.bottom + (index % 4) * 11
+      return rect
+    })
+    const lines = pages.flatMap((rect, index) => [rect.top, rect.bottom,
+      rect.bottom + ((pages[index + 1]?.top ?? rect.bottom + 80) - rect.bottom) / 2])
+    for (let line = pages[0].top - 80; line <= top + 80; line += 73.25) lines.push(line)
+    for (const line of lines) for (const hint of [0, 31, pages.length - 1]) {
+      expect(pdfReadingPosition(pages.length, line, (index) => pages[index], hint)).toEqual(linearReadingPosition(pages, line))
+    }
+  })
+
+  it.each([-10, 0, 10])('keeps the first tie when every page has collapsed bounds at line %s', (line) => {
+    const measure = () => ({ top: 0, bottom: 0, height: 0 })
+    expect(pdfReadingPosition(100, line, measure, 99)).toEqual({ pageNumber: 1, fraction: line > 0 ? 1 : 0 })
+  })
+
+  it('bounds deep jumps and measures only the hinted page during continued reading', () => {
+    const measure = vi.fn((index: number) => ({ top: index * 1_020, bottom: index * 1_020 + 1_000, height: 1_000 }))
+    const position = pdfReadingPosition(5_000, 4_500 * 1_020 + 300, measure)
+    expect(position).toEqual({ pageNumber: 4_501, fraction: 0.3 })
+    expect(measure.mock.calls.length).toBeLessThanOrEqual(Math.ceil(Math.log2(5_000)) + 3)
+    measure.mockClear()
+    expect(pdfReadingPosition(5_000, 4_500 * 1_020 + 400, measure, position!.pageNumber - 1)).toEqual({ pageNumber: 4_501, fraction: 0.4 })
+    expect(measure).toHaveBeenCalledExactlyOnceWith(4_500)
+  })
+
+  it('rereads geometry after layout changes and ignores an obsolete page hint', () => {
+    let pages = [{ top: 0, bottom: 100, height: 100 }, { top: 120, bottom: 220, height: 100 }]
+    const measure = (index: number) => pages[index]
+    expect(pdfReadingPosition(2, 150, measure)).toEqual({ pageNumber: 2, fraction: 0.3 })
+    pages = [{ top: 0, bottom: 300, height: 300 }, { top: 320, bottom: 620, height: 300 }]
+    expect(pdfReadingPosition(2, 150, measure, 1)).toEqual({ pageNumber: 1, fraction: 0.5 })
+  })
+
+  it('handles empty layouts and invalid hints without reading outside the page array', () => {
+    const measure = vi.fn((index: number) => {
+      expect(index).toBe(0)
+      return { top: 0, bottom: 100, height: 100 }
+    })
+    expect(pdfReadingPosition(0, 50, measure)).toBeNull()
+    expect(pdfReadingPosition(1, Number.NaN, measure)).toBeNull()
+    expect(measure).not.toHaveBeenCalled()
+    for (const hint of [-1, 5, Number.NaN]) expect(pdfReadingPosition(1, 50, measure, hint)).toEqual({ pageNumber: 1, fraction: 0.5 })
+  })
+})
 
 describe('PDF position navigation', () => {
   it('creates and strictly validates normalized position anchors', () => {

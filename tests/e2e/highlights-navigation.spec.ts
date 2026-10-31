@@ -1,4 +1,4 @@
-import { showLibrary, enterReading } from './support/workspace'
+import { showLibrary, enterReading, resizeWorkspace } from './support/workspace'
 import {
   expect,
   test,
@@ -7,6 +7,7 @@ import {
   type Page
 } from '@playwright/test'
 import { join, resolve } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { createNestedEpubFixture } from './fixtures/nested-epub'
 import {
   cleanupE2eWorkspace,
@@ -193,3 +194,76 @@ test('saves EPUB sentence highlights, reapplies them after chapter reload and re
     await cleanupE2eWorkspace(application, workspace.root)
   }
 })
+
+for (const [fallback, theme, width, height, scale] of [[false, 'light', 1180, 800, 100], [true, 'dark', 940, 600, 125]] as const) {
+  test(`keeps cross-paragraph TXT highlights in ${fallback ? 'fallback' : 'native'} mode at ${theme}/${width}/${scale}`, async () => {
+    const workspace = await createE2eWorkspace('llm-reader-txt-highlight-path-')
+    const fixture = join(workspace.root, 'cross-paragraph.txt')
+    const first = '甲😀乙，摘录第一段需要保持 Unicode 位置。'
+    const second = '丙𠮷丁，摘录第二段需要保持跨段高亮。'
+    const source = `跨段摘录样本\n\n${first}\n\n${second}\n\n未摘录的最后一段。`
+    const start = Array.from(source.slice(0, source.indexOf(first))).length
+    const end = Array.from(source.slice(0, source.indexOf(second) + second.length)).length
+    let application: ElectronApplication | undefined
+    try {
+      await writeFile(fixture, source, 'utf8')
+      const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+      application = launched.application
+      const { page } = launched
+      await resizeWorkspace(application, page, width, height)
+      await showLibrary(page)
+      await page.getByTestId('book-item').first().click()
+      await enterReading(page)
+      await page.getByTestId('settings-button').click()
+      await page.getByTestId(`theme-${theme}`).click()
+      await page.getByTestId(`scale-${scale}`).click()
+      await page.getByTestId('settings-close').click()
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', theme)
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', String(scale))
+      if (fallback) {
+        // Only this disposable renderer loses the constructor; production settings stay untouched.
+        await page.evaluate(() => { Object.defineProperty(window, 'Highlight', { configurable: true, value: undefined }) })
+      }
+      const host = page.getByTestId('reader-host')
+      await expect(host).toContainText(second)
+      await host.evaluate((element, texts) => {
+        const paragraphs = [...element.querySelectorAll('p')]
+        const from = paragraphs.find((paragraph) => paragraph.textContent === texts[0])!.firstChild!
+        const to = paragraphs.find((paragraph) => paragraph.textContent === texts[1])!.firstChild!
+        const range = document.createRange()
+        range.setStart(from, 0)
+        range.setEnd(to, to.textContent!.length)
+        const selection = window.getSelection()!
+        selection.removeAllRanges()
+        selection.addRange(range)
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      }, [first, second])
+      await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+      await page.getByTestId('action-save-highlight').click()
+      await expect(page.getByRole('status').last()).toContainText('已摘录')
+      const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
+      await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.listHighlights(id))[0]?.anchor, bookId)).toBe(`txt:${start}:${end}`)
+      const highlightedTexts = () => host.evaluate((element, useFallback) => {
+        if (useFallback) return [...element.querySelectorAll('.llm-reader-persistent-fallback')].map((paragraph) => paragraph.textContent)
+        const registry = (window.CSS as unknown as { highlights: Map<string, Iterable<Range>> }).highlights
+        return [...registry.get('llm-reader-persistent') ?? []].map((range) => range.toString())
+      }, fallback)
+      await expect.poll(highlightedTexts).toEqual(fallback ? [first, second] : [first + second])
+      if (!fallback) await expect(host.locator('.llm-reader-persistent-fallback')).toHaveCount(0)
+      const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+      if (visualDirectory) {
+        await mkdir(visualDirectory, { recursive: true })
+        await page.screenshot({ path: join(visualDirectory, `txt-highlight-${fallback ? 'fallback' : 'native'}-${theme}-${width}x${height}-${scale}.png`) })
+      }
+      await page.getByTestId('reader-contents-button').click()
+      await page.getByTestId('highlights-tab').click()
+      await expect(page.getByTestId('highlight-item')).toHaveCount(1)
+      await page.getByTestId('highlight-delete').click()
+      await page.getByTestId('highlight-delete-confirm').click()
+      await expect(page.getByTestId('highlight-item')).toHaveCount(0)
+      await expect.poll(highlightedTexts).toEqual([])
+    } finally {
+      await cleanupE2eWorkspace(application, workspace.root)
+    }
+  })
+}

@@ -1,4 +1,4 @@
-import { showLibrary, enterReading } from './support/workspace'
+import { showLibrary, enterReading, resizeWorkspace } from './support/workspace'
 import {
   expect,
   test,
@@ -77,7 +77,7 @@ function contrastRatio(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-async function createEpubFixture(path: string): Promise<void> {
+async function createEpubFixture(path: string, chapterBody?: string): Promise<void> {
   const zip = new JSZip()
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
   zip.file(
@@ -113,8 +113,8 @@ async function createEpubFixture(path: string): Promise<void> {
     'OEBPS/chapter.xhtml',
     `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml"><head><title>第一章</title></head><body>
-  <h1>复杂系统与边界</h1><p>复杂系统的行为来自关系，而不只是组成部分的简单相加。</p>
-  ${Array.from({ length: 48 }, (_, index) => `<p id="reading-marker-${index + 1}">连续阅读位置 ${index + 1}：调整正文宽度和段落间距后，阅读器仍应停留在当前原文附近。</p>`).join('\n  ')}
+  ${chapterBody ?? `<h1>复杂系统与边界</h1><p>复杂系统的行为来自关系，而不只是组成部分的简单相加。</p>
+  ${Array.from({ length: 48 }, (_, index) => `<p id="reading-marker-${index + 1}">连续阅读位置 ${index + 1}：调整正文宽度和段落间距后，阅读器仍应停留在当前原文附近。</p>`).join('\n  ')}`}
   <script>document.body.insertAdjacentHTML('beforeend', '<p id="script-executed">SCRIPT_EXECUTED</p>')</script>
 </body></html>`
   )
@@ -1066,3 +1066,83 @@ test('anchors the selection toolbar next to an EPUB selection inside the chapter
     await cleanupE2eWorkspace(application, workspace.root)
   }
 })
+
+for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark', 940, 600, 125]] as const) {
+  test(`keeps bounded EPUB Unicode passages and citation navigation at ${theme}/${width}/${scale}`, async () => {
+    test.setTimeout(90_000)
+    const workspace = await createE2eWorkspace('llm-reader-epub-range-')
+    const fixture = join(workspace.root, 'unicode-range.epub')
+    const quote = '甲😀乙𠮷丙'
+    const tail = '背景文字'.repeat(1_800)
+    const expectedPassage = Array.from(quote + tail).slice(0, 6_000).join('')
+    let application: ElectronApplication | undefined
+    try {
+      await createEpubFixture(fixture, `<p> \n<span>甲😀乙</span><strong>𠮷丙</strong>${tail}</p>`)
+      const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+      application = launched.application
+      const { page } = launched
+      await resizeWorkspace(application, page, width, height)
+      await showLibrary(page)
+      await expect(page.getByTestId('book-item').first()).toBeVisible()
+      const bookId = await page.evaluate(async (baseUrl) => {
+        const overview = await window.readerApi.createProviderProfile({
+          name: '合成 EPUB 定位回归', baseUrl, model: 'configured-alias', apiKey: 'synthetic-only'
+        })
+        await window.readerApi.activateProviderProfile(overview.profiles[0].id)
+        return (await window.readerApi.listBooks())[0].id
+      }, endpoint)
+      await page.reload()
+      await showLibrary(page)
+      await page.getByTestId('book-item').first().click()
+      await enterReading(page)
+      await page.getByTestId('settings-button').click()
+      await page.getByTestId(`theme-${theme}`).click()
+      await page.getByTestId(`scale-${scale}`).click()
+      await page.getByTestId('settings-close').click()
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', theme)
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', String(scale))
+
+      const paragraph = page.getByTestId('reader-host').frameLocator('iframe').first().locator('p').first()
+      await expect(paragraph.locator('strong')).toHaveText('𠮷丙')
+      await paragraph.evaluate((element) => {
+        const range = document.createRange()
+        const start = element.querySelector('span')!.firstChild!
+        const end = element.querySelector('strong')!.firstChild!
+        range.setStart(start, 0)
+        range.setEnd(end, end.textContent!.length)
+        const selection = window.getSelection()!
+        selection.removeAllRanges()
+        selection.addRange(range)
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      })
+      await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+      await page.getByTestId('action-explain').click()
+      await expect(page.getByTestId('answer-current')).toContainText('适用边界')
+      await expect.poll(async () => page.evaluate(async ({ id, expected }) => {
+        const session = await window.readerApi.getBookSession(id)
+        const selection = session?.turns[0]?.selection
+        return Boolean(selection && 'passages' in selection && selection.passages[0]?.text === expected)
+      }, { id: bookId, expected: expectedPassage })).toBe(true)
+      const session = await page.evaluate((id) => window.readerApi.getBookSession(id), bookId)
+      const selection = session!.turns[0].selection
+      if (!selection || !('passages' in selection)) throw new Error('Expected an EPUB text selection')
+      const passage = selection.passages[0]
+      expect(selection.quote).toBe(quote)
+      expect(passage.anchor).toMatch(/^epubcfi\(/u)
+      expect(Array.from(passage.text)).toHaveLength(6_000)
+      await page.getByTestId('answer-current').getByTestId('citation-valid').click()
+      await expect.poll(() => page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').count()).toBeGreaterThan(0)
+      const sources = page.getByTestId('answer-current').locator('.answer-sources')
+      await sources.locator('summary').click()
+      await sources.locator('.answer-source-item > button').filter({ hasText: quote + '背景' }).click()
+      await expect(page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').first()).toHaveAttribute('data-epubcfi', passage.anchor)
+      const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+      if (visualDirectory) {
+        await mkdir(visualDirectory, { recursive: true })
+        await page.screenshot({ path: join(visualDirectory, `epub-range-${theme}-${width}x${height}-${scale}.png`) })
+      }
+    } finally {
+      await cleanupE2eWorkspace(application, workspace.root)
+    }
+  })
+}

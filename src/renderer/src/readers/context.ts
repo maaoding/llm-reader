@@ -5,6 +5,8 @@ export const MAX_CONTEXT_CHARACTERS = 6_000
 export interface ContextBlock {
   id: string
   text: string
+  /** A length already computed for this exact text; absent callers retain counting. */
+  codePointLength?: number
   anchorForSlice: (start: number, end: number) => string
 }
 
@@ -38,6 +40,14 @@ function advanceCodePoints(value: string, start: number, count: number): number 
   return offset
 }
 
+function contextBlockLength(block: ContextBlock): number {
+  const length = block.codePointLength
+  // Each code point consumes one or two UTF-16 units.
+  if (length !== undefined && Number.isSafeInteger(length) &&
+      length >= Math.ceil(block.text.length / 2) && length <= block.text.length) return length
+  return codePointLength(block.text)
+}
+
 /**
  * Builds a balanced window around the selection. Character accounting uses
  * Unicode code points rather than UTF-16 code units, so emoji and astral CJK
@@ -55,7 +65,7 @@ export function buildBoundedPassages(
   const startBlockIndex = clamp(focus.startBlock, 0, blocks.length - 1)
   const endBlockIndex = clamp(focus.endBlock, startBlockIndex, blocks.length - 1)
   const block = blocks.at(startBlockIndex)!
-  const startBlock: PositionedBlock = { ...block, start: 0, end: codePointLength(block.text) }
+  const startBlock: PositionedBlock = { ...block, start: 0, end: contextBlockLength(block) }
   const focusStart = startBlock.start + clamp(focus.startOffset, 0, startBlock.end - startBlock.start)
   // A full budget on either side is enough even when an edge shifts the window.
   // Keep coordinates relative to the first selected block; distant text is never read.
@@ -64,13 +74,13 @@ export function buildBoundedPassages(
   for (let index = startBlockIndex - 1; index >= 0 && focusStart - first.start < maximumCharacters; index--) {
     const block = blocks.at(index)!
     const end = first.start - 2
-    first = { ...block, start: end - codePointLength(block.text), end }
+    first = { ...block, start: end - contextBlockLength(block), end }
     before.push(first)
   }
   for (let index = startBlockIndex + 1; index < blocks.length && last.end - focusStart < maximumCharacters; index++) {
     const block = blocks.at(index)!
     const start = last.end + 2
-    last = { ...block, start, end: start + codePointLength(block.text) }
+    last = { ...block, start, end: start + contextBlockLength(block) }
     after.push(last)
   }
   const endBlock = endBlockIndex === startBlockIndex ? startBlock : after[endBlockIndex - startBlockIndex - 1]

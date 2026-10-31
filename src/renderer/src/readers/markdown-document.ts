@@ -20,6 +20,7 @@ export interface MarkdownParagraph {
   element: HTMLElement
   visibleText: string
   sourceOffset: (visibleOffset: number, end?: boolean) => number
+  sourceOffsetForPoint: (node: Node, offset: number, end?: boolean) => number
   point: (sourceOffset: number, end?: boolean) => { node: Text; offset: number } | null
 }
 export interface MarkdownDocument { fragment: DocumentFragment; paragraphs: MarkdownParagraph[] }
@@ -81,6 +82,7 @@ export function renderMarkdownDocument(text: string, document: Document): Markdo
   const cp = codePointMap(text)
   const fragment = document.createDocumentFragment()
   const paragraphs: MarkdownParagraph[] = []
+  const runsByNode = new WeakMap<Node, Run>()
   let active: { runs: Run[]; visible: string } | null = null
   let quoteDepth = 0
 
@@ -125,7 +127,9 @@ export function renderMarkdownDocument(text: string, document: Document): Markdo
     }
     end[0] = start[0]
     start[value.length] = end[value.length]
-    active.runs.push({ node, start, end, offset: active.visible.length })
+    const run = { node, start, end, offset: active.visible.length }
+    active.runs.push(run)
+    runsByNode.set(node, run)
     active.visible += value
     parent.appendChild(node)
   }
@@ -209,24 +213,48 @@ export function renderMarkdownDocument(text: string, document: Document): Markdo
       const value = Math.max(0, Math.min(visible.length, position))
       if (value === 0) return runs[0]?.start[0] ?? cp[rawStart]
       if (value === visible.length) return runs.at(-1)?.end.at(-1) ?? cp[rawEnd]
-      const run = (last ? [...runs].reverse() : runs).find((item) => last ? value > item.offset && value <= item.offset + item.node.length : value >= item.offset && value < item.offset + item.node.length)
+      let low = 0, high = runs.length
+      while (low < high) {
+        const middle = low + Math.floor((high - low) / 2), item = runs[middle]
+        // A shared boundary belongs to the preceding run only for an end offset.
+        if (last ? value <= item.offset + item.node.length : value < item.offset + item.node.length) high = middle
+        else low = middle + 1
+      }
+      const run = runs[low]
       if (run) return (last ? run.end : run.start)[value - run.offset]
       return last ? runs.at(-1)?.end.at(-1) ?? cp[rawEnd] : runs[0]?.start[0] ?? cp[rawStart]
     }
+    const sourceOffsetForPoint = (node: Node, position: number, last = false): number => {
+      const run = runsByNode.get(node)
+      const value = run && Number.isInteger(position) && position >= 0 && position <= run.node.length && element.contains(node)
+        ? run.offset + position
+        : visibleOffset(element, node, position)
+      return offset(value, last)
+    }
     const point = (position: number, last = false): { node: Text; offset: number } | null => {
-      const candidates = last ? [...runs].reverse() : runs
-      for (const run of candidates) {
-        if (last) {
-          for (let index = run.node.length; index > 0; index--) if (run.start[index - 1] < position) return { node: run.node, offset: index }
-        } else {
-          for (let index = 0; index < run.node.length; index++) if (run.end[index + 1] > position) return { node: run.node, offset: index }
+      let low = 0, high = runs.length
+      while (low < high) {
+        const middle = low + Math.floor((high - low) / 2), run = runs[middle]
+        const matches = last ? run.start[0] < position : run.end[run.node.length] > position
+        if (last ? matches : !matches) low = middle + 1
+        else high = middle
+      }
+      const found = runs[last ? low - 1 : low]
+      if (found) {
+        let left = 0, right = found.node.length
+        while (left < right) {
+          const middle = left + Math.floor((right - left) / 2)
+          const matches = last ? found.start[middle] < position : found.end[middle + 1] > position
+          if (last ? matches : !matches) left = middle + 1
+          else right = middle
         }
+        return { node: found.node, offset: left }
       }
       const run = last ? runs[0] : runs.at(-1)
       return run ? { node: run.node, offset: last ? 0 : run.node.length } : null
     }
     paragraphs.push({ index: paragraphs.length, text: text.slice(rawStart, rawEnd), start: cp[rawStart], end: cp[rawEnd], heading: node.type === 'heading',
-      ...(node.type === 'heading' ? { label: visible, level: node.depth } : {}), element, visibleText: visible, sourceOffset: offset, point })
+      ...(node.type === 'heading' ? { label: visible, level: node.depth } : {}), element, visibleText: visible, sourceOffset: offset, sourceOffsetForPoint, point })
     active = null
     parent.appendChild(element)
   }

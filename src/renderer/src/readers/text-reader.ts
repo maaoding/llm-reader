@@ -1,5 +1,5 @@
 import type { BookFormat, SelectionContext, TextReadingMode, TocItem } from '@shared/contracts'
-import { looksLikeMarkdown, markdownAnchor, renderMarkdownDocument, visibleOffset, type MarkdownParagraph } from './markdown-document'
+import { looksLikeMarkdown, markdownAnchor, renderMarkdownDocument, type MarkdownParagraph } from './markdown-document'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength } from './context'
 import {
@@ -411,11 +411,12 @@ export class TextReaderAdapter implements ReaderAdapter {
     revision: number
   ): Promise<ReadonlyArray<ReaderSearchResult>> {
     const results: ReaderSearchResult[] = []
+    const expression = literalSearchExpression(query)
     for (let paragraphIndex = 0; paragraphIndex < this.paragraphs.length; paragraphIndex += 1) {
       if (revision !== this.searchRevision) return []
       const paragraph = this.paragraphs[paragraphIndex]
       const searchText = paragraph.markdown?.visibleText ?? paragraph.text
-      const expression = literalSearchExpression(query)
+      expression.lastIndex = 0
       let previousUtf16 = 0
       let previousCodePoints = 0
       let match = expression.exec(searchText)
@@ -642,12 +643,12 @@ export class TextReaderAdapter implements ReaderAdapter {
       return
     }
 
-    const start = startParagraph.markdown ? startParagraph.markdown.sourceOffset(visibleOffset(startParagraph.element, range.startContainer, range.startOffset)) : startParagraph.start + this.offsetWithinElement(
+    const start = startParagraph.markdown ? startParagraph.markdown.sourceOffsetForPoint(range.startContainer, range.startOffset) : startParagraph.start + this.offsetWithinElement(
       startParagraph.element,
       range.startContainer,
       range.startOffset
     )
-    const end = endParagraph.markdown ? endParagraph.markdown.sourceOffset(visibleOffset(endParagraph.element, range.endContainer, range.endOffset), true) : endParagraph.start + this.offsetWithinElement(
+    const end = endParagraph.markdown ? endParagraph.markdown.sourceOffsetForPoint(range.endContainer, range.endOffset, true) : endParagraph.start + this.offsetWithinElement(
       endParagraph.element,
       range.endContainer,
       range.endOffset
@@ -674,6 +675,7 @@ export class TextReaderAdapter implements ReaderAdapter {
         return paragraph ? {
           id: `P${paragraph.index + 1}`,
           text: paragraph.text,
+          codePointLength: paragraph.end - paragraph.start,
           anchorForSlice: (localStart, localEnd) =>
             makeTextAnchor(paragraph.start + localStart, paragraph.start + localEnd)
         } : undefined
@@ -907,12 +909,20 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.clearPersistentHighlights()
     if (!this.root || this.persistentHighlightAnchors.length === 0) return
 
+    const view = this.document.defaultView as
+      | (Window & { Highlight?: new (...ranges: Range[]) => unknown })
+      | null
+    const cssWithHighlights = (view as unknown as {
+      CSS?: { highlights?: { delete(name: string): void; set(name: string, value: unknown): void } }
+    } | null)?.CSS
+    const useNativeHighlights = Boolean(view?.Highlight && cssWithHighlights?.highlights)
     const ranges: Range[] = []
     const fallbackElements = new Set<HTMLElement>()
     for (const { anchor } of this.persistentHighlightAnchors) {
       const range = this.rangeForAnchor(anchor)
       if (!range) continue
       ranges.push(range)
+      if (useNativeHighlights) continue
       const rangeInfo = this.paragraphRangeForAnchor(anchor)
       if (!rangeInfo) continue
       const { startParagraph, endParagraph } = rangeInfo
@@ -921,12 +931,6 @@ export class TextReaderAdapter implements ReaderAdapter {
         .forEach((paragraph) => fallbackElements.add(paragraph.element))
     }
 
-    const view = this.document.defaultView as
-      | (Window & { Highlight?: new (...ranges: Range[]) => unknown })
-      | null
-    const cssWithHighlights = (view as unknown as {
-      CSS?: { highlights?: { delete(name: string): void; set(name: string, value: unknown): void } }
-    } | null)?.CSS
     if (view?.Highlight && cssWithHighlights?.highlights && ranges.length > 0) {
       this.persistentHighlightRegistry = cssWithHighlights.highlights
       this.persistentHighlightRegistry.set(

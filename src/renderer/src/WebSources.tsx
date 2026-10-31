@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ContextSnapshot, WebSearchSource } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, type UiLanguage } from '@shared/copy'
 import { webSearchStatus } from '@shared/web-search'
 import { useDialogFocus } from './use-dialog-focus'
+import { DeferredDetails } from './DeferredDetails'
 
 function SourceContent({ source, bookId }: { source: WebSearchSource; bookId: string }) {
   const [error, setError] = useState('')
@@ -37,16 +38,16 @@ export function WebCitation({ source, bookId }: { source: WebSearchSource; bookI
     {expanded && <SourceDialog source={source} bookId={bookId} onClose={() => setExpanded(false)} />}</>
 }
 
-export function WebSources({ context, availableBookIds }: { context: ContextSnapshot; availableBookIds?: string[] }) {
+export const WebSources = memo(function WebSources({ context, availableBookIds }: { context: ContextSnapshot; availableBookIds?: string[]; uiLanguage?: UiLanguage }) {
   const record = context.webSearch
   if (!record) return null
   const bookId = context.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context.bookId
   return <div className="web-sources" data-testid="web-search-result">
     <p className="field-hint" role="status">{webSearchStatus(record)}</p>
-    {(record.query || record.sources.length > 0) && <details className="answer-sources" data-testid="web-sources"><summary>{copy('webSearch.sourcesTitle')}</summary>
+    {(record.query || record.sources.length > 0) && <DeferredDetails className="answer-sources" data-testid="web-sources" summary={copy('webSearch.sourcesTitle')}>{() => <>
       {record.query && <p className="field-hint">{copy('webSearch.queryLabel', { query: record.query })}</p>}
       {record.searchedAt && <p className="field-hint">{copy('webSearch.searchedAt', { time: record.searchedAt })}</p>}
       {record.sources.map((source) => <SourceContent key={source.id} source={source} bookId={bookId} />)}
-    </details>}
+    </>}</DeferredDetails>}
   </div>
-}
+})

@@ -287,7 +287,7 @@ export default function App(): ReactNode {
   const {
     searchQuery, setSearchQuery, executedSearchQuery, searchResults, searchState, searchError,
     searchInputRef, submitSearch, resetSearch, invalidateSearch
-  } = useReaderSearch({ adapterRef, activeBookRef, visible: leftView === 'search' })
+  } = useReaderSearch({ adapterRef, activeBookRef, visible: page === 'reading' && leftPanelOpen && leftView === 'search' })
 
   const pushToast = useCallback((message: string, tone: ToastState['tone'] = 'neutral'): void => {    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setToast({ id: Date.now(), tone, message })
@@ -723,7 +723,8 @@ export default function App(): ReactNode {
   const openSearchView = useCallback((): void => {
     if (!activeBookRef.current || !adapterRef.current) return
     selectLeftView('search')
-  }, [selectLeftView])
+    searchInputRef.current?.focus()
+  }, [searchInputRef, selectLeftView])
 
   const toggleLeftPanelView = useCallback((view: Exclude<LeftView, 'library'>): void => {
     if (leftPanelOpen && leftView === view) {
@@ -927,7 +928,11 @@ export default function App(): ReactNode {
     }
   }, [pushToast])
 
-  const navigateWorkbenchSource = async (bookId: string, anchor: string, chapterTitle?: string): Promise<void> => {
+  const navigateConversationSource = useCallback((anchor: string, chapterTitle?: string): void => {
+    void navigateToAnchor(anchor, false, chapterTitle)
+  }, [navigateToAnchor])
+
+  const navigateWorkbenchSource = useCallback(async (bookId: string, anchor: string, chapterTitle?: string): Promise<void> => {
     const book = books.find((item) => item.id === bookId)
     if (!book) { pushToast(copy('workbench.missingSource'), 'error'); return }
     await openBook(book, 'reading', { focusLiveTab: false })
@@ -935,7 +940,7 @@ export default function App(): ReactNode {
       setPage('reading')
       await navigateToAnchor(anchor, false, chapterTitle)
     }
-  }
+  }, [books, navigateToAnchor, openBook, pushToast])
 
   const navigateToSearchResult = useCallback(async (result: ReaderSearchResult): Promise<void> => {
     chapterTitleOverrideRef.current = result.chapterTitle
@@ -1862,7 +1867,7 @@ export default function App(): ReactNode {
             onDraftChange={(value) => {
               if (sidebarTab) updateConversationTab(sidebarTab.id, (tab) => ({ ...tab, draft: value }))
             }}
-            onNavigate={(anchor, chapterTitle) => void navigateToAnchor(anchor, false, chapterTitle)}
+            onNavigate={navigateConversationSource}
             onSave={(turn) => {
               if (sidebarTab) void saveTurn(sidebarTab.id, turn)
             }}
@@ -1985,7 +1990,7 @@ export default function App(): ReactNode {
             <div className="assistant-dialog-body" inert={assistantDialogView === 'conversation' && Boolean(activeConversationTab && changingSessions.includes(activeConversationTab.id))}>
               {assistantDialogView === 'insights' ? (archiveView === 'workbenches' ? <WorkbenchesView
                 controller={workbenches} books={books} coverCache={coverCache} states={analysis.states} refresh={analysis.refresh} provider={provider} personas={personaSettings} webSearchEnabled={webSearchEnabled} onSavePersonaAs={savePersonaAs} onArchiveViewChange={setArchiveView}
-                onPrepare={(id) => openPreparation(id)} onNavigate={(id, anchor, title) => void navigateWorkbenchSource(id, anchor, title)} onConfigure={(trigger) => openSettings('model', trigger)} /> :
+                onPrepare={(id) => openPreparation(id)} onNavigate={navigateWorkbenchSource} onConfigure={(trigger) => openSettings('model', trigger)} /> :
                 <InsightsView
                   viewSwitch={<ArchiveViewSwitch value={archiveView} onChange={setArchiveView} />}
                   insights={insights}
@@ -2019,7 +2024,7 @@ export default function App(): ReactNode {
                   onResolve={(trigger) => resolveBlocker(activeConversationTab, trigger)}
                   followupRef={followupRef}
                   onDraftChange={(value) => updateConversationTab(activeConversationTab.id, (tab) => ({ ...tab, draft: value }))}
-                  onNavigate={(anchor, chapterTitle) => void navigateToAnchor(anchor, false, chapterTitle)}
+                  onNavigate={navigateConversationSource}
                   onSave={activeConversationTab.kind === 'live' ? (turn) => void saveTurn(activeConversationTab.id, turn) : undefined}
                   showSave={activeConversationTab.kind === 'live'}
                   onRegenerate={(turnId) => regenerateTurn(activeConversationTab, turnId)}

@@ -39,6 +39,57 @@ function clampFraction(value: number): number {
   return Math.min(1, Math.max(0, value))
 }
 
+export interface PdfPageBounds {
+  top: number
+  bottom: number
+  height: number
+}
+
+/** Bounds follow document order without overlapping; read them afresh after layout changes. */
+export function pdfReadingPosition(
+  pageCount: number,
+  readingLine: number,
+  measure: (index: number) => PdfPageBounds,
+  hintIndex = 0
+): PdfPositionAnchor | null {
+  if (pageCount <= 0 || !Number.isFinite(readingLine)) return null
+  const measured = new Map<number, PdfPageBounds>()
+  const bounds = (index: number): PdfPageBounds => {
+    const cached = measured.get(index)
+    if (cached) return cached
+    const value = measure(index)
+    measured.set(index, value)
+    return value
+  }
+  const firstEndingAt = (position: number): number => {
+    let low = 0, high = pageCount
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2)
+      if (bounds(middle).bottom < position) low = middle + 1
+      else high = middle
+    }
+    return low
+  }
+  let index = Number.isInteger(hintIndex) && hintIndex >= 0 && hintIndex < pageCount ? hintIndex : 0
+  const hinted = bounds(index)
+  // At a shared edge the earlier page wins, matching the original linear scan.
+  if (!(hinted.top <= readingLine && hinted.bottom >= readingLine &&
+    (index === 0 || hinted.top < readingLine || bounds(index - 1).bottom < readingLine))) {
+    index = firstEndingAt(readingLine)
+    if (index === pageCount) {
+      index = firstEndingAt(bounds(pageCount - 1).bottom)
+    } else if (index > 0 && bounds(index).top > readingLine) {
+      const previous = bounds(index - 1)
+      if (readingLine - previous.bottom <= bounds(index).top - readingLine) {
+        // Repeated bottoms can occur in a hidden/zero-height layout; retain the first tie.
+        index = firstEndingAt(previous.bottom)
+      }
+    }
+  }
+  const rect = bounds(index)
+  return { pageNumber: index + 1, fraction: clampFraction((readingLine - rect.top) / Math.max(1, rect.height)) }
+}
+
 function formatFraction(value: number): string {
   return clampFraction(value).toFixed(POSITION_PRECISION).replace(/\.?0+$/u, '')
 }

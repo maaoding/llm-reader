@@ -83,6 +83,62 @@ test('renders safe TXT Markdown across themes, scales and desktop/minimum window
   } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })
 
+for (const [theme, width, scale] of [['light', 1180, 100], ['dark', 940, 125]] as const) {
+  test(`keeps deep Markdown text and element selection anchors (${theme}, ${scale}%)`, async () => {
+    const workspace = await createE2eWorkspace('reader-markdown-deep-selection-')
+    const fixture = join(workspace.root, 'Markdown 长段选区.txt')
+    const heading = '# Markdown 长段选区\n\n', text = '甲😀'.repeat(12_000), emphasis = '结尾甲😀'
+    await writeFile(fixture, `${heading}${text}**${emphasis}**尾段。\n\n## 后文\n\n结束。`, 'utf8')
+    let application: ElectronApplication | undefined
+    try {
+      const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+      application = launched.application
+      const page = launched.page, errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+      await resizeWorkspace(application, page, width, width === 940 ? 600 : 800)
+      await page.getByTestId('settings-button').click()
+      await page.getByTestId('settings-nav-appearance').click()
+      await page.getByTestId('theme-' + theme).click()
+      await page.getByTestId('scale-' + scale).click()
+      await page.getByTestId('settings-close').click()
+      const article = page.locator('.reader-document--txt')
+      await expect(article).toHaveAttribute('data-text-rendering', 'markdown')
+      const strong = article.locator('strong')
+      await strong.scrollIntoViewIfNeeded()
+      const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
+      const rawStart = Array.from(heading + text).length, rawEnd = rawStart + 2 + Array.from(emphasis).length
+      for (const kind of ['text', 'element'] as const) {
+        await strong.evaluate((element, endpointKind) => {
+          const paragraph = element.parentElement!, range = document.createRange()
+          if (endpointKind === 'text') {
+            const first = paragraph.firstChild as Text
+            range.setStart(first, first.length - 15)
+            range.setEnd(element.firstChild!, element.textContent!.length)
+          } else {
+            range.setStart(paragraph, 1); range.setEnd(paragraph, 2)
+          }
+          const selection = window.getSelection()!
+          selection.removeAllRanges(); selection.addRange(range)
+          document.dispatchEvent(new Event('selectionchange'))
+          element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+        }, kind)
+        await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+        await page.getByTestId('action-save-highlight').click()
+        await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.listHighlights(id)).length, bookId))
+          .toBe(kind === 'text' ? 1 : 2)
+        const highlights = await page.evaluate((id) => window.readerApi.listHighlights(id), bookId)
+        expect(highlights).toContainEqual(expect.objectContaining({
+          quote: kind === 'text' ? '甲😀'.repeat(5) + emphasis : emphasis,
+          anchor: `txt:${kind === 'text' ? rawStart - 10 : rawStart + 2}:${rawEnd}`
+        }))
+      }
+      await page.screenshot({ path: test.info().outputPath(`markdown-deep-selection-${theme}.png`) })
+      expect(errors).toEqual([])
+    } finally { await cleanupE2eWorkspace(application, workspace.root) }
+  })
+}
+
 test('tracks natural TXT positions through table rows and layout changes in both reading modes', async () => {
   const workspace = await createE2eWorkspace('reader-text-positions-')
   const fixture = join(workspace.root, title + '.txt')

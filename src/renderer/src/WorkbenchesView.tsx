@@ -1,7 +1,7 @@
 import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, Download, Library, LoaderCircle, PenLine, Plus, RefreshCw, Search, Sparkles, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { MAX_WORKBENCH_BOOKS, type BookAnalysisState, type BookRecord, type PersonaSelection, type PersonaSettings, type ProviderSettings, type WorkbenchRecord } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MAX_WORKBENCH_BOOKS, type BookAnalysisState, type BookRecord, type PersonaSelection, type PersonaSettings, type ProviderSettings, type WorkbenchRecord, type WorkbenchTurn } from '@shared/contracts'
+import { copy, getCopyLanguage, type UiLanguage } from '@shared/copy'
 import { providerIsConfigured } from '@shared/request-settings'
 import { AnswerText } from './AnswerText'
 import { AnswerMetadata } from './AnswerMetadata'
@@ -10,6 +10,7 @@ import { PersonaSessionControl } from './AssistantPersonaSettings'
 import { BookCover } from './BookCover'
 import type { BookCoverCache } from './book-cover-cache'
 import { EvidenceSources } from './EvidenceSources'
+import { DeferredDetails } from './DeferredDetails'
 import { QuestionBubble } from './QuestionBubble'
 import { WebSearchControl } from './WebSearchControl'
 import { WebSources } from './WebSources'
@@ -41,6 +42,35 @@ interface WorkbenchProps {
   onArchiveViewChange: (view: 'archived' | 'workbenches') => void
 }
 
+const WorkbenchAnswer = memo(function WorkbenchAnswer({ turn, model, bookTitles, availableBookIds, onNavigate, uiLanguage }: {
+  turn: WorkbenchTurn
+  model: string
+  bookTitles: ReadonlyMap<string, string>
+  availableBookIds: string[]
+  onNavigate: WorkbenchProps['onNavigate']
+  uiLanguage: UiLanguage
+}) {
+  const context = turn.context
+  const navigate = useCallback((anchor: string, bookId?: string): void => {
+    if (bookId) onNavigate(bookId, anchor, context?.passages.find((passage) => passage.bookId === bookId && passage.anchor === anchor)?.chapterTitle)
+  }, [context, onNavigate])
+  const navigateSource = useCallback((anchor: string, title?: string, bookId?: string): void => {
+    if (bookId) onNavigate(bookId, anchor, title)
+  }, [onNavigate])
+  return <>
+    <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || model}>{turn.model || model || copy('assistant.modelUnavailable')}</strong></div>
+    <small className="workbench-turn-books">{copy('workbench.sources')}: {(turn.context?.books?.map((book) => book.title) ?? turn.bookIds.map((id) => bookTitles.get(id) ?? copy('workbench.deletedBook'))).join(' · ')}</small>
+    {context && context.passages.length > 0 && <DeferredDetails className="answer-sources" summary={copy('analysis.sourceCount', { count: context.passages.length })}>{() =>
+      <EvidenceSources passages={context.passages} availableBookIds={availableBookIds} onNavigate={navigateSource} uiLanguage={uiLanguage} />
+    }</DeferredDetails>}
+    {turn.context?.webSearch && <WebSources context={turn.context} availableBookIds={availableBookIds} uiLanguage={uiLanguage} />}
+    {turn.answer ? <AnswerText text={turn.answer} selection={null} context={turn.context} availableBookIds={availableBookIds} onNavigate={navigate} uiLanguage={uiLanguage} />
+      : (turn.status === 'queued' || turn.status === 'streaming') && <div className="answer-thinking" role="status"><i /><i /><i /><span>{copy('workbench.generating')}</span></div>}
+    {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
+    {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`} role="alert"><AlertCircle size={14} />{turn.error}</div>}
+  </>
+})
+
 function WorkbenchConversation({ record, controller, books, coverCache, states, provider, personas, webSearchEnabled, onPrepare, onNavigate, onConfigure, onSavePersonaAs, onArchiveViewChange }: WorkbenchProps & { record: WorkbenchRecord }) {
   const [query, setQuery] = useState('')
   const [pickerOpen, setPickerOpen] = useState(record.bookIds.length === 0)
@@ -55,12 +85,17 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
   const questionRef = useRef<HTMLTextAreaElement>(null)
   const busy = workbenchBusy(record)
   const scopeIds = editing ? record.turns.at(-1)!.bookIds : record.bookIds
-  const selected = scopeIds.flatMap((id) => books.find((book) => book.id === id) ?? [])
-  const availableBookIds = books.map((book) => book.id)
-  const visible = books
-    .filter((book) => `${book.title} ${book.author ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
-    .sort((left, right) => Number(scopeIds.includes(right.id)) - Number(scopeIds.includes(left.id)))
-    .slice(0, 100)
+  const selected = useMemo(() => scopeIds.flatMap((id) => books.find((book) => book.id === id) ?? []), [books, scopeIds])
+  const availableBookIds = useMemo(() => books.map((book) => book.id), [books])
+  const bookTitles = useMemo(() => new Map(books.map((book) => [book.id, book.title])), [books])
+  const visible = useMemo(() => {
+    if (!pickerOpen) return []
+    const needle = query.toLocaleLowerCase()
+    return books.filter((book) => `${book.title} ${book.author ?? ''}`.toLocaleLowerCase().includes(needle))
+      .sort((left, right) => Number(scopeIds.includes(right.id)) - Number(scopeIds.includes(left.id)))
+      .slice(0, 100)
+  }, [books, pickerOpen, query, scopeIds])
+  const uiLanguage = getCopyLanguage()
   const ready = (ids: string[]) => ids.length > 0 && ids.every((id) => books.some((book) => book.id === id) && states[id]?.document?.status === 'ready')
   const configured = providerIsConfigured(provider)
   const blocked = !configured ? copy('workbench.modelNeeded') : !scopeIds.length ? copy('workbench.noBooks') : !ready(scopeIds) ? copy('workbench.unready') : record.turns.length >= 200 && !editing ? copy('workbench.limit') : ''
@@ -101,6 +136,7 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
         <h3><Library size={16} aria-hidden="true" />{copy('workbench.books')} <small>{scopeIds.length} / {MAX_WORKBENCH_BOOKS}</small></h3>
         <details className="workbench-book-selection" open={pickerOpen} onToggle={(event) => setPickerOpen(event.currentTarget.open)}>
           <summary><Plus size={14} aria-hidden="true" /><span>{copy('workbench.selectBooks')}</span><ChevronDown size={14} aria-hidden="true" /></summary>
+          {pickerOpen && <>
           <div className="insights-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label={copy('workbench.searchBooks')} placeholder={copy('workbench.searchBooks')} value={query} onChange={(event) => setQuery(event.target.value)} /></div>
           <div className="workbench-book-picker">
             {visible.map((book) => <label key={book.id}>
@@ -111,6 +147,7 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
             </label>)}
             {visible.length === 0 && <p className="field-hint" role="status">{copy('workspace.libraryNoResults')}</p>}
           </div>
+          </>}
         </details>
         {selected.map((book) => <div className="workbench-selected-book" key={book.id}>
           <BookCover book={book} cache={coverCache} />
@@ -131,17 +168,7 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
             {record.turns.map((turn, index) => <article className={`conversation-turn workbench-turn is-${turn.status}`} data-testid="workbench-turn" key={turn.id}>
               <QuestionBubble action="ask" label={copy('assistant.actionAsk')} question={turn.question} />
               <div className="answer-card">
-                <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                <small className="workbench-turn-books">{copy('workbench.sources')}: {(turn.context?.books?.map((book) => book.title) ?? turn.bookIds.map((id) => books.find((book) => book.id === id)?.title ?? copy('workbench.deletedBook'))).join(' · ')}</small>
-                {!!turn.context?.passages.length && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
-                  <EvidenceSources passages={turn.context.passages} availableBookIds={availableBookIds} onNavigate={(anchor, title, bookId) => { if (bookId) onNavigate(bookId, anchor, title) }} />
-                </details>}
-                {turn.context?.webSearch && <WebSources context={turn.context} availableBookIds={availableBookIds} />}
-                {turn.answer ? <AnswerText text={turn.answer} selection={null} context={turn.context} availableBookIds={availableBookIds}
-                  onNavigate={(anchor, bookId) => { if (bookId) onNavigate(bookId, anchor, turn.context?.passages.find((passage) => passage.bookId === bookId && passage.anchor === anchor)?.chapterTitle) }} />
-                  : (turn.status === 'queued' || turn.status === 'streaming') && <div className="answer-thinking" role="status"><i /><i /><i /><span>{copy('workbench.generating')}</span></div>}
-                {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
-                {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`} role="alert"><AlertCircle size={14} />{turn.error}</div>}
+                <WorkbenchAnswer turn={turn} model={provider.model} bookTitles={bookTitles} availableBookIds={availableBookIds} onNavigate={onNavigate} uiLanguage={uiLanguage} />
                 {(turn.usage?.totalTokens || turn.durationMs !== undefined || (index === record.turns.length - 1 && !busy && !editing)) && <footer className="answer-footer">
                   <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />
                   {index === record.turns.length - 1 && !busy && !editing && <span className="answer-retry-actions">

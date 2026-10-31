@@ -182,6 +182,17 @@ test('keeps a running answer while switching book tabs and renders the saved ans
     await expect(restored.locator('.turn-error')).toHaveCount(0)
     await expect(page.getByTestId('cancel-request')).toHaveCount(0)
 
+    await resizeWorkspace(application, page, 1180, 800)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-appearance').click()
+    await page.getByTestId('theme-light').click()
+    await page.getByTestId('scale-100').click()
+    await page.getByTestId('settings-close').click()
+    await expect.poll(() => page.locator('.reader-document--txt').evaluate((element) => (element as HTMLElement).style.colorScheme)).toBe('light')
+    await expect(restored.locator('.answer-text strong')).toHaveText('关键')
+    await restored.locator('.answer-text').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: test.info().outputPath('answer-desktop-light-100.png') })
+
     // 保存内容可在归档查看，且保持 Markdown 渲染。
     await page.getByTestId('answer-save').click()
     await expect(page.getByTestId('answer-save')).toContainText('已归档')
@@ -220,6 +231,12 @@ test('keeps a running answer while switching book tabs and renders the saved ans
     await expect(page.locator('.right-sidebar .conversation-turn')).toHaveCount(1)
 
     await resizeWorkspace(application, page, 940, 600)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-appearance').click()
+    await page.getByTestId('theme-dark').click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-close').click()
+    await expect.poll(() => page.locator('.reader-document--txt').evaluate((element) => (element as HTMLElement).style.colorScheme)).toBe('dark')
     const sidebar = page.locator('.right-sidebar')
     await expect(sidebar).toBeVisible()
     await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
@@ -227,6 +244,9 @@ test('keeps a running answer while switching book tabs and renders the saved ans
       if (!panel) return false
       return host.getBoundingClientRect().right <= panel.getBoundingClientRect().left + 1
     })).toBe(true)
+    await expect(page.getByTestId('answer-current').locator('.answer-text strong')).toHaveText('关键')
+    await page.getByTestId('answer-current').locator('.answer-text').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: test.info().outputPath('answer-compact-dark-125.png') })
   } finally {
     releaseStreams?.()
     await cleanupE2eWorkspace(application, workspace.root)

@@ -1,5 +1,5 @@
 import { memo, useMemo, type ReactNode } from 'react'
-import { copy } from '@shared/copy'
+import { copy, type UiLanguage } from '@shared/copy'
 import { isPdfImageRegion, type ReaderSource, type Passage, type WebSearchSource } from '@shared/contracts'
 import { parseMarkdown, type AnswerInline, type MarkdownBlock } from './answer-markdown'
 import { createCitationResolver, withoutIncompleteCitationMarker } from './citations'
@@ -166,6 +166,8 @@ export const AnswerText = memo(function AnswerText({
   onNavigate?: (anchor: string, bookId?: string) => void
   readOnly?: boolean
   highlight?: string
+  /** Invalidates memoized labels independently of the saved answer text. */
+  uiLanguage?: UiLanguage
 }): ReactNode {
   const blocks = useMemo(() => parseMarkdown(text), [text])
   const passages = context?.passages ?? (selection && !isPdfImageRegion(selection) ? selection.passages : NO_PASSAGES)

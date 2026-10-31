@@ -1,7 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useRef, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { AlertCircle, ArrowLeft, BookOpen, Bookmark, BookmarkCheck, PenLine, RefreshCw, Sparkles } from 'lucide-react'
 import { isPdfImageRegion, type BookAnalysisState, type ReaderSource, type ProviderSettings } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, getCopyLanguage, type UiLanguage } from '@shared/copy'
 import type { ConversationTab, ConversationTurn } from './conversation-session'
 import { Select } from './Select'
 import { AssistantComposer } from './AssistantComposer'
@@ -11,6 +11,7 @@ import { QuestionBubble } from './QuestionBubble'
 import { AnswerText } from './AnswerText'
 import { AnswerMetadata } from './AnswerMetadata'
 import { EvidenceSources } from './EvidenceSources'
+import { DeferredDetails } from './DeferredDetails'
 import { WebSources } from './WebSources'
 
 export function AssistantContextControls({ tab, state, busy, onScope }: { tab?: ConversationTab; state?: BookAnalysisState; busy: boolean; onScope: (scope: 'selection' | 'book') => void }) {
@@ -53,6 +54,35 @@ export function AssistantScopeControls({ tab, busy, onScope }: { tab: Conversati
     </span>}
   </div>
 }
+
+const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNavigate, highlight, uiLanguage }: {
+  turn: ConversationTurn
+  model: string
+  onNavigate: (anchor: string, chapterTitle?: string) => void
+  highlight: string
+  uiLanguage: UiLanguage
+}) {
+  const context = turn.context
+  const navigate = useCallback((anchor: string): void => {
+    onNavigate(anchor, context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ??
+      (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
+  }, [context, onNavigate, turn.selection])
+  return <>
+    <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || model || copy('assistant.modelUnavailable')}>{turn.model || model || copy('assistant.modelUnavailable')}</strong></div>
+    {context && !isPdfImageRegion(context.selection) && <DeferredDetails className="answer-sources" summary={copy('analysis.sourceCount', { count: context.passages.length })}>{() => <>
+      {context.webSearch && <strong>{copy('webSearch.bookSourcesTitle')}</strong>}
+      {context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', context.coverage)}</p>}
+      {context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(context.rerank.status === 'applied' ? 'rerank.applied' : context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
+      <EvidenceSources passages={context.passages} onNavigate={onNavigate} uiLanguage={uiLanguage} />
+    </>}</DeferredDetails>}
+    {turn.context?.webSearch && <WebSources context={turn.context} uiLanguage={uiLanguage} />}
+    {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={highlight} uiLanguage={uiLanguage} />
+      : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy(turn.webSearchPhase === 'deciding' ? 'webSearch.deciding' : turn.webSearchPhase === 'searching' ? 'webSearch.searching' : 'assistant.thinking')}</span></div>
+        : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
+    {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
+    {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
+  </>
+})
 
 export function ConversationPane({
   conversationSelection,
@@ -108,6 +138,7 @@ export function ConversationPane({
   const selectedPassageCount = conversationSelection && !isPdfImageRegion(conversationSelection) ? conversationSelection.passages.length : 0
   const assistantScrollRef = useRef<HTMLDivElement | null>(null)
   const assistantFollowRef = useRef(true)
+  const uiLanguage = getCopyLanguage()
 
   useLayoutEffect(() => {
     const container = assistantScrollRef.current
@@ -149,21 +180,11 @@ export function ConversationPane({
         <div className="conversation-list" aria-live="polite">
           {turns.map((turn, index) => {
             const isLatest = index === turns.length - 1
-            const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
             return (
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
                 <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
-                  <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                  {turn.context && !isPdfImageRegion(turn.context.selection) && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
-                    {turn.context.webSearch && <strong>{copy('webSearch.bookSourcesTitle')}</strong>}
-                    {turn.context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', turn.context.coverage)}</p>}
-                    {turn.context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(turn.context.rerank.status === 'applied' ? 'rerank.applied' : turn.context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
-                    <EvidenceSources passages={turn.context.passages} onNavigate={onNavigate} /></details>}
-                  {turn.context?.webSearch && <WebSources context={turn.context} />}
-                  {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={searchNeedle} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy(turn.webSearchPhase === 'deciding' ? 'webSearch.deciding' : turn.webSearchPhase === 'searching' ? 'webSearch.searching' : 'assistant.thinking')}</span></div> : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
-                  {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
-                  {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
+                  <ConversationAnswer turn={turn} model={provider.model} onNavigate={onNavigate} highlight={searchNeedle} uiLanguage={uiLanguage} />
                   {turn.status === 'error' && isLatest && !activeRequestId && onRegenerate && (
                     <div className="answer-retry-actions">
                       <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>

@@ -8,6 +8,7 @@ import ePub, {
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
+import { rangeForCodePointSlice } from './dom-text'
 import {
   cssFontFamily,
   fontFamilyStack,
@@ -88,11 +89,6 @@ interface EpubParagraph {
   element: Element
   text: string
   leadingCharacters: number
-}
-
-interface DomPosition {
-  node: Text
-  offset: number
 }
 
 interface EpubSectionSearchMatch {
@@ -206,51 +202,13 @@ function flattenToc(items: NavItem[], depth = 0, output: TocItem[] = []): TocIte
   return output
 }
 
-function textNodes(element: Element): Text[] {
-  const nodes: Text[] = []
-  const walker = element.ownerDocument.createTreeWalker(element, 4)
-  let current = walker.nextNode()
-  while (current) {
-    if (current.nodeType === 3) {
-      nodes.push(current as Text)
-    }
-    current = walker.nextNode()
-  }
-  return nodes
-}
-
-function domPositionAt(element: Element, codePointOffset: number): DomPosition | null {
-  const nodes = textNodes(element)
-  let remaining = Math.max(0, codePointOffset)
-  for (const node of nodes) {
-    const value = node.data
-    const characters = Array.from(value)
-    if (remaining <= characters.length) {
-      return { node, offset: characters.slice(0, remaining).join('').length }
-    }
-    remaining -= characters.length
-  }
-
-  const last = nodes[nodes.length - 1]
-  return last ? { node: last, offset: last.data.length } : null
-}
-
 function rangeForElementSlice(
   element: Element,
   start: number,
   end: number,
   leadingCharacters = 0
 ): Range {
-  const range = element.ownerDocument.createRange()
-  const startPosition = domPositionAt(element, leadingCharacters + start)
-  const endPosition = domPositionAt(element, leadingCharacters + end)
-  if (!startPosition || !endPosition) {
-    range.selectNodeContents(element)
-    return range
-  }
-  range.setStart(startPosition.node, startPosition.offset)
-  range.setEnd(endPosition.node, endPosition.offset)
-  return range
+  return rangeForCodePointSlice(element, leadingCharacters + start, leadingCharacters + end)
 }
 
 function extractParagraphs(contents: Contents): EpubParagraph[] {
@@ -344,20 +302,20 @@ function sanitizeContents(contents: Contents, linkOptions?: EpubLinkOptions): vo
   })
 }
 
-function compactSearchExcerpt(value: string, query: string): string {
-  const expression = literalSearchExpression(query)
+function compactSearchExcerpt(value: string, expression: RegExp): string {
+  expression.lastIndex = 0
   const match = expression.exec(value)
   if (match) return searchExcerpt(value, match.index, match.index + match[0].length)
   const characters = Array.from(value.replace(/\s+/gu, ' ').trim())
   return `${characters.slice(0, 80).join('')}${characters.length > 80 ? '…' : ''}`
 }
 
-function countSectionMatches(root: Element, query: string, limit: number): number {
+function countSectionMatches(root: Element, expression: RegExp, limit: number): number {
   const walker = root.ownerDocument.createTreeWalker(root, 4)
   let count = 0
   let current = walker.nextNode()
   while (current) {
-    const expression = literalSearchExpression(query)
+    expression.lastIndex = 0
     let match = expression.exec(current.textContent ?? '')
     while (match) {
       count += 1
@@ -371,7 +329,7 @@ function countSectionMatches(root: Element, query: string, limit: number): numbe
 
 async function boundedSectionMatches(
   section: SearchableEpubSection,
-  query: string,
+  expression: RegExp,
   limit: number,
   isCurrent: () => boolean
 ): Promise<EpubSectionSearchMatch[]> {
@@ -384,7 +342,7 @@ async function boundedSectionMatches(
   while (current && matches.length < limit && isCurrent()) {
     if (current.nodeType === 3) {
       const node = current as Text
-      const expression = literalSearchExpression(query)
+      expression.lastIndex = 0
       let match = expression.exec(node.data)
       while (match && matches.length < limit) {
         const range = root.ownerDocument.createRange()
@@ -603,6 +561,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     const book = this.book
     if (!book) throw new Error(copy('reader.epubNotOpen'))
     const results: ReaderSearchResult[] = []
+    const expression = literalSearchExpression(query)
     for (let index = 0; index < this.spineCount; index += 1) {
       if (revision !== this.searchRevision || this.book !== book) return []
       const section = book.spine.get(index) as unknown as SearchableEpubSection | null
@@ -614,12 +573,12 @@ export class EpubReaderAdapter implements ReaderAdapter {
         sanitizeContents({ content: section.contents } as Contents)
         section.contents.querySelectorAll('style,noscript,template').forEach((element) => element.remove())
         const remaining = READER_SEARCH_RESULT_LIMIT - results.length
-        const matchCount = countSectionMatches(section.contents, query, remaining + 1)
+        const matchCount = countSectionMatches(section.contents, expression, remaining + 1)
         const matches = matchCount <= remaining
           ? section.find(query).slice(0, remaining)
           : await boundedSectionMatches(
               section,
-              query,
+              expression,
               remaining,
               () => revision === this.searchRevision && this.book === book
             )
@@ -628,7 +587,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
           if (!isEpubCfi(match.cfi)) continue
           results.push({
             anchor: match.cfi,
-            excerpt: compactSearchExcerpt(match.excerpt, query),
+            excerpt: compactSearchExcerpt(match.excerpt, expression),
             chapterTitle
           })
           if (results.length >= READER_SEARCH_RESULT_LIMIT) return results

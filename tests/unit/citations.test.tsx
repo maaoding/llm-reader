@@ -26,6 +26,16 @@ const selection: SelectionContext = {
 afterEach(() => { cleanup(); setCopyLanguage('zh') })
 
 describe('citation presentation', () => {
+  it.each([
+    ['', ''],
+    ['短证据😀', '短证据😀'],
+    ['中'.repeat(59) + '😀末尾', '中'.repeat(59) + '😀'],
+    ['😀'.repeat(100_000), '😀'.repeat(60)]
+  ])('bounds source previews by Unicode code points (case %#)', (text, preview) => {
+    render(<EvidenceSources passages={[{ id: 'P1', text, anchor: 'txt:0:1' }]} onNavigate={vi.fn()} />)
+    expect(screen.getByRole('button').textContent).toBe(preview)
+  })
+
   it('keeps source and PDF page navigation book-specific while preserving single-book navigation', () => {
     const onNavigate = vi.fn()
     const passages = [

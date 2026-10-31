@@ -185,11 +185,15 @@ test('reads, searches, disables native selection, zooms and follows only interna
       await expect(page.locator('.right-sidebar .recent-conversations-popover')).toBeVisible()
       await page.screenshot({ path: join(visualDirectory, 'pdf-reader-light-1440x900.png') })
       await page.keyboard.press('Escape')
+      await resizeWorkspace(application, page, 1180, 800)
+      await assertFitWidth(page)
+      await page.screenshot({ path: join(visualDirectory, 'pdf-reader-light-1180x800.png') })
       await page.getByTestId('settings-button').click()
       await page.getByTestId('theme-dark').click()
       await page.getByTestId('scale-125').click()
       await page.getByTestId('settings-close').click()
       await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
+      await assertFitWidth(page)
       await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'dark')
       await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', '125')
       await page.getByTestId('recent-conversations').click()
@@ -419,6 +423,11 @@ test('uses whole-document progress for a text PDF without an outline', async () 
     expect(scroll.actual).toBeGreaterThan(scroll.target - 5)
     await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '全文')
     await expect.poll(async () => Number.parseInt((await page.locator('.reader-heading strong').textContent()) ?? '0', 10)).toBeGreaterThan(45)
+    await page.getByTestId('reader-host').evaluate((host) => {
+      host.scrollTop = 0
+      host.dispatchEvent(new Event('scroll'))
+    })
+    await expect.poll(async () => Number.parseInt((await page.locator('.reader-heading strong').textContent()) ?? '0', 10)).toBeLessThan(10)
   } finally {
     await closeFixture(application, testRoot)
   }

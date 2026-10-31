@@ -1,10 +1,14 @@
+import { memo } from 'react'
 import type { Passage } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, type UiLanguage } from '@shared/copy'
+import { limitText } from '@shared/book-context'
 
-export function EvidenceSources({ passages, onNavigate, availableBookIds }: {
+export const EvidenceSources = memo(function EvidenceSources({ passages, onNavigate, availableBookIds }: {
   passages: Passage[]
   onNavigate: (anchor: string, title?: string, bookId?: string) => void
   availableBookIds?: string[]
+  /** Refresh translated labels when otherwise stable sources are reused. */
+  uiLanguage?: UiLanguage
 }) {
   return passages.map((passage) => {
     const unavailable = Boolean(passage.bookId && availableBookIds && !availableBookIds.includes(passage.bookId))
@@ -14,7 +18,7 @@ export function EvidenceSources({ passages, onNavigate, availableBookIds }: {
     const pages = [...new Map(passage.sources?.filter((source) => source.page).map((source) => [source.page!, source]) ?? []).values()]
     const wholeTable = passage.sources?.some((source) => source.precision === 'table')
     return <div key={passage.id} className="answer-source-item">
-      <button type="button" disabled={unavailable} onClick={() => navigate(passage.anchor)}>{passage.bookTitle && <strong className="answer-source-book">{passage.bookTitle} · </strong>}{passage.headingPath?.length ? `${passage.headingPath.join(' / ')}：` : passage.chapterTitle ? `${passage.chapterTitle}：` : ''}{Array.from(passage.text).slice(0, 60).join('')}</button>
+      <button type="button" disabled={unavailable} onClick={() => navigate(passage.anchor)}>{passage.bookTitle && <strong className="answer-source-book">{passage.bookTitle} · </strong>}{passage.headingPath?.length ? `${passage.headingPath.join(' / ')}：` : passage.chapterTitle ? `${passage.chapterTitle}：` : ''}{limitText(passage.text, 60)}</button>
       {unavailable && <small className="field-hint">{copy('workbench.missingSource')}</small>}
       {pages.length > 0 && <div className="answer-source-pages">
         {wholeTable && <small>{copy('sources.wholeTable')}</small>}
@@ -22,4 +26,4 @@ export function EvidenceSources({ passages, onNavigate, availableBookIds }: {
       </div>}
     </div>
   })
-}
+})

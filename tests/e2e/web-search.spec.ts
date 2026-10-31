@@ -216,6 +216,7 @@ test('search settings, unprepared selection, safe citations, export and persiste
     await page.getByTestId('web-source-dialog').getByTestId('web-source-open').click()
     await expect.poll(() => application!.evaluate(() => (globalThis as unknown as { openedSources: string[] }).openedSources)).toEqual(['https://evidence.example/article-1'])
     await page.getByTestId('web-source-dialog').getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(page.getByTestId('web-sources').locator('.web-source-content')).toHaveCount(0)
     await page.getByTestId('web-sources').locator('summary').click()
     await page.screenshot({ path: test.info().outputPath('sidebar-light-1440.png') })
     await page.getByTestId('answer-save').click(); await expect(page.getByTestId('answer-save')).toBeDisabled()

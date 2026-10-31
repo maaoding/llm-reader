@@ -8,6 +8,7 @@ import {
   isEpubCfi,
   isSafeInternalHref,
   resolveInternalSpineHref,
+  rangeForElementSlice,
   sanitizeContents
 } from '../../src/renderer/src/readers/epub-reader'
 import { createReaderAdapter, TextReaderAdapter } from '../../src/renderer/src/readers'
@@ -30,6 +31,16 @@ function bytes(value: string): Uint8Array {
 }
 
 describe('bounded reader context', () => {
+  it('maps trimmed EPUB passages to the same UTF-16 endpoints across inline nodes', () => {
+    const element = document.createElement('p')
+    element.innerHTML = ' \n<span>😀甲</span><em>𠮷乙</em>'
+    const range = rangeForElementSlice(element, 1, 3, 2)
+    expect(range.toString()).toBe('甲𠮷')
+    expect(range.startContainer).toBe(element.querySelector('span')!.firstChild)
+    expect(range.endContainer).toBe(element.querySelector('em')!.firstChild)
+    expect([range.startOffset, range.endOffset]).toEqual([2, 2])
+  })
+
   it('uses Unicode code points and keeps the selected region inside a 6,000-character window', () => {
     const capturedSlices: Array<[number, number]> = []
     const longText = `${'前'.repeat(3_100)}😀${'后'.repeat(3_100)}`

@@ -145,7 +145,8 @@ describe('ordered TXT paragraph navigation', () => {
     expect(Array.from(source).slice(...offsets).join('')).toBe('😀乙')
     expect(result.passages.some((passage) => passage.id === 'P1001')).toBe(true)
     expect(result.passages.reduce((sum, passage) => sum + Array.from(passage.text).length, 0)).toBeLessThanOrEqual(6_000)
-    expect(contains.mock.calls.length).toBeLessThanOrEqual(2)
+    // Markdown also validates that both indexed endpoints still belong to their paragraph.
+    expect(contains.mock.calls.length).toBeLessThanOrEqual(mode === 'markdown' ? 3 : 2)
     selection.removeAllRanges()
   })
 

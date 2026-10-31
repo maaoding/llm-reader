@@ -34,6 +34,7 @@ import {
   parsePdfPositionAnchor,
   pdfDestinationFraction,
   pdfFitAvailableWidth,
+  pdfReadingPosition,
   pdfSectionAt,
   PdfZoomCoordinator,
   sortPdfOutlineLocations,
@@ -132,6 +133,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private loadingTask: PDFDocumentLoadingTask | null = null
   private pdfDocument: PDFDocumentProxy | null = null
   private pages: PdfPageState[] = []
+  private pageIndexHint = 0
   private textPromise: Promise<void> | null = null
   private observer: IntersectionObserver | null = null
   private resizeObserver: ResizeObserver | null = null
@@ -312,12 +314,13 @@ export class PdfReaderAdapter implements ReaderAdapter {
         throw new Error(copy('reader.pdfSearchUnavailable'))
       }
       const results: ReaderSearchResult[] = []
+      const expression = literalSearchExpression(normalized)
       for (const page of this.pages) {
         if (revision !== this.searchRevision) return []
         const model = page.textModel
         const text = model?.readableText ?? ''
         const rawLength = model?.rawLength ?? 0
-        const expression = literalSearchExpression(normalized)
+        expression.lastIndex = 0
         let previousUtf16 = 0
         let previousCodePoints = 0
         let match = expression.exec(text)
@@ -1240,26 +1243,11 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private currentPageAndFraction(): { pageNumber: number; fraction: number } {
     const hostRect = this.host.getBoundingClientRect()
     const readingLine = hostRect.top + this.readingLineOffset()
-    let best = this.pages[0]
-    let distance = Number.POSITIVE_INFINITY
-    for (const page of this.pages) {
-      const rect = page.element.getBoundingClientRect()
-      if (rect.top <= readingLine && rect.bottom >= readingLine) {
-        const fraction = Math.min(1, Math.max(0, (readingLine - rect.top) / Math.max(1, rect.height)))
-        return { pageNumber: page.pageNumber, fraction }
-      }
-      const candidateDistance = Math.min(Math.abs(rect.top - readingLine), Math.abs(rect.bottom - readingLine))
-      if (candidateDistance < distance) {
-        best = page
-        distance = candidateDistance
-      }
-    }
-    if (!best) return { pageNumber: 1, fraction: 0 }
-    const rect = best.element.getBoundingClientRect()
-    return {
-      pageNumber: best.pageNumber,
-      fraction: Math.min(1, Math.max(0, (readingLine - rect.top) / Math.max(1, rect.height)))
-    }
+    const position = pdfReadingPosition(this.pages.length, readingLine,
+      (index) => this.pages[index].element.getBoundingClientRect(), this.pageIndexHint)
+    if (!position) return { pageNumber: 1, fraction: 0 }
+    this.pageIndexHint = position.pageNumber - 1
+    return position
   }
 
   private readonly handleScroll = (): void => {
@@ -1581,6 +1569,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.pdfDocument = null
     this.pdfjs = null
     this.pages = []
+    this.pageIndexHint = 0
     this.textPromise = null
     this.root = null
     this.documentElement = null
