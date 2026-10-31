@@ -1,5 +1,20 @@
 interface TextPosition { node: Text; offset: number }
 
+/** Elements follow document order and do not contain one another. */
+export function findOrderedContainingElementIndex(elements: ReadonlyArray<{ element: Element }>, node: Node): number {
+  let low = 0, high = elements.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2), element = elements[middle].element
+    if (element === node) return middle
+    const position = element.compareDocumentPosition(node)
+    if (position & Node.DOCUMENT_POSITION_DISCONNECTED) return -1
+    if (position & Node.DOCUMENT_POSITION_CONTAINED_BY) return middle
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) low = middle + 1
+    else high = middle
+  }
+  return -1
+}
+
 /** Convert code point offsets to a native range without collecting the unused text tail. */
 export function rangeForCodePointSlice(element: Element, start: number, end: number): Range {
   const range = element.ownerDocument.createRange()

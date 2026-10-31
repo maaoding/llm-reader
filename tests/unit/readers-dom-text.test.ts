@@ -1,8 +1,63 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
-import { rangeForCodePointSlice } from '../../src/renderer/src/readers/dom-text'
+import { findOrderedContainingElementIndex, rangeForCodePointSlice } from '../../src/renderer/src/readers/dom-text'
 
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren() })
+
+it('finds the same containing leaf for text, inline elements, comments, empty blocks and table cells', () => {
+  const root = document.createElement('section')
+  root.innerHTML = '<p><span>甲😀</span><!--note--><b>乙</b></p><ul><li><p><em>𠮷</em></p></li></ul><table><tbody><tr><td>丙</td><td><i>丁</i></td></tr></tbody></table><p></p><div><p>终点</p></div>'
+  document.body.append(root)
+  const elements = Array.from(root.querySelectorAll('p,td'), (element) => ({ element }))
+  const targets: Node[] = [root, document, document.body]
+  const walker = document.createTreeWalker(root)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) targets.push(node)
+  for (const node of targets) {
+    expect(findOrderedContainingElementIndex(elements, node))
+      .toBe(elements.findIndex(({ element }) => element.contains(node)))
+  }
+})
+
+it('rejects empty lists, detached endpoints and nodes belonging to another document', () => {
+  const element = document.createElement('p'), node = document.createTextNode('甲😀')
+  element.append(node); document.body.append(element)
+  expect(findOrderedContainingElementIndex([], node)).toBe(-1)
+  node.remove()
+  expect(findOrderedContainingElementIndex([{ element }], node)).toBe(-1)
+  const other = document.implementation.createHTMLDocument('Isolated fixture')
+  expect(findOrderedContainingElementIndex([{ element }], other.body)).toBe(-1)
+  expect(findOrderedContainingElementIndex([{ element }], element)).toBe(0)
+})
+
+it('uses fresh document order after paragraphs are moved', () => {
+  const root = document.createElement('section')
+  root.innerHTML = '<p>甲</p><p>乙</p><p>丙</p>'
+  const last = root.lastElementChild!
+  const ordered = () => Array.from(root.children, (element) => ({ element }))
+  expect(findOrderedContainingElementIndex(ordered(), last.firstChild!)).toBe(2)
+  root.prepend(last)
+  expect(findOrderedContainingElementIndex(ordered(), last.firstChild!)).toBe(0)
+})
+
+it('bounds DOM comparisons when locating the last of 5,000 paragraphs', () => {
+  const root = document.createElement('section')
+  const elements = Array.from({ length: 5_000 }, () => {
+    const element = document.createElement('p')
+    element.textContent = '甲😀'; root.append(element)
+    return { element }
+  })
+  const node = elements.at(-1)!.element.firstChild!
+  const contains = vi.spyOn(Node.prototype, 'contains')
+  const compare = vi.spyOn(Node.prototype, 'compareDocumentPosition')
+  const expected = elements.findIndex(({ element }) => element.contains(node))
+  expect(contains.mock.calls.length + compare.mock.calls.length).toBe(5_000)
+  contains.mockClear(); compare.mockClear()
+  const actual = findOrderedContainingElementIndex(elements, node)
+  const comparisons = contains.mock.calls.length + compare.mock.calls.length
+  expect(actual).toBe(expected)
+  expect(actual).toBe(4_999)
+  expect(comparisons).toBeLessThanOrEqual(14)
+})
 
 // Original EPUB mapping, retained only as a compatibility reference.
 function previousRange(element: Element, start: number, end: number): Range {

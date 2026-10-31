@@ -1067,17 +1067,19 @@ test('anchors the selection toolbar next to an EPUB selection inside the chapter
   }
 })
 
-for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark', 940, 600, 125]] as const) {
-  test(`keeps bounded EPUB Unicode passages and citation navigation at ${theme}/${width}/${scale}`, async () => {
+for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark', 940, 600, 125]] as const) for (const paragraphCount of [0, 1_024]) {
+  test(`keeps bounded EPUB Unicode passages and citation navigation at ${theme}/${width}/${scale}${paragraphCount ? ' deep chapter' : ''}`, async () => {
     test.setTimeout(90_000)
     const workspace = await createE2eWorkspace('llm-reader-epub-range-')
     const fixture = join(workspace.root, 'unicode-range.epub')
     const quote = '甲😀乙𠮷丙'
     const tail = '背景文字'.repeat(1_800)
-    const expectedPassage = Array.from(quote + tail).slice(0, 6_000).join('')
+    const prefix = paragraphCount ? '前部'.repeat(2_000) : ''
+    const background = Array.from({ length: paragraphCount }, (_, index) => `<p>背景段落 ${index}。${'旁白'.repeat(20)}</p>`).join('')
+    const expectedPassage = Array.from(prefix + quote + tail).slice(paragraphCount ? 1_003 : 0, paragraphCount ? 7_003 : 6_000).join('')
     let application: ElectronApplication | undefined
     try {
-      await createEpubFixture(fixture, `<p> \n<span>甲😀乙</span><strong>𠮷丙</strong>${tail}</p>`)
+      await createEpubFixture(fixture, `${background}<p id="range-selection"> \n${prefix}<span>甲😀乙</span><strong>𠮷丙</strong>${tail}</p>`)
       const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
       application = launched.application
       const { page } = launched
@@ -1102,8 +1104,9 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
       await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', theme)
       await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', String(scale))
 
-      const paragraph = page.getByTestId('reader-host').frameLocator('iframe').first().locator('p').first()
+      const paragraph = page.getByTestId('reader-host').frameLocator('iframe').first().locator('#range-selection')
       await expect(paragraph.locator('strong')).toHaveText('𠮷丙')
+      await paragraph.locator('strong').scrollIntoViewIfNeeded()
       await paragraph.evaluate((element) => {
         const range = document.createRange()
         const start = element.querySelector('span')!.firstChild!
@@ -1128,18 +1131,19 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
       if (!selection || !('passages' in selection)) throw new Error('Expected an EPUB text selection')
       const passage = selection.passages[0]
       expect(selection.quote).toBe(quote)
+      expect(passage.id).toBe(`P${paragraphCount + 1}`)
       expect(passage.anchor).toMatch(/^epubcfi\(/u)
       expect(Array.from(passage.text)).toHaveLength(6_000)
       await page.getByTestId('answer-current').getByTestId('citation-valid').click()
       await expect.poll(() => page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').count()).toBeGreaterThan(0)
       const sources = page.getByTestId('answer-current').locator('.answer-sources')
       await sources.locator('summary').click()
-      await sources.locator('.answer-source-item > button').filter({ hasText: quote + '背景' }).click()
+      await sources.locator('.answer-source-item > button').filter({ hasText: Array.from(expectedPassage).slice(0, 12).join('') }).click()
       await expect(page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').first()).toHaveAttribute('data-epubcfi', passage.anchor)
       const visualDirectory = process.env.LLM_READER_VISUAL_DIR
       if (visualDirectory) {
         await mkdir(visualDirectory, { recursive: true })
-        await page.screenshot({ path: join(visualDirectory, `epub-range-${theme}-${width}x${height}-${scale}.png`) })
+        await page.screenshot({ path: join(visualDirectory, `epub-range-${theme}-${width}x${height}-${scale}${paragraphCount ? '-deep' : ''}.png`) })
       }
     } finally {
       await cleanupE2eWorkspace(application, workspace.root)

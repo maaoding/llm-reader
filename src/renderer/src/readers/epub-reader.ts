@@ -8,7 +8,7 @@ import ePub, {
 import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
-import { rangeForCodePointSlice } from './dom-text'
+import { findOrderedContainingElementIndex, rangeForCodePointSlice } from './dom-text'
 import {
   cssFontFamily,
   fontFamilyStack,
@@ -1134,8 +1134,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
       this.setSelection(null)
       return
     }
-    let startBlock = paragraphs.findIndex((paragraph) => paragraph.element.contains(range.startContainer))
-    let endBlock = paragraphs.findIndex((paragraph) => paragraph.element.contains(range.endContainer))
+    let startBlock = findOrderedContainingElementIndex(paragraphs, range.startContainer)
+    let endBlock = findOrderedContainingElementIndex(paragraphs, range.endContainer)
     if (startBlock < 0) {
       startBlock = paragraphs.findIndex((paragraph) => range.intersectsNode(paragraph.element))
     }

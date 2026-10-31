@@ -46,6 +46,8 @@ PDF 的自然位置与缩放锚点由 `pdfReadingPosition` 定位。适配器只
 
 EPUB 的取材范围通过 `rangeForCodePointSlice` 在一次文本节点遍历中定位起止点，找到两端后停止；不收集未使用的节点，也不展开整段字符数组。码点偏移转为原生 Range 所需的 UTF-16 偏移，保留前导空白、节点边界与 CFI 位置。`readers-dom-text.test.ts` 对照原算法检查 Unicode、空节点和越界行为，并检查访问次数；`dom-range.bench.ts` 在 jsdom 中比较多节点与长文本的前缀定位，不代表浏览器布局或整本 EPUB 的性能。
 
+EPUB 划词的端点通过 `findOrderedContainingElementIndex` 按当前文档顺序二分定位叶子段落，减少对前面每个段落的 DOM 包含判断；段落容器边界继续使用原有 Range 相交回退。每次选择重新读取顺序，不缓存跨文档或布局的位置。`readers-epub-selection.test.ts` 核对长章节端点、空段过滤后的来源编号及容器边界，DOM 单测另覆盖行内元素、注释、表格和已移除节点。基准仅比较端点查找，章节段落提取与相交回退仍可能遍历全章，不代表整个划词过程变为对数复杂度。
+
 TXT 持久摘录高亮先检查原生 CSS Highlight 能力。支持时仅构建文字范围；备用段落着色的元素集合只在缺少构造器或注册表时填充，避免跨段摘录重复遍历覆盖的全部段落。`readers-text-highlights.test.ts` 检查长书中的元素访问次数、重叠回退着色、无效锚点清理，以及纯文本与 Markdown 切换后的原生范围；访问计数不包含范围构造和浏览器绘制耗时。
 
 PDF 文字模型通过 `pdfTextOffset` 在有序文本区段中二分定位，再检查同一坐标上的共享边界，保留起止偏向与自动换行空格的映射。`readers-pdf-text-mapping.test.ts` 对照原线性算法检查所有边界、无效偏移、Unicode 原文锚点及切片，并限制区段字段读取次数。渲染基准比较 10,001 个合成区段中的两种映射方向，不包含 PDF 解析、排版或窗口绘制耗时。

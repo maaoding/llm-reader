@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { expect, test } from 'vitest'
-import { rangeForCodePointSlice } from '../../src/renderer/src/readers/dom-text'
+import { expect, test, vi } from 'vitest'
+import { findOrderedContainingElementIndex, rangeForCodePointSlice } from '../../src/renderer/src/readers/dom-text'
 import { renderMarkdownDocument } from '../../src/renderer/src/readers/markdown-document'
 import { markdownOffsetFixture } from './support/legacy-markdown-offset'
 import { previousMarkdownPoint } from './support/legacy-markdown-point'
@@ -38,6 +38,38 @@ const longText = document.createElement('p')
 longText.textContent = '甲😀'.repeat(14_000)
 const boundedRange = rangeForCodePointSlice
 const options = { time: 300, iterations: 3, warmupTime: 100, warmupIterations: 1 }
+
+const orderedRoot = document.createElement('section')
+const orderedParagraphs = Array.from({ length: 5_000 }, () => {
+  const element = document.createElement('p')
+  element.innerHTML = '<span>甲😀</span><strong>乙𠮷</strong>'
+  orderedRoot.append(element)
+  return { element }
+})
+const findContaining = findOrderedContainingElementIndex
+for (const [name, node] of [
+  ['text', orderedParagraphs.at(-1)!.element.firstChild!.firstChild!],
+  ['element', orderedParagraphs.at(-1)!.element]
+] as const) {
+  const before = () => orderedParagraphs.findIndex(({ element }) => element.contains(node))
+  const after = () => findContaining(orderedParagraphs, node)
+  const contains = vi.spyOn(Node.prototype, 'contains'), compare = vi.spyOn(Node.prototype, 'compareDocumentPosition')
+  try {
+    const expected = before(), beforeChecks = contains.mock.calls.length + compare.mock.calls.length
+    contains.mockClear(); compare.mockClear()
+    const actual = after(), afterChecks = contains.mock.calls.length + compare.mock.calls.length
+    expect(actual).toBe(expected)
+    expect(afterChecks).toBeLessThanOrEqual(14)
+    console.info(`EPUB containing paragraph ${name}: ${beforeChecks} -> ${afterChecks} DOM comparisons; identical paragraph index.`)
+  } finally { contains.mockRestore(); compare.mockRestore() }
+  test(`EPUB endpoint lookup across 5,000 ordered paragraphs (${name})`, async ({ bench }) => {
+    await bench.compare(
+      bench('before: check every preceding paragraph', { writeResult: `output/benchmarks/renderer/epub-containing-${name}-before.json` }, before),
+      bench('after: search document order', { writeResult: `output/benchmarks/renderer/epub-containing-${name}-after.json` }, after),
+      options
+    )
+  })
+}
 
 const markdownBlock = renderMarkdownDocument('甲😀'.repeat(50_000), document).paragraphs[0]
 const previousMarkdownLookup = previousMarkdownPoint(markdownBlock)
