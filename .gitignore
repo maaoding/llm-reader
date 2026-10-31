@@ -28,7 +28,6 @@ api-key.bin.*.tmp
 /output/
 /tmp/
 /.zcode/
-AGENTS.md
 
 # Editor and OS noise
 .vscode/
