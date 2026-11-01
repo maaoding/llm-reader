@@ -9,6 +9,8 @@ import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
 import { findOrderedContainingElementIndex, rangeForCodePointSlice } from './dom-text'
+import { EpubParagraphIndex, extractParagraphs } from './epub-paragraphs'
+import { EpubSpineIndex, indexEpubChapters, normalizeEpubHref as normalizeHref, type EpubChapter } from './epub-navigation'
 import {
   cssFontFamily,
   fontFamilyStack,
@@ -42,7 +44,6 @@ import {
 import { stabilizeContinuousManager } from './epub-continuous-stability'
 
 const EPUB_CFI_PATTERN = /^epubcfi\(.+\)$/u
-const CONTENT_BLOCK_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,dd,dt'
 const TEMPORARY_HIGHLIGHT_CLASS = 'llm-reader-temporary-highlight'
 const PERSISTENT_HIGHLIGHT_CLASS = 'llm-reader-persistent-highlight'
 const READING_PREFERENCES_STYLESHEET = 'llm-reader-reading-preferences'
@@ -82,13 +83,6 @@ function readingFontFamilyCss(family: string): FontFamilyCss {
     faceRule: `@font-face { font-family: ${cssFontFamily(READER_FONT_FACE_FAMILY)}; src: ${localSources}; }`,
     stack
   }
-}
-
-interface EpubParagraph {
-  index: number
-  element: Element
-  text: string
-  leadingCharacters: number
 }
 
 interface EpubSectionSearchMatch {
@@ -147,15 +141,6 @@ function isSafeInternalHref(value: string): boolean {
   return !path.split('/').includes('..')
 }
 
-function normalizeHref(value: string): string {
-  const withoutFragment = value.split('#', 1)[0].replace(/^\.\//u, '')
-  try {
-    return decodeURIComponent(withoutFragment)
-  } catch {
-    return withoutFragment
-  }
-}
-
 function resolveInternalSpineHref(
   currentHref: string,
   value: string,
@@ -209,30 +194,6 @@ function rangeForElementSlice(
   leadingCharacters = 0
 ): Range {
   return rangeForCodePointSlice(element, leadingCharacters + start, leadingCharacters + end)
-}
-
-function extractParagraphs(contents: Contents): EpubParagraph[] {
-  const candidates = Array.from(contents.content.querySelectorAll(CONTENT_BLOCK_SELECTOR)).filter(
-    (element) => !element.querySelector(CONTENT_BLOCK_SELECTOR)
-  )
-  const source = candidates.length > 0 ? candidates : [contents.content]
-
-  return source.flatMap((element, index) => {
-    const raw = element.textContent ?? ''
-    const text = raw.trim()
-    if (text.length === 0) {
-      return []
-    }
-    const leadingUtf16 = raw.indexOf(text)
-    return [
-      {
-        index,
-        element,
-        text,
-        leadingCharacters: codePointLength(raw.slice(0, Math.max(0, leadingUtf16)))
-      }
-    ]
-  })
 }
 
 function offsetWithinElement(element: Element, node: Node, offset: number): number {
@@ -430,11 +391,14 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private book: Book | null = null
   private rendition: Rendition | null = null
   private toc: TocItem[] = []
+  private chaptersByHref: ReadonlyMap<string, EpubChapter> = new Map()
   private selection: SelectionContext | null = null
+  private readonly paragraphIndex = new EpubParagraphIndex()
   private highlightedCfi: string | null = null
   private persistentHighlightAnchors: ReaderHighlightAnchor[] = []
   private persistentHighlightedCfi: string[] = []
   private spineCount = 0
+  private spineIndex: EpubSpineIndex | null = null
   private locationsReady = false
   private preferences: ReadingPreferences = { ...DEFAULT_READING_PREFERENCES }
   private reflowable = true
@@ -444,6 +408,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private programmaticScroll = false
   private programmaticReleaseTimer: ReturnType<typeof setTimeout> | null = null
   private containerScrollFrame: number | null = null
+  private resizeObserver: ResizeObserver | null = null
+  private resizeFrame: number | null = null
   private scrollInputContainer: HTMLElement | null = null
   private relocationReason: ReaderRelocationReason = 'navigation'
   private sectionPercentageBounds = new Map<number, { start: number; end: number }>()
@@ -476,7 +442,9 @@ export class EpubReaderAdapter implements ReaderAdapter {
       book.loaded.spine
     ])
     this.toc = flattenToc(navigation.toc)
+    this.chaptersByHref = indexEpubChapters(this.toc)
     this.spineCount = spine.length
+    this.spineIndex = new EpubSpineIndex(this.spineCount, (index) => book.spine.get(index)?.href)
     this.reflowable = metadata.layout !== 'pre-paginated'
     this.host.dataset.epubLayout = this.reflowable ? 'reflowable' : 'fixed'
 
@@ -812,6 +780,29 @@ export class EpubReaderAdapter implements ReaderAdapter {
     const manager = (rendition as { manager?: { container?: HTMLElement } } | null)?.manager
     const container = this.host.querySelector<HTMLElement>(':scope > .epub-container') ?? manager?.container
     if (container) this.attachContainerScrollInput(container)
+    this.observeHostSize(rendition)
+  }
+
+  private observeHostSize(rendition: Rendition): void {
+    const view = this.host.ownerDocument.defaultView
+    if (!view?.ResizeObserver) return
+    let width = this.host.clientWidth, height = this.host.clientHeight
+    const resize = (): void => {
+      if (this.rendition !== rendition) return
+      this.resizeFrame = null
+      const nextWidth = this.host.clientWidth, nextHeight = this.host.clientHeight
+      if (nextWidth <= 0 || nextHeight <= 0 || (nextWidth === width && nextHeight === height)) return
+      width = nextWidth
+      height = nextHeight
+      // epub.js accepts percentage sizes at runtime, as in renderTo; its resize types only list numbers.
+      ;(rendition as Rendition & { resize(width: string, height: string): void }).resize('100%', '100%')
+    }
+    this.resizeObserver = new view.ResizeObserver(() => {
+      if (this.rendition !== rendition || this.resizeFrame !== null) return
+      if (typeof view.requestAnimationFrame === 'function') this.resizeFrame = view.requestAnimationFrame(resize)
+      else resize()
+    })
+    this.resizeObserver.observe(this.host)
   }
 
   private attachContainerScrollInput(container: HTMLElement | null): void {
@@ -906,6 +897,10 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private unbindRendererScrollInput(): void {
+    this.resizeObserver?.disconnect()
+    this.resizeObserver = null
+    if (this.resizeFrame !== null) this.host.ownerDocument.defaultView?.cancelAnimationFrame(this.resizeFrame)
+    this.resizeFrame = null
     this.host.removeEventListener('wheel', this.handleUserScrollInput)
     this.host.removeEventListener('touchmove', this.handleUserScrollInput)
     this.host.removeEventListener('pointerdown', this.handleUserScrollInput)
@@ -1129,7 +1124,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     }
 
     const range = nativeSelection.getRangeAt(0)
-    const paragraphs = extractParagraphs(contents)
+    const paragraphs = this.paragraphIndex.get(contents)
     if (paragraphs.length === 0) {
       this.setSelection(null)
       return
@@ -1162,19 +1157,25 @@ export class EpubReaderAdapter implements ReaderAdapter {
       offsetWithinElement(endParagraph.element, range.endContainer, range.endOffset) -
         endParagraph.leadingCharacters
     )
-    const blocks: ContextBlock[] = paragraphs.map((paragraph, index) => ({
-      id: `P${index + 1}`,
-      text: paragraph.text,
-      anchorForSlice: (localStart, localEnd) => {
-        const passageRange = rangeForElementSlice(
-          paragraph.element,
-          localStart,
-          localEnd,
-          paragraph.leadingCharacters
-        )
-        return contents.cfiFromRange(passageRange)
+    const blocks = {
+      length: paragraphs.length,
+      at: (index: number): ContextBlock | undefined => {
+        const paragraph = paragraphs[index]
+        return paragraph ? {
+          id: `P${index + 1}`,
+          text: (paragraph.element.textContent ?? '').trim(),
+          anchorForSlice: (localStart, localEnd) => {
+            const passageRange = rangeForElementSlice(
+              paragraph.element,
+              localStart,
+              localEnd,
+              paragraph.leadingCharacters
+            )
+            return contents.cfiFromRange(passageRange)
+          }
+        } : undefined
       }
-    }))
+    }
     const passages = buildBoundedPassages(blocks, {
       startBlock,
       startOffset,
@@ -1221,14 +1222,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
   private sectionIndexFromHref(href?: string): number | null {
     if (!href || !this.book) return null
-    const normalized = normalizeHref(href)
-    for (let index = 0; index < this.spineCount; index += 1) {
-      const sectionHref = this.book.spine.get(index)?.href
-      if (sectionHref && normalizeHref(sectionHref) === normalized) {
-        return index
-      }
-    }
-    return null
+    return this.spineIndex?.get(href) ?? null
   }
 
   private spineHrefs(): string[] {
@@ -1256,22 +1250,13 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private chapterHref(sectionIndex: number, directHref?: string): string | null {
     const sectionHref = directHref || this.book?.spine.get(sectionIndex)?.href || null
     if (!sectionHref) return null
-    const normalized = normalizeHref(sectionHref)
-    const matches = this.toc.filter((item) => normalizeHref(item.href) === normalized)
-    if (matches.length === 0) return sectionHref
-    return (matches.find((item) => !item.href.includes('#')) ?? matches[0]).href
+    return this.chaptersByHref.get(normalizeHref(sectionHref))?.href ?? sectionHref
   }
 
   private chapterTitle(sectionIndex: number, directHref?: string): string {
-    const sectionHref = this.chapterHref(sectionIndex, directHref)
-    if (sectionHref) {
-      const normalized = normalizeHref(sectionHref)
-      const match = this.toc.find((item) => normalizeHref(item.href) === normalized)
-      if (match) {
-        return match.label
-      }
-    }
-    return copy('reader.epubSection', { number: sectionIndex + 1 })
+    const sectionHref = directHref || this.book?.spine.get(sectionIndex)?.href
+    const chapter = sectionHref ? this.chaptersByHref.get(normalizeHref(sectionHref)) : undefined
+    return chapter?.title ?? copy('reader.epubSection', { number: sectionIndex + 1 })
   }
 
   private setSelection(selection: SelectionContext | null): void {
@@ -1298,6 +1283,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   }
 
   private resetDocument(): void {
+    this.paragraphIndex.clear()
     this.searchRevision += 1
     if (this.rendition) {
       this.rendition.off('selected', this.handleSelected)
@@ -1311,8 +1297,10 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.book = null
     this.rendition = null
     this.toc = []
+    this.chaptersByHref = new Map()
     this.selection = null
     this.spineCount = 0
+    this.spineIndex = null
     this.locationsReady = false
     this.latestLocator = null
     this.currentSectionIndex = 0

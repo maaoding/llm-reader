@@ -5,6 +5,7 @@ import { documentSections, DOCUMENT_STRUCTURE_VERSION } from '@shared/document-s
 import { copy } from '@shared/copy'
 import { extractParagraphs, flattenToc, rangeForElementSlice, sanitizeContents } from './epub-reader'
 import { cleanHeading, makeTextAnchor, navigationalHeadingIndexes, parseTextParagraphs } from './text-reader'
+import { findOrderedElementAtOrAfterIndex, rangesForOrderedCodePointSlices } from './dom-text'
 
 function explicitTextLevel(text: string): number | null {
   const markdown = /^(#{1,6})\s/u.exec(text)
@@ -77,9 +78,13 @@ export async function extractEpubDocument(payload: BookPayload, signal: AbortSig
     const [spine, navigation] = await Promise.all([book.loaded.spine, book.loaded.navigation])
     const toc = flattenToc(navigation.toc).map((entry, index) => ({ ...entry, nodeId: `epub-t${index}` }))
     const tocParents = new Map<string, string | null>(), tocStack: typeof toc = []
+    const tocByPath = new Map<string, typeof toc>()
     for (const entry of toc) {
       while (tocStack.length && tocStack.at(-1)!.depth >= entry.depth) tocStack.pop()
       tocParents.set(entry.nodeId, tocStack.at(-1)?.nodeId ?? null); tocStack.push(entry)
+      const path = internalLocation(entry.href), entries = tocByPath.get(path)
+      if (entries) entries.push(entry)
+      else tocByPath.set(path, [entry])
     }
     const aliases = new Map<string, string>()
     for (let index = 0; index < spine.length; index++) {
@@ -95,13 +100,12 @@ export async function extractEpubDocument(payload: BookPayload, signal: AbortSig
         const paragraphs = extractParagraphs(contents).filter(({ element }) => !element.closest('nav,style,noscript,template'))
         const path = internalLocation(section.href)
         const boundaries = new Map<number, typeof toc>()
-        for (const entry of toc.filter((item) => internalLocation(item.href) === path)) {
+        for (const entry of tocByPath.get(path) ?? []) {
           let fragment: string | undefined = entry.href.split('#')[1]
           try { fragment = fragment ? decodeURIComponent(fragment) : undefined } catch { continue }
           const target = fragment ? section.document.getElementById(fragment) : null
-          let position = fragment ? paragraphs.findIndex(({ element }) => element === target || element.contains(target) || Boolean(target?.contains(element))) : 0
-          // Empty authored anchors can stand immediately before a heading/paragraph.
-          if (position < 0 && target) position = paragraphs.findIndex(({ element }) => Boolean(target.compareDocumentPosition(element) & 4))
+          // Covers both containing blocks and empty authored anchors immediately before a block.
+          const position = fragment ? target ? findOrderedElementAtOrAfterIndex(paragraphs, target) : -1 : 0
           if (position >= 0) boundaries.set(position, [...(boundaries.get(position) ?? []), entry])
         }
         let current: DocumentNode | undefined
@@ -110,8 +114,8 @@ export async function extractEpubDocument(payload: BookPayload, signal: AbortSig
           const tag = paragraph.element.tagName.toLowerCase()
           const heading = /^h[1-6]$/u.test(tag)
           const entries = boundaries.get(position)
-          const anchor = section.cfiFromRange(rangeForElementSlice(paragraph.element, 0, characters(paragraph.text), paragraph.leadingCharacters))
           if (entries?.length || heading || !current) {
+            const anchor = section.cfiFromRange(rangeForElementSlice(paragraph.element, 0, characters(paragraph.text), paragraph.leadingCharacters))
             const entry = entries?.[0]
             const level = entry ? entry.depth + 1 : heading ? Number(tag[1]) : 1
             while (headingStack.length && headingStack.at(-1)!.level >= level) headingStack.pop()
@@ -120,15 +124,22 @@ export async function extractEpubDocument(payload: BookPayload, signal: AbortSig
             document.nodes.push(current); headingStack.push(current)
             for (const duplicate of entries?.slice(1) ?? []) aliases.set(duplicate.nodeId, current.id)
           }
+          const parts = paragraphSlices(paragraph.text)
           const unit: DocumentUnit = { id: `epub-f${index}-u${paragraph.index}`, nodeId: current.id, order: document.units.length, text: paragraph.text,
             kind: heading ? 'heading' : paragraph.element.closest('aside,[epub\\:type="footnote"],[role="doc-footnote"]') ? 'note' : tag === 'li' ? 'list' : 'paragraph',
-            sources: paragraphSlices(paragraph.text).map((part) => ({ anchor: section.cfiFromRange(rangeForElementSlice(paragraph.element, part.start, part.end, paragraph.leadingCharacters)),
-              precision: 'text', textStart: part.start, textEnd: part.end })), relatedIds: [], searchable: true }
+            sources: Array.from(rangesForOrderedCodePointSlices(paragraph.element, parts, paragraph.leadingCharacters), (range, partIndex) => ({
+              anchor: section.cfiFromRange(range), precision: 'text', textStart: parts[partIndex].start, textEnd: parts[partIndex].end })), relatedIds: [], searchable: true }
           document.units.push(unit)
-          let element: Element | null = paragraph.element
-          while (element && element !== contents.content.parentElement) {
-            if (element.id) { const key = `${path}#${element.id}`; targets.set(key, [...(targets.get(key) ?? []), unit]) }
-            element = element.parentElement
+          if (unit.kind === 'note') {
+            let element: Element | null = paragraph.element
+            while (element && element !== contents.content.parentElement) {
+              if (element.id) {
+                const key = `${path}#${element.id}`, entries = targets.get(key)
+                if (entries) entries.push(unit)
+                else targets.set(key, [unit])
+              }
+              element = element.parentElement
+            }
           }
           const hrefs = Array.from(paragraph.element.querySelectorAll('a')).flatMap((link) => {
             const href = authoredLinks.get(link) ?? ''

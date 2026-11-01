@@ -421,18 +421,24 @@ export class TextReaderAdapter implements ReaderAdapter {
       let previousCodePoints = 0
       let match = expression.exec(searchText)
       while (match) {
-        const localStart = previousCodePoints + codePointLength(
-          searchText.slice(previousUtf16, match.index)
-        )
-        const localEnd = localStart + codePointLength(match[0])
+        const endUtf16 = match.index + match[0].length
+        let anchor: string
+        if (paragraph.markdown) {
+          // Markdown already maps visible UTF-16 positions directly to original source anchors.
+          anchor = markdownAnchor(paragraph.markdown, match.index, endUtf16)
+        } else {
+          const localStart = previousCodePoints + codePointLength(searchText.slice(previousUtf16, match.index))
+          const localEnd = localStart + codePointLength(match[0])
+          anchor = makeTextAnchor(paragraph.start + localStart, paragraph.start + localEnd)
+          previousUtf16 = endUtf16
+          previousCodePoints = localEnd
+        }
         results.push({
-          anchor: paragraph.markdown ? markdownAnchor(paragraph.markdown, match.index, match.index + match[0].length) : makeTextAnchor(paragraph.start + localStart, paragraph.start + localEnd),
-          excerpt: searchExcerpt(searchText, match.index, match.index + match[0].length),
+          anchor,
+          excerpt: searchExcerpt(searchText, match.index, endUtf16),
           chapterTitle: this.chapters[paragraph.chapterIndex]?.title ?? copy('reader.txtFullText')
         })
         if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
-        previousUtf16 = match.index
-        previousCodePoints = localStart
         match = expression.exec(searchText)
       }
       if (paragraphIndex > 0 && paragraphIndex % 120 === 0) {

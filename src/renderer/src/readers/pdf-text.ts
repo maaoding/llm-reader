@@ -57,16 +57,23 @@ const PDF_TEXT_ANCHOR_PATTERN = /^pdf:(\d+):(\d+):(\d+)$/u
 const PDF_REGION_ANCHOR_PREFIX = 'pdfrect:'
 const REGION_COORDINATE_PATTERN = /^(?:0(?:\.\d{1,6})?|1(?:\.0{1,6})?)$/u
 const REGION_COORDINATE_PRECISION = 6
+const PDF_SLICE_CHECKPOINT_STRIDE = 256
 
 function codePoints(value: string): string[] {
   return Array.from(value)
 }
 
-function codePointSlice(value: string, start: number, end: number): string {
-  let point = 0, offset = 0
+function codePointSlice(value: string, start: number, end: number, checkpoints: number[]): string {
+  const checkpoint = Math.min(Math.floor(start / PDF_SLICE_CHECKPOINT_STRIDE), checkpoints.length - 1)
+  let point = checkpoint * PDF_SLICE_CHECKPOINT_STRIDE, offset = checkpoints[checkpoint]
+  // Extend the prefix index on demand; do not scan or index the unused page tail.
   while (point < start && offset < value.length) {
-    offset += value.codePointAt(offset)! > 0xffff ? 2 : 1
-    point++
+    const boundary = Math.min(start, checkpoints.length * PDF_SLICE_CHECKPOINT_STRIDE)
+    while (point < boundary && offset < value.length) {
+      offset += value.codePointAt(offset)! > 0xffff ? 2 : 1
+      point++
+    }
+    if (point === checkpoints.length * PDF_SLICE_CHECKPOINT_STRIDE) checkpoints.push(offset)
   }
   const from = offset
   while (point < end && offset < value.length) {
@@ -162,6 +169,8 @@ export function createPdfTextModel(items: ReadonlyArray<PdfTextContentItem>): Pd
 
   const rawText = rawParts.join('')
   const readableText = readableParts.join('')
+  // Index the joined string, so surrogate pairs split across PDF items keep their prior slicing behavior.
+  const sliceCheckpoints = [0]
 
   const readableOffsetForRaw = (offset: number, bias: OffsetBias): number => pdfTextOffset(runs, offset, 'raw', bias)
   const rawOffsetForReadable = (offset: number, bias: OffsetBias): number => pdfTextOffset(runs, offset, 'readable', bias)
@@ -179,7 +188,7 @@ export function createPdfTextModel(items: ReadonlyArray<PdfTextContentItem>): Pd
       if (rawStart === 0 && rawEnd === rawOffset) return codePoints(readableText).join('')
       const start = readableOffsetForRaw(rawStart, 'start')
       const end = readableOffsetForRaw(rawEnd, 'end')
-      return codePointSlice(readableText, start, Math.max(start, end))
+      return codePointSlice(readableText, start, Math.max(start, end), sliceCheckpoints)
     }
   }
 }
@@ -288,7 +297,7 @@ export function extractPdfRegionText(
     const vertical = left.top - right.top
     return Math.abs(vertical) > 0.0005 ? vertical : left.left - right.left
   })
-  const rows: Array<{ center: number; height: number; items: PdfRegionTextItem[] }> = []
+  const rows: Array<{ center: number; centerSum: number; height: number; items: PdfRegionTextItem[] }> = []
   for (const item of sorted) {
     const center = (item.top + item.bottom) / 2
     const height = Math.max(0.000001, item.bottom - item.top)
@@ -303,10 +312,12 @@ export function extractPdfRegionText(
     }
     if (bestRow) {
       bestRow.items.push(item)
-      bestRow.center = bestRow.items.reduce((sum, entry) => sum + (entry.top + entry.bottom) / 2, 0) / bestRow.items.length
+      bestRow.centerSum += center
+      bestRow.center = bestRow.centerSum / bestRow.items.length
       bestRow.height = Math.max(bestRow.height, height)
     } else {
-      rows.push({ center, height, items: [item] })
+      // Start the sum like reduce(..., 0), preserving its floating-point addition order.
+      rows.push({ center, centerSum: 0 + center, height, items: [item] })
     }
   }
 

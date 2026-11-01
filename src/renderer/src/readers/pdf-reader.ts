@@ -12,6 +12,7 @@ import type {
 } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
+import { PdfTextLayerIndex } from './pdf-dom-text'
 import {
   literalSearchExpression,
   normalizeReaderSearchQuery,
@@ -36,6 +37,7 @@ import {
   pdfFitAvailableWidth,
   pdfReadingPosition,
   pdfSectionAt,
+  PdfOutlineIndex,
   PdfZoomCoordinator,
   sortPdfOutlineLocations,
   type PdfOutlineLocation,
@@ -74,6 +76,7 @@ interface PdfPageState {
   textLayerElement: HTMLElement
   linkLayerElement: HTMLElement
   textLayer: TextLayer | null
+  textIndex: PdfTextLayerIndex | null
   renderTask: RenderTask | null
   renderPromise: Promise<void> | null
   renderRevision: number
@@ -108,10 +111,6 @@ interface PdfOutlineNode {
 
 type PdfZoomMode = 'fit-width' | 'custom'
 
-function codePointOffsetToUtf16(value: string, offset: number): number {
-  return Array.from(value).slice(0, offset).join('').length
-}
-
 function safeMetadataString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim().slice(0, 500) : null
 }
@@ -133,6 +132,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private loadingTask: PDFDocumentLoadingTask | null = null
   private pdfDocument: PDFDocumentProxy | null = null
   private pages: PdfPageState[] = []
+  private contextLengths = new WeakMap<PdfTextModel, number>()
   private pageIndexHint = 0
   private textPromise: Promise<void> | null = null
   private observer: IntersectionObserver | null = null
@@ -146,7 +146,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private readonly zoomCoordinator = new PdfZoomCoordinator()
   private resizeFrame: number | null = null
   private fitWidthButton: HTMLButtonElement | null = null
-  private outlineLocations: PdfOutlineLocation[] = []
+  private outlineIndex = new PdfOutlineIndex([])
   private programmaticReason: ReaderRelocationReason | null = null
   private programmaticScrollTop: number | null = null
   private selection: ReaderSource | null = null
@@ -256,6 +256,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
         textLayerElement,
         linkLayerElement,
         textLayer: null,
+        textIndex: null,
         renderTask: null,
         renderPromise: null,
         renderRevision: 0,
@@ -338,8 +339,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
             ).title
           })
           if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
-          previousUtf16 = match.index
-          previousCodePoints = readableStart
+          previousUtf16 = match.index + match[0].length
+          previousCodePoints = readableEnd
           match = expression.exec(text)
         }
         if (page.pageNumber % 20 === 0) await yieldSearchWork()
@@ -842,6 +843,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       page.textLayer?.cancel()
       page.renderTask = null
       page.textLayer = null
+      page.textIndex = null
       page.renderPromise = null
       page.rendered = false
       page.element.setAttribute('aria-busy', 'true')
@@ -1037,6 +1039,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private markTextOffsets(state: PdfPageState, textLayer: TextLayer): void {
+    state.textIndex = null
     let cursor = 0
     textLayer.textDivs.forEach((element, index) => {
       const text = textLayer.textContentItemsStr[index] ?? element.textContent ?? ''
@@ -1160,7 +1163,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private async readOutline(): Promise<TocItem[]> {
-    this.outlineLocations = []
+    this.outlineIndex = new PdfOutlineIndex([])
     if (!this.pdfDocument) return []
     try {
       const outline = await this.pdfDocument.getOutline() as PdfOutlineNode[]
@@ -1186,10 +1189,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
         }
       }
       await visit(outline, 0)
-      this.outlineLocations = sortPdfOutlineLocations(locations)
+      this.outlineIndex = new PdfOutlineIndex(sortPdfOutlineLocations(locations))
       return toc
     } catch {
-      this.outlineLocations = []
+      this.outlineIndex = new PdfOutlineIndex([])
       return []
     }
   }
@@ -1289,7 +1292,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   private sectionAt(pageNumber: number, fraction: number): ReturnType<typeof pdfSectionAt> {
     return pdfSectionAt(
-      this.outlineLocations,
+      this.outlineIndex,
       pageNumber,
       fraction,
       this.pages.length,
@@ -1367,11 +1370,21 @@ export class PdfReaderAdapter implements ReaderAdapter {
     if (!state || !model || start < 0 || end <= start || end > model.rawLength || !quote.trim()) return null
     const firstPageIndex = Math.max(0, pageNumber - 2)
     const lastPageIndex = Math.min(this.pages.length - 1, pageNumber)
+    const contextLengths = this.contextLengths
     const blocks: ContextBlock[] = this.pages.slice(firstPageIndex, lastPageIndex + 1).map((page) => {
       const pageModel = page.textModel
       return {
         id: `page-${page.pageNumber}`,
         text: pageModel?.readableText ?? '',
+        get codePointLength() {
+          if (!pageModel) return 0
+          const known = contextLengths.get(pageModel)
+          if (known !== undefined) return known
+          // Count the joined text: surrogate pairs may cross PDF text-item boundaries.
+          const length = codePointLength(pageModel.readableText)
+          contextLengths.set(pageModel, length)
+          return length
+        },
         anchorForSlice: (blockStart, blockEnd) => makePdfTextAnchor(
           page.pageNumber,
           pageModel?.rawOffsetForReadable(blockStart, 'start') ?? blockStart,
@@ -1437,16 +1450,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private domPointForOffset(state: PdfPageState, offset: number): { node: Node; offset: number } | null {
-    const spans = Array.from(state.textLayerElement.querySelectorAll<HTMLElement>('[data-pdf-text-start]'))
-    for (const span of spans) {
-      const start = Number(span.dataset.pdfTextStart)
-      const end = Number(span.dataset.pdfTextEnd)
-      if (offset < start || offset > end) continue
-      const node = span.firstChild
-      if (!node) continue
-      return { node, offset: codePointOffsetToUtf16(node.textContent ?? '', offset - start) }
-    }
-    return null
+    return (state.textIndex ??= new PdfTextLayerIndex(state.textLayerElement)).point(offset)
   }
 
   private spansForRange(range: Range): HTMLElement[] {
@@ -1563,12 +1567,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
       page.renderRevision += 1
       page.renderTask?.cancel()
       page.textLayer?.cancel()
+      page.textIndex = null
     }
     void this.loadingTask?.destroy().catch(() => undefined)
     this.loadingTask = null
     this.pdfDocument = null
     this.pdfjs = null
     this.pages = []
+    this.contextLengths = new WeakMap()
     this.pageIndexHint = 0
     this.textPromise = null
     this.root = null
@@ -1582,7 +1588,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.fitWidthButton = null
     this.zoomFactor = 1
     this.zoomMode = 'fit-width'
-    this.outlineLocations = []
+    this.outlineIndex = new PdfOutlineIndex([])
     this.selection = null
     this.programmaticReason = null
     this.programmaticScrollTop = null

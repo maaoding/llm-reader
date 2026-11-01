@@ -1107,7 +1107,7 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
       const paragraph = page.getByTestId('reader-host').frameLocator('iframe').first().locator('#range-selection')
       await expect(paragraph.locator('strong')).toHaveText('𠮷丙')
       await paragraph.locator('strong').scrollIntoViewIfNeeded()
-      await paragraph.evaluate((element) => {
+      const selectQuote = () => paragraph.evaluate((element) => {
         const range = document.createRange()
         const start = element.querySelector('span')!.firstChild!
         const end = element.querySelector('strong')!.firstChild!
@@ -1118,6 +1118,7 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
         selection.addRange(range)
         element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
       })
+      await selectQuote()
       await expect(page.getByTestId('selection-toolbar')).toBeVisible()
       await page.getByTestId('action-explain').click()
       await expect(page.getByTestId('answer-current')).toContainText('适用边界')
@@ -1144,6 +1145,44 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
       if (visualDirectory) {
         await mkdir(visualDirectory, { recursive: true })
         await page.screenshot({ path: join(visualDirectory, `epub-range-${theme}-${width}x${height}-${scale}${paragraphCount ? '-deep' : ''}.png`) })
+      }
+      if (paragraphCount) {
+        await page.getByTestId('answer-save').click()
+        await expect(page.getByTestId('answer-save')).toBeDisabled()
+        const archived = await page.evaluate(async (id) => (await window.readerApi.listInsights(id))[0], bookId)
+        expect(archived.selection).toEqual(selection)
+        // A changed anchor starts a new conversation; the archive keeps its prior source.
+        await paragraph.evaluate((element) => {
+          const inserted = document.createElement('p')
+          inserted.textContent = '合成的新增段落😀'
+          element.before(inserted)
+        })
+        await selectQuote()
+        await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+        await page.getByTestId('action-explain').click()
+        await expect(page.getByTestId('answer-current')).toContainText('适用边界')
+        await expect.poll(async () => page.evaluate(async (id) => {
+          const latest = (await window.readerApi.getBookSession(id))?.turns.at(-1)?.selection
+          return latest && 'passages' in latest ? latest.passages[0]?.id : null
+        }, bookId)).toBe(`P${paragraphCount + 2}`)
+        const updated = await page.evaluate((id) => window.readerApi.getBookSession(id), bookId)
+        expect(updated!.conversationId).not.toBe(session!.conversationId)
+        expect(updated!.turns).toHaveLength(1)
+        const saved = await page.evaluate(async ({ bookId, insightId }) => (await window.readerApi.listInsights(bookId)).find((insight) => insight.id === insightId), { bookId, insightId: archived.id })
+        expect(saved!.selection).toEqual(selection)
+        const latest = updated!.turns.at(-1)!.selection
+        if (!latest || !('passages' in latest)) throw new Error('Expected an updated EPUB selection')
+        expect(latest.quote).toBe(quote)
+        expect(latest.passages[0].text).toBe(expectedPassage)
+        await page.getByTestId('answer-current').getByTestId('citation-valid').click()
+        await expect(page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').first()).toHaveAttribute('data-epubcfi', latest.anchor)
+        const updatedSources = page.getByTestId('answer-current').locator('.answer-sources')
+        await updatedSources.locator('summary').click()
+        await updatedSources.locator('.answer-source-item > button').filter({ hasText: Array.from(expectedPassage).slice(0, 12).join('') }).click()
+        await expect(page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').first()).toHaveAttribute('data-epubcfi', latest.passages[0].anchor)
+        if (visualDirectory) {
+          await page.screenshot({ path: join(visualDirectory, `epub-range-${theme}-${width}x${height}-${scale}-reindexed.png`) })
+        }
       }
     } finally {
       await cleanupE2eWorkspace(application, workspace.root)

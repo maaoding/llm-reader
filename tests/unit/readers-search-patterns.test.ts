@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TextReaderAdapter } from '../../src/renderer/src/readers/text-reader'
 import { EpubReaderAdapter } from '../../src/renderer/src/readers/epub-reader'
 import { PdfReaderAdapter } from '../../src/renderer/src/readers/pdf-reader'
+import { createPdfTextModel, type PdfTextContentItem } from '../../src/renderer/src/readers/pdf-text'
 import { literalSearchExpression, yieldSearchWork } from '../../src/renderer/src/readers/search'
 
 const mocks = vi.hoisted(() => ({ epub: vi.fn(), pdf: vi.fn() }))
@@ -39,22 +40,23 @@ function host() {
   return element
 }
 
-async function textReader(paragraphs: string[]) {
+async function textReader(paragraphs: string[], mode: 'plain' | 'markdown' = 'plain') {
   const adapter = new TextReaderAdapter(host(), { bookId: 'pattern-txt' })
   adapters.push(adapter)
-  await adapter.setTextMode('plain')
+  await adapter.setTextMode(mode)
   await adapter.open(new TextEncoder().encode(paragraphs.join('\n\n')))
   return adapter
 }
 
-async function pdfReader(pages: string[]) {
+async function pdfReader(pages: Array<string | PdfTextContentItem[]>) {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
+  const textPages = pages.map((page) => typeof page === 'string' ? [{ str: page }] : page)
   const document = {
     numPages: pages.length, getOutline: async () => [], getMetadata: async () => ({ info: {} }),
     getPage: async (number: number) => ({
       getViewport: ({ scale }: { scale: number }) => ({ width: 500 * scale, height: 700 * scale, scale }),
       render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
-      getTextContent: async () => ({ items: [{ str: pages[number - 1] }] }), getAnnotations: async () => []
+      getTextContent: async () => ({ items: textPages[number - 1] }), getAnnotations: async () => []
     })
   }
   mocks.pdf.mockReturnValue({ promise: Promise.resolve(document), destroy: async () => undefined })
@@ -105,6 +107,76 @@ it('constructs one application query pattern for 5,000 TXT paragraphs', async ()
   const adapter = await textReader(Array.from({ length: 5_000 }, (_, index) => `普通段落😀 ${index}`))
   expect(await adapter.search('未出现.+[词]😀')).toEqual([])
   expect(literalSearchExpression).toHaveBeenCalledTimes(1)
+})
+
+it('maps deep Markdown search results without counting the unused visible-text prefix', async () => {
+  const prefix = '甲😀'.repeat(50_000)
+  const adapter = await textReader([`${prefix}**目标😀**末尾`], 'markdown')
+  const points = vi.spyOn(String.prototype, 'codePointAt')
+  const results = await adapter.search('目标😀')
+  expect(results).toHaveLength(1)
+  expect(results[0].anchor).toBe('txt:100002:100005')
+  expect(results[0].excerpt).toContain('目标😀')
+  expect(points.mock.calls.length).toBeLessThanOrEqual(200)
+})
+
+it.each(['txt', 'pdf'] as const)('counts each matched span at most once for dense Unicode search in %s', async (format) => {
+  const query = '[Alpha].+😀'.repeat(10), lower = query.toLowerCase()
+  const text = Array.from({ length: 205 }, (_, index) => index % 2 ? lower : query).join('')
+  const adapter = format === 'txt' ? await textReader([text]) : await pdfReader([text])
+  let matchedPointReads = 0
+  const codePointAt = String.prototype.codePointAt
+  vi.spyOn(String.prototype, 'codePointAt').mockImplementation(function (this: string, position: number) {
+    const value = this.valueOf()
+    if (value === query || value === lower) matchedPointReads++
+    return codePointAt.call(this, position)
+  })
+  const results = await adapter.search(query)
+  expect(results).toHaveLength(200)
+  expect(results.map((result) => result.anchor)).toEqual(Array.from({ length: 200 }, (_, index) => (
+    format === 'txt' ? `txt:${index * 100}:${index * 100 + 100}` : `pdf:1:${index * 100}:${index * 100 + 100}`
+  )))
+  expect(results.every((result) => result.excerpt.includes('[Alpha]') || result.excerpt.includes('[alpha]'))).toBe(true)
+  expect(matchedPointReads).toBeLessThanOrEqual(200 * 100)
+})
+
+it('keeps raw Markdown anchors when visible matches cross formatting or decode an entity', async () => {
+  const source = '甲😀 **Hi**t😀 &amp; 后'
+  const adapter = await textReader([source], 'markdown')
+  const cases: Array<[string, number, number]> = [
+    ['Hit😀', source.indexOf('Hi'), source.indexOf('t😀') + 't😀'.length],
+    ['&', source.indexOf('&amp;'), source.indexOf('&amp;') + '&amp;'.length]
+  ]
+  for (const [query, from, to] of cases) {
+    const results = await adapter.search(query)
+    const start = Array.from(source.slice(0, from)).length, end = Array.from(source.slice(0, to)).length
+    expect(results).toHaveLength(1)
+    expect(results[0].anchor).toBe(`txt:${start}:${end}`)
+    expect(results[0].excerpt).toContain(query)
+  }
+})
+
+it.each(['txt', 'pdf'] as const)('preserves offsets across adjacent matches and mixed Unicode gaps in %s', async (format) => {
+  const source = '前😀Hit😀HIT😀 é𠮷 末\nHiT😀'
+  const adapter = format === 'txt' ? await textReader([source]) : await pdfReader([source])
+  const expected = [...source.matchAll(/hit😀/giu)].map((match) => {
+    const start = Array.from(source.slice(0, match.index)).length, end = start + Array.from(match[0]).length
+    return format === 'txt' ? `txt:${start}:${end}` : `pdf:1:${start}:${end}`
+  })
+  expect((await adapter.search('hit😀')).map((result) => result.anchor)).toEqual(expected)
+})
+
+it('retains raw PDF positions through automatic line separators and multiple text items', async () => {
+  const items: PdfTextContentItem[] = [
+    { str: '前😀', hasEOL: true }, { str: 'Hit😀' }, { str: ' é𠮷 ', hasEOL: true },
+    { str: 'HIT😀', hasEOL: true }, { str: 'hit😀' }
+  ]
+  const model = createPdfTextModel(items), adapter = await pdfReader([items])
+  const expected = [...model.readableText.matchAll(/hit😀/giu)].map((match) => {
+    const start = Array.from(model.readableText.slice(0, match.index)).length, end = start + Array.from(match[0]).length
+    return `pdf:1:${model.rawOffsetForReadable(start, 'start')}:${model.rawOffsetForReadable(end, 'end')}`
+  })
+  expect((await adapter.search('hit😀')).map((result) => result.anchor)).toEqual(expected)
 })
 
 it.each(['txt', 'pdf'] as const)('keeps literal, case-insensitive results in %s reading order and isolates consecutive queries', async (format) => {

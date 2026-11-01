@@ -160,20 +160,55 @@ export function sortPdfOutlineLocations(
   })
 }
 
+/** Snapshot one outline; rebuild when another document or outline is loaded. */
+export class PdfOutlineIndex {
+  private readonly locations: ReadonlyArray<Readonly<PdfOutlineLocation>>
+  private readonly maximumPositions: number[] = []
+  readonly length: number
+
+  constructor(locations: ReadonlyArray<PdfOutlineLocation>) {
+    this.locations = locations.map((location) => ({ ...location }))
+    this.length = this.locations.length
+    let maximum = Number.NEGATIVE_INFINITY
+    for (const location of this.locations) {
+      const position = location.pageNumber - 1 + location.fraction
+      if (!Number.isNaN(position)) maximum = Math.max(maximum, position)
+      this.maximumPositions.push(maximum)
+    }
+  }
+
+  at(index: number): Readonly<PdfOutlineLocation> | undefined {
+    return this.locations.at(index)
+  }
+
+  firstAfter(position: number): number {
+    let low = 0, high = this.length
+    // Epsilon-based sorting can reverse nearby positions. Prefix maxima preserve
+    // the original first-greater scan even when the raw positions are not ordered.
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if (this.maximumPositions[middle] > position) high = middle
+      else low = middle + 1
+    }
+    return low
+  }
+}
+
 export function pdfSectionAt(
-  locations: ReadonlyArray<PdfOutlineLocation>,
+  locations: ReadonlyArray<PdfOutlineLocation> | PdfOutlineIndex,
   pageNumber: number,
   fraction: number,
   pageCount: number,
   wholeDocumentTitle: string
 ): PdfSectionState {
   const currentPosition = Math.min(pageCount, Math.max(0, pageNumber - 1 + clampFraction(fraction)))
-  let current: PdfOutlineLocation | null = null
-  for (const location of locations) {
-    const position = location.pageNumber - 1 + location.fraction
-    if (position > currentPosition + POSITION_EPSILON) break
-    current = location
+  const firstAfter = (position: number): number => {
+    if (locations instanceof PdfOutlineIndex) return locations.firstAfter(position)
+    const index = locations.findIndex((location) => location.pageNumber - 1 + location.fraction > position)
+    return index < 0 ? locations.length : index
   }
+  const currentIndex = firstAfter(currentPosition + POSITION_EPSILON) - 1
+  const current = currentIndex >= 0 ? locations.at(currentIndex) : undefined
   if (!current) {
     return {
       title: wholeDocumentTitle,
@@ -183,9 +218,7 @@ export function pdfSectionAt(
   }
 
   const start = current.pageNumber - 1 + current.fraction
-  const next = locations.find((location) => (
-    location.pageNumber - 1 + location.fraction > start + POSITION_EPSILON
-  ))
+  const next = locations.at(firstAfter(start + POSITION_EPSILON))
   const end = next ? next.pageNumber - 1 + next.fraction : pageCount
   return {
     title: current.label,

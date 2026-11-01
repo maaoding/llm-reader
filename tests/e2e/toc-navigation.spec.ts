@@ -1,10 +1,10 @@
-import { showLibrary, enterReading } from './support/workspace'
+import { showLibrary, enterReading, resizeWorkspace } from './support/workspace'
 import {
   expect,
   test,
   type ElectronApplication
 } from '@playwright/test'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createNestedEpubFixture } from './fixtures/nested-epub'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
@@ -137,6 +137,30 @@ test('nested TOC collapses via disclosure without jumping and navigates without 
 
     await expect(page.getByText('无效的 EPUB 高亮锚点')).toHaveCount(0)
     await expect(page.getByText('无法跳转到这个章节')).toHaveCount(0)
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
+    for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark', 940, 600, 125]] as const) {
+      await resizeWorkspace(application, page, width, height)
+      await page.getByTestId('settings-button').click()
+      await page.getByTestId('settings-nav-appearance').click()
+      await page.getByTestId(`theme-${theme}`).click()
+      await page.getByTestId(`scale-${scale}`).click()
+      await page.getByTestId('settings-close').click()
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', theme)
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', String(scale))
+      // Theme/scale attributes update before epub.js finishes sizing the chapter iframe.
+      await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
+        const container = host.querySelector('.epub-container')
+        const frames = [...host.querySelectorAll('iframe')]
+        return container && frames.length
+          ? Math.max(...frames.map((frame) => Math.abs(frame.clientWidth - container.clientWidth)))
+          : Number.POSITIVE_INFINITY
+      })).toBeLessThan(4)
+      const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+      if (visualDirectory) {
+        await mkdir(visualDirectory, { recursive: true })
+        await page.screenshot({ path: join(visualDirectory, `epub-toc-${theme}-${width}x${height}-${scale}.png`) })
+      }
+    }
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

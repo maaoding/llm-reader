@@ -78,7 +78,8 @@ function sliceSources(unit: DocumentUnit, start: number, end: number): SourceRan
 /** Complete rows share true column headers; an oversized row records exactly which cell characters it contains. */
 function tableBlocks(unit: DocumentUnit, maximumCharacters: number): DocumentBlock[] {
   const table = unit.table!
-  const expandedSize = table.cells.reduce((size, cell) => size + characters(cell.text) * cell.rowSpan * cell.columnSpan, 0)
+  const cellLengths = new Map(table.cells.map((cell) => [cell.id, characters(cell.text)]))
+  const expandedSize = table.cells.reduce((size, cell) => size + cellLengths.get(cell.id)! * cell.rowSpan * cell.columnSpan, 0)
   if (expandedSize > maximumCharacters) throw new Error('表格展开超过处理上限。')
   const cellsById = new Map(table.cells.map((cell) => [cell.id, cell]))
   const headers = table.cells.filter((cell) => cell.header)
@@ -90,12 +91,12 @@ function tableBlocks(unit: DocumentUnit, maximumCharacters: number): DocumentBlo
   const rows = [...rowCells.keys()].sort((a, b) => a - b)
   const result: DocumentBlock[] = []
   let emittedCharacters = 0
-  type Part = { text: string; cells: TableSlice['cells'] }
+  type Part = { text: string; length: number; cells: TableSlice['cells'] }
   const serialize = (cells: typeof table.cells, row?: number): Part => {
     let text = '', length = 0, column = 0
     const ranges: TableSlice['cells'] = []
     for (const cell of [...cells].sort((a, b) => a.column - b.column)) {
-      const cellLength = characters(cell.text)
+      const cellLength = cellLengths.get(cell.id)!
       // Expand merged cells into their actual columns, preserving every occurrence's original range.
       // A provider's td is still a td: visual header roles are never inferred from its position.
       if (length + Math.max(0, cell.column - column) + cell.columnSpan * (cellLength + 1) > maximumCharacters) throw new Error('表格展开超过处理上限。')
@@ -110,23 +111,25 @@ function tableBlocks(unit: DocumentUnit, maximumCharacters: number): DocumentBlo
         ranges.push({ id: cell.id, start: 0, end: cellLength, textStart, textEnd: length, header: cell.header, rows: row === undefined ? [] : [row] })
       }
     }
-    return { text, cells: ranges }
+    return { text, length, cells: ranges }
   }
-  const header: Part = { text: '', cells: [] }
+  const header: Part = { text: '', length: 0, cells: [] }
   for (const row of [...new Set(headers.map((cell) => cell.row))].sort((a, b) => a - b)) {
     const part = serialize(headers.filter((cell) => cell.row <= row && cell.row + cell.rowSpan > row))
-    const offset = characters(header.text) + (header.text ? 1 : 0)
-    if (offset + characters(part.text) > maximumCharacters) throw new Error('表格展开超过处理上限。')
+    const offset = header.length + (header.text ? 1 : 0)
+    if (offset + part.length > maximumCharacters) throw new Error('表格展开超过处理上限。')
     header.text += (header.text ? '\n' : '') + part.text
+    header.length = offset + part.length
     header.cells.push(...part.cells.map((cell) => ({ ...cell, textStart: cell.textStart + offset, textEnd: cell.textEnd + offset })))
   }
   const emit = (selectedRows: number[], body: Part): void => {
     const prefix = header.text && body.text ? header.text + '\n' : header.text
+    const prefixLength = header.length + (header.text && body.text ? 1 : 0)
     // A header itself exceeding the block limit is retained as cell ranges in separate blocks.
-    const repeated = characters(prefix) < MAX_BLOCK_CHARACTERS ? prefix : ''
-    const parts = paragraphSlices(body.text || header.text, Math.max(1, MAX_BLOCK_CHARACTERS - (body.text ? characters(repeated) : 0)))
+    const repeated = prefixLength < MAX_BLOCK_CHARACTERS ? prefix : ''
+    const offset = body.text && repeated ? prefixLength : 0
+    const parts = paragraphSlices(body.text || header.text, Math.max(1, MAX_BLOCK_CHARACTERS - offset))
     for (const part of parts) {
-      const offset = body.text ? characters(repeated) : 0
       const inputCells = body.text ? body.cells : header.cells
       const cells = inputCells.filter((cell) => cell.textStart < part.end && cell.textEnd > part.start).map((cell) => ({
         ...cell, start: cell.start + Math.max(0, part.start - cell.textStart),
@@ -143,28 +146,31 @@ function tableBlocks(unit: DocumentUnit, maximumCharacters: number): DocumentBlo
         }))
       const sources = exact.length && contributing.every((cell) => cell.sources?.length) ? exact : unit.sources.map((source) => ({ ...source, precision: 'table' as const }))
       const text = (body.text ? repeated : '') + part.text
-      emittedCharacters += characters(text)
+      // Repeated headers end with a newline, so Unicode points cannot merge across this join.
+      emittedCharacters += offset + part.end - part.start
       if (emittedCharacters > maximumCharacters) throw new Error('表格展开超过处理上限。')
+      const contributingRows = new Set(cells.flatMap((cell) => cell.rows ?? []))
       result.push({ id: unit.id + '-b' + result.length, text,
         anchor: sources[0].anchor, sources, kind: 'table', nodeId: unit.nodeId, unitId: unit.id,
-        tableSlice: { rows: selectedRows.filter((row) => cells.some((cell) => cell.rows?.includes(row))), cells }, searchable: unit.searchable })
+        tableSlice: { rows: selectedRows.filter((row) => contributingRows.has(row)), cells }, searchable: unit.searchable })
     }
   }
-  if (characters(header.text) >= MAX_BLOCK_CHARACTERS && rows.length) emit([], { text: '', cells: [] })
-  let pendingRows: number[] = [], pending: Part = { text: '', cells: [] }
-  const flush = (): void => { if (pendingRows.length) emit(pendingRows, pending); pendingRows = []; pending = { text: '', cells: [] } }
+  if (header.length >= MAX_BLOCK_CHARACTERS && rows.length) emit([], { text: '', length: 0, cells: [] })
+  let pendingRows: number[] = [], pending: Part = { text: '', length: 0, cells: [] }
+  const flush = (): void => { if (pendingRows.length) emit(pendingRows, pending); pendingRows = []; pending = { text: '', length: 0, cells: [] } }
   for (const row of rows) {
-    const body = serialize(rowCells.get(row)!.sort((a, b) => a.column - b.column), row)
-    const headerSize = characters(header.text) < MAX_BLOCK_CHARACTERS ? characters(header.text) + 1 : 0
-    if (pendingRows.length && characters(pending.text) + 1 + characters(body.text) + headerSize > MAX_BLOCK_CHARACTERS) flush()
-    const offset = characters(pending.text) + (pending.text ? 1 : 0)
+    const body = serialize(rowCells.get(row)!, row)
+    const headerSize = header.length < MAX_BLOCK_CHARACTERS ? header.length + 1 : 0
+    if (pendingRows.length && pending.length + 1 + body.length + headerSize > MAX_BLOCK_CHARACTERS) flush()
+    const offset = pending.length + (pending.text ? 1 : 0)
     pending.text += (pending.text ? '\n' : '') + body.text
+    pending.length = offset + body.length
     pending.cells.push(...body.cells.map((cell) => ({ ...cell, textStart: cell.textStart + offset, textEnd: cell.textEnd + offset })))
     pendingRows.push(row)
-    if (characters(pending.text) + headerSize > MAX_BLOCK_CHARACTERS) flush()
+    if (pending.length + headerSize > MAX_BLOCK_CHARACTERS) flush()
   }
   flush()
-  if (!rows.length) emit([], { text: '', cells: [] })
+  if (!rows.length) emit([], { text: '', length: 0, cells: [] })
   return result
 }
 
