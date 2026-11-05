@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve, basename } from 'node:path'
-import { copyEvaluationProfile, evaluationSourceDirectory } from './real-provider-profile.mjs'
+import { copyEvaluationProfile, evaluationSourceDirectory, evaluationLibraryDirectory } from './real-provider-profile.mjs'
 
 /** Evaluation only: keys stay encrypted on disk and are used only inside Electron's main process. */
 export async function createEvaluationSession(directory = 'tmp/knowledge-hard-20260909') {
@@ -30,7 +30,7 @@ export async function createEvaluationSession(directory = 'tmp/knowledge-hard-20
       for (const kind of ['embedding', 'rerank', 'document']) {
         const profile = resolve(process.env[`LLM_READER_EVAL_${kind.toUpperCase()}_SOURCE_USER_DATA`] ?? source)
         if (JSON.stringify(JSON.parse(await readFile(join(profile, 'Local State'), 'utf8')).os_crypt) !== JSON.stringify(cryptoContext)) throw new Error('Credential encryption context differs')
-        const database = new DatabaseSync(join(profile, 'reader.sqlite3'), { readOnly: true })
+        const database = new DatabaseSync(join(evaluationLibraryDirectory(profile), 'reader.sqlite3'), { readOnly: true })
         try {
           const row = database.prepare('SELECT * FROM knowledge_settings WHERE kind = ?').get(kind)
           if (!row?.secret) throw new Error(`Authorized ${kind} credential is unavailable; configure LLM_READER_EVAL_${kind.toUpperCase()}_SOURCE_USER_DATA`)

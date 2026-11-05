@@ -6,7 +6,26 @@ export interface AppCloseResponse {
   approved: boolean
 }
 
+export type LibraryPreferences = Record<string, string>
+export interface LibraryBackupSummary {
+  createdAt: string
+  appVersion: string
+  books: number
+  highlights: number
+  insights: number
+  sessions: number
+  workbenches: number
+  bytes: number
+}
+export interface LibraryBackupPreview { token: string; summary: LibraryBackupSummary }
+export interface RestoredPreferences { token: string; values: LibraryPreferences }
+
 export const IPC_CHANNELS = {
+  backupCreate: 'backup:create',
+  backupPreview: 'backup:preview',
+  backupRestore: 'backup:restore',
+  backupPreferences: 'backup:preferences',
+  backupPreferencesApplied: 'backup:preferences-applied',
   workbenchesList: 'workbenches:list',
   workbenchesCreate: 'workbenches:create',
   workbenchesSave: 'workbenches:save',
@@ -846,6 +865,11 @@ export interface SaveHighlightInput {
 }
 
 export interface ReaderApi {
+  createLibraryBackup(preferences: LibraryPreferences): Promise<{ name: string; summary: LibraryBackupSummary } | null>
+  previewLibraryBackup(): Promise<LibraryBackupPreview | null>
+  restoreLibraryBackup(input: { token: string; preferences: LibraryPreferences }): Promise<void>
+  getRestoredPreferences(): Promise<RestoredPreferences | null>
+  acknowledgeRestoredPreferences(token: string): Promise<void>
   listWorkbenches(): Promise<WorkbenchRecord[]>
   createWorkbench(input: { name: string; bookIds: string[] }): Promise<WorkbenchRecord>
   saveWorkbench(input: WorkbenchInput): Promise<WorkbenchRecord>

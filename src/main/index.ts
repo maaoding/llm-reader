@@ -1,5 +1,5 @@
 import { isAbsolute, join } from 'node:path'
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, dialog, Menu } from 'electron'
 import electronUpdater from 'electron-updater'
 import { IPC_CHANNELS } from '@shared/contracts'
 import { registerAppScheme, installAppProtocol } from './app-protocol'
@@ -22,6 +22,8 @@ import { WebSearchService } from './web-search-service'
 import { RerankService } from './rerank-service'
 import { SemanticIndexService } from './semantic-index'
 import { DocumentProcessingService } from './document-processing'
+import { LibraryStorage } from './library-storage'
+import { copy } from '@shared/copy'
 
 registerAppScheme()
 
@@ -34,6 +36,7 @@ if (userDataOverride) {
 }
 
 let database: AppDatabase | undefined
+let storage: LibraryStorage | undefined
 let llm: LlmService | undefined
 let library: LibraryService | undefined
 let provider: ProviderService | undefined
@@ -92,6 +95,15 @@ async function openWindow(): Promise<void> {
     autoUpdater
   )
   registerIpcHandlers({
+    database, storage,
+    restartAfterRestore: () => {
+      setTimeout(() => {
+        database?.close()
+        database = undefined
+        if (app.isPackaged || process.env.LLM_READER_E2E_NO_RELAUNCH !== '1') app.relaunch()
+        app.exit(0)
+      }, 150)
+    },
     window: created.window,
     library,
     bookImporter,
@@ -112,12 +124,14 @@ async function openWindow(): Promise<void> {
 async function initialize(): Promise<void> {
   Menu.setApplicationMenu(null)
   const userData = app.getPath('userData')
-  database = new AppDatabase(join(userData, 'reader.sqlite3'))
-  library = new LibraryService(database, join(userData, 'library'))
+  storage = await LibraryStorage.open(userData)
+  const libraryData = storage.directory
+  database = new AppDatabase(join(libraryData, 'reader.sqlite3'))
+  library = new LibraryService(database, join(libraryData, 'library'))
   provider = new ProviderService(
     database,
     new ElectronKeyProtector(),
-    new ProfileSecretStore(join(userData, 'provider-keys'), join(userData, 'api-key.bin')),
+    new ProfileSecretStore(join(libraryData, 'provider-keys'), join(libraryData, 'api-key.bin')),
     fetch,
     app.getVersion()
   )
@@ -143,15 +157,27 @@ async function initialize(): Promise<void> {
     await library.importFromPath(e2eImportPath)
   }
   await openWindow()
+  if (storage.rolledBack) void dialog.showMessageBox({ type: 'warning', message: copy('backup.rolledBack') })
 }
 
-app.whenReady().then(initialize).catch((error: unknown) => {
-  console.error('LLM Reader startup failed:', error instanceof Error ? error.message : 'unknown error')
-  app.exit(1)
-})
+// A restore changes the selected store for this user-data directory. A second
+// process must not continue writing the previous store after that switch.
+const ownsLibrary = app.requestSingleInstanceLock()
+if (!ownsLibrary) app.quit()
+else {
+  app.on('second-instance', () => {
+    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed())
+    if (window?.isMinimized()) window.restore()
+    window?.focus()
+  })
+  app.whenReady().then(initialize).catch((error: unknown) => {
+    console.error('LLM Reader startup failed:', error instanceof Error ? error.message : 'unknown error')
+    app.exit(1)
+  })
+}
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) void openWindow()
+  if (ownsLibrary && BrowserWindow.getAllWindows().length === 0) void openWindow()
 })
 
 app.on('window-all-closed', () => {

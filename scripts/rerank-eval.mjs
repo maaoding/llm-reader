@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 const live = process.argv.includes('--live')
 const apiKey = process.env.LLM_READER_RERANK_API_KEY
 if (live && !apiKey) throw new Error('真实评测需要通过 LLM_READER_RERANK_API_KEY 提供已获授权的凭据。')
-const server = await createServer({ configFile: false, server: { middlewareMode: true }, resolve: { alias: { '@shared': resolve('src/shared') } } })
+const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false, watch: null }, resolve: { alias: { '@shared': resolve('src/shared') } } })
 try {
   const { runRerankEvaluation } = await server.ssrLoadModule('/scripts/rerank-eval-runner.ts')
   const report = await runRerankEvaluation({ live, apiKey: live ? apiKey : undefined, baseUrl: process.env.LLM_READER_RERANK_BASE_URL, model: process.env.LLM_READER_RERANK_MODEL })

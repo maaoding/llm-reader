@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { evaluationLibraryDirectory } from './real-provider-profile.mjs'
 
 export const sha256 = (value) => createHash('sha256').update(value).digest('hex')
 
@@ -18,7 +19,9 @@ function validEndpoint(value) {
 /** Inspect only selected configuration; never return credentials in a public report. */
 export function inspectConfiguration(sourceDirectory, profileId) {
   if (!sourceDirectory) return { ready: false, reasons: ['MODEL_CONFIGURATION_DIRECTORY_MISSING'] }
-  const root = resolve(sourceDirectory)
+  let root
+  try { root = evaluationLibraryDirectory(sourceDirectory) }
+  catch { return { ready: false, reasons: ['LIBRARY_STATE_INVALID'] } }
   if (!existsSync(join(root, 'reader.sqlite3'))) return { ready: false, reasons: ['MODEL_CONFIGURATION_DATABASE_MISSING'] }
   const database = new DatabaseSync(join(root, 'reader.sqlite3'), { readOnly: true })
   try {
@@ -31,7 +34,7 @@ export function inspectConfiguration(sourceDirectory, profileId) {
     if (!selected || !/^[\w-]{1,128}$/u.test(selected.id) || !selected.model || !validEndpoint(selected.base_url)) reasons.push('SAVED_MODEL_PROFILE_MISSING')
     if (selected && !selected.headers_secret && !existsSync(join(root, 'provider-keys', `${selected.id}.bin`)) &&
       !(selected.id === 'legacy' && existsSync(join(root, 'api-key.bin')))) reasons.push('ENCRYPTED_MODEL_AUTHENTICATION_MISSING')
-    if (!existsSync(join(root, 'Local State'))) reasons.push('MODEL_ENCRYPTION_CONTEXT_MISSING')
+    if (!existsSync(join(sourceDirectory, 'Local State'))) reasons.push('MODEL_ENCRYPTION_CONTEXT_MISSING')
     const row = database.prepare("SELECT config_json FROM knowledge_settings WHERE kind = 'document'").get()
     const document = row ? JSON.parse(row.config_json) : null
     if (!document || document.processor === 'none' || document.enabled === false || !validEndpoint(document.baseUrl)) reasons.push('PDF_PROCESSOR_CONFIGURATION_MISSING')
@@ -46,9 +49,11 @@ export function inspectConfiguration(sourceDirectory, profileId) {
 /** Copy ciphertext and routing settings into an empty disposable profile only. */
 export async function copyConfiguration(sourceDirectory, targetDirectory, profileId) {
   if (resolve(sourceDirectory) === resolve(targetDirectory)) throw new Error('Evaluation profile must be isolated')
+  if (existsSync(join(targetDirectory, 'library-state.json'))) throw new Error('Evaluation target is not empty')
   const inspection = inspectConfiguration(sourceDirectory, profileId)
   if (!inspection.ready) throw new Error(inspection.reasons.join(', '))
-  const source = new DatabaseSync(join(sourceDirectory, 'reader.sqlite3'), { readOnly: true })
+  const libraryDirectory = evaluationLibraryDirectory(sourceDirectory)
+  const source = new DatabaseSync(join(libraryDirectory, 'reader.sqlite3'), { readOnly: true })
   const target = new DatabaseSync(join(targetDirectory, 'reader.sqlite3'))
   try {
     if (Number(target.prepare('SELECT count(*) AS n FROM books').get().n) ||
@@ -56,8 +61,8 @@ export async function copyConfiguration(sourceDirectory, targetDirectory, profil
     const profile = source.prepare('SELECT id, name, base_url, model, created_at, updated_at, compatibility, protocol, request_json, headers_secret FROM provider_profiles WHERE id = ?').get(inspection.profileId)
     const document = source.prepare("SELECT config_json, secret, headers_secret, revision FROM knowledge_settings WHERE kind = 'document'").get()
     await mkdir(join(targetDirectory, 'provider-keys'), { recursive: true })
-    const keyPath = join(sourceDirectory, 'provider-keys', `${profile.id}.bin`)
-    const legacyPath = join(sourceDirectory, 'api-key.bin')
+    const keyPath = join(libraryDirectory, 'provider-keys', `${profile.id}.bin`)
+    const legacyPath = join(libraryDirectory, 'api-key.bin')
     if (existsSync(keyPath) || (profile.id === 'legacy' && existsSync(legacyPath))) {
       await copyFile(existsSync(keyPath) ? keyPath : legacyPath, join(targetDirectory, 'provider-keys', `${profile.id}.bin`))
     }

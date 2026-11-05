@@ -27,6 +27,30 @@ function setup() {
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
+it('saves both workspaces before maintenance and resumes editing after failure', async () => {
+  const { result, options } = setup()
+  const operation = vi.fn(async () => {
+    expect(options.closingRef.current).toBe(true)
+    expect(options.flushSessions).toHaveBeenCalledOnce()
+    expect(options.closeWorkbenches).toHaveBeenCalledOnce()
+    throw new Error('backup failed')
+  })
+  await act(async () => { await expect(result.current.runStorageOperation(operation)).rejects.toThrow('backup failed') })
+  expect(result.current.closing).toBe(false)
+  expect(result.current.storageWorking).toBe(false)
+  expect(options.resumeWorkbenches).toHaveBeenCalledOnce()
+})
+
+it('never starts maintenance when saving the latest drafts fails', async () => {
+  const { result, options } = setup()
+  const operation = vi.fn(async () => undefined)
+  options.flushSessions.mockResolvedValueOnce(false)
+  await act(async () => { await expect(result.current.runStorageOperation(operation)).rejects.toThrow() })
+  expect(operation).not.toHaveBeenCalled()
+  expect(options.closingRef.current).toBe(false)
+  expect(result.current.storageWorking).toBe(false)
+})
+
 it('keeps the window editable after a failed save and retries without authorizing exit', async () => {
   const { result, options, requestClose } = setup()
   options.flushSessions.mockResolvedValueOnce(false)

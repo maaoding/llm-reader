@@ -704,7 +704,7 @@ export default function App(): ReactNode {
     await cancelAllRequests()
     await flushProgress()
   }, [cancelAllRequests, flushProgress])
-  const { closing, closeSaveFailed, retryingSaves, retrySessionSaves } = useAppClose({
+  const { closing, closeSaveFailed, retryingSaves, retrySessionSaves, storageWorking, runStorageOperation } = useAppClose({
     closingRef, isBusy: sessionOperationInProgress, prepareClose, flushSessions: flushSessionSaves,
     closeWorkbenches, resumeWorkbenches, retryWorkbenchSaves, retryTabRestoration
   })
@@ -1437,7 +1437,7 @@ export default function App(): ReactNode {
 
   return (
     <>
-      {closing && <div className="session-close-saving" data-interface-scale={interfaceScale} role="status" data-testid="session-close-saving"><LoaderCircle className="spin" size="1.25em" />{copy('assistant.savingBeforeClose')}</div>}
+      {closing && <div className="session-close-saving" data-interface-scale={interfaceScale} role="status" data-testid="session-close-saving"><LoaderCircle className="spin" size="1.25em" />{copy(storageWorking ? 'backup.working' : 'assistant.savingBeforeClose')}</div>}
     <div
       className="app-shell workspace-shell"
       data-page={page}
@@ -2058,6 +2058,7 @@ export default function App(): ReactNode {
           assistantActions={assistantActions}
           personaSettings={personaSettings}
           onWebSearchChange={setWebSearchEnabled}
+          runStorageOperation={runStorageOperation}
           returnFocusRef={settingsReturnFocusRef}
           onClose={closeSettings}
           onOverviewChange={handleProviderOverviewChange}

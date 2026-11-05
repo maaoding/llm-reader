@@ -1,11 +1,26 @@
 /* global process */
 import { copyFile, mkdir } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
+/** Resolve the selected library, while Chromium/safeStorage context stays at userData. */
+export function evaluationLibraryDirectory(userData) {
+  const root = resolve(userData), statePath = join(root, 'library-state.json')
+  if (!existsSync(statePath)) return root
+  const info = lstatSync(statePath)
+  if (!info.isFile() || info.isSymbolicLink() || info.size > 8_000_000) throw new Error('Invalid library state')
+  const state = JSON.parse(readFileSync(statePath, 'utf8'))
+  if (state.version !== 1 || state.pending || (state.current !== null && !/^restored-[a-f0-9-]{36}$/u.test(state.current))) throw new Error('Library restore is incomplete or unsupported')
+  const directory = state.current ? join(root, state.current) : root
+  const directoryInfo = lstatSync(directory)
+  if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) throw new Error('Invalid library directory')
+  return directory
+}
+
 export function readEvaluationProfile(sourceDirectory, profileId) {
-  const database = new DatabaseSync(join(sourceDirectory, 'reader.sqlite3'), { readOnly: true })
+  const libraryDirectory = evaluationLibraryDirectory(sourceDirectory)
+  const database = new DatabaseSync(join(libraryDirectory, 'reader.sqlite3'), { readOnly: true })
   try {
     const current = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'provider_profiles'").get()
     const compatibilityColumn = current && database.prepare('PRAGMA table_info(provider_profiles)').all().some((column) => column.name === 'compatibility')
@@ -18,8 +33,8 @@ export function readEvaluationProfile(sourceDirectory, profileId) {
     if (!profile || !/^[\w-]{1,128}$/u.test(profile.id) || !profile.model || !profile.base_url || (profileId && profile.id !== profileId)) {
       throw new Error('未找到指定的完整模型配置。')
     }
-    const keyPath = join(sourceDirectory, 'provider-keys', `${profile.id}.bin`)
-    const legacyPath = join(sourceDirectory, 'api-key.bin')
+    const keyPath = join(libraryDirectory, 'provider-keys', `${profile.id}.bin`)
+    const legacyPath = join(libraryDirectory, 'api-key.bin')
     const encryptedKeyPath = existsSync(keyPath) ? keyPath : profile.id === 'legacy' && existsSync(legacyPath) ? legacyPath : null
     if (!encryptedKeyPath || !existsSync(join(sourceDirectory, 'Local State'))) throw new Error('模型配置缺少加密凭据或 safeStorage 上下文。')
     return { profile, encryptedKeyPath }
@@ -31,6 +46,7 @@ export function readEvaluationProfile(sourceDirectory, profileId) {
 /** Copy one saved profile into a newly initialized temporary profile. No plaintext key leaves Electron. */
 export async function copyEvaluationProfile(sourceDirectory, targetDirectory, profileId) {
   if (resolve(sourceDirectory).toLocaleLowerCase() === resolve(targetDirectory).toLocaleLowerCase()) throw new Error('评测必须使用独立用户数据目录。')
+  if (existsSync(join(targetDirectory, 'library-state.json'))) throw new Error('评测目标必须是新建的资料目录。')
   const { profile, encryptedKeyPath } = readEvaluationProfile(sourceDirectory, profileId)
   const target = new DatabaseSync(join(targetDirectory, 'reader.sqlite3'))
   try {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type RefObject } from 'react'
+import { copy } from '@shared/copy'
 
 interface CloseOptions {
   closingRef: RefObject<boolean>
@@ -19,6 +20,7 @@ export function useAppClose({
   const [closing, setClosing] = useState(false)
   const [closeSaveFailed, setCloseSaveFailed] = useState(false)
   const [retryingSaves, setRetryingSaves] = useState(false)
+  const [storageWorking, setStorageWorking] = useState(false)
 
   const resume = useCallback(() => {
     closingRef.current = false
@@ -27,9 +29,7 @@ export function useAppClose({
     retryTabRestoration()
   }, [closingRef, resumeWorkbenches, retryTabRestoration])
 
-  useEffect(() => {
-    if (!window.readerApi) return undefined
-    return window.readerApi.onBeforeClose(async () => {
+  const saveWorkspace = useCallback(async () => {
       if (closingRef.current) return false
       if (isBusy()) {
         setCloseSaveFailed(true)
@@ -49,8 +49,21 @@ export function useAppClose({
           setCloseSaveFailed(true)
         }
       }
-    })
   }, [closingRef, isBusy, prepareClose, flushSessions, closeWorkbenches, resume])
+
+  useEffect(() => {
+    if (!window.readerApi) return undefined
+    return window.readerApi.onBeforeClose(saveWorkspace)
+  }, [saveWorkspace])
+
+  const runStorageOperation = async (operation: () => Promise<void>): Promise<void> => {
+    if (closingRef.current || isBusy()) throw new Error(copy('backup.busy'))
+    setStorageWorking(true)
+    try {
+      if (!await saveWorkspace()) throw new Error(copy('backup.saveFailed'))
+      try { await operation() } finally { resume() }
+    } finally { setStorageWorking(false) }
+  }
 
   useEffect(() => window.readerApi.onCloseCancelled(resume), [resume])
 
@@ -63,5 +76,5 @@ export function useAppClose({
     } finally { setRetryingSaves(false) }
   }
 
-  return { closing, closeSaveFailed, retryingSaves, retrySessionSaves }
+  return { closing, closeSaveFailed, retryingSaves, retrySessionSaves, storageWorking, runStorageOperation }
 }

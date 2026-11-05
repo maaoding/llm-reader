@@ -5,6 +5,12 @@ on:
     paths:
       - .github/workflows/windows-package-validation.yml
       - scripts/validate-windows-package.mjs
+      - src/main/library-backup-files.ts
+      - src/main/library-storage.ts
+      - src/shared/library-preferences.ts
+      - src/renderer/src/LibraryBackupSettings.tsx
+      - src/renderer/src/library-backup.ts
+      - tests/e2e/library-backup.spec.ts
   workflow_dispatch:
 
 permissions:
@@ -58,7 +64,7 @@ jobs:
           if (!$env:LLM_READER_E2E_EXECUTABLE -or !(Test-Path -LiteralPath $env:LLM_READER_E2E_EXECUTABLE)) {
             throw 'The installed application executable is required for package regression.'
           }
-          pnpm exec playwright test tests/e2e/about-panel.spec.ts tests/e2e/pdf-reader.spec.ts tests/e2e/workbenches.spec.ts tests/e2e/session-persistence.spec.ts tests/e2e/vision-ocr.spec.ts tests/e2e/text-markdown.spec.ts tests/e2e/retrieval-quality.spec.ts tests/e2e/reader-flow.spec.ts tests/e2e/toc-navigation.spec.ts tests/e2e/book-context.spec.ts tests/e2e/document-structure.spec.ts
+          pnpm exec playwright test tests/e2e/about-panel.spec.ts tests/e2e/pdf-reader.spec.ts tests/e2e/workbenches.spec.ts tests/e2e/session-persistence.spec.ts tests/e2e/session-save-recovery.spec.ts tests/e2e/library-backup.spec.ts tests/e2e/vision-ocr.spec.ts tests/e2e/text-markdown.spec.ts tests/e2e/retrieval-quality.spec.ts tests/e2e/reader-flow.spec.ts tests/e2e/toc-navigation.spec.ts tests/e2e/book-context.spec.ts tests/e2e/document-structure.spec.ts
       - name: Upload verified unsigned installer
         uses: actions/upload-artifact@v4
         with:

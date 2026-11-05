@@ -84,6 +84,7 @@ async function contentListFromZip(bytes: Uint8Array): Promise<unknown> {
 }
 
 export class DocumentProcessingService {
+  get isBusy(): boolean { return Boolean(this.previewJob) }
   private readonly vision: VisionOcrService
   private previewJob?: { bookId: string; requestId: string; controller: AbortController }
   constructor(private readonly database: AppDatabase, private readonly settings: KnowledgeSettingsService,

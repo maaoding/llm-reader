@@ -1,5 +1,35 @@
 # LLM Reader 文案
 
+## 书库备份
+
+| key | text |
+| --- | --- |
+| backup.title | 备份与恢复 |
+| backup.hint | 备份包含书籍、阅读进度、摘录、会话、问答集、笔记和阅读偏好。服务配置、密钥和认证头不包含在内。 |
+| backup.savedOnly | 操作前会保存阅读位置和草稿，并停止当前回答。请先暂停本书准备任务。 |
+| backup.saveSettings | 请先保存或放弃设置中的未保存修改。 |
+| backup.create | 备份书库 |
+| backup.choose | 选择备份 |
+| backup.chooseDestination | 选择备份保存位置 |
+| backup.chooseSource | 选择 LLM Reader 备份文件夹 |
+| backup.created | 备份已保存：{name} |
+| backup.preview | 恢复预览 |
+| backup.summary | {date} · {books} 本书 · {highlights} 条摘录 · {insights} 条归档回答 · {sessions} 个会话 · {workbenches} 个多书工作台 |
+| backup.restoreHint | 恢复后应用会重启并切换到备份中的书库，原书库保留在本机。服务配置需要重新设置。 |
+| backup.restore | 恢复并重启 |
+| backup.confirmRestore | 恢复此备份并重启？当前书库将保留在本机，接下来使用备份中的书库。服务配置需要重新设置。 |
+| backup.restarting | 备份已恢复，正在重启。 |
+| backup.working | 正在保存和校验书库，请稍候… |
+| backup.failed | 备份或恢复未完成，请重试。 |
+| backup.busy | 书库正有其他任务进行，请等待完成或暂停本书准备后重试。 |
+| backup.invalid | 备份无效、不完整或数据格式不兼容。当前书库未被替换。 |
+| backup.destination | 请选择应用资料目录以外的位置保存备份。 |
+| backup.writeFailed | 无法写入备份或恢复文件，请检查磁盘空间和目录权限后重试。 |
+| backup.saveFailed | 无法保存当前草稿，未开始备份或恢复。请重试保存。 |
+| backup.rolledBack | 恢复的书库未通过启动检查，已回到原书库。 |
+| backup.preferencesFailed | 无法应用恢复后的阅读偏好。资料已保留，请重试。 |
+| backup.retryStartup | 重试启动 |
+
 ## 书籍工作台
 
 | key | text |

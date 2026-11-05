@@ -52,6 +52,7 @@ function parseJson(text: string): unknown {
 }
 
 export class BookAnalysisService {
+  get isBusy(): boolean { return Boolean(this.active || this.preparing) }
   rerank?: RerankService
   webSearch?: WebSearchService
   semantic?: SemanticIndexService

@@ -1,5 +1,35 @@
 # LLM Reader copy (English)
 
+## Library backup
+
+| key | text |
+| --- | --- |
+| backup.title | Backup and restore |
+| backup.hint | Backups include books, reading positions, excerpts, conversations, collections, notes, and reading preferences. Service configurations, keys, and authentication headers are excluded. |
+| backup.savedOnly | Your reading position and drafts are saved and current answers are stopped before continuing. Pause book preparation tasks first. |
+| backup.saveSettings | Save or discard unsaved changes in settings first. |
+| backup.create | Back up library |
+| backup.choose | Choose backup |
+| backup.chooseDestination | Choose where to save the backup |
+| backup.chooseSource | Choose an LLM Reader backup folder |
+| backup.created | Backup saved: {name} |
+| backup.preview | Restore preview |
+| backup.summary | {date} · {books} books · {highlights} excerpts · {insights} archived answers · {sessions} conversations · {workbenches} multi-book workspaces |
+| backup.restoreHint | The app will restart using the backed-up library. Your previous library remains on this computer. Configure services again after restoring. |
+| backup.restore | Restore and restart |
+| backup.confirmRestore | Restore this backup and restart? Your current library will remain on this computer, and the app will use the backed-up library. Service configurations must be set up again. |
+| backup.restarting | Backup restored. Restarting… |
+| backup.working | Saving and checking your library. Please wait… |
+| backup.failed | Backup or restore did not complete. Please try again. |
+| backup.busy | Another library task is running. Wait for it to finish or pause book preparation, then try again. |
+| backup.invalid | The backup is invalid, incomplete, or uses an incompatible data format. Your current library was not replaced. |
+| backup.destination | Choose a backup location outside the application data folder. |
+| backup.writeFailed | Could not write the backup or restored files. Check disk space and folder permissions, then try again. |
+| backup.saveFailed | Current drafts could not be saved. Backup or restore has not started. Retry saving first. |
+| backup.rolledBack | The restored library failed its startup checks. Your previous library has been restored. |
+| backup.preferencesFailed | Restored reading preferences could not be applied. Your data is preserved. Please try again. |
+| backup.retryStartup | Retry startup |
+
 ## Workspace
 
 | key | text |

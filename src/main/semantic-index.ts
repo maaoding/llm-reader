@@ -32,6 +32,7 @@ export async function embed(http: KnowledgeHttp, config: EmbeddingCredentials, t
 }
 
 export class SemanticIndexService {
+  get isBusy(): boolean { return Boolean(this.active) }
   private active?: { bookId: string; controller: AbortController }
   onChange: (bookId: string) => void = () => undefined
   constructor(private readonly store: BookContextStore, private readonly settings: KnowledgeSettingsService,

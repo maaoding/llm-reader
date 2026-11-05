@@ -41,7 +41,7 @@ function register(bookImporter: {
   isBusy: () => boolean
   importPaths: (paths: ReadonlyArray<string>) => Promise<unknown>
   cancel: () => void
-}, extras: { library?: unknown; llm?: unknown } = {}): void {
+}, extras: { library?: unknown; llm?: unknown; storage?: unknown; database?: unknown } = {}): void {
   registerIpcHandlers({
     window: {
       webContents: { id: 17 },
@@ -55,6 +55,8 @@ function register(bookImporter: {
     bookImporter,
     provider: {},
     llm: extras.llm ?? {},
+    storage: extras.storage,
+    database: extras.database,
     updater: { getPhase: electronMocks.updatePhase, install: electronMocks.installUpdate },
     allowedRendererOrigins: new Set<string>(),
     requestClose: electronMocks.requestClose,
@@ -63,6 +65,25 @@ function register(bookImporter: {
 }
 
 describe('book import IPC', () => {
+  it('keeps backup IPC behind the trusted main-frame boundary', async () => {
+    register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() }, { storage: { pendingPreferences: { token: 'private' } } })
+    await expect(electronMocks.handlers.get(IPC_CHANNELS.backupPreferences)!({ sender: { id: 99 } })).rejects.toThrow('UNTRUSTED_SENDER')
+    expect(electronMocks.showOpenDialog).not.toHaveBeenCalled()
+  })
+
+  it('refuses arbitrary storage keys before opening a backup destination dialog', async () => {
+    register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() })
+    await expect(electronMocks.handlers.get(IPC_CHANNELS.backupCreate)!(trustedEvent(), { 'api-key': 'synthetic-secret' })).rejects.toThrow('INVALID_INPUT')
+    expect(electronMocks.showOpenDialog).not.toHaveBeenCalled()
+  })
+
+  it('blocks new library mutations while maintenance owns the storage lock', async () => {
+    const importPaths = vi.fn()
+    register({ isBusy: () => false, importPaths, cancel: vi.fn() }, { storage: { locked: true } })
+    await expect(electronMocks.handlers.get(IPC_CHANNELS.booksImportDropped)!(trustedEvent(), ['/tmp/sample.txt'])).rejects.toThrow('BACKUP_BUSY')
+    expect(importPaths).not.toHaveBeenCalled()
+  })
+
   it('opens only recorded HTTP(S) web sources for the requested book and trusted main frame', async () => {
     const bookId = randomUUID(), otherBookId = randomUUID(), url = 'https://evidence.example/recorded'
     const recorded = vi.fn((id: string, value: string) => id === bookId && value === url)

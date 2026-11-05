@@ -17,6 +17,10 @@ Node.js 范围与 pnpm 固定版本以 [package.json](../package.json) 为准；
 
 云端 Linux 的 pnpm、Xvfb 与 Wine 初始化命令见[开发环境说明](development-environment.md)，支持无需管理员权限的安装与重复执行。
 
+书库备份与恢复由 `library-backup-files.ts` 管理快照、文件摘要和结构校验，`library-storage.ts` 管理恢复预览与目录切换。初始书库仍位于用户资料目录；恢复后，`library-state.json` 指向同目录下的独立 `restored-*` 书库，原目录不删除。书籍、SQLite 和服务凭据使用当前书库目录，Chromium/`safeStorage` 上下文继续使用原用户资料目录。读配置的评测脚本必须先解析当前书库，不能在恢复后回退读取旧配置。
+
+恢复先在独立目录校验全部文件，再原子更新当前书库指针；启动时再次校验尚未确认的恢复，在 React 挂载前应用白名单偏好，成功后确认。启动校验失败回退到保留的书库和偏好。备份格式 v1 要求当前数据库结构，拒绝未知迁移版本、额外数据库结构、SQLite 边车文件及不合法路径。备份中的服务配置表为空，文件中不包含凭据；原始快照只短暂保存在当前资料目录内。相关测试为 `backend-library-backup.test.ts`、`ui-library-backup.test.ts` 和 `library-backup.spec.ts`，Windows 原子切换与安装交付另行验收。
+
 重装依赖后若 `pnpm dev` 提示 Electron 安装不完整，先手动运行 `node node_modules/electron/install.js` 下载项目固定版本的二进制。云端代理环境的下载方式见[开发环境说明](development-environment.md)。
 
 ## 本地验证与打包
@@ -142,6 +146,10 @@ pnpm test:e2e:run tests/e2e/about-panel.spec.ts
 
 流式基准同时覆盖同步突发和每隔 10/50 毫秒投递的合成片段，仅对投递定时器使用模拟时钟，CPU 计时保持真实。当前样本分别发布 2/500/1,000 次更新，不能把同步突发的 2 次当作真实服务保证。耗时包含模拟定时器调度，不含实际等待、网络、IPC、React 布局和窗口绘制。`ui-answer-rendering.test.tsx` 另验证单书与工作台更新活动回答时不重绘 20 条历史回答，以及来源、搜索、语言、导航和删书变化仍刷新；微基准与计数测试均不代表整应用帧率。
 
+备份存储压力检查使用 `pnpm test:backup-stress`。默认顺序运行 1,024 本 × 256 KiB 原文及 16 本 × 32 MiB 原文两组隔离合成书库，另写入会话草稿；临时磁盘需预留约 2.1 GiB，命令执行前检查可用空间，每组结束后删除自己的测试资料。`--profile quick` 可先检查脚本是否跑通；`--profile many-files`、`--profile large-files` 可单独选组，`--report-dir <新目录>` 可指定报告位置，已存在的目录不会覆盖。报告默认写入 `output/backup-stress-*`，不会读取日常书库或调用真实服务，也不加入默认全量回归。
+
+压力检查记录备份、预览、恢复和启动校验的耗时、检查点文件占用及进程 RSS 采样，并核对全部草稿、文件摘要、偏好、凭据排除、原书库保留和预览后篡改拒绝。样本直接生成到测试数据库，不包括导入解析、界面性能或断电耐久性；结果受本机磁盘和缓存影响，不作为速度承诺。`backend-library-backup.test.ts` 另在真实写入部分文件后注入 `ENOSPC`，验证备份及恢复清理临时文件、解除维护锁并可重试；快照失败与激活失败分别覆盖。
+
 明确交付 Windows 安装包时运行 `pnpm build:win --publish never`，在 `release/` 生成未签名的 Windows x64 NSIS 安装包，以及自动更新所需的 `latest.yml` 元数据；更新源在 `electron-builder.yml` 的 `publish` 中配置为 GitHub Releases。源码任务不默认打包；构建成功不代表解包程序、NSIS 安装/升级或真实服务质量已验收，这些层级分别记录。验证命令不授权提交、推送或发布。
 
 ## 持续集成与安装验收
@@ -149,6 +157,8 @@ pnpm test:e2e:run tests/e2e/about-panel.spec.ts
 [应用 CI](../.github/workflows/ci.yml) 在推送到 `main`、提交 Pull Request 或手动触发时运行：先在 Linux 执行 lint、typecheck、完整单元测试与应用构建，再在 Windows Server 2025 的 1920×1080 桌面执行完整 Electron E2E。CI 从 `package.json` 安装固定版本的 pnpm，按锁文件安装依赖，并安装 Electron 与 Calibre；桌面测试报告、截图及失败 trace 保留 7 天。测试使用隔离书库、合成资料与本机模拟服务，不调用真实付费接口；需要私有 PDF 的用例仍按原条件跳过。CI 检查源码构建与桌面行为，Windows 安装包、覆盖升级及真实服务质量仍需单独验收。
 
 [Windows 安装验收工作流](../.github/workflows/windows-package-validation.yml)可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.3.0 覆盖安装及已安装程序的专项回归。
+
+安装版专项回归包括退出保存失败后的恢复，以及书库备份往返、偏好恢复、凭据排除、原书库保留和损坏备份拒绝。`library-backup.spec.ts` 在打包应用中记录 `app.relaunch()` 请求，再由 Playwright 启动同一可执行文件，避免自动重启与测试启动同时占用资料目录；这覆盖重新打开后的数据状态，不替代操作系统自动拉起进程的人工验收。Linux 打包程序与 Wine 检查分别记录，不能计作原生 Windows 安装或升级通过。
 
 验收已安装版本时，将 `LLM_READER_E2E_EXECUTABLE` 指向安装目录中的 `LLM Reader.exe`，再运行 `pnpm test:e2e:run`。测试仍会为每个用例创建并清理隔离的临时用户数据目录，不会读写日常书库。
 

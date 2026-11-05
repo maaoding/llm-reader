@@ -23,6 +23,8 @@
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "scripts/rerank-*.ts",
+    "scripts/offline-eval-*.ts",
+    "scripts/backup-stress-*.ts",
     "scripts/document-structure-*.ts",
     "scripts/knowledge-hard-*.ts",
     "tests/e2e/**/*.ts",

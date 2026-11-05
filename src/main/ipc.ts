@@ -18,6 +18,10 @@ import { rerank } from './rerank-service'
 import { searchWeb, WEB_SEARCH_TIMEOUT_MS } from './web-search-service'
 import { embed, type SemanticIndexService } from './semantic-index'
 import type { DocumentProcessingService } from './document-processing'
+import type { AppDatabase } from './database'
+import type { LibraryStorage } from './library-storage'
+import { parseLibraryPreferences } from '@shared/library-preferences'
+import { busyBackup, invalidBackup } from './library-backup-files'
 import {
   workbenchSchema,
   createWorkbenchSchema,
@@ -57,6 +61,9 @@ import {
 } from './schemas'
 
 interface IpcDependencies {
+  database?: AppDatabase
+  storage?: LibraryStorage
+  restartAfterRestore?: () => void
   window: BrowserWindow
   library: LibraryService
   bookImporter: BookImportCoordinator
@@ -75,6 +82,9 @@ interface IpcDependencies {
 }
 
 let bookImportDialogOpen = false
+const activeCalls = new WeakMap<IpcDependencies, Set<symbol>>()
+const storageExempt = new Set<string>([IPC_CHANNELS.windowMinimize, IPC_CHANNELS.windowToggleMaximize,
+  IPC_CHANNELS.windowIsMaximized, IPC_CHANNELS.windowClose, IPC_CHANNELS.appCloseReady])
 
 function trustedSender(event: IpcMainInvokeEvent, dependencies: IpcDependencies): boolean {
   if (event.sender.id !== dependencies.window.webContents.id) return false
@@ -120,7 +130,12 @@ function handle(
       throw new Error(`[UNTRUSTED_SENDER] ${copy('error.untrustedSender')}`)
     }
     try {
-      return await callback(event, ...values)
+      if (dependencies.storage?.locked && !storageExempt.has(channel)) throw busyBackup()
+      const active = activeCalls.get(dependencies) ?? new Set<symbol>()
+      activeCalls.set(dependencies, active)
+      const call = Symbol(channel)
+      active.add(call)
+      try { return await callback(event, ...values) } finally { active.delete(call) }
     } catch (error) {
       throw safeIpcError(error)
     }
@@ -128,6 +143,46 @@ function handle(
 }
 
 export function registerIpcHandlers(dependencies: IpcDependencies): void {
+  const storageBusy = (): boolean => Boolean(
+    (activeCalls.get(dependencies)?.size ?? 0) > 1 || dependencies.bookImporter.isBusy() ||
+    dependencies.llm.isBusy || dependencies.analysis?.isBusy || dependencies.semantic?.isBusy || dependencies.documents?.isBusy
+  )
+  const storage = () => {
+    if (!dependencies.storage || !dependencies.database) throw invalidBackup()
+    return { service: dependencies.storage, database: dependencies.database }
+  }
+  const preferences = (value: unknown) => {
+    try { return parseLibraryPreferences(value) }
+    catch { throw new AppError('INVALID_INPUT', copy('error.invalidInput')) }
+  }
+  handle(IPC_CHANNELS.backupCreate, dependencies, async (_event, value) => {
+    const input = preferences(value)
+    const { service, database } = storage()
+    return service.exclusive(storageBusy, async () => {
+      const chosen = await dialog.showOpenDialog(dependencies.window, { title: copy('backup.chooseDestination'), properties: ['openDirectory', 'createDirectory'] })
+      if (chosen.canceled || !chosen.filePaths[0]) return null
+      return service.create(database, chosen.filePaths[0], input, app.getVersion())
+    })
+  })
+  handle(IPC_CHANNELS.backupPreview, dependencies, async () => {
+    const { service } = storage()
+    return service.exclusive(storageBusy, async () => {
+      const chosen = await dialog.showOpenDialog(dependencies.window, { title: copy('backup.chooseSource'), properties: ['openDirectory'] })
+      return chosen.canceled || !chosen.filePaths[0] ? null : service.inspect(chosen.filePaths[0])
+    })
+  })
+  handle(IPC_CHANNELS.backupRestore, dependencies, async (_event, value) => {
+    const input = parse(z.object({ token: z.uuid(), preferences: z.unknown() }).strict(), value)
+    const values = preferences(input.preferences)
+    const { service } = storage()
+    if (!dependencies.restartAfterRestore) throw invalidBackup()
+    await service.exclusive(storageBusy, () => service.restore(input.token, values))
+    // Keep writes blocked while the IPC reply reaches the renderer and Electron restarts.
+    service.locked = true
+    dependencies.restartAfterRestore()
+  })
+  handle(IPC_CHANNELS.backupPreferences, dependencies, () => dependencies.storage?.pendingPreferences ?? null)
+  handle(IPC_CHANNELS.backupPreferencesApplied, dependencies, (_event, value) => storage().service.acknowledgePreferences(parse(z.uuid(), value)))
   handle(IPC_CHANNELS.webSourceOpen, dependencies, async (_event, value) => {
     const input = parse(webSourceOpenSchema, value)
     if (!dependencies.library.hasRecordedWebSource(input.bookId, input.url)) throw new AppError('INVALID_INPUT', copy('webSearch.openDenied'))

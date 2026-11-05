@@ -3,7 +3,7 @@ import { createServer } from 'vite'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, resolve: { alias: { '@shared': resolve('src/shared') } } })
+const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false, watch: null }, resolve: { alias: { '@shared': resolve('src/shared') } } })
 try {
   const { runDocumentStructureEvaluation } = await server.ssrLoadModule('/scripts/document-structure-eval-runner.ts')
   const report = await runDocumentStructureEvaluation()

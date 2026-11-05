@@ -8,6 +8,27 @@ import { copyEvaluationProfile, readEvaluationProfile } from '../../scripts/real
 import { evaluationCases, evidence, measureAnswer } from '../../scripts/book-context-fixture.mjs'
 
 describe('real book evaluation preparation', () => {
+  it('reads the active restored library and never falls back to the previous credentials', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'reader-restored-eval-'))
+    const current = 'restored-00000000-0000-4000-8000-000000000001'
+    try {
+      for (const [directory, id] of [[root, 'old'], [join(root, current), 'new']]) {
+        await mkdir(join(directory, 'provider-keys'), { recursive: true })
+        const database = new AppDatabase(join(directory, 'reader.sqlite3'))
+        database.createProviderProfile({ id, name: id, base_url: 'http://127.0.0.1', model: id, compatibility: 'auto', is_active: 1, created_at: '1', updated_at: '1' })
+        database.close()
+        await writeFile(join(directory, 'provider-keys', `${id}.bin`), `encrypted-test-${id}`)
+      }
+      await writeFile(join(root, 'Local State'), '{}')
+      await writeFile(join(root, 'library-state.json'), JSON.stringify({ version: 1, current }))
+      expect(readEvaluationProfile(root).profile.id).toBe('new')
+      await writeFile(join(root, 'library-state.json'), JSON.stringify({ version: 1, current, pending: { token: 'unconfirmed' } }))
+      expect(() => readEvaluationProfile(root)).toThrow('incomplete')
+      await writeFile(join(root, 'library-state.json'), JSON.stringify({ version: 1, current: '../outside' }))
+      expect(() => readEvaluationProfile(root)).toThrow('unsupported')
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
   it('copies only the selected encrypted profile and refuses to overwrite existing settings', async () => {
     const root = await mkdtemp(join(tmpdir(), 'llm-reader-eval-profile-'))
     expect(dirname(root)).toBe(resolve(tmpdir()))

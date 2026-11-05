@@ -2,6 +2,12 @@ import copySource from './copy.md?raw'
 import copyEnSource from './copy.en.md?raw'
 
 export const COPY_KEYS = [
+  'backup.title', 'backup.hint', 'backup.savedOnly', 'backup.saveSettings',
+  'backup.create', 'backup.choose', 'backup.chooseDestination', 'backup.chooseSource',
+  'backup.created', 'backup.preview', 'backup.summary', 'backup.restoreHint',
+  'backup.restore', 'backup.confirmRestore', 'backup.restarting', 'backup.working',
+  'backup.failed', 'backup.busy', 'backup.invalid', 'backup.destination', 'backup.writeFailed',
+  'backup.saveFailed', 'backup.rolledBack', 'backup.preferencesFailed', 'backup.retryStartup',
   'reader.markdownFallback',
   'settings.textReadingMode',
   'settings.textModeAuto',
@@ -989,6 +995,8 @@ export type CopyKey = (typeof COPY_KEYS)[number]
 export type CopyValues = Readonly<Record<string, string | number>>
 
 export const COPY_PLACEHOLDERS = {
+  'backup.created': ['name'],
+  'backup.summary': ['date', 'books', 'highlights', 'insights', 'sessions', 'workbenches'],
   'persona.trigger': ['name'],
   'persona.copyName': ['name'],
   'vision.previewPageRange': ['count'],

@@ -9,6 +9,11 @@ import {
 } from '@shared/contracts'
 
 export const readerApi: ReaderApi = {
+  createLibraryBackup: (preferences) => ipcRenderer.invoke(IPC_CHANNELS.backupCreate, preferences),
+  previewLibraryBackup: () => ipcRenderer.invoke(IPC_CHANNELS.backupPreview),
+  restoreLibraryBackup: (input) => ipcRenderer.invoke(IPC_CHANNELS.backupRestore, input),
+  getRestoredPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.backupPreferences),
+  acknowledgeRestoredPreferences: (token) => ipcRenderer.invoke(IPC_CHANNELS.backupPreferencesApplied, token),
   listWorkbenches: () => ipcRenderer.invoke(IPC_CHANNELS.workbenchesList),
   createWorkbench: (input) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesCreate, input),
   saveWorkbench: (input) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesSave, input),

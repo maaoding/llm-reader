@@ -14,10 +14,11 @@ import { createDefaultAssistantActionSettings, MAX_ASSISTANT_ACTION_LABEL_LENGTH
 import { DEFAULT_READING_PREFERENCES, type PaperThemePreference, type ReadingPreferences, type ReadingTextAlign } from './readers/types'
 import { readableError } from './readable-error'
 import { useDialogFocus } from './use-dialog-focus'
+import { LibraryBackupSettings } from './LibraryBackupSettings'
 
 export type ThemePreference = 'light' | 'system' | 'dark'
 export type InterfaceScale = 90 | 100 | 110 | 125
-export type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'persona' | 'model' | 'knowledge' | 'about'
+export type SettingsSectionId = 'appearance' | 'reading' | 'assistant' | 'persona' | 'model' | 'knowledge' | 'backup' | 'about'
 
 const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; labelKey: CopyKey; ariaLabelKey: CopyKey }> = [
   { value: 'light', labelKey: 'settings.themeLight', ariaLabelKey: 'settings.themeLightAria' },
@@ -407,6 +408,7 @@ export function SettingsModal({
   onAssistantActionsChange,
   onPersonaSettingsChange,
   onWebSearchChange,
+  runStorageOperation,
   pushToast
 }: {
   initialOverview: ProviderOverview
@@ -431,6 +433,7 @@ export function SettingsModal({
   onAssistantActionsChange: (settings: AssistantActionSettings) => void
   onPersonaSettingsChange: (settings: PersonaSettings) => boolean
   onWebSearchChange?: (enabled: boolean) => void
+  runStorageOperation?: (operation: () => Promise<void>) => Promise<void>
   pushToast: (message: string, tone?: 'success' | 'error' | 'neutral') => void
 }): ReactNode {
   const initiallySelected = initialOverview.profiles.find((profile) => profile.id === initialOverview.activeProfileId)
@@ -586,6 +589,7 @@ export function SettingsModal({
     { id: 'persona', label: copy('persona.title'), icon: <Sparkles size={14} /> },
     { id: 'model', label: copy('settings.modelTitle'), icon: <Cpu size={14} /> },
     { id: 'knowledge', label: copy('knowledge.title'), icon: <BookOpen size={14} /> },
+    { id: 'backup', label: copy('backup.title'), icon: <Save size={14} /> },
     { id: 'about', label: copy('about.title'), icon: <Info size={14} /> }
   ]
 
@@ -797,6 +801,9 @@ export function SettingsModal({
             ))}
           </nav>
           <div className="settings-panel" ref={panelRef}>
+            {activeSection === 'backup' && <LibraryBackupSettings
+              run={runStorageOperation ?? (async () => { throw new Error(copy('backup.failed')) })}
+              disabled={!runStorageOperation || dirty || knowledgeDirty || personaDirty || busy !== null} />}
             {activeSection === 'appearance' && (
               <section className="settings-section" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
                 <h3 id="appearance-settings-title">{copy('settings.appearanceTitle')}</h3>
