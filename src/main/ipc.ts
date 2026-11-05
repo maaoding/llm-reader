@@ -83,8 +83,10 @@ interface IpcDependencies {
 
 let bookImportDialogOpen = false
 const activeCalls = new WeakMap<IpcDependencies, Set<symbol>>()
+// Window controls and font enumeration do not access the library. A slow
+// Windows font scan must not prevent a backup or be blocked by maintenance.
 const storageExempt = new Set<string>([IPC_CHANNELS.windowMinimize, IPC_CHANNELS.windowToggleMaximize,
-  IPC_CHANNELS.windowIsMaximized, IPC_CHANNELS.windowClose, IPC_CHANNELS.appCloseReady])
+  IPC_CHANNELS.windowIsMaximized, IPC_CHANNELS.windowClose, IPC_CHANNELS.appCloseReady, IPC_CHANNELS.fontsList])
 
 function trustedSender(event: IpcMainInvokeEvent, dependencies: IpcDependencies): boolean {
   if (event.sender.id !== dependencies.window.webContents.id) return false
@@ -130,11 +132,12 @@ function handle(
       throw new Error(`[UNTRUSTED_SENDER] ${copy('error.untrustedSender')}`)
     }
     try {
-      if (dependencies.storage?.locked && !storageExempt.has(channel)) throw busyBackup()
+      const usesLibrary = !storageExempt.has(channel)
+      if (dependencies.storage?.locked && usesLibrary) throw busyBackup()
       const active = activeCalls.get(dependencies) ?? new Set<symbol>()
       activeCalls.set(dependencies, active)
       const call = Symbol(channel)
-      active.add(call)
+      if (usesLibrary) active.add(call)
       try { return await callback(event, ...values) } finally { active.delete(call) }
     } catch (error) {
       throw safeIpcError(error)

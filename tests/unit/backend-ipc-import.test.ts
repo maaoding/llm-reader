@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { IPC_CHANNELS } from '../../src/shared/contracts'
 import { pdfImageRegionAnchor } from '../../src/shared/pdf-image-region'
 
@@ -17,6 +19,8 @@ const electronMocks = vi.hoisted(() => ({
   installUpdate: vi.fn(),
   getVersion: vi.fn(() => '0.3.0')
 }))
+const fonts = vi.hoisted(() => ({ list: vi.fn() }))
+vi.mock('../../src/main/fonts', () => ({ listSystemFonts: fonts.list }))
 
 vi.mock('electron', () => ({
   app: { getVersion: electronMocks.getVersion },
@@ -30,6 +34,7 @@ vi.mock('electron', () => ({
 }))
 
 import { registerIpcHandlers } from '../../src/main/ipc'
+import { LibraryStorage } from '../../src/main/library-storage'
 
 function trustedEvent(): unknown {
   const frame = { url: 'llm-reader://app/index.html' }
@@ -65,6 +70,46 @@ function register(bookImporter: {
 }
 
 describe('book import IPC', () => {
+  it('allows backup while settings enumerate fonts and allows font queries during maintenance', async () => {
+    const storage = await LibraryStorage.open(join(tmpdir(), `reader-ipc-${randomUUID()}`))
+    register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() }, { storage, database: {} })
+    let finishFonts!: (value: string[]) => void
+    const fontResult = new Promise<string[]>(resolve => { finishFonts = resolve })
+    fonts.list.mockReturnValue(fontResult)
+    let cancelPicker!: (value: { canceled: boolean; filePaths: string[] }) => void
+    electronMocks.showOpenDialog.mockReturnValue(new Promise(resolve => { cancelPicker = resolve }))
+    const fontQuery = electronMocks.handlers.get(IPC_CHANNELS.fontsList)!(trustedEvent())
+    const backup = electronMocks.handlers.get(IPC_CHANNELS.backupCreate)!(trustedEvent(), {})
+    try {
+      expect(electronMocks.showOpenDialog).toHaveBeenCalledOnce()
+      expect(storage.locked).toBe(true)
+      const secondFontQuery = electronMocks.handlers.get(IPC_CHANNELS.fontsList)!(trustedEvent())
+      finishFonts(['Synthetic font'])
+      await expect(fontQuery).resolves.toEqual(['Synthetic font'])
+      await expect(secondFontQuery).resolves.toEqual(['Synthetic font'])
+      cancelPicker({ canceled: true, filePaths: [] })
+      await expect(backup).resolves.toBeNull()
+      expect(storage.locked).toBe(false)
+    } finally {
+      finishFonts([]); cancelPicker({ canceled: true, filePaths: [] })
+      await Promise.allSettled([fontQuery, backup])
+    }
+  })
+
+  it('still refuses backup while a library import IPC is pending even before its busy flag is set', async () => {
+    const storage = await LibraryStorage.open(join(tmpdir(), `reader-ipc-${randomUUID()}`))
+    let finish!: () => void
+    const importing = new Promise<void>(resolve => { finish = resolve })
+    register({ isBusy: () => false, importPaths: () => importing, cancel: vi.fn() }, { storage, database: {} })
+    const operation = electronMocks.handlers.get(IPC_CHANNELS.booksImportDropped)!(trustedEvent(), ['/tmp/sample.txt'])
+    try {
+      await expect(electronMocks.handlers.get(IPC_CHANNELS.backupCreate)!(trustedEvent(), {})).rejects.toThrow('BACKUP_BUSY')
+      expect(electronMocks.showOpenDialog).not.toHaveBeenCalled()
+    } finally { finish(); await operation }
+    electronMocks.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] })
+    await expect(electronMocks.handlers.get(IPC_CHANNELS.backupCreate)!(trustedEvent(), {})).resolves.toBeNull()
+  })
+
   it('keeps backup IPC behind the trusted main-frame boundary', async () => {
     register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() }, { storage: { pendingPreferences: { token: 'private' } } })
     await expect(electronMocks.handlers.get(IPC_CHANNELS.backupPreferences)!({ sender: { id: 99 } })).rejects.toThrow('UNTRUSTED_SENDER')
@@ -110,6 +155,7 @@ describe('book import IPC', () => {
     electronMocks.respondToClose.mockReset()
     electronMocks.updatePhase.mockReset().mockReturnValue({ status: 'idle' })
     electronMocks.installUpdate.mockReset()
+    fonts.list.mockReset().mockResolvedValue([])
   })
 
   afterEach(() => { vi.useRealTimers() })
