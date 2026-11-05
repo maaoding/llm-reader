@@ -794,8 +794,22 @@ export class EpubReaderAdapter implements ReaderAdapter {
       if (nextWidth <= 0 || nextHeight <= 0 || (nextWidth === width && nextHeight === height)) return
       width = nextWidth
       height = nextHeight
+      // reportLocation runs on a later frame, so its cache can still point at the cover.
+      // currentLocation() also updates layout, which makes resize() skip resizing the
+      // iframe. Read the manager's visible range without that layout side effect.
+      const manager = (rendition as unknown as { manager?: {
+        isPaginated?: boolean; settings?: { axis?: string }
+        paginatedLocation?(): unknown; scrolledLocation?(): unknown
+      } }).manager
+      const visible = manager?.isPaginated && manager.settings?.axis === 'horizontal'
+        ? manager.paginatedLocation?.() : manager?.scrolledLocation?.()
+      // epub.js types describe a Location input, while located() accepts raw manager ranges.
+      const location = visible ? rendition.located(visible as Location) as unknown as Location : undefined
+      const anchor = location?.start?.cfi && isEpubCfi(location.start.cfi) ? location.start.cfi : undefined
       // epub.js accepts percentage sizes at runtime, as in renderTo; its resize types only list numbers.
-      ;(rendition as Rendition & { resize(width: string, height: string): void }).resize('100%', '100%')
+      const resizable = rendition as Rendition & { resize(width: string, height: string, epubcfi?: string): void }
+      if (anchor) resizable.resize('100%', '100%', anchor)
+      else resizable.resize('100%', '100%')
     }
     this.resizeObserver = new view.ResizeObserver(() => {
       if (this.rendition !== rendition || this.resizeFrame !== null) return

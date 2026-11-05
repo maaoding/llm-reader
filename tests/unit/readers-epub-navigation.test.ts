@@ -20,7 +20,8 @@ function mockBook(toc: Array<{ href: string; label: string }>, spineHref: string
   const rendition = {
     hooks: { content: { register: vi.fn() } },
     on: vi.fn((event: string, handler: (...values: unknown[]) => void) => handlers.set(event, handler)),
-    off: vi.fn(), display: vi.fn().mockResolvedValue(undefined), resize: vi.fn(), annotations: { remove: vi.fn() }
+    off: vi.fn(), display: vi.fn().mockResolvedValue(undefined), resize: vi.fn(), currentLocation: vi.fn(),
+    manager: { scrolledLocation: vi.fn() }, located: vi.fn(), annotations: { remove: vi.fn() }
   }
   const book = {
     ready: Promise.resolve(), renderTo: () => rendition,
@@ -38,6 +39,9 @@ function mockBook(toc: Array<{ href: string; label: string }>, spineHref: string
   mocks.epub.mockReturnValue(book)
   return {
     resize: rendition.resize,
+    currentLocation: rendition.currentLocation,
+    scrolledLocation: rendition.manager.scrolledLocation,
+    located: rendition.located,
     getSpineSection: book.spine.get,
     relocate: (href?: string, index = 0) => handlers.get('relocated')!({
       start: { cfi: 'epubcfi(/6/2!/4/1:0)', index, percentage: 0.5, href }
@@ -189,6 +193,29 @@ it('matches the old scan for fragments, percent encoding, malformed escapes and 
   }
   expect(toc).toEqual(original)
   expect(indexEpubChapters([]).size).toBe(0)
+})
+
+it('preserves the visible location when a resize precedes the queued relocation report', async () => {
+  let notify: () => void = () => undefined
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: () => void) { notify = callback }
+    disconnect = vi.fn()
+    observe = vi.fn()
+  })
+  const frames: FrameRequestCallback[] = []
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length })
+  const { host, resize, currentLocation, scrolledLocation, located, relocate } = await setup([], 'cover.xhtml', ['cover.xhtml', 'chapter.xhtml'])
+  relocate('cover.xhtml')
+  // epub.js reports location on a later animation frame; the displayed chapter is already newer.
+  const visible = [{ index: 1, mapping: { start: 'epubcfi(/6/4!/4/2/1:10)' } }]
+  scrolledLocation.mockReturnValue(visible)
+  located.mockReturnValue({ start: { cfi: 'epubcfi(/6/4!/4/2/1:10)' } })
+  Object.defineProperties(host, { clientWidth: { value: 800 }, clientHeight: { value: 600 } })
+  notify()
+  frames.splice(0).forEach((callback) => callback(0))
+  expect(resize).toHaveBeenCalledWith('100%', '100%', 'epubcfi(/6/4!/4/2/1:10)')
+  expect(located).toHaveBeenCalledWith(visible)
+  expect(currentLocation).not.toHaveBeenCalled()
 })
 
 it('coalesces host size changes and releases pending resize work when the book closes', async () => {

@@ -4,10 +4,69 @@ import {
   test,
   type ElectronApplication
 } from '@playwright/test'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import JSZip from 'jszip'
 import { createNestedEpubFixture } from './fixtures/nested-epub'
+import { createCoveredEpubFixture } from './fixtures/covered-epub'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
+
+for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark', 940, 600, 125]] as const) {
+  test(`keeps a chapter visible when closing its TOC immediately after leaving a cover (${theme})`, async () => {
+    const workspace = await createE2eWorkspace('llm-reader-cover-toc-resize-')
+    const fixture = join(workspace.root, 'cover-navigation.epub')
+    await createCoveredEpubFixture(fixture)
+    const zip = await JSZip.loadAsync(await readFile(fixture))
+    zip.file('OEBPS/content.opf', (await zip.file('OEBPS/content.opf')!.async('string'))
+      .replace('</manifest>', '<item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/></manifest>')
+      .replace('<spine>', '<spine><itemref idref="cover-page"/>'))
+    zip.file('OEBPS/cover.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><body><img src="images/cover.png" alt="合成封面" style="width:100%;height:1000px"/></body></html>')
+    zip.file('OEBPS/nav.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml#destination">目标章节</a></li></ol></nav></body></html>')
+    zip.file('OEBPS/chapter.xhtml', `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>目标章节</title></head><body><h1 id="destination">目标章节</h1>${Array.from({ length: 160 }, (_, i) => `<p id="p${i}">目标章节原文 ${i}。${'目录关闭与尺寸变化应保留当前正文位置。'.repeat(6)}</p>`).join('')}</body></html>`)
+    await writeFile(fixture, await zip.generateAsync({ type: 'nodebuffer' }))
+    let application: ElectronApplication | undefined
+    try {
+      const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+      application = launched.application
+      const { page } = launched
+      await resizeWorkspace(application, page, width, height)
+      await page.getByTestId('settings-button').click()
+      await page.getByTestId(`theme-${theme}`).click()
+      await page.getByTestId(`scale-${scale}`).click()
+      await page.getByTestId('settings-close').click()
+      await showLibrary(page)
+      await page.getByTestId('book-item').click()
+      await enterReading(page)
+      await expect(page.getByTestId('reader-host').frameLocator('iframe').first().getByAltText('合成封面')).toBeVisible()
+      await page.getByTestId('reader-contents-button').click()
+      await page.getByTestId('toc-item').click()
+      await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => [...host.querySelectorAll('iframe')]
+        .some((frame) => frame.contentDocument?.getElementById('destination')))).toBe(true)
+      await page.getByTestId('reader-contents-button').click()
+      await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
+        const container = host.querySelector<HTMLElement>('.epub-container')
+        // clientWidth excludes the EPUB's vertical scrollbar; compare outer bounds.
+        return container ? Math.abs(container.getBoundingClientRect().width - host.getBoundingClientRect().width) : Infinity
+      })).toBeLessThanOrEqual(2)
+      const paragraph = page.getByTestId('reader-host').frameLocator('.epub-view[ref="1"] iframe').locator('#p0')
+      await expect(paragraph).toBeInViewport()
+      await expect.poll(() => page.getByTestId('reader-host').evaluate((host) => {
+        const frame = host.querySelector<HTMLIFrameElement>('.epub-view[ref="1"] iframe')
+        return Boolean(frame?.contentDocument?.body && frame.contentDocument.body.getBoundingClientRect().width <= frame.clientWidth + 2)
+      })).toBe(true)
+      await paragraph.evaluate((element) => {
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        const selection = window.getSelection()!
+        selection.removeAllRanges(); selection.addRange(range)
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      })
+      await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+      await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '目标章节')
+      await page.screenshot({ path: test.info().outputPath(`cover-toc-${theme}.png`) })
+    } finally { await cleanupE2eWorkspace(application, workspace.root) }
+  })
+}
 
 function rgbChannels(value: string): [number, number, number] {
   const channels = value
