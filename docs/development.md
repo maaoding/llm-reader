@@ -158,7 +158,11 @@ pnpm test:e2e:run tests/e2e/about-panel.spec.ts
 
 [Windows 安装验收工作流](../.github/workflows/windows-package-validation.yml)可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.3.0 覆盖安装及已安装程序的专项回归。
 
-安装版专项回归包括退出保存失败后的恢复，以及书库备份往返、偏好恢复、凭据排除、原书库保留和损坏备份拒绝。`library-backup.spec.ts` 在打包应用中记录 `app.relaunch()` 请求，再由 Playwright 启动同一可执行文件，避免自动重启与测试启动同时占用资料目录；这覆盖重新打开后的数据状态，不替代操作系统自动拉起进程的人工验收。Linux 打包程序与 Wine 检查分别记录，不能计作原生 Windows 安装或升级通过。
+安装版专项回归包括退出保存失败后的恢复，以及书库备份往返、偏好恢复、凭据排除、原书库保留和损坏备份拒绝。`library-backup.spec.ts` 在打包应用中记录 `app.relaunch()` 请求，再由 Playwright 启动同一可执行文件，覆盖重新打开后的数据状态。
+
+安装验收脚本另调用 [validate-restore-relaunch.mjs](../scripts/validate-restore-relaunch.mjs) 检查真实自动重启：直接启动隔离安装目录的程序，通过本机调试端口操作界面，仅替代原生目录选择器，不改写 `app.relaunch()`，也不由测试脚本发起第二次启动。检查旧进程以 0 退出、新进程 PID 改变、可执行文件与资料目录一致，以及书籍、草稿、主题恢复和待恢复状态确认。调试连接须等新窗口加载完书库才检查运行时信息；结果写入 `package-validation.json` 的 `checks.restoreRelaunch`，截图随安装验收报告上传。清理仅匹配该隔离目录的可执行文件并删除自己的测试资料。
+
+该辅助检查可在 Linux 隔离打包程序上验证脚本，但 Windows 安装验收入口仍只接受 GitHub 托管的原生 Windows 执行器。Linux 打包程序与 Wine 检查分别记录，不能计作原生 Windows 安装或升级通过。
 
 验收已安装版本时，将 `LLM_READER_E2E_EXECUTABLE` 指向安装目录中的 `LLM Reader.exe`，再运行 `pnpm test:e2e:run`。测试仍会为每个用例创建并清理隔离的临时用户数据目录，不会读写日常书库。
 

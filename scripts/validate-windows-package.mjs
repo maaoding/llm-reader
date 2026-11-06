@@ -11,6 +11,7 @@ import { join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { gunzipSync } from 'node:zlib'
 import { _electron as electron, expect } from '@playwright/test'
+import { verifyRestoreRelaunch } from './validate-restore-relaunch.mjs'
 
 // NSIS also writes installation registration and shortcuts. Run only on a
 // disposable GitHub-hosted Windows runner, never on a daily-use machine.
@@ -302,6 +303,9 @@ try {
     providerSettings: true, encryptedSyntheticCredential: true, loopbackProbeAfterRestart: true
   }
   await closeApplication()
+  report.checks.restoreRelaunch = await verifyRestoreRelaunch({
+    executablePath, root: testRoot, fixturePath, screenshot: join(evidence, 'restore-relaunch.png')
+  })
   writeFileSync(join(evidence, 'installed-executable.txt'), `${executablePath}\n`)
   if (process.env.GITHUB_ENV) appendFileSync(process.env.GITHUB_ENV, `LLM_READER_E2E_EXECUTABLE=${executablePath}\n`)
   report.passed = true
@@ -333,4 +337,4 @@ try {
 
 if (failure) throw failure
 assert.equal(statSync(executablePath).isFile(), true)
-console.log(`Native clean installation and ${oldRelease.electron} → ${expectedElectron} upgrade verified; isolated data removed.`)
+console.log(`Native clean installation, ${oldRelease.electron} → ${expectedElectron} upgrade and automatic restore relaunch verified; isolated data removed.`)
