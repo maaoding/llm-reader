@@ -483,15 +483,17 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.programmaticScroll = true
     this.relocationReason = 'restore'
     const initialLocator = lastLocator && isEpubCfi(lastLocator) ? lastLocator : undefined
-    if (initialLocator) {
-      try {
-        await rendition.display(initialLocator)
-      } catch {
+    await this.enqueueNavigation(async () => {
+      if (initialLocator) {
+        try {
+          await rendition.display(initialLocator)
+        } catch {
+          await rendition.display()
+        }
+      } else {
         await rendition.display()
       }
-    } else {
-      await rendition.display()
-    }
+    })
     this.scheduleProgrammaticScrollRelease()
 
     return {
@@ -787,9 +789,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
     const view = this.host.ownerDocument.defaultView
     if (!view?.ResizeObserver) return
     let width = this.host.clientWidth, height = this.host.clientHeight
-    const resize = (): void => {
+    const resize = async (): Promise<void> => {
       if (this.rendition !== rendition) return
-      this.resizeFrame = null
       const nextWidth = this.host.clientWidth, nextHeight = this.host.clientHeight
       if (nextWidth <= 0 || nextHeight <= 0 || (nextWidth === width && nextHeight === height)) return
       width = nextWidth
@@ -799,6 +800,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       // iframe. Read the manager's visible range without that layout side effect.
       const manager = (rendition as unknown as { manager?: {
         isPaginated?: boolean; settings?: { axis?: string }
+        _stageSize?: { width: number; height: number }
         paginatedLocation?(): unknown; scrolledLocation?(): unknown
       } }).manager
       const visible = manager?.isPaginated && manager.settings?.axis === 'horizontal'
@@ -806,15 +808,31 @@ export class EpubReaderAdapter implements ReaderAdapter {
       // epub.js types describe a Location input, while located() accepts raw manager ranges.
       const location = visible ? rendition.located(visible as Location) as unknown as Location : undefined
       const anchor = location?.start?.cfi && isEpubCfi(location.start.cfi) ? location.start.cfi : undefined
+      // A queued location report can update this cache without resizing the views.
+      // The host really changed size, so force resize() to update its iframes too.
+      if (manager) manager._stageSize = undefined
       // epub.js accepts percentage sizes at runtime, as in renderTo; its resize types only list numbers.
       const resizable = rendition as Rendition & { resize(width: string, height: string, epubcfi?: string): void }
       if (anchor) resizable.resize('100%', '100%', anchor)
       else resizable.resize('100%', '100%')
+      // resize() queues a display to restore the anchor. A second display() would
+      // resolve that work early in epub.js 0.3.93 and let both mutate its views.
+      // Keep navigation waiting until the queued restoration has finished.
+      await rendition.q.enqueue(() => undefined)
+    }
+    const enqueueResize = (): void => {
+      if (this.rendition !== rendition) return
+      this.resizeFrame = null
+      void this.enqueueNavigation(resize).catch(() => {
+        if (this.rendition === rendition) {
+          this.callbacks.onNotice?.({ message: copy('reader.epubAnchorFailed'), tone: 'error' })
+        }
+      })
     }
     this.resizeObserver = new view.ResizeObserver(() => {
       if (this.rendition !== rendition || this.resizeFrame !== null) return
-      if (typeof view.requestAnimationFrame === 'function') this.resizeFrame = view.requestAnimationFrame(resize)
-      else resize()
+      if (typeof view.requestAnimationFrame === 'function') this.resizeFrame = view.requestAnimationFrame(enqueueResize)
+      else enqueueResize()
     })
     this.resizeObserver.observe(this.host)
   }
@@ -1299,6 +1317,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private resetDocument(): void {
     this.paragraphIndex.clear()
     this.searchRevision += 1
+    this.navigationQueue = Promise.resolve()
     if (this.rendition) {
       this.rendition.off('selected', this.handleSelected)
       this.rendition.off('relocated', this.handleRelocated)

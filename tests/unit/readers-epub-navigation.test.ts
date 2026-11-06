@@ -21,7 +21,9 @@ function mockBook(toc: Array<{ href: string; label: string }>, spineHref: string
     hooks: { content: { register: vi.fn() } },
     on: vi.fn((event: string, handler: (...values: unknown[]) => void) => handlers.set(event, handler)),
     off: vi.fn(), display: vi.fn().mockResolvedValue(undefined), resize: vi.fn(), currentLocation: vi.fn(),
-    manager: { scrolledLocation: vi.fn() }, located: vi.fn(), annotations: { remove: vi.fn() }
+    q: { enqueue: vi.fn(async (task: () => void) => task()) },
+    manager: { scrolledLocation: vi.fn(), _stageSize: undefined as { width: number; height: number } | undefined },
+    located: vi.fn(), annotations: { remove: vi.fn() }
   }
   const book = {
     ready: Promise.resolve(), renderTo: () => rendition,
@@ -38,6 +40,9 @@ function mockBook(toc: Array<{ href: string; label: string }>, spineHref: string
   }
   mocks.epub.mockReturnValue(book)
   return {
+    display: rendition.display,
+    enqueue: rendition.q.enqueue,
+    manager: rendition.manager,
     resize: rendition.resize,
     currentLocation: rendition.currentLocation,
     scrolledLocation: rendition.manager.scrolledLocation,
@@ -195,7 +200,13 @@ it('matches the old scan for fragments, percent encoding, malformed escapes and 
   expect(indexEpubChapters([]).size).toBe(0)
 })
 
-it('preserves the visible location when a resize precedes the queued relocation report', async () => {
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+function observeResize() {
   let notify: () => void = () => undefined
   vi.stubGlobal('ResizeObserver', class {
     constructor(callback: () => void) { notify = callback }
@@ -204,15 +215,80 @@ it('preserves the visible location when a resize precedes the queued relocation 
   })
   const frames: FrameRequestCallback[] = []
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length })
-  const { host, resize, currentLocation, scrolledLocation, located, relocate } = await setup([], 'cover.xhtml', ['cover.xhtml', 'chapter.xhtml'])
+  return async () => {
+    notify()
+    frames.splice(0).forEach((callback) => callback(0))
+    // Drain the adapter's promise queue without advancing a pending display.
+    for (let turn = 0; turn < 10; turn += 1) await Promise.resolve()
+  }
+}
+
+it('waits for the resize restoration before starting a chapter navigation', async () => {
+  const resizeHost = observeResize()
+  const { adapter, host, display, resize, enqueue } = await setup([{ href: 'next.xhtml', label: '下一章' }], 'chapter.xhtml', ['chapter.xhtml', 'next.xhtml'])
+  const restoration = deferred()
+  enqueue.mockImplementationOnce(() => restoration.promise)
+  Object.defineProperties(host, { clientWidth: { value: 800 }, clientHeight: { value: 600 } })
+  await resizeHost()
+  expect(resize).toHaveBeenCalledOnce()
+  display.mockClear()
+  const navigation = adapter.goTo('next.xhtml')
+  await Promise.resolve()
+  expect(display).not.toHaveBeenCalled()
+  restoration.resolve()
+  await navigation
+  expect(display).toHaveBeenCalledExactlyOnceWith('next.xhtml')
+})
+
+it('waits for chapter navigation before resizing and captures its new visible location', async () => {
+  const resizeHost = observeResize()
+  const { adapter, host, display, resize, scrolledLocation, located } = await setup([{ href: 'next.xhtml', label: '下一章' }], 'chapter.xhtml', ['chapter.xhtml', 'next.xhtml'])
+  const chapter = deferred()
+  display.mockImplementationOnce(() => chapter.promise)
+  const navigation = adapter.goTo('next.xhtml')
+  await Promise.resolve()
+  Object.defineProperties(host, { clientWidth: { value: 800 }, clientHeight: { value: 600 } })
+  await resizeHost()
+  expect(resize).not.toHaveBeenCalled()
+  expect(scrolledLocation).not.toHaveBeenCalled()
+  scrolledLocation.mockReturnValue([{ index: 1 }])
+  located.mockReturnValue({ start: { cfi: 'epubcfi(/6/4!/4/2/1:0)' } })
+  chapter.resolve()
+  await navigation
+  await resizeHost()
+  expect(resize).toHaveBeenCalledExactlyOnceWith('100%', '100%', 'epubcfi(/6/4!/4/2/1:0)')
+})
+
+it('opens a replacement book without waiting for the previous resize restoration', async () => {
+  const resizeHost = observeResize()
+  const { adapter, host, display, enqueue } = await setup([], 'chapter.xhtml')
+  const restoration = deferred()
+  enqueue.mockImplementationOnce(() => restoration.promise)
+  Object.defineProperties(host, { clientWidth: { value: 800 }, clientHeight: { value: 600 } })
+  await resizeHost()
+  display.mockClear()
+  const staleNavigation = adapter.goTo('chapter.xhtml')
+  const replacement = mockBook([], 'replacement.xhtml')
+  await adapter.open(new Uint8Array([2]))
+  expect(replacement.display).toHaveBeenCalledExactlyOnceWith()
+  restoration.resolve()
+  await staleNavigation
+  expect(display).not.toHaveBeenCalled()
+})
+
+it('preserves the visible location when a resize precedes the queued relocation report', async () => {
+  const resizeHost = observeResize()
+  const { host, resize, manager, currentLocation, scrolledLocation, located, relocate } = await setup([], 'cover.xhtml', ['cover.xhtml', 'chapter.xhtml'])
   relocate('cover.xhtml')
   // epub.js reports location on a later animation frame; the displayed chapter is already newer.
   const visible = [{ index: 1, mapping: { start: 'epubcfi(/6/4!/4/2/1:10)' } }]
   scrolledLocation.mockReturnValue(visible)
   located.mockReturnValue({ start: { cfi: 'epubcfi(/6/4!/4/2/1:10)' } })
   Object.defineProperties(host, { clientWidth: { value: 800 }, clientHeight: { value: 600 } })
-  notify()
-  frames.splice(0).forEach((callback) => callback(0))
+  // A location report already refreshed the stage cache, but the iframe is still narrow.
+  manager._stageSize = { width: 800, height: 600 }
+  resize.mockImplementation(() => expect(manager._stageSize).toBeUndefined())
+  await resizeHost()
   expect(resize).toHaveBeenCalledWith('100%', '100%', 'epubcfi(/6/4!/4/2/1:10)')
   expect(located).toHaveBeenCalledWith(visible)
   expect(currentLocation).not.toHaveBeenCalled()
@@ -229,22 +305,25 @@ it('coalesces host size changes and releases pending resize work when the book c
   let frameId = 0
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.set(++frameId, callback); return frameId })
   const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => { frames.delete(id) })
-  const flush = () => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((callback) => callback(0)) }
+  const flush = async () => {
+    const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((callback) => callback(0))
+    for (let turn = 0; turn < 10; turn += 1) await Promise.resolve()
+  }
   const { adapter, host, resize } = await setup([], 'chapter.xhtml')
   let width = 480, height = 600
   Object.defineProperties(host, { clientWidth: { get: () => width }, clientHeight: { get: () => height } })
   observers[0].notify(); observers[0].notify()
   expect(frames.size).toBe(1)
   expect(resize).not.toHaveBeenCalled()
-  flush()
+  await flush()
   expect(resize).toHaveBeenCalledExactlyOnceWith('100%', '100%')
-  observers[0].notify(); flush()
+  observers[0].notify(); await flush()
   expect(resize).toHaveBeenCalledTimes(1)
   width = 0; height = 0
-  observers[0].notify(); flush()
+  observers[0].notify(); await flush()
   expect(resize).toHaveBeenCalledTimes(1)
   width = 620; height = 400
-  observers[0].notify(); flush()
+  observers[0].notify(); await flush()
   expect(resize).toHaveBeenCalledTimes(2)
   width = 700
   observers[0].notify()
@@ -258,7 +337,7 @@ it('coalesces host size changes and releases pending resize work when the book c
   observers[1].notify()
   staleFrame(0); observers[0].notify()
   expect(frames.size).toBe(1)
-  flush()
+  await flush()
   expect(resize).toHaveBeenCalledTimes(2)
   expect(replacement.resize).toHaveBeenCalledExactlyOnceWith('100%', '100%')
   width = 900
