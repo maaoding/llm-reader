@@ -6,6 +6,7 @@ import { normalizeReaderSearchQuery } from '@shared/reader-search'
 import { validateDocument } from '@shared/document-structure'
 import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR_MAX_PAGES } from '@shared/vision-ocr'
 import { validPdfImageRegion, PDF_REGION_IMAGE_MAX_DATA_URL, PDF_REGION_IMAGE_PATTERN } from '@shared/pdf-image-region'
+import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH } from '@shared/contracts'
 
 const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
@@ -16,6 +17,11 @@ const personaSelectionSchema = z.object({
 }).strict()
 
 export const clipboardTextSchema = z.string().max(OCR_MAX_PAGE_CHARACTERS)
+export const conversationMarkdownCopySchema = z.string().min(1).max(CONVERSATION_COPY_MAX_LENGTH).refine((value) => !value.includes('\0'))
+export const conversationMarkdownExportSchema = z.object({
+  markdown: z.string().min(1).max(CONVERSATION_EXPORT_MAX_LENGTH),
+  title: z.string().min(1).max(CONVERSATION_EXPORT_MAX_LENGTH)
+}).strict()
 export const uiLanguageSchema = z.enum(['zh', 'en'])
 export const bookOcrPageSchema = z.object({ bookId: idSchema, pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES) }).strict()
 export const bookIdSchema = idSchema

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { IPC_CHANNELS } from '../../src/shared/contracts'
+import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH, IPC_CHANNELS } from '../../src/shared/contracts'
 import { pdfImageRegionAnchor } from '../../src/shared/pdf-image-region'
 
 type InvokeHandler = (event: unknown, ...values: unknown[]) => Promise<unknown>
@@ -11,6 +11,7 @@ const electronMocks = vi.hoisted(() => ({
   handlers: new Map<string, InvokeHandler>(),
   removeHandler: vi.fn(),
   showOpenDialog: vi.fn(),
+  showSaveDialog: vi.fn(),
   writeText: vi.fn(),
   openExternal: vi.fn(),
   requestClose: vi.fn(),
@@ -20,13 +21,15 @@ const electronMocks = vi.hoisted(() => ({
   getVersion: vi.fn(() => '0.3.0')
 }))
 const fonts = vi.hoisted(() => ({ list: vi.fn() }))
+const conversationFile = vi.hoisted(() => ({ defaultName: vi.fn(), write: vi.fn() }))
+vi.mock('../../src/main/conversation-export', () => ({ conversationExportDefaultName: conversationFile.defaultName, writeConversationMarkdown: conversationFile.write }))
 vi.mock('../../src/main/fonts', () => ({ listSystemFonts: fonts.list }))
 
 vi.mock('electron', () => ({
   app: { getVersion: electronMocks.getVersion },
   clipboard: { writeText: electronMocks.writeText },
   shell: { openExternal: electronMocks.openExternal },
-  dialog: { showOpenDialog: electronMocks.showOpenDialog, showSaveDialog: vi.fn() },
+  dialog: { showOpenDialog: electronMocks.showOpenDialog, showSaveDialog: electronMocks.showSaveDialog },
   ipcMain: {
     removeHandler: electronMocks.removeHandler,
     handle: vi.fn((channel: string, handler: InvokeHandler) => electronMocks.handlers.set(channel, handler))
@@ -150,6 +153,9 @@ describe('book import IPC', () => {
     electronMocks.handlers.clear()
     electronMocks.removeHandler.mockClear()
     electronMocks.showOpenDialog.mockReset()
+    electronMocks.showSaveDialog.mockReset().mockResolvedValue({ canceled: true })
+    conversationFile.defaultName.mockReset().mockReturnValue('conversation.md')
+    conversationFile.write.mockReset().mockResolvedValue('conversation.md')
     electronMocks.writeText.mockReset()
     electronMocks.requestClose.mockReset()
     electronMocks.respondToClose.mockReset()
@@ -198,6 +204,39 @@ describe('book import IPC', () => {
     electronMocks.installUpdate.mockReturnValue(false)
     await electronMocks.handlers.get(IPC_CHANNELS.appUpdateInstall)!(trustedEvent())
     expect(electronMocks.requestClose.mock.calls[0][0]()).toBe(false)
+  })
+
+  it('validates conversation copy independently of OCR and rejects forged senders', async () => {
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.conversationMarkdownCopy)!
+    await handler(trustedEvent(), 'x'.repeat(CONVERSATION_COPY_MAX_LENGTH))
+    expect(electronMocks.writeText).toHaveBeenCalledOnce()
+    await expect(handler(trustedEvent(), 'x'.repeat(CONVERSATION_COPY_MAX_LENGTH + 1))).rejects.toThrow('[INVALID_INPUT]')
+    await expect(handler(trustedEvent(), 'before\0after')).rejects.toThrow('[INVALID_INPUT]')
+    await expect(handler(trustedEvent(), { markdown: 'forged' })).rejects.toThrow('[INVALID_INPUT]')
+    const frame = { url: 'llm-reader://app/index.html' }
+    await expect(handler({ sender: { id: 99, mainFrame: frame }, senderFrame: frame }, 'forged')).rejects.toThrow('UNTRUSTED_SENDER')
+    await expect(handler({ ...trustedEvent() as object, senderFrame: { url: 'llm-reader://app/book.html' } }, 'forged')).rejects.toThrow('UNTRUSTED_SENDER')
+    expect(electronMocks.writeText).toHaveBeenCalledOnce()
+  })
+
+  it('exports only validated Markdown to a native-dialog destination and treats cancellation neutrally', async () => {
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.conversationMarkdownExport)!
+    const input = { title: '当前会话', markdown: 'x'.repeat(CONVERSATION_EXPORT_MAX_LENGTH) }
+    await expect(handler(trustedEvent(), input)).resolves.toEqual({ canceled: true })
+    expect(conversationFile.write).not.toHaveBeenCalled()
+    electronMocks.showSaveDialog.mockResolvedValue({ canceled: false, filePath: 'C:/chosen/conversation.md' })
+    await expect(handler(trustedEvent(), input)).resolves.toEqual({ canceled: false, fileName: 'conversation.md' })
+    expect(conversationFile.write).toHaveBeenCalledExactlyOnceWith('C:/chosen/conversation.md', input.markdown)
+    const dialogs = electronMocks.showSaveDialog.mock.calls.length
+    await expect(handler(trustedEvent(), { ...input, markdown: 'x'.repeat(CONVERSATION_EXPORT_MAX_LENGTH + 1) })).rejects.toThrow('INVALID_INPUT')
+    await expect(handler(trustedEvent(), { ...input, filePath: 'C:/forged.md' })).rejects.toThrow('INVALID_INPUT')
+    await expect(handler({ sender: { id: 99 } }, input)).rejects.toThrow('UNTRUSTED_SENDER')
+    await expect(handler({ ...trustedEvent() as object, senderFrame: { url: 'llm-reader://app/book.html' } }, input)).rejects.toThrow('UNTRUSTED_SENDER')
+    expect(electronMocks.showSaveDialog).toHaveBeenCalledTimes(dialogs)
+    conversationFile.write.mockRejectedValueOnce(new Error('private-path-and-content'))
+    await expect(handler(trustedEvent(), { title: 'small', markdown: '# 保留' })).rejects.not.toThrow('private-path-and-content')
   })
 
   it('writes bounded text to the clipboard only from the trusted main frame', async () => {

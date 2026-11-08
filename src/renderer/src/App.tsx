@@ -34,7 +34,6 @@ import {
   Library,
   LoaderCircle,
   MessageSquareText,
-  Maximize2,
   PanelLeftClose,
   PanelTop,
   RefreshCw,
@@ -211,7 +210,6 @@ export default function App(): ReactNode {
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const assistantDialogOpen = page === 'conversation' || page === 'archives'
   const assistantDialogView: AssistantDialogView = page === 'archives' ? 'insights' : 'conversation'
-  const setAssistantDialogOpen = useCallback((open: boolean) => setPage(open ? 'conversation' : 'reading'), [])
   const [detailsBook, setDetailsBook] = useState<BookRecord | null>(null)
   const [pendingDeleteInsightId, setPendingDeleteInsightId] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -233,7 +231,8 @@ export default function App(): ReactNode {
   const followupRef = useRef<HTMLTextAreaElement>(null)
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
   const settingsReturnFocusRef = useRef<HTMLButtonElement>(null)
-  const assistantExpandButtonRef = useRef<HTMLButtonElement>(null)
+  const [sidebarMarkdownTarget, setSidebarMarkdownTarget] = useState<HTMLDivElement | null>(null)
+  const [conversationMarkdownTarget, setConversationMarkdownTarget] = useState<HTMLDivElement | null>(null)
   const detailsReturnFocusRef = useRef<HTMLButtonElement>(null)
   const assistantDialogRef = useRef<HTMLElement>(null)
   const readingPreferencesRef = useRef(readingPreferences)
@@ -1836,21 +1835,20 @@ export default function App(): ReactNode {
         <header className="assistant-header">
           <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
           <div className="assistant-header-actions">
+            <div className="conversation-markdown-slot" ref={setSidebarMarkdownTarget} inert={Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} />
             {!assistantDialogOpen && sidebarTab?.kind === 'live' && <RecentConversations
               key={`${sidebarTab.id}:${sidebarTab.conversationId}`} currentId={sidebarTab.conversationId}
               disabled={!loadedSessions.has(sidebarTab.bookId) || Boolean(streamingRequestId(sidebarTab)) || changingSessions.includes(sidebarTab.id)}
               onList={() => listRecentConversations(sidebarTab)}
               onRestore={(conversationId) => restoreRecentConversation(sidebarTab, conversationId)} />}
-            <button ref={assistantExpandButtonRef} className="icon-button" data-testid="assistant-expand-button" type="button" aria-label={copy('assistant.expandDialog')} title={copy('assistant.expandDialog')} onClick={() => {
-              if (sidebarTab) focusConversationTab(sidebarTab.id)
-              else if (activeBook) focusConversationTab(ensureLiveTab(activeBook))
-              setAssistantDialogOpen(true)
-            }}><Maximize2 size={17} /></button>
           </div>
         </header>
 
         {!assistantDialogOpen && (
           <ConversationPane
+            key={sidebarTab ? sidebarTab.id + ':' + sidebarTab.conversationId : 'empty-sidebar'}
+            markdownBook={sidebarTab?.kind === 'live' ? books.find((book) => book.id === sidebarTab.bookId) : undefined}
+            markdownToolsTarget={sidebarMarkdownTarget}
             scope={sidebarTab?.scope}
             controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />}
             composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessions.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
@@ -1970,6 +1968,7 @@ export default function App(): ReactNode {
                   {conversationNeedle && <small data-testid="conversation-search-count">{copy('assistant.searchTurns', { count: conversationMatches })}</small>}
                 </label>
               )}
+              {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && <div className="conversation-markdown-slot" ref={setConversationMarkdownTarget} inert={changingSessions.includes(activeConversationTab.id)} />}
               {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && <RecentConversations
                 key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} currentId={activeConversationTab.conversationId}
                 disabled={!loadedSessions.has(activeConversationTab.bookId) || Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)}
@@ -2008,6 +2007,9 @@ export default function App(): ReactNode {
                 />
               ) : activeConversationTab ? (
                 <ConversationPane
+                  key={activeConversationTab.id + ':' + activeConversationTab.conversationId}
+                  markdownBook={activeConversationTab.kind === 'live' ? books.find((book) => book.id === activeConversationTab.bookId) : undefined}
+                  markdownToolsTarget={conversationMarkdownTarget}
                   scope={activeConversationTab.scope}
                   scopeControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />}
                   composerControls={<>

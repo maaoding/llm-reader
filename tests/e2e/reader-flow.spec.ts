@@ -618,7 +618,7 @@ test('persists reading, conversation and insight deletion after restart', async 
       await page.screenshot({ path: join(visualDirectory, 'assistant-dark-940x600.png') })
       await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1536, 864))
     }
-    const expandButton = page.getByTestId('assistant-expand-button')
+    const expandButton = page.getByTestId('workspace-tab-conversation')
     await expandButton.click()
     const assistantDialog = page.getByTestId('assistant-dialog')
     await expect(assistantDialog).toBeVisible()
@@ -657,7 +657,7 @@ test('persists reading, conversation and insight deletion after restart', async 
       await page.getByTestId('settings-close').click()
     }
     await page.getByTestId('answer-save').click()
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(page.getByTestId('assistant-dialog-tab-insights')).toHaveCount(0)
     await page.getByTestId('nav-archives').click()
     const insight = page.getByTestId('insight-item')
@@ -707,7 +707,7 @@ test('persists reading, conversation and insight deletion after restart', async 
     await expect
       .poll(() => restoredPage.getByTestId('reader-host').evaluate((element) => element.scrollTop))
       .toBeGreaterThan(50)
-    await restoredPage.getByTestId('assistant-expand-button').click()
+    await restoredPage.getByTestId('workspace-tab-conversation').click()
     await restoredPage.getByTestId('nav-archives').click()
     await expect(restoredPage.getByTestId('insight-item')).toHaveCount(0)
     await showLibrary(restoredPage)

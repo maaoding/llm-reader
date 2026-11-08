@@ -133,7 +133,7 @@ test('restores open archive tabs with their drafts and the active tab', async ()
       await expect(page.getByTestId('answer-save')).toContainText('已归档')
     }
 
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await page.getByTestId('nav-archives').click()
     await expect(page.getByTestId('insight-item')).toHaveCount(2)
     await page.getByTestId('insight-item').nth(0).locator('.insight-content').click()
@@ -182,7 +182,7 @@ test('keeps the last temporary session per book across restarts and clears it on
     await enterReading(page)
     await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
     await configureProvider(page)
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(page.getByTestId('assistant-context-hint')).toHaveCount(0)
     await enterReading(page)
 
@@ -193,7 +193,7 @@ test('keeps the last temporary session per book across restarts and clears it on
     await expect(page.getByTestId('answer-current')).toContainText('（流式结束）')
     // 等请求真正结束（停止按钮消失）再写草稿，保证落库的是完成态。
     await expect(page.getByTestId('cancel-request')).toHaveCount(0)
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     const hint = page.getByTestId('assistant-context-hint')
     await expect(hint).toContainText('上轮参考 · 原文')
     await expect(hint).not.toContainText('历史消息')
@@ -242,7 +242,7 @@ test('keeps the last temporary session per book across restarts and clears it on
     await expect(page.locator(draft)).toHaveValue('重启后应保留的草稿')
 
     // 清空会话后连库里的记录一起消失，重启也不会回来。
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
     await expect(page.getByTestId('assistant-context-hint')).toContainText('上轮参考')
     const dialogDraft = '.assistant-dialog [data-testid="followup-input"]'
@@ -352,7 +352,7 @@ test('stops a queued request when its session is cleared', async () => {
     expect(streamCount).toBe(2)
 
     // 清空排队的会话：请求不该再发出，界面上也不该留下无处落地的回答。
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
     await page.getByTestId('conversation-clear').click()
     await page.getByTestId('conversation-clear-confirm').click()
@@ -460,7 +460,7 @@ test('restores separate selection conversations with drafts across restart and c
     await expect(page.getByTestId('recent-conversation')).toHaveCount(1)
     await page.getByTestId('recent-conversation').click()
     await expect(page.getByTestId('followup-input')).toHaveValue('第二处选区的草稿')
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await page.getByTestId('conversation-clear').click(); await page.getByTestId('conversation-clear-confirm').click()
     await page.getByTestId('assistant-dialog').getByTestId('recent-conversations').click()
     await expect(page.getByTestId('assistant-dialog').locator('.recent-conversations-popover')).toBeVisible()

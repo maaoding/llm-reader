@@ -474,7 +474,6 @@
 | assistant.questionContext | Centered on my selected passage and using the actual surrounding text and related passages provided, explain its role in the text. First name the most important contextual connection, then explain what question or idea it continues, and whether it defines, exemplifies, advances the argument, marks a turn, rebuts, adds a qualification or concludes — pointing to the specific words that show it. For argumentative writing, connect premises to conclusions; for narrative or description, focus on characters, plot or theme instead of forcing an argument structure. Quote key provided passages as support and separate textual evidence, background notes and inference; do not treat the order of retrieved fragments as the original order or invent a book-wide thesis from it. When context is insufficient, state what can be determined first, then what is missing. Answer in natural, clear English, centered on the selection; avoid vague evaluations, chapter-length summaries and rigid sections. |
 | assistant.cancelledPartial | Generation stopped |
 | assistant.cancelledEmpty | Request cancelled |
-| assistant.expandDialog | Expand chat |
 | assistant.citationUnknownTitle | This citation is not in the current context |
 | assistant.citationUnverified | Unverified citation |
 | assistant.citationSourceFallback | Passage excerpt |
@@ -912,6 +911,32 @@
 | export.userLabel | Q |
 | export.assistantLabel | A |
 | export.citationsNote | [passage-id] in answers are the reader's internal citations. |
+| conversationMarkdown.copyTurn | Copy this turn |
+| conversationMarkdown.copySession | Copy conversation |
+| conversationMarkdown.save | Save as Markdown |
+| conversationMarkdown.copyRetry | Retry copy |
+| conversationMarkdown.close | Close |
+| conversationMarkdown.sessionTitle | Conversation |
+| conversationMarkdown.turnTitle | Turn {index} |
+| conversationMarkdown.region | Normalized region (left, top, right, bottom) |
+| conversationMarkdown.location | Original location |
+| conversationMarkdown.sources | Original evidence used in this turn |
+| conversationMarkdown.missingSources | No evidence snapshot was saved for this turn; book citations cannot be verified. |
+| conversationMarkdown.noSources | No book passages were recorded for this turn. |
+| conversationMarkdown.noAnswer | No answer text was received. |
+| conversationMarkdown.incomplete | Incomplete answer (stopped or failed). |
+| conversationMarkdown.unverified | Unverified citation IDs: {ids}. |
+| conversationMarkdown.copiedTurn | Copied this turn and its sources. |
+| conversationMarkdown.copiedSession | Copied the conversation and per-turn sources. |
+| conversationMarkdown.saved | Saved as {fileName}. |
+| conversationMarkdown.busyHint | Wait for generation to finish, or stop it first, before copying or saving the complete conversation. |
+| conversationMarkdown.empty | There are no turns to copy or save yet. |
+| conversationMarkdown.copyTooLarge | This content exceeds the copy limit. Save it as Markdown instead; no turns or sources will be truncated. |
+| conversationMarkdown.tooLarge | This content exceeds the file limit. Copy or save individual turns instead; the content will not be truncated. |
+| conversationMarkdown.copyFailed | Could not write to the clipboard. Retry copying or save as Markdown. |
+| conversationMarkdown.saveFailed | Could not save the Markdown file. The content is retained so you can retry. |
+| conversationMarkdown.fallbackTitle | Copy or save your discussion |
+| conversationMarkdown.working | Working… |
 | export.untitledBook | Untitled book |
 | export.fileNameAll | LLM-Reader-All-Saved-Answers |
 | export.fileNameBook | LLM-Reader-{title}-Saved-Answers |

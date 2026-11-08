@@ -32,6 +32,8 @@ export const IPC_CHANNELS = {
   workbenchesDelete: 'workbenches:delete',
   workbenchesExport: 'workbenches:export',
   clipboardWriteText: 'clipboard:write-text',
+  conversationMarkdownCopy: 'conversation:copy-markdown',
+  conversationMarkdownExport: 'conversation:export-markdown',
   documentOcrPage: 'document:ocr-page',
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
@@ -731,6 +733,11 @@ export type InsightExportScope =
 
 export type InsightExportResult = { canceled: true } | { canceled: false; fileName: string }
 
+/** Independent UTF-16 budgets; do not reuse or widen the single-page OCR limit. */
+export const CONVERSATION_COPY_MAX_LENGTH = 1_000_000
+export const CONVERSATION_EXPORT_MAX_LENGTH = 5_000_000
+export interface ConversationMarkdownExportInput { markdown: string; title: string }
+
 export interface SaveInsightInput {
   bookId: string
   conversationId?: string
@@ -876,6 +883,8 @@ export interface ReaderApi {
   deleteWorkbench(id: string): Promise<boolean>
   exportWorkbench(id: string): Promise<InsightExportResult>
   copyText(text: string): Promise<void>
+  copyConversationMarkdown(markdown: string): Promise<void>
+  exportConversationMarkdown(input: ConversationMarkdownExportInput): Promise<InsightExportResult>
   getBookOcrPage(input: { bookId: string; pageNumber: number }): Promise<PreparedOcrPage>
   getAppInfo(): Promise<AppInfo>
   setUiLanguage(language: UiLanguage): Promise<null>

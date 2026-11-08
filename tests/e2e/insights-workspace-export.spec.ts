@@ -164,7 +164,7 @@ test('opens the assistant workspace, browses cross-book archives and exports Mar
     await expect(page.getByTestId('reader-host')).toContainText('第二本书开篇')
     await archiveSelection(page, '这是第二本书的归档回答。')
 
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
     const bookOneTab = page.locator('.assistant-session-tab-select').filter({ hasText: '理解一个复杂概念' })
     await expect(bookOneTab).toHaveCount(1)
@@ -273,7 +273,7 @@ test('keeps two archive tabs independent and closes the active one back to curre
     await expect(page.getByTestId('answer-save')).toBeVisible()
     await page.getByTestId('answer-save').click()
 
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await page.getByTestId('nav-archives').click()
     await expect(page.getByTestId('insight-item')).toHaveCount(2)
 
@@ -290,7 +290,7 @@ test('keeps two archive tabs independent and closes the active one back to curre
     await expect(followup).toHaveValue('第一份未发送草稿')
     await expect(page.getByTestId('answer-save')).toHaveCount(0)
     await followup.fill('阅读页继续输入')
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(page.locator('.assistant-session-tab.is-active .assistant-session-tab-select')).toHaveAttribute('data-tab-kind', 'archive')
     await expect(followup).toHaveValue('阅读页继续输入')
     await followup.fill('第一份未发送草稿')

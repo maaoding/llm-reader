@@ -92,7 +92,7 @@ test('keeps persona editing out of the composer and grows drafts without losing 
     expect(tallHeight).toBeGreaterThan(shortHeight + 30)
     expect(tallHeight).toBeLessThanOrEqual(160)
     expect(await input.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(input).toHaveValue(draft)
     await expect(trigger).toHaveAttribute('aria-label', `助手：${longName}`)
     await input.fill('短问题')

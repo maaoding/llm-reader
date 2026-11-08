@@ -2462,6 +2462,30 @@ button.citation-valid:hover {
 
 .answer-footer .answer-save { margin-left: auto; }
 
+.conversation-markdown-slot,
+.conversation-markdown-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+.conversation-markdown-feedback { flex: 0 0 auto; margin: 0; padding: 4px 12px; overflow-wrap: anywhere; }
+.conversation-markdown-backdrop { z-index: 120; }
+.conversation-markdown-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 20px;
+  color: var(--ink);
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.conversation-markdown-dialog p { overflow-wrap: anywhere; }
+.conversation-markdown-dialog .modal-actions { flex-wrap: wrap; }
+
 .answer-footer button:hover:not(:disabled) {
   color: var(--accent);
   background: var(--accent-soft);
@@ -4794,7 +4818,6 @@ button.citation-valid:hover {
 .recent-conversations { position: relative; z-index: 50; flex: 0 0 auto; -webkit-app-region: no-drag; }
 .recent-conversations > button[aria-expanded="true"] { color: var(--ui-accent); background: var(--ui-accent-soft); }
 .recent-conversations-popover { position: absolute; top: calc(100% + 8px); right: 0; display: grid; gap: 8px; width: min(320px, calc(100vw - 32px)); max-height: min(360px, calc(100vh - 120px)); overflow-y: auto; padding: 14px; color: var(--ui-ink); background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--radius-md); box-shadow: var(--ui-shadow-md); }
-.assistant-header-actions .recent-conversations-popover { right: -48px; }
 .recent-conversations-popover > strong { font-size: var(--ui-label-size); }
 .recent-conversations-popover > p { margin: 0; font-size: var(--ui-small-size); }
 .recent-conversations-list { display: grid; gap: 6px; min-width: 0; }

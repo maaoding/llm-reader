@@ -29,7 +29,7 @@ test('keeps the full conversation scope compact and shows only blocking context 
     await page.getByTestId('workspace-tab-reading').click()
     const sidebar = page.locator('.right-sidebar')
     await expect(sidebar.locator('.composer-hint')).toContainText('先设置模型服务')
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
 
     const conversation = page.getByTestId('assistant-dialog')
     const scopeControls = conversation.locator('.composer-scope-controls')
@@ -89,7 +89,7 @@ test('keeps the full conversation scope compact and shows only blocking context 
     await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
     await expect(page.getByTestId('selection-toolbar')).toBeVisible()
     await page.getByTestId('action-ask').click()
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await expect(scopeControls.getByTestId('composer-scope')).toHaveValue('selection')
     await expect(conversation.locator('.composer-hint')).toHaveCount(0)
   } finally {

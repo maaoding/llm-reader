@@ -26,6 +26,14 @@ vi.mock('electron', () => ({
 import { readerApi } from '../../src/preload/index'
 
 describe('preload ReaderApi', () => {
+  it('exposes bounded conversation copy and file export through dedicated channels', async () => {
+    const input = { markdown: '# 完整会话', title: '书名-会话' }
+    electronMocks.invoke.mockResolvedValueOnce(undefined).mockResolvedValueOnce({ canceled: true })
+    await expect(readerApi.copyConversationMarkdown(input.markdown)).resolves.toBeUndefined()
+    await expect(readerApi.exportConversationMarkdown(input)).resolves.toEqual({ canceled: true })
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.conversationMarkdownCopy, input.markdown)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.conversationMarkdownExport, input)
+  })
   it('exposes the reader API when preload initializes', async () => {
     vi.resetModules()
     const { readerApi: exposedApi } = await import('../../src/preload/index')

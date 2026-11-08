@@ -65,7 +65,7 @@ async function configureAndAsk(page: Page): Promise<string> {
 }
 
 async function openInsightsWorkspace(page: Page): Promise<void> {
-  await page.getByTestId('assistant-expand-button').click()
+  await page.getByTestId('workspace-tab-conversation').click()
   await expect(page.getByTestId('assistant-dialog')).toBeVisible()
   await expect(page.getByTestId('assistant-dialog-tab-insights')).toHaveCount(0)
   await page.getByTestId('nav-archives').click()
@@ -360,7 +360,7 @@ test('keeps archive follow-up history after reopening and restarting the app', a
     await showLibrary(restoredPage); await restoredPage.getByTestId('book-item').first().click(); await enterReading(restoredPage)
     await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
     // 重启恢复上次激活的归档标签（3 轮历史）；实时会话标签仍保留自己的 1 轮。
-    await restoredPage.getByTestId('assistant-expand-button').click()
+    await restoredPage.getByTestId('workspace-tab-conversation').click()
     await expect(restoredPage.getByTestId('assistant-dialog')).toBeVisible()
     await expect(restoredPage.locator('.assistant-session-tab.is-active .assistant-session-tab-select')).toHaveAttribute('data-tab-kind', 'archive')
     await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(3)

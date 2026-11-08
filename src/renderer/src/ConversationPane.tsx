@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, type FormEvent, type ReactNode, type RefObject } from 'react'
-import { AlertCircle, ArrowLeft, BookOpen, Bookmark, BookmarkCheck, PenLine, RefreshCw, Sparkles } from 'lucide-react'
+import { AlertCircle, ArrowLeft, BookOpen, Bookmark, BookmarkCheck, Copy, PenLine, RefreshCw, Sparkles } from 'lucide-react'
 import { isPdfImageRegion, type BookAnalysisState, type ReaderSource, type ProviderSettings } from '@shared/contracts'
 import { copy, getCopyLanguage, type UiLanguage } from '@shared/copy'
 import type { ConversationTab, ConversationTurn } from './conversation-session'
@@ -13,6 +13,9 @@ import { AnswerMetadata } from './AnswerMetadata'
 import { EvidenceSources } from './EvidenceSources'
 import { DeferredDetails } from './DeferredDetails'
 import { WebSources } from './WebSources'
+import { useConversationMarkdown } from './use-conversation-markdown'
+import { ConversationMarkdownTools, ConversationMarkdownFallback } from './ConversationMarkdownActions'
+import type { MarkdownBook } from './conversation-markdown'
 
 export function AssistantContextControls({ tab, state, busy, onScope }: { tab?: ConversationTab; state?: BookAnalysisState; busy: boolean; onScope: (scope: 'selection' | 'book') => void }) {
   if (!tab) return null
@@ -85,6 +88,8 @@ const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNav
 })
 
 export function ConversationPane({
+  markdownBook,
+  markdownToolsTarget,
   conversationSelection,
   turns,
   provider,
@@ -111,6 +116,8 @@ export function ConversationPane({
   canRegenerate = false
 }: {
   conversationSelection: ReaderSource | null
+  markdownBook?: MarkdownBook
+  markdownToolsTarget?: HTMLElement | null
   scope?: 'selection' | 'book'
   controls?: ReactNode
   scopeControls?: ReactNode
@@ -136,6 +143,7 @@ export function ConversationPane({
   onSubmit: (event: FormEvent) => void
 }): ReactNode {
   const selectedPassageCount = conversationSelection && !isPdfImageRegion(conversationSelection) ? conversationSelection.passages.length : 0
+  const markdown = useConversationMarkdown(markdownBook, turns, activeRequestId)
   const assistantScrollRef = useRef<HTMLDivElement | null>(null)
   const assistantFollowRef = useRef(true)
   const uiLanguage = getCopyLanguage()
@@ -157,6 +165,7 @@ export function ConversationPane({
 
   return (
     <>
+      {markdownBook && <ConversationMarkdownTools controller={markdown} target={markdownToolsTarget} />}
       {controls}
       <div
         className="assistant-scroll"
@@ -190,16 +199,18 @@ export function ConversationPane({
                       <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
                     </div>
                   )}
-                  {turn.status === 'completed' && (
+                  {(turn.status === 'completed' || (turn.status === 'error' && markdownBook)) && (
                     <footer className="answer-footer">
-                      <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />
-                      {isLatest && !activeRequestId && (onRegenerate || onEditQuestion) && (
+                      {turn.status === 'completed' && <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />}
+                      {turn.status === 'completed' && isLatest && !activeRequestId && (onRegenerate || onEditQuestion) && (
                         <span className="answer-retry-actions">
                           {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
                           {onEditQuestion && <button data-testid="answer-edit-question" type="button" onClick={() => onEditQuestion(turn.id)}><PenLine size={13} />{copy('assistant.editQuestion')}</button>}
                         </span>
                       )}
-                      {showSave && onSave && (
+                      {markdownBook && <button type="button" data-testid="answer-copy" disabled={!markdown.canCopyTurn(turn)}
+                        onClick={(event) => markdown.copyTurn(turn.id, event.currentTarget)}><Copy size={14} />{copy('conversationMarkdown.copyTurn')}</button>}
+                      {turn.status === 'completed' && showSave && onSave && (
                         <button data-testid={isLatest ? 'answer-save' : undefined} className={`answer-save${turn.saved ? ' is-saved' : ''}`} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
                           {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
                         </button>
@@ -216,6 +227,7 @@ export function ConversationPane({
         placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')}
         heading={scopeControls} controls={composerControls} blockedReason={blockedReason} resolveLabel={resolveLabel} onResolve={onResolve}
         canAsk={canAsk} busy={Boolean(activeRequestId)} onSubmit={onSubmit} onCancel={onCancel} />
+      {markdownBook && <ConversationMarkdownFallback controller={markdown} />}
     </>
   )
 }

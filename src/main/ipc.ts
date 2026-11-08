@@ -21,6 +21,7 @@ import type { DocumentProcessingService } from './document-processing'
 import type { AppDatabase } from './database'
 import type { LibraryStorage } from './library-storage'
 import { parseLibraryPreferences } from '@shared/library-preferences'
+import { conversationExportDefaultName, writeConversationMarkdown } from './conversation-export'
 import { busyBackup, invalidBackup } from './library-backup-files'
 import {
   workbenchSchema,
@@ -35,6 +36,8 @@ import {
   bookPagePreviewSchema,
   bookOcrPageSchema,
   clipboardTextSchema,
+  conversationMarkdownCopySchema,
+  conversationMarkdownExportSchema,
   uiLanguageSchema,
   bookChapterNotesSchema,
   bookImportPathsSchema,
@@ -193,6 +196,17 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     return true
   })
   handle(IPC_CHANNELS.clipboardWriteText, dependencies, (_event, value) => clipboard.writeText(parse(clipboardTextSchema, value)))
+  handle(IPC_CHANNELS.conversationMarkdownCopy, dependencies, (_event, value) =>
+    clipboard.writeText(parse(conversationMarkdownCopySchema, value)))
+  handle(IPC_CHANNELS.conversationMarkdownExport, dependencies, async (_event, value) => {
+    const input = parse(conversationMarkdownExportSchema, value)
+    const result = await dialog.showSaveDialog(dependencies.window, {
+      title: copy('conversationMarkdown.save'), defaultPath: conversationExportDefaultName(input.title),
+      filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    return { canceled: false, fileName: await writeConversationMarkdown(result.filePath, input.markdown) }
+  })
   handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
   handle(IPC_CHANNELS.uiLanguageSet, dependencies, (_event, value) => {
     setCopyLanguage(parse(uiLanguageSchema, value))

@@ -476,7 +476,6 @@
 | assistant.questionContext | 请以我选中的原文为中心，结合本次实际提供的前后文和相关原文，说明它在文本中的作用。先点明最重要的上下文联系，再解释它承接了什么问题或观点，以及它是在定义、举例、推进论证、转折、反驳、补充限制还是形成结论，指出体现这种关系的具体词句。论述性内容要说清相关前提与结论的联系；叙事或描写则关注人物、情节或主题，不强套论证结构。引用实际提供的关键原文支撑分析，区分原文依据、背景笔记与推断；不要把检索片段的排列当作原文顺序，也不要据此虚构全书主旨。上下文不足时，先说明能确定的关系，再指出缺少什么。用自然、清楚的中文连贯说明，围绕选区展开，避免泛泛评价、整章摘要和固定栏目。 |
 | assistant.cancelledPartial | 已停止生成 |
 | assistant.cancelledEmpty | 请求已取消 |
-| assistant.expandDialog | 展开对话 |
 | assistant.citationUnknownTitle | 该引用不在本次上下文中 |
 | assistant.citationUnverified | 未验证引用 |
 | assistant.citationSourceFallback | 原文片段 |
@@ -914,6 +913,32 @@
 | export.userLabel | 问 |
 | export.assistantLabel | 答 |
 | export.citationsNote | 回答中的 [passage-id] 为阅读器内部引用。 |
+| conversationMarkdown.copyTurn | 复制本轮 |
+| conversationMarkdown.copySession | 复制当前会话 |
+| conversationMarkdown.save | 另存为 Markdown |
+| conversationMarkdown.copyRetry | 重试复制 |
+| conversationMarkdown.close | 关闭 |
+| conversationMarkdown.sessionTitle | 当前会话 |
+| conversationMarkdown.turnTitle | 第 {index} 轮 |
+| conversationMarkdown.region | 归一化区域（左、上、右、下） |
+| conversationMarkdown.location | 原文位置 |
+| conversationMarkdown.sources | 本轮实际参考原文 |
+| conversationMarkdown.missingSources | 未保存本轮实际来源快照，无法核实书内引用。 |
+| conversationMarkdown.noSources | 本轮没有已记录的书内原文来源。 |
+| conversationMarkdown.noAnswer | 未收到回答文字。 |
+| conversationMarkdown.incomplete | 未完成的回答（已停止或失败）。 |
+| conversationMarkdown.unverified | 未验证的引用编号：{ids}。 |
+| conversationMarkdown.copiedTurn | 已复制本轮问答与来源。 |
+| conversationMarkdown.copiedSession | 已复制当前会话与逐轮来源。 |
+| conversationMarkdown.saved | 已另存为 {fileName}。 |
+| conversationMarkdown.busyHint | 请等待生成结束，或先停止回答，再带走完整会话。 |
+| conversationMarkdown.empty | 还没有可带走的问答。 |
+| conversationMarkdown.copyTooLarge | 内容超过复制上限，可另存为 Markdown；不会截断问答或来源。 |
+| conversationMarkdown.tooLarge | 内容超过文件上限，无法完整带走。请按轮次分别复制或另存，不会截断内容。 |
+| conversationMarkdown.copyFailed | 未能写入剪贴板。可重试复制，或另存为 Markdown。 |
+| conversationMarkdown.saveFailed | 未能保存 Markdown 文件。内容已保留，可重试另存。 |
+| conversationMarkdown.fallbackTitle | 带走问答 |
+| conversationMarkdown.working | 正在处理… |
 | export.untitledBook | 未命名书籍 |
 | export.fileNameAll | LLM-Reader-全部问答集 |
 | export.fileNameBook | LLM-Reader-{title}-问答集 |

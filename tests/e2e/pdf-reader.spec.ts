@@ -948,7 +948,7 @@ test('asks about a scanned PDF image region, resends its crop, and restores its 
     await expect(page.getByTestId('answer-current')).toContainText('已收到图片区域。')
     await expect.poll(() => visualRequests.length).toBe(4)
 
-    await page.getByTestId('assistant-expand-button').click()
+    await page.getByTestId('workspace-tab-conversation').click()
     await page.getByTestId('nav-archives').click()
     await expect(page.getByTestId('insight-item')).toHaveCount(1)
     await page.getByTestId('insight-item').locator('.insight-content').click()
