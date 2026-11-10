@@ -42,9 +42,13 @@ test('copies live turns without persistence truncation and saves the same snapsh
     const page = launched.page
     await application.evaluate(async ({ clipboard, ClipboardItem }) => {
       const state = globalThis as unknown as { g01ClipboardBackup?: Electron.ClipboardItem[] }
-      state.g01ClipboardBackup = await Promise.all((await clipboard.read()).map(async item => new ClipboardItem(
-        Object.fromEntries(await Promise.all(item.types.map(async type => [type, await item.getType(type)])))
-      )))
+      const backup: Electron.ClipboardItem[] = []
+      for (const item of await clipboard.read()) {
+        const entries = await Promise.all(item.types.map(async type => [type, await item.getType(type)] as const))
+        // A headless runner may expose an empty clipboard entry without MIME types.
+        if (entries.length > 0) backup.push(new ClipboardItem(Object.fromEntries(entries)))
+      }
+      state.g01ClipboardBackup = backup
     })
     clipboardBackedUp = true
     await showLibrary(page)
