@@ -11,6 +11,7 @@ import type {
   BookPayload,
   BookRecord,
   BookSourceFormat,
+  ExportHighlightsInput,
   HighlightRecord,
   ImportedBookResult,
   InsightArchiveRecord,
@@ -22,11 +23,13 @@ import type {
   SaveHighlightInput,
   SaveInsightInput,
   SessionTabsState,
+  UpdateHighlightInput,
   UpdateInsightHistoryInput
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import type { WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
 import { buildWorkbenchMarkdown } from './workbench-export'
+import { buildHighlightMarkdown } from './highlight-export'
 import { AppDatabase, type StoredBook } from './database'
 import { CalibreEpubConverter, type EpubConverter } from './calibre-converter'
 import { AppError } from './errors'
@@ -827,8 +830,21 @@ export class LibraryService {
     return this.database.insertHighlight(randomUUID(), input, new Date().toISOString())
   }
 
+  updateHighlight(input: UpdateHighlightInput): HighlightRecord {
+    const record = this.database.updateHighlight(input)
+    if (!record) throw new AppError('HIGHLIGHT_NOT_FOUND', copy('highlights.notFound'))
+    return record
+  }
+
   deleteHighlight(id: string): boolean {
     return this.database.deleteHighlight(id)
+  }
+
+  prepareHighlightExport({ bookId, highlightIds }: ExportHighlightsInput): { title: string; markdown: string } {
+    const book = this.database.getStoredBook(bookId)
+    if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    const records = this.database.selectedHighlights(bookId, highlightIds)
+    return { title: book.title, markdown: buildHighlightMarkdown(book, records, highlightIds.length) }
   }
 
   private async removeStoredBookFiles(stored: StoredBook): Promise<void> {

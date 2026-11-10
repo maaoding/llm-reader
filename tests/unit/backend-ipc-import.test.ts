@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH, IPC_CHANNELS } from '../../src/shared/contracts'
+import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH, HIGHLIGHT_EXPORT_MAX_COUNT, IPC_CHANNELS } from '../../src/shared/contracts'
 import { pdfImageRegionAnchor } from '../../src/shared/pdf-image-region'
 
 type InvokeHandler = (event: unknown, ...values: unknown[]) => Promise<unknown>
@@ -73,6 +73,48 @@ function register(bookImporter: {
 }
 
 describe('book import IPC', () => {
+  it('validates annotation updates at the trusted window and storage boundary', async () => {
+    const updateHighlight = vi.fn()
+    const storage = { locked: false }
+    register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() }, { library: { updateHighlight }, storage })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.highlightsUpdate)!
+    const input = { bookId: randomUUID(), highlightId: randomUUID(), note: '首行\n  次行', tags: [' Test ', 'ｔｅｓｔ'] }
+    await expect(handler({ sender: { id: 18 } }, input)).rejects.toThrow('[UNTRUSTED_SENDER]')
+    storage.locked = true
+    await expect(handler(trustedEvent(), input)).rejects.toThrow('[BACKUP_BUSY]')
+    storage.locked = false
+    await expect(handler(trustedEvent(), { ...input, anchor: 'txt:0:5' })).rejects.toThrow('[INVALID_INPUT]')
+    expect(updateHighlight).not.toHaveBeenCalled()
+    await handler(trustedEvent(), input)
+    expect(updateHighlight).toHaveBeenCalledExactlyOnceWith({ ...input, tags: ['Test'] })
+  })
+
+  it('opens the extract save dialog only after validating and preparing a selection', async () => {
+    const prepareHighlightExport = vi.fn(() => ({ title: '书/名', markdown: '# 书名' }))
+    const storage = { locked: false }
+    register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() }, { library: { prepareHighlightExport }, storage })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.highlightsExport)!
+    const id = randomUUID()
+    const input = { bookId: randomUUID(), highlightIds: [id] }
+    await expect(handler({ sender: { id: 18 } }, input)).rejects.toThrow('[UNTRUSTED_SENDER]')
+    storage.locked = true
+    await expect(handler(trustedEvent(), input)).rejects.toThrow('[BACKUP_BUSY]')
+    storage.locked = false
+    for (const invalid of [
+      { ...input, filePath: 'arbitrary.md' },
+      { ...input, highlightIds: [id, id] },
+      { ...input, highlightIds: Array.from({ length: HIGHLIGHT_EXPORT_MAX_COUNT + 1 }, () => randomUUID()) }
+    ]) await expect(handler(trustedEvent(), invalid)).rejects.toThrow('[INVALID_INPUT]')
+    expect(prepareHighlightExport).not.toHaveBeenCalled()
+    expect(electronMocks.showSaveDialog).not.toHaveBeenCalled()
+    electronMocks.showSaveDialog.mockResolvedValueOnce({ canceled: true })
+    await expect(handler(trustedEvent(), input)).resolves.toEqual({ canceled: true })
+    expect(prepareHighlightExport).toHaveBeenCalledExactlyOnceWith(input)
+    expect(electronMocks.showSaveDialog).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      defaultPath: expect.stringMatching(/^LLM-Reader-书_名-摘录-\d{8}-\d{4}\.md$/u)
+    }))
+  })
+
   it('allows backup while settings enumerate fonts and allows font queries during maintenance', async () => {
     const storage = await LibraryStorage.open(join(tmpdir(), `reader-ipc-${randomUUID()}`))
     register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() }, { storage, database: {} })

@@ -184,7 +184,10 @@
   color: var(--ui-ink); background: var(--ui-bg); font-size: calc(var(--ui-text-size) * var(--interface-scale));
 }
 .workspace-shell[data-page="library"], .workspace-shell[data-page="archives"] { grid-template-rows: 56px 0 minmax(0, 1fr); }
+.workspace-shell[data-session-recovery="visible"] { grid-template-rows: 56px auto 64px minmax(0, 1fr); grid-template-areas: "topbar" "recovery" "bookbar" "workspace"; }
+.workspace-shell[data-page="library"][data-session-recovery="visible"], .workspace-shell[data-page="archives"][data-session-recovery="visible"] { grid-template-rows: 56px auto 0 minmax(0, 1fr); }
 .session-recovery-stack { position: absolute; top: 64px; right: 16px; z-index: 80; display: grid; gap: 8px; width: min(560px, calc(100% - 32px)); }
+.workspace-shell[data-session-recovery="visible"] .session-recovery-stack { position: static; grid-area: recovery; align-self: start; justify-self: end; margin: 8px 16px 0 0; }
 .session-close-saving { --interface-scale: 1; position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 24px; background: color-mix(in srgb, var(--ui-bg) 92%, transparent); color: var(--ui-ink); font-size: calc(var(--ui-text-size) * var(--interface-scale)); line-height: 1.5; }
 .session-tabs-recovery { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; border: 1px solid var(--ui-line-strong); border-radius: var(--radius-md); background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-shadow-md); }
 .session-tabs-recovery > svg { flex-shrink: 0; color: var(--danger); }
@@ -414,6 +417,8 @@
 @media (max-height: 650px) {
   .app-shell.workspace-shell { grid-template-rows: 48px 56px minmax(0, 1fr); }
   .workspace-shell[data-page="library"], .workspace-shell[data-page="archives"] { grid-template-rows: 48px 0 minmax(0, 1fr); }
+  .app-shell.workspace-shell[data-session-recovery="visible"] { grid-template-rows: 48px auto 56px minmax(0, 1fr); }
+  .workspace-shell[data-page="library"][data-session-recovery="visible"], .workspace-shell[data-page="archives"][data-session-recovery="visible"] { grid-template-rows: 48px auto 0 minmax(0, 1fr); }
 }
 
 /* ===================== 全书上下文与引用来源 ===================== */
@@ -2724,6 +2729,66 @@ button.citation-valid:hover {
   font-size: max(12px, calc(12px * var(--interface-scale)));
 }
 
+.highlight-controls {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 3px;
+}
+
+.highlight-filter-actions,
+.highlight-selection-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.highlight-controls :is(.highlight-filter-text, select) {
+  width: 100%;
+  min-width: 0;
+  min-height: calc(30px * var(--interface-scale));
+  padding: 4px 8px;
+  color: var(--ink);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: calc(var(--ui-label-size) * var(--interface-scale));
+}
+
+.highlight-controls .secondary-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.highlight-controls .secondary-button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.highlight-selection-tools { display: grid; gap: 6px; }
+.highlight-selection-summary { flex-wrap: wrap; }
+.highlight-selection-summary, .highlight-export-feedback {
+  color: var(--muted);
+  font-size: calc(var(--ui-small-size) * var(--interface-scale));
+}
+.highlight-selection-summary label, .highlight-item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.highlight-list input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.highlight-export-feedback { margin: 0; overflow-wrap: anywhere; }
+.highlight-export-feedback.is-error { color: var(--danger); }
+
 .highlight-item {
   display: flex;
   width: 100%;
@@ -2791,7 +2856,13 @@ button.citation-valid:hover {
   font-size: max(12px, calc(12px * var(--interface-scale)));
 }
 
-.highlight-item footer > button,
+.highlight-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.highlight-item-actions button,
 .highlight-delete-confirmation button {
   display: inline-flex;
   min-height: 24px;
@@ -2800,11 +2871,11 @@ button.citation-valid:hover {
   padding: 0 4px;
   color: var(--accent);
   background: transparent;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: max(12px, calc(12px * var(--interface-scale)));
 }
 
-.highlight-item footer > button:hover,
+.highlight-item-actions button:hover,
 .highlight-delete-confirmation button:hover {
   color: var(--accent-hover);
   background: var(--accent-soft);
@@ -2815,6 +2886,76 @@ button.citation-valid:hover {
   align-items: center;
   gap: 4px;
 }
+
+.highlight-details {
+  display: grid;
+  gap: 6px;
+  padding: 0 11px 8px;
+}
+
+.highlight-note-preview {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.highlight-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.highlight-tags li {
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  font-size: calc(var(--ui-small-size) * var(--interface-scale));
+}
+
+.highlight-edit-dialog {
+  width: min(calc(500px * var(--interface-scale)), calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 20px;
+  color: var(--ink);
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.highlight-edit-dialog > .highlight-quote {
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--line-strong);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.highlight-edit-dialog :is(input, textarea) {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: calc(var(--ui-label-size) * var(--interface-scale));
+}
+
+.highlight-edit-dialog textarea { resize: vertical; }
+.highlight-edit-error { color: var(--danger); overflow-wrap: anywhere; }
 
 .insight-list {
   display: grid;

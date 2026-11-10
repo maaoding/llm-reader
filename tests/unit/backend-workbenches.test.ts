@@ -11,6 +11,7 @@ import { buildWorkbenchMarkdown } from '../../src/main/workbench-export'
 import { contextSnapshotSchema, llmRequestSchema, workbenchSchema } from '../../src/main/schemas'
 import type { ProviderService } from '../../src/main/provider-service'
 import type { ContextSnapshot, LlmEvent, LlmRequest, WorkbenchRecord } from '../../src/shared/contracts'
+import { removeHighlightMetadataSchema } from './support/legacy-highlights'
 
 const credentials = { baseUrl: 'https://example.test', model: 'fixture', apiKey: 'test-only', compatibility: 'auto' as const }
 function book(database: AppDatabase, title: string): string {
@@ -30,7 +31,9 @@ describe('independent multi-book workbenches', () => {
       const session = { bookId: first, conversationId: randomUUID(), scope: 'book' as const, selection: null, draft: '单书草稿', turns: [], updatedAt: '2026-01-01' }
       db.upsertBookSession(session)
       db.connection.exec('DROP TABLE workbench_books; DROP TABLE workbenches')
-      db.connection.prepare('DELETE FROM schema_migrations WHERE version = ?').run(migrations.length)
+      removeHighlightMetadataSchema(db)
+      const workbenchVersion = migrations.findIndex((sql) => sql.includes('CREATE TABLE IF NOT EXISTS workbenches')) + 1
+      db.connection.prepare('DELETE FROM schema_migrations WHERE version >= ?').run(workbenchVersion)
       db.close(); db = new AppDatabase(path)
       expect(db.getBookSession(first)).toEqual(session)
       const record = db.createWorkbench('对读', [first, second])

@@ -108,7 +108,7 @@ it('dismisses fallback with Escape and returns keyboard focus to its trigger', a
   const trigger = screen.getByTestId('copy-one')
   trigger.focus()
   fireEvent.click(trigger)
-  await waitFor(() => expect(screen.getByTestId('conversation-markdown-fallback')).toBeTruthy())
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('conversation-markdown-close')))
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.queryByTestId('conversation-markdown-fallback')).toBeNull()
   expect(document.activeElement).toBe(trigger)

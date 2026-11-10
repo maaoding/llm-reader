@@ -534,6 +534,36 @@
 | highlights.savedToast | 已摘录，并保留原文高亮。 |
 | highlights.saveFailed | 摘录失败。 |
 | highlights.readFailed | 无法读取摘录。 |
+| highlights.edit | 编辑批注与标签 |
+| highlights.note | 个人批注 |
+| highlights.tags | 标签 |
+| highlights.tagsHint | 用逗号分隔，最多 12 个标签，每个最多 32 个字符（UTF-16）。 |
+| highlights.tagsInvalid | 请检查标签的数量和长度。 |
+| highlights.noteInvalid | 批注最多 10,000 个字符（UTF-16），请检查输入。 |
+| highlights.saveNote | 保存 |
+| highlights.noteSaved | 批注与标签已保存。 |
+| highlights.noteSaveFailed | 无法保存批注与标签，请重试。 |
+| highlights.notFound | 找不到这条摘录，请检查摘录列表。 |
+| highlights.draftPending | 请先保存或放弃当前批注，再退出或操作备份。 |
+| highlights.noteSaving | 正在保存批注与标签，请稍候。 |
+| highlights.filterText | 搜索摘录 |
+| highlights.filterTag | 按标签筛选 |
+| highlights.allTags | 全部标签 |
+| highlights.filteredCount | 结果 · {count} |
+| highlights.noMatches | 没有匹配的摘录 |
+| highlights.noMatchesHint | 试试更换关键词或标签。 |
+| highlights.selectMode | 多选 |
+| highlights.selectExtract | 选择这条摘录 |
+| highlights.selectAll | 全选当前结果 |
+| highlights.selectedCount | 已选 {count} 条 |
+| highlights.exportSelected | 导出所选 |
+| highlights.exporting | 正在导出摘录… |
+| highlights.exported | 已导出 {count} 条摘录到 {fileName}。 |
+| highlights.exportFailed | 无法保存摘录文件，请检查保存位置后重试。 |
+| highlights.exportChanged | 所选摘录已变更，请刷新列表后重选。 |
+| highlights.exportTooLarge | 所选摘录超过导出上限，请缩小选择范围。 |
+| highlights.exportEntry | 摘录 {index} |
+| highlights.createdAt | 摘录时间 |
 
 ## 设置与连接
 

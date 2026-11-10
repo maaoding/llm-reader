@@ -6,7 +6,10 @@ export function isSelectPickerOpen(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest('select')?.matches(':open'))
 }
 
-export function useDialogFocus(open: boolean, onClose: () => void, dialogRef: RefObject<HTMLElement | null>, returnRef: RefObject<HTMLElement | null>): void {
+export function useDialogFocus(
+  open: boolean, onClose: () => void, dialogRef: RefObject<HTMLElement | null>, returnRef: RefObject<HTMLElement | null>,
+  fallbackRef?: RefObject<HTMLElement | null>
+): void {
   const closeRef = useRef(onClose)
   useLayoutEffect(() => { closeRef.current = onClose }, [onClose])
 
@@ -14,6 +17,7 @@ export function useDialogFocus(open: boolean, onClose: () => void, dialogRef: Re
     if (!open) return undefined
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : returnRef.current
     const returnTarget = returnRef.current ?? previous
+    const fallbackTarget = fallbackRef?.current
     dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus()
     const onKeyDown = (event: KeyboardEvent): void => {
       // 先交由展开的选择菜单处理 Escape / Tab，避免同时关闭外层弹窗。
@@ -45,7 +49,8 @@ export function useDialogFocus(open: boolean, onClose: () => void, dialogRef: Re
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      returnTarget?.focus()
+      if (returnTarget?.isConnected && !returnTarget.closest('[hidden], [inert]')) returnTarget.focus()
+      else fallbackTarget?.focus()
     }
-  }, [dialogRef, open, returnRef])
+  }, [dialogRef, open, returnRef, fallbackRef])
 }

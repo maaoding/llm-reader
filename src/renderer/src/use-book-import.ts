@@ -23,9 +23,10 @@ interface BookImportOptions {
   onShowLibrary: () => void
   pushToast: (message: string, tone?: 'success' | 'error' | 'neutral') => void
   dismissToast: () => void
+  dropsBlocked?: () => boolean
 }
 
-export function useBookImport({ refreshBooks, openBook, onShowLibrary, pushToast, dismissToast }: BookImportOptions) {
+export function useBookImport({ refreshBooks, openBook, onShowLibrary, pushToast, dismissToast, dropsBlocked }: BookImportOptions) {
   const [importing, setImporting] = useState(false)
   const [importDialogState, setImportDialogState] = useState<BookImportDialogState | null>(null)
   const [dropOverlay, setDropOverlay] = useState<DropOverlayState>(null)
@@ -181,12 +182,17 @@ export function useBookImport({ refreshBooks, openBook, onShowLibrary, pushToast
     const onDragEnter = (event: globalThis.DragEvent): void => {
       if (!hasFiles(event)) return
       event.preventDefault()
+      if (dropsBlocked?.()) return
       dragDepthRef.current += 1
       setDropOverlay(importUiBusy() ? 'busy' : 'ready')
     }
     const onDragOver = (event: globalThis.DragEvent): void => {
       if (!hasFiles(event)) return
       event.preventDefault()
+      if (dropsBlocked?.()) {
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+        return
+      }
       if (event.dataTransfer) event.dataTransfer.dropEffect = importUiBusy() ? 'none' : 'copy'
       setDropOverlay(importUiBusy() ? 'busy' : 'ready')
     }
@@ -201,6 +207,7 @@ export function useBookImport({ refreshBooks, openBook, onShowLibrary, pushToast
       event.preventDefault()
       dragDepthRef.current = 0
       setDropOverlay(null)
+      if (dropsBlocked?.()) return
       if (importUiBusy()) {
         pushToast(copy('library.importBusy'), 'neutral')
         return
@@ -227,7 +234,7 @@ export function useBookImport({ refreshBooks, openBook, onShowLibrary, pushToast
       window.removeEventListener('dragend', clearDropOverlay, true)
       window.removeEventListener('blur', clearDropOverlay)
     }
-  }, [importDroppedBooks, pushToast])
+  }, [dropsBlocked, importDroppedBooks, pushToast])
 
   return { importing, importDialogState, dropOverlay, importReturnFocusRef, importBooks, cancelBookImport, closeBookImportDialog }
 }

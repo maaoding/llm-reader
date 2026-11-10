@@ -8,7 +8,7 @@ import JSZip from 'jszip'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppDatabase, migrations } from '../../src/main/database'
 import { LibraryService } from '../../src/main/library-service'
-import { highlightIdSchema, insightIdSchema } from '../../src/main/schemas'
+import { highlightIdSchema, insightIdSchema, updateHighlightSchema } from '../../src/main/schemas'
 import type { ArchivedChatMessage } from '../../src/shared/contracts'
 
 const temporaryDirectories: string[] = []
@@ -127,7 +127,8 @@ describe('LibraryService', () => {
       })
     ])
     expect(database.listHighlights('legacy-txt')).toEqual([
-      expect.objectContaining({ id: 'legacy-highlight', quote: 'Legacy' })
+      { id: 'legacy-highlight', bookId: 'legacy-txt', quote: 'Legacy', anchor: 'txt:0:6',
+        chapterTitle: '全文', createdAt: '2026-01-01', note: '', tags: [] }
     ])
     expect(database.listInsights('legacy-txt')).toEqual([
       expect.objectContaining({ id: 'legacy-insight', question: 'Question' })
@@ -646,38 +647,52 @@ describe('LibraryService', () => {
     const secondBook = (await library.importFromPath(secondSource)).book
 
     const clock = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-01-01T00:00:00.000Z')
+    library.updateBookMetadata(firstBook.id, '同名书', null)
+    library.updateBookMetadata(secondBook.id, '同名书', null)
     const first = library.saveHighlight({
       bookId: firstBook.id,
-      quote: 'First',
+      quote: '同一句',
       anchor: 'txt:0:5',
       chapterTitle: '第一章'
     })
+    const note = '原文之外的想法\n  保留缩进'
+    const edit = { bookId: firstBook.id, highlightId: first.id, note, tags: ['证据'] }
+    const edited = library.updateHighlight(edit)
+    expect(edited).toEqual({ ...first, note, tags: ['证据'] })
     const duplicate = library.saveHighlight({
       bookId: firstBook.id,
-      quote: 'First',
+      quote: '同一句',
       anchor: 'txt:0:5',
       chapterTitle: '第一章'
     })
     clock.mockReturnValue('2026-01-01T00:00:01.000Z')
     const second = library.saveHighlight({
       bookId: firstBook.id,
-      quote: 'book',
+      quote: '同一句',
       anchor: 'txt:6:10',
       chapterTitle: '第二章'
     })
     const otherBook = library.saveHighlight({
       bookId: secondBook.id,
-      quote: 'Second',
+      quote: '同一句',
       anchor: 'txt:0:6',
       chapterTitle: '另一本'
     })
 
     clock.mockRestore()
 
-    expect(duplicate.id).toBe(first.id)
-    expect(library.listHighlights(firstBook.id)).toEqual([second, first])
+    expect(duplicate).toEqual(edited)
+    expect(library.listHighlights(firstBook.id)).toEqual([second, edited])
     expect(library.listHighlights(secondBook.id)).toEqual([otherBook])
+    const exported = library.prepareHighlightExport({ bookId: firstBook.id, highlightIds: [first.id, second.id] }).markdown
+    expect(exported).toContain('摘录 · 2')
+    expect(exported).toContain(note)
+    expect(exported.indexOf('txt:6:10')).toBeLessThan(exported.indexOf('txt:0:5'))
+    expect(() => library.prepareHighlightExport({ bookId: firstBook.id, highlightIds: [first.id, otherBook.id] })).toThrow('所选摘录已变更')
+    expect(() => library.updateHighlight({ ...edit, bookId: secondBook.id })).toThrow('找不到这条摘录')
     expect(library.deleteHighlight(second.id)).toBe(true)
+    expect(() => library.prepareHighlightExport({ bookId: firstBook.id, highlightIds: [first.id, second.id] })).toThrow('所选摘录已变更')
+    expect(() => library.updateHighlight({ ...edit, highlightId: second.id })).toThrow('找不到这条摘录')
     expect(library.deleteHighlight('00000000-0000-4000-8000-000000000000')).toBe(false)
     expect(() =>
       library.saveHighlight({
@@ -692,9 +707,27 @@ describe('LibraryService', () => {
 
     database = new AppDatabase(databasePath)
     library = new LibraryService(database, join(root, 'library'))
-    expect(library.listHighlights(firstBook.id)).toEqual([first])
+    expect(library.listHighlights(firstBook.id)).toEqual([edited])
     expect(library.listHighlights(secondBook.id)).toEqual([otherBook])
+    expect(library.updateHighlight({ ...edit, note: '', tags: [] })).toEqual(first)
+    await library.deleteBook(secondBook.id)
+    expect(() => library.updateHighlight({ ...edit, bookId: secondBook.id, highlightId: otherBook.id })).toThrow('找不到这条摘录')
     database.close()
+  })
+
+  it('preserves annotation whitespace and applies tag limits after normalization', () => {
+    const input = {
+      bookId: '45b45c27-b51d-4f49-8df7-480918cf2a0b',
+      highlightId: '5e9dc44f-5868-4d99-97c7-fcb79c179de6',
+      note: '  首行\n\n    次行\n',
+      tags: ['  Test ', 'ｔｅｓｔ', 'TEST', '', '  ', '证据']
+    }
+    expect(updateHighlightSchema.parse(input)).toEqual({ ...input, tags: ['Test', '证据'] })
+    expect(updateHighlightSchema.safeParse({ ...input, note: '📚'.repeat(5_000) }).success).toBe(true)
+    expect(updateHighlightSchema.safeParse({ ...input, note: '📚'.repeat(5_001) }).success).toBe(false)
+    expect(updateHighlightSchema.safeParse({ ...input, tags: ['字'.repeat(33)] }).success).toBe(false)
+    expect(updateHighlightSchema.safeParse({ ...input, tags: Array.from({ length: 13 }, (_, index) => String(index)) }).success).toBe(false)
+    expect(updateHighlightSchema.safeParse({ ...input, quote: '试图改写原文' }).success).toBe(false)
   })
 
   it('reads EPUB metadata and rejects invalid UTF-8 and DRM EPUB files', async () => {

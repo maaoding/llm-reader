@@ -41,7 +41,7 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.exposeInMainWorld).toHaveBeenCalledExactlyOnceWith('readerApi', exposedApi)
   })
 
-  it('exposes highlight list, save and delete through their dedicated IPC channels', async () => {
+  it('exposes extract actions through their dedicated IPC channels', async () => {
     const bookId = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
     const highlight = {
       id: '5e9dc44f-5868-4d99-97c7-fcb79c179de6',
@@ -49,20 +49,31 @@ describe('preload ReaderApi', () => {
       quote: '原文句段',
       anchor: 'txt:4:12',
       chapterTitle: '第一章',
-      createdAt: '2026-08-16T09:00:00.000Z'
+      createdAt: '2026-08-16T09:00:00.000Z',
+      note: '',
+      tags: []
     }
+    const edit = { bookId, highlightId: highlight.id, note: '个人批注', tags: ['标签'] }
+    const edited = { ...highlight, note: edit.note, tags: edit.tags }
+    const selection = { bookId, highlightIds: [highlight.id] }
     electronMocks.invoke
       .mockResolvedValueOnce([highlight])
       .mockResolvedValueOnce(highlight)
+      .mockResolvedValueOnce(edited)
       .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce({ canceled: false, fileName: '摘录.md' })
 
     await expect(readerApi.listHighlights(bookId)).resolves.toEqual([highlight])
     await expect(readerApi.saveHighlight({ bookId, quote: highlight.quote, anchor: highlight.anchor, chapterTitle: highlight.chapterTitle })).resolves.toEqual(highlight)
+    await expect(readerApi.updateHighlight(edit)).resolves.toEqual(edited)
     await expect(readerApi.deleteHighlight(highlight.id)).resolves.toBe(true)
+    await expect(readerApi.exportHighlights(selection)).resolves.toEqual({ canceled: false, fileName: '摘录.md' })
 
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.highlightsList, bookId)
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.highlightsSave, { bookId, quote: highlight.quote, anchor: highlight.anchor, chapterTitle: highlight.chapterTitle })
-    expect(electronMocks.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.highlightsDelete, highlight.id)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.highlightsUpdate, edit)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(4, IPC_CHANNELS.highlightsDelete, highlight.id)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(5, IPC_CHANNELS.highlightsExport, selection)
   })
 
   it('exposes app info through its dedicated IPC channel', async () => {

@@ -3,6 +3,7 @@ import { copy } from '@shared/copy'
 
 interface CloseOptions {
   closingRef: RefObject<boolean>
+  canLeaveWorkspace?: () => boolean
   isBusy: () => boolean
   prepareClose: () => Promise<void>
   flushSessions: () => Promise<boolean>
@@ -14,7 +15,7 @@ interface CloseOptions {
 
 /** Coordinates the close handshake without owning conversation or reader state. */
 export function useAppClose({
-  closingRef, isBusy, prepareClose, flushSessions, closeWorkbenches,
+  closingRef, canLeaveWorkspace, isBusy, prepareClose, flushSessions, closeWorkbenches,
   resumeWorkbenches, retryWorkbenchSaves, retryTabRestoration
 }: CloseOptions) {
   const [closing, setClosing] = useState(false)
@@ -30,7 +31,7 @@ export function useAppClose({
   }, [closingRef, resumeWorkbenches, retryTabRestoration])
 
   const saveWorkspace = useCallback(async () => {
-      if (closingRef.current) return false
+      if (closingRef.current || canLeaveWorkspace?.() === false) return false
       if (isBusy()) {
         setCloseSaveFailed(true)
         return false
@@ -49,7 +50,7 @@ export function useAppClose({
           setCloseSaveFailed(true)
         }
       }
-  }, [closingRef, isBusy, prepareClose, flushSessions, closeWorkbenches, resume])
+  }, [closingRef, canLeaveWorkspace, isBusy, prepareClose, flushSessions, closeWorkbenches, resume])
 
   useEffect(() => {
     if (!window.readerApi) return undefined

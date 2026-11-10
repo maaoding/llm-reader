@@ -38,7 +38,8 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
       const bookId = await page.evaluate(async () => {
         const api = window.readerApi
         const id = (await api.listBooks())[0].id
-        await api.saveHighlight({ bookId: id, quote: '原文支持', anchor: 'txt:20:24', chapterTitle: '第一章' })
+        const highlight = await api.saveHighlight({ bookId: id, quote: '原文支持', anchor: 'txt:20:24', chapterTitle: '第一章' })
+        await api.updateHighlight({ bookId: id, highlightId: highlight.id, note: '备份中的批注\n  保留缩进', tags: ['证据', '待核对'] })
         await api.saveInsight({ bookId: id, selection: { bookId: id, quote: '原文支持', anchor: 'txt:20:24', chapterTitle: '第一章',
           passages: [{ id: 'P1', text: '结论必须有原文支持。', anchor: 'txt:20:24' }] },
           question: '依据是什么？', answer: '结论必须有原文支持。', model: 'synthetic' })
@@ -106,7 +107,9 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
       }), bookId)
       expect(restored.books).toHaveLength(1)
       expect(restored.session?.draft).toBe('备份时的未发送草稿')
-      expect(restored.highlights).toHaveLength(1)
+      expect(restored.highlights).toEqual([expect.objectContaining({
+        bookId, quote: '原文支持', anchor: 'txt:20:24', note: '备份中的批注\n  保留缩进', tags: ['证据', '待核对']
+      })])
       expect(restored.insights).toHaveLength(1)
       expect(restored.analysis.document?.status).toBe('ready')
       expect(restored.providers.profiles).toEqual([])

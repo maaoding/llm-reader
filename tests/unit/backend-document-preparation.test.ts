@@ -17,6 +17,7 @@ import { RerankService } from '../../src/main/rerank-service'
 import { documentSections } from '../../src/shared/document-structure'
 import type { DocumentSection, LlmRequest, NormalizedDocument } from '../../src/shared/contracts'
 import { structureDoclingFixture } from '../../scripts/document-structure-fixture'
+import { removeWebSearchSchema } from './support/legacy-web-search'
 
 const resources: { db: AppDatabase; service?: BookAnalysisService; semantic?: SemanticIndexService }[] = []
 const directories: string[] = []
@@ -325,6 +326,7 @@ describe('independent preparation, notes and semantic lifecycle', () => {
 })
 
 function downgradeDocumentTables(db: AppDatabase): void {
+  removeWebSearchSchema(db)
   db.connection.exec(`
     CREATE TABLE sections_old (book_id TEXT NOT NULL REFERENCES book_analysis(book_id) ON DELETE CASCADE, section_id TEXT NOT NULL, chapter_id TEXT NOT NULL,
       chapter_title TEXT NOT NULL, ordinal INTEGER NOT NULL, content_json TEXT NOT NULL, note_json TEXT, PRIMARY KEY(book_id,section_id), UNIQUE(book_id,ordinal)) STRICT;
@@ -344,7 +346,6 @@ function downgradeDocumentTables(db: AppDatabase): void {
     CREATE TRIGGER book_blocks_delete AFTER DELETE ON book_blocks BEGIN DELETE FROM book_fts WHERE rowid = old.id; END;
     DROP TABLE book_documents;
     ALTER TABLE document_jobs DROP COLUMN raw_json; ALTER TABLE document_jobs DROP COLUMN structure_json;
-    DROP TABLE web_source_records; ALTER TABLE book_sessions DROP COLUMN web_search; ALTER TABLE book_session_history DROP COLUMN web_search; ALTER TABLE session_tabs DROP COLUMN web_search; ALTER TABLE insights DROP COLUMN web_search;
     ALTER TABLE provider_profiles DROP COLUMN protocol; ALTER TABLE provider_profiles DROP COLUMN request_json; ALTER TABLE provider_profiles DROP COLUMN headers_secret; ALTER TABLE knowledge_settings DROP COLUMN headers_secret; DROP TABLE book_session_history; DROP TABLE ocr_page_previews; ALTER TABLE book_sessions DROP COLUMN persona_json; ALTER TABLE insights DROP COLUMN persona_json; DELETE FROM schema_migrations WHERE version >= 14;
   `)
 }

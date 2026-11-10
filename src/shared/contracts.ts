@@ -63,7 +63,9 @@ export const IPC_CHANNELS = {
   booksUpdateProgress: 'books:update-progress',
   highlightsList: 'highlights:list',
   highlightsSave: 'highlights:save',
+  highlightsUpdate: 'highlights:update',
   highlightsDelete: 'highlights:delete',
+  highlightsExport: 'highlights:export',
   insightsList: 'insights:list',
   insightsListAll: 'insights:list-all',
   insightsSave: 'insights:save',
@@ -862,6 +864,8 @@ export interface HighlightRecord {
   anchor: string
   chapterTitle: string
   createdAt: string
+  note: string
+  tags: string[]
 }
 
 export interface SaveHighlightInput {
@@ -869,6 +873,21 @@ export interface SaveHighlightInput {
   quote: string
   anchor: string
   chapterTitle: string
+}
+
+export interface UpdateHighlightInput {
+  bookId: string
+  highlightId: string
+  note: string
+  tags: string[]
+}
+
+export const HIGHLIGHT_EXPORT_MAX_COUNT = 5_000
+export const HIGHLIGHT_EXPORT_MAX_LENGTH = 5_000_000
+
+export interface ExportHighlightsInput {
+  bookId: string
+  highlightIds: string[]
 }
 
 export interface ReaderApi {
@@ -906,7 +925,9 @@ export interface ReaderApi {
   updateBookProgress(bookId: string, locator: string, progress: number): Promise<void>
   listHighlights(bookId: string): Promise<HighlightRecord[]>
   saveHighlight(input: SaveHighlightInput): Promise<HighlightRecord>
+  updateHighlight(input: UpdateHighlightInput): Promise<HighlightRecord>
   deleteHighlight(id: string): Promise<boolean>
+  exportHighlights(input: ExportHighlightsInput): Promise<InsightExportResult>
   listInsights(bookId: string): Promise<SavedInsight[]>
   listAllInsights(): Promise<InsightArchiveRecord[]>
   exportInsights(scope: InsightExportScope): Promise<InsightExportResult>

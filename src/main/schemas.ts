@@ -6,7 +6,8 @@ import { normalizeReaderSearchQuery } from '@shared/reader-search'
 import { validateDocument } from '@shared/document-structure'
 import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR_MAX_PAGES } from '@shared/vision-ocr'
 import { validPdfImageRegion, PDF_REGION_IMAGE_MAX_DATA_URL, PDF_REGION_IMAGE_PATTERN } from '@shared/pdf-image-region'
-import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH } from '@shared/contracts'
+import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH, HIGHLIGHT_EXPORT_MAX_COUNT } from '@shared/contracts'
+import { normalizeHighlightTags, validHighlightNote, validHighlightTags } from '@shared/highlight-tags'
 
 const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
 const idSchema = z.string().uuid()
@@ -64,6 +65,19 @@ export const highlightSchema = z.object({
   anchor: shortText(16_384),
   chapterTitle: z.string().trim().max(1_000)
 })
+
+export const updateHighlightSchema = z.object({
+  bookId: idSchema,
+  highlightId: highlightIdSchema,
+  note: z.string().refine(validHighlightNote),
+  tags: z.array(z.string().max(10_000)).max(256).transform(normalizeHighlightTags).refine(validHighlightTags)
+}).strict()
+
+export const exportHighlightsSchema = z.object({
+  bookId: idSchema,
+  highlightIds: z.array(highlightIdSchema).min(1).max(HIGHLIGHT_EXPORT_MAX_COUNT)
+    .refine((ids) => new Set(ids).size === ids.length)
+}).strict()
 
 const structureId = z.string().min(1).max(128).regex(/^[\w.:/-]+$/u)
 export const sourceRangeSchema = z.object({

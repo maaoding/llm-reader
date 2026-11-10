@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { ReaderApi } from '../../src/shared/contracts'
 import { useAppClose } from '../../src/renderer/src/use-app-close'
 
-function setup() {
+function setup(canLeaveWorkspace?: () => boolean) {
   let beforeClose!: Parameters<ReaderApi['onBeforeClose']>[0]
   let closeCancelled!: () => void
   Object.defineProperty(window, 'readerApi', { configurable: true, value: {
@@ -13,6 +13,7 @@ function setup() {
   } })
   const options = {
     closingRef: { current: false },
+    canLeaveWorkspace,
     isBusy: vi.fn(() => false),
     prepareClose: vi.fn(async () => undefined),
     flushSessions: vi.fn(async () => true),
@@ -26,6 +27,22 @@ function setup() {
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+it('does not close or start maintenance while an annotation draft blocks the workspace', async () => {
+  const guard = vi.fn(() => false)
+  const { result, options, requestClose } = setup(guard)
+  const operation = vi.fn(async () => undefined)
+  await act(async () => {
+    expect(await requestClose()).toBe(false)
+    await expect(result.current.runStorageOperation(operation)).rejects.toThrow()
+  })
+  expect(options.prepareClose).not.toHaveBeenCalled()
+  expect(operation).not.toHaveBeenCalled()
+  expect(result.current.closeSaveFailed).toBe(false)
+  guard.mockReturnValue(true)
+  await act(async () => { await result.current.runStorageOperation(operation) })
+  expect(operation).toHaveBeenCalledOnce()
+})
 
 it('saves both workspaces before maintenance and resumes editing after failure', async () => {
   const { result, options } = setup()

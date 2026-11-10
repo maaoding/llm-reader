@@ -532,6 +532,36 @@
 | highlights.savedToast | Extracted; the source stays highlighted. |
 | highlights.saveFailed | Could not save the extract. |
 | highlights.readFailed | Could not load extracts. |
+| highlights.edit | Edit annotation and tags |
+| highlights.note | Personal annotation |
+| highlights.tags | Tags |
+| highlights.tagsHint | Separate tags with commas. Up to 12 tags, 32 UTF-16 code units each. |
+| highlights.tagsInvalid | Check the number and length of tags. |
+| highlights.noteInvalid | An annotation can contain up to 10,000 UTF-16 code units. Check your input. |
+| highlights.saveNote | Save |
+| highlights.noteSaved | Annotation and tags saved. |
+| highlights.noteSaveFailed | Could not save the annotation and tags. Try again. |
+| highlights.notFound | This extract could not be found. Check the extracts list. |
+| highlights.draftPending | Save or discard your annotation before closing or using library backup. |
+| highlights.noteSaving | Saving the annotation and tags. Please wait. |
+| highlights.filterText | Search extracts |
+| highlights.filterTag | Filter by tag |
+| highlights.allTags | All tags |
+| highlights.filteredCount | Results · {count} |
+| highlights.noMatches | No matching extracts |
+| highlights.noMatchesHint | Try a different keyword or tag. |
+| highlights.selectMode | Select |
+| highlights.selectExtract | Select this extract |
+| highlights.selectAll | Select all results |
+| highlights.selectedCount | Selected · {count} |
+| highlights.exportSelected | Export selected |
+| highlights.exporting | Exporting extracts… |
+| highlights.exported | Exported {count} extracts to {fileName}. |
+| highlights.exportFailed | Could not save the extracts. Check the save location and try again. |
+| highlights.exportChanged | The selected extracts have changed. Refresh the list and select them again. |
+| highlights.exportTooLarge | The selection exceeds the export limit. Select fewer extracts. |
+| highlights.exportEntry | Extract {index} |
+| highlights.createdAt | Extracted at |
 
 ## Settings and connections
 

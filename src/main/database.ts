@@ -22,6 +22,7 @@ import type {
   SelectionContext,
   SessionTabRecord,
   SessionTabsState,
+  UpdateHighlightInput,
   UpdateInsightHistoryInput
 } from '@shared/contracts'
 import type { WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
@@ -91,6 +92,8 @@ interface HighlightRow {
   anchor: string
   chapter_title: string
   created_at: string
+  note: string
+  tags_json: string
 }
 
 export interface ProviderProfileRecord {
@@ -507,11 +510,30 @@ export const migrations = [
         position INTEGER NOT NULL,
         PRIMARY KEY(workbench_id, book_id)
       ) STRICT;
+    `,
+    `
+      ALTER TABLE highlights ADD COLUMN note TEXT NOT NULL DEFAULT '';
+      ALTER TABLE highlights ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'
+        CHECK(json_valid(tags_json) AND json_type(tags_json) = 'array');
     `
 ] as const
 
 function asBookRow(row: Record<string, SQLOutputValue> | undefined): BookRow | undefined {
   return row as unknown as BookRow | undefined
+}
+
+function mapHighlight(row: HighlightRow): HighlightRecord {
+  const tags: unknown[] = JSON.parse(row.tags_json)
+  return {
+    id: row.id,
+    bookId: row.book_id,
+    quote: row.quote,
+    anchor: row.anchor,
+    chapterTitle: row.chapter_title,
+    createdAt: row.created_at,
+    note: row.note,
+    tags: tags.filter((tag): tag is string => typeof tag === 'string')
+  }
 }
 
 function mapBook(row: BookRow): BookRecord {
@@ -1041,32 +1063,23 @@ export class AppDatabase {
 
   listHighlights(bookId: string): HighlightRecord[] {
     const rows = this.connection
-      .prepare('SELECT * FROM highlights WHERE book_id = ? ORDER BY created_at DESC')
+      .prepare('SELECT * FROM highlights WHERE book_id = ? ORDER BY created_at DESC, id')
       .all(bookId) as unknown as HighlightRow[]
+    return rows.map(mapHighlight)
+  }
 
-    return rows.map((row) => ({
-      id: row.id,
-      bookId: row.book_id,
-      quote: row.quote,
-      anchor: row.anchor,
-      chapterTitle: row.chapter_title,
-      createdAt: row.created_at
-    }))
+  *selectedHighlights(bookId: string, ids: readonly string[]): IterableIterator<HighlightRecord> {
+    const rows = this.connection.prepare(
+      'SELECT * FROM highlights WHERE book_id = ? AND id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC, id'
+    ).iterate(bookId, JSON.stringify(ids))
+    for (const row of rows) yield mapHighlight(row as unknown as HighlightRow)
   }
 
   findHighlightByAnchor(bookId: string, anchor: string): HighlightRecord | null {
     const row = this.connection
       .prepare('SELECT * FROM highlights WHERE book_id = ? AND anchor = ?')
       .get(bookId, anchor) as unknown as HighlightRow | undefined
-    if (!row) return null
-    return {
-      id: row.id,
-      bookId: row.book_id,
-      quote: row.quote,
-      anchor: row.anchor,
-      chapterTitle: row.chapter_title,
-      createdAt: row.created_at
-    }
+    return row ? mapHighlight(row) : null
   }
 
   insertHighlight(id: string, input: SaveHighlightInput, createdAt: string): HighlightRecord {
@@ -1078,7 +1091,14 @@ export class AppDatabase {
       )
       .run(id, input.bookId, input.quote, input.anchor, input.chapterTitle, createdAt)
 
-    return { id, ...input, createdAt }
+    return { id, ...input, createdAt, note: '', tags: [] }
+  }
+
+  updateHighlight(input: UpdateHighlightInput): HighlightRecord | null {
+    const row = this.connection
+      .prepare('UPDATE highlights SET note = ?, tags_json = ? WHERE book_id = ? AND id = ? RETURNING *')
+      .get(input.note, JSON.stringify(input.tags), input.bookId, input.highlightId) as unknown as HighlightRow | undefined
+    return row ? mapHighlight(row) : null
   }
 
   deleteHighlight(id: string): boolean {

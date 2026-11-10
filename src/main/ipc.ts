@@ -22,6 +22,7 @@ import type { AppDatabase } from './database'
 import type { LibraryStorage } from './library-storage'
 import { parseLibraryPreferences } from '@shared/library-preferences'
 import { conversationExportDefaultName, writeConversationMarkdown } from './conversation-export'
+import { highlightExportDefaultName, writeHighlightMarkdown } from './highlight-export'
 import { busyBackup, invalidBackup } from './library-backup-files'
 import {
   workbenchSchema,
@@ -42,6 +43,7 @@ import {
   bookChapterNotesSchema,
   bookImportPathsSchema,
   createProviderProfileSchema,
+  exportHighlightsSchema,
   highlightIdSchema,
   highlightSchema,
   bookSessionSchema,
@@ -60,6 +62,7 @@ import {
   providerProfileIdSchema,
   requestIdSchema,
   webSourceOpenSchema,
+  updateHighlightSchema,
   updateProviderProfileSchema
 } from './schemas'
 
@@ -277,9 +280,23 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.highlightsSave, dependencies, (_event, value) =>
     dependencies.library.saveHighlight(parse(highlightSchema, value))
   )
+  handle(IPC_CHANNELS.highlightsUpdate, dependencies, (_event, value) =>
+    dependencies.library.updateHighlight(parse(updateHighlightSchema, value))
+  )
   handle(IPC_CHANNELS.highlightsDelete, dependencies, (_event, value) =>
     dependencies.library.deleteHighlight(parse(highlightIdSchema, value))
   )
+  handle(IPC_CHANNELS.highlightsExport, dependencies, async (_event, value) => {
+    const input = parse(exportHighlightsSchema, value)
+    const snapshot = dependencies.library.prepareHighlightExport(input)
+    const result = await dialog.showSaveDialog(dependencies.window, {
+      title: copy('highlights.exportSelected'),
+      defaultPath: highlightExportDefaultName(snapshot.title),
+      filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    return { canceled: false, fileName: await writeHighlightMarkdown(result.filePath, snapshot.markdown) }
+  })
   handle(IPC_CHANNELS.insightsList, dependencies, (_event, value) =>
     dependencies.library.listInsights(parse(bookIdSchema, value))
   )

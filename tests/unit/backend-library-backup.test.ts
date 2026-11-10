@@ -135,7 +135,7 @@ it('round-trips committed WAL data, book bytes, sessions, archives and preferenc
   expect(await readFile(join(userData, 'provider-keys/profile.bin'), 'utf8')).toBe('FILE_SECRET_SENTINEL')
 })
 
-it.each(['missing', 'corrupt', 'duplicate', 'traversal', 'future-version', 'bad-count', 'symlink', 'sidecar'] as const)(
+it.each(['missing', 'corrupt', 'duplicate', 'traversal', 'older-version', 'future-version', 'bad-count', 'symlink', 'sidecar'] as const)(
   'rejects a %s backup without activating or deleting the original store', async (kind) => {
     const { userData, db, book, packagePath } = await fixture()
     const file = join(packagePath, 'library', db.getStoredBook(book.id)!.storedName)
@@ -144,6 +144,7 @@ it.each(['missing', 'corrupt', 'duplicate', 'traversal', 'future-version', 'bad-
     if (kind === 'sidecar') await writeFile(join(packagePath, 'reader.sqlite3-wal'), 'unhashed changes')
     if (kind === 'duplicate') await changeManifest(packagePath, (m) => m.files.push(m.files[0]))
     if (kind === 'traversal') await changeManifest(packagePath, (m) => { m.files[0].path = '../reader.sqlite3' })
+    if (kind === 'older-version') await changeManifest(packagePath, (m) => { m.schemaVersion -= 1 })
     if (kind === 'future-version') await changeManifest(packagePath, (m) => { m.schemaVersion += 1 })
     if (kind === 'bad-count') await changeManifest(packagePath, (m) => { m.summary.books = 99 })
     if (kind === 'symlink') { await rm(file); await symlink(join(userData, 'library', db.getStoredBook(book.id)!.storedName), file) }

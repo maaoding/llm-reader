@@ -4,6 +4,9 @@ import { BookImportDialog } from './BookImportDialog'
 import { PdfSelectionReviewDialog, PdfImageRegionReviewDialog } from './PdfSelectionReviewDialog'
 import { ConversationPane, AssistantContextControls, AssistantScopeControls } from './ConversationPane'
 import { EmptyState } from './EmptyState'
+import { HighlightsPanel } from './HighlightsPanel'
+import { HighlightEditDialog } from './HighlightEditDialog'
+import { useHighlightEditor } from './use-highlight-editor'
 import { useAppPreferences } from './use-app-preferences'
 import { useBookImport } from './use-book-import'
 import { useSelectionToolbar } from './use-selection-toolbar'
@@ -42,7 +45,6 @@ import {
   Settings,
   SlidersHorizontal,
   Sparkles,
-  Trash2,
   Undo2,
   X
 } from 'lucide-react'
@@ -119,19 +121,6 @@ function tocHrefMatchesCurrent(itemHref: string, currentHref: string | null): bo
 
 function createId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(iso))
-  } catch {
-    return ''
-  }
 }
 
 export default function App(): ReactNode {
@@ -373,6 +362,15 @@ export default function App(): ReactNode {
     }
   }, [])
 
+  const highlightsButtonRef = useRef<HTMLButtonElement>(null)
+  const highlightEditor = useHighlightEditor((record) => {
+    if (activeBookRef.current?.id !== record.bookId || closingRef.current) return
+    setHighlights((current) => current.map((item) => item.id === record.id ? record : item))
+    void refreshHighlights(record.bookId)
+    pushToast(copy('highlights.noteSaved'), 'success')
+  })
+  const isHighlightEditorOpen = highlightEditor.isOpen
+
   const flushProgress = useCallback(async (): Promise<void> => {
     const pending = pendingProgressRef.current
     if (!pending) return
@@ -472,6 +470,7 @@ export default function App(): ReactNode {
   }
 
   const openBook = useCallback(async (book: BookRecord, landingPage: WorkspacePage | null = 'reading', options: { focusLiveTab?: boolean } = {}): Promise<void> => {
+    if (isHighlightEditorOpen()) return
     // landingPage 为 null 表示不再切换页面（后台打开书籍）。
     if (landingPage) setPage(landingPage)
     setLeftPanelOpen(false); setPreparationBookId(null); setPdfDisplayOpen(false); setOcrReadingOpen(false)
@@ -601,7 +600,7 @@ export default function App(): ReactNode {
       setBookState('error')
       setBookError(readableError(error, copy('reader.openFailed')))
     }
-  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, pushToast, refreshHighlights, refreshInsights, scheduleProgress, openSettings, resetSearch])
+  }, [commitConversationTabs, destroyReader, dismissToast, ensureLiveTab, focusConversationTab, isHighlightEditorOpen, pushToast, refreshHighlights, refreshInsights, scheduleProgress, openSettings, resetSearch])
 
   const changeTextReadingMode = useCallback(async (mode: TextReadingMode): Promise<void> => {
     if (!isTextReadingMode(mode)) return
@@ -709,7 +708,7 @@ export default function App(): ReactNode {
     await flushProgress()
   }, [cancelAllRequests, flushProgress])
   const { closing, closeSaveFailed, retryingSaves, retrySessionSaves, storageWorking, runStorageOperation } = useAppClose({
-    closingRef, isBusy: sessionOperationInProgress, prepareClose, flushSessions: flushSessionSaves,
+    closingRef, canLeaveWorkspace: highlightEditor.canLeaveWorkspace, isBusy: sessionOperationInProgress, prepareClose, flushSessions: flushSessionSaves,
     closeWorkbenches, resumeWorkbenches, retryWorkbenchSaves, retryTabRestoration
   })
 
@@ -721,7 +720,7 @@ export default function App(): ReactNode {
 
   const showLibraryAfterImport = useCallback(() => selectLeftView('library'), [selectLeftView])
   const { importing, importDialogState, dropOverlay, importReturnFocusRef, importBooks, cancelBookImport, closeBookImportDialog } = useBookImport({
-    refreshBooks, openBook, onShowLibrary: showLibraryAfterImport, pushToast, dismissToast
+    refreshBooks, openBook, onShowLibrary: showLibraryAfterImport, pushToast, dismissToast, dropsBlocked: isHighlightEditorOpen
   })
 
   const openSearchView = useCallback((): void => {
@@ -741,6 +740,7 @@ export default function App(): ReactNode {
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (isHighlightEditorOpen()) return
       if (
         (event.ctrlKey || event.metaKey) &&
         event.key.toLowerCase() === 'f' &&
@@ -760,7 +760,7 @@ export default function App(): ReactNode {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [assistantDialogOpen, bookState, detailsBook, openSearchView, settingsOpen])
+  }, [assistantDialogOpen, bookState, detailsBook, isHighlightEditorOpen, openSearchView, settingsOpen])
 
   const enqueueRequest = async (action: LlmAction, question: string, tabId: string, sourceSelection?: ReaderSource, replaceTurnId?: string): Promise<void> => {
     const cleanQuestion = question.trim()
@@ -1161,7 +1161,7 @@ export default function App(): ReactNode {
   }
 
   const deleteBook = async (book: BookRecord): Promise<void> => {
-    if (deletingBookId) return
+    if (deletingBookId || isHighlightEditorOpen()) return
     setDeletingBookId(book.id)
     deletingBooksRef.current.add(book.id)
     const archiveIds = conversationTabsRef.current.filter((tab) => tab.bookId === book.id && tab.insightId).map((tab) => tab.insightId!)
@@ -1197,6 +1197,7 @@ export default function App(): ReactNode {
   }
 
   const deleteHighlight = async (highlightId: string): Promise<void> => {
+    if (isHighlightEditorOpen()) return
     try {
       const deleted = await window.readerApi.deleteHighlight(highlightId)
       setPendingDeleteHighlightId(null)
@@ -1444,6 +1445,10 @@ export default function App(): ReactNode {
     else if (tabRect.right > stripRect.right) strip.scrollLeft += tabRect.right - stripRect.right
   }, [activeTabId, assistantDialogOpen])
 
+  const sessionSaveFailure = sessionSaves.failed || tabSaves.failed || archiveSaves.failed ||
+    Object.values(workbenches.errors).some(Boolean) || closeSaveFailed
+  const sessionRecoveryVisible = sessionSaveFailure || Boolean(sessionTabsRestoreError)
+
   return (
     <>
       {closing && <div className="session-close-saving" data-interface-scale={interfaceScale} role="status" data-testid="session-close-saving"><LoaderCircle className="spin" size="1.25em" />{copy(storageWorking ? 'backup.working' : 'assistant.savingBeforeClose')}</div>}
@@ -1454,7 +1459,8 @@ export default function App(): ReactNode {
       data-pdf-display={pdfDisplayOpen}
       data-workspace-ready={workspaceReady}
       data-session-tabs-state={sessionTabsRestoreState}
-      inert={closing}
+      data-session-recovery={sessionRecoveryVisible ? 'visible' : undefined}
+      inert={closing || Boolean(highlightEditor.draft)}
       data-testid="app-shell"
       data-theme={resolvedTheme}
       data-theme-preference={themePreference}
@@ -1523,7 +1529,7 @@ export default function App(): ReactNode {
         </button><WindowControls />
       </header>
       <div className="session-recovery-stack">
-      {(sessionSaves.failed || tabSaves.failed || archiveSaves.failed || Object.values(workbenches.errors).some(Boolean) || closeSaveFailed) && <div className="session-tabs-recovery session-save-recovery" data-testid="session-save-recovery" role="alert">
+      {sessionSaveFailure && <div className="session-tabs-recovery session-save-recovery" data-testid="session-save-recovery" role="alert">
         <AlertCircle size={18} />
         <span>{copy(closeSaveFailed ? 'assistant.closeSaveFailed' : 'assistant.unsavedSessions')}</span>
         <button className="secondary-button" data-testid="session-save-retry" type="button" disabled={retryingSaves || closing || changingSessions.length > 0 || Boolean(deletingBookId)} onClick={() => void retrySessionSaves()}>
@@ -1648,40 +1654,12 @@ export default function App(): ReactNode {
           )}
 
           {page === 'reading' && leftView === 'highlights' && (
-            <div className="highlight-list" data-testid="highlight-list" aria-label={copy('library.highlightsAria')}>
-              <div className="highlight-list-heading">
-                <h2>{copy('highlights.title')}</h2>
-                <span>{copy('highlights.count', { count: highlights.length })}</span>
-              </div>
-              {highlightsLoading && <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('highlights.loading')}</div>}
-              {highlightsError && <div className="empty-state" role="alert" data-testid="highlights-load-error">
-                <div className="empty-icon" aria-hidden="true"><AlertCircle size={20} /></div>
-                <strong>{highlightsError}</strong>
-                <button className="text-button" data-testid="highlights-retry" type="button" onClick={() => activeBook && void refreshHighlights(activeBook.id)}><RefreshCw size={14} />{copy('common.retry')}</button>
-              </div>}
-              {!highlightsLoading && !activeBook && <EmptyState icon={<Bookmark size={20} />} title={copy('highlights.noBookTitle')} detail={copy('highlights.noBookDetail')} />}
-              {!highlightsLoading && !highlightsError && activeBook && highlights.length === 0 && <EmptyState icon={<Bookmark size={20} />} title={copy('highlights.emptyTitle')} detail={copy('highlights.emptyDetail')} />}
-              {highlights.map((highlight) => (
-                <article className="highlight-item" data-testid="highlight-item" data-highlight-id={highlight.id} key={highlight.id}>
-                  <button className="highlight-jump" type="button" onClick={() => void navigateToAnchor(highlight.anchor, true)}>
-                    <p className="highlight-quote">{highlight.quote}</p>
-                    <span className="highlight-chapter">{highlight.chapterTitle || copy('common.currentChapter')}</span>
-                  </button>
-                  <footer>
-                    <span>{formatDate(highlight.createdAt)}</span>
-                    {pendingDeleteHighlightId === highlight.id ? (
-                      <span className="highlight-delete-confirmation">
-                        <span>{copy('highlights.removeQuestion')}</span>
-                        <button data-testid="highlight-delete-confirm" type="button" onClick={() => void deleteHighlight(highlight.id)}>{copy('common.confirm')}</button>
-                        <button data-testid="highlight-delete-cancel" type="button" onClick={() => setPendingDeleteHighlightId(null)}>{copy('common.back')}</button>
-                      </span>
-                    ) : (
-                      <button data-testid="highlight-delete" type="button" aria-label={copy('highlights.removeAria')} onClick={() => setPendingDeleteHighlightId(highlight.id)}><Trash2 size={13} /></button>
-                    )}
-                  </footer>
-                </article>
-              ))}
-            </div>
+            <HighlightsPanel key={activeBook?.id} bookId={activeBook?.id} records={highlights}
+              loading={highlightsLoading} error={highlightsError} pendingDeleteId={pendingDeleteHighlightId}
+              onRetry={() => { if (activeBook) void refreshHighlights(activeBook.id) }}
+              onNavigate={(anchor) => void navigateToAnchor(anchor, true)}
+              onEdit={highlightEditor.open} onDelete={(id) => void deleteHighlight(id)}
+              onConfirmDelete={setPendingDeleteHighlightId} />
           )}
 
           {page === 'reading' && leftView === 'search' && (
@@ -1759,7 +1737,7 @@ export default function App(): ReactNode {
       {activeBook && page === 'reading' && <nav className="reader-rail" aria-label={copy('reader.toolsAria')}>
         <div className="reader-rail-tools">
           <button className="reader-rail-button" type="button" data-testid="reader-contents-button" aria-label={copy('reader.contentsButton')} title={copy('reader.contentsButton')} aria-pressed={leftPanelOpen && leftView === 'toc'} onClick={() => toggleLeftPanelView('toc')}><PanelLeftClose size={19} /></button>
-          <button className="reader-rail-button" data-testid="highlights-tab" type="button" aria-label={copy('library.tabHighlights')} title={copy('library.tabHighlights')} aria-pressed={leftPanelOpen && leftView === 'highlights'} onClick={() => toggleLeftPanelView('highlights')}><Bookmark size={19} /></button>
+          <button ref={highlightsButtonRef} className="reader-rail-button" data-testid="highlights-tab" type="button" aria-label={copy('library.tabHighlights')} title={copy('library.tabHighlights')} aria-pressed={leftPanelOpen && leftView === 'highlights'} onClick={() => toggleLeftPanelView('highlights')}><Bookmark size={19} /></button>
           <button className="reader-rail-button" data-testid="reader-search-button" type="button" aria-label={copy('reader.searchOpen')} title={copy('reader.searchOpen')} aria-pressed={leftPanelOpen && leftView === 'search'} onClick={() => toggleLeftPanelView('search')}><Search size={19} /></button>
           {activeBook.format === 'pdf' && <button ref={ocrReadingToggleRef} className="reader-rail-button" data-testid="ocr-reading-toggle" type="button" aria-label={copy('ocrReading.title')} title={copy('ocrReading.title')} aria-pressed={ocrReadingOpen} disabled={bookState !== 'ready'}
             onClick={() => { if (ocrReadingOpen) closeOcrReader(); else { adapterRef.current?.clearSelection(); setSelection(null); setOcrReadingOpen(true) } }}><FileText size={19} /></button>}
@@ -2127,6 +2105,7 @@ export default function App(): ReactNode {
         </div>
       )}
     </div>
+    {!closing && <HighlightEditDialog editor={highlightEditor} fallbackFocusRef={highlightsButtonRef} />}
     </>
   )
 }

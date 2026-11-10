@@ -45,8 +45,7 @@ function formatDateTime(iso: string): string {
   }).format(date)
 }
 
-function exportStamp(): string {
-  const now = new Date()
+export function exportStamp(now = new Date()): string {
   const pad = (value: number): string => String(value).padStart(2, '0')
   return [
     now.getFullYear(),

@@ -1,3 +1,6 @@
+import type { PdfRegionAnchor } from '@shared/pdf-anchors'
+export { makePdfTextAnchor, parsePdfTextAnchor, makePdfRegionAnchor, parsePdfRegionAnchor, type PdfTextAnchor, type PdfRegionAnchor } from '@shared/pdf-anchors'
+
 export interface PdfTextContentItem {
   str: string
   hasEOL?: boolean
@@ -23,20 +26,6 @@ export interface PdfTextModel {
   readableSliceForRaw(rawStart: number, rawEnd: number): string
 }
 
-export interface PdfTextAnchor {
-  pageNumber: number
-  start: number
-  end: number
-}
-
-export interface PdfRegionAnchor {
-  pageNumber: number
-  left: number
-  top: number
-  right: number
-  bottom: number
-}
-
 export interface PdfRegionTextItem {
   text: string
   rawStart: number
@@ -53,10 +42,6 @@ export interface PdfRegionTextResult {
   rawEnd: number
 }
 
-const PDF_TEXT_ANCHOR_PATTERN = /^pdf:(\d+):(\d+):(\d+)$/u
-const PDF_REGION_ANCHOR_PREFIX = 'pdfrect:'
-const REGION_COORDINATE_PATTERN = /^(?:0(?:\.\d{1,6})?|1(?:\.0{1,6})?)$/u
-const REGION_COORDINATE_PRECISION = 6
 const PDF_SLICE_CHECKPOINT_STRIDE = 256
 
 function codePoints(value: string): string[] {
@@ -191,66 +176,6 @@ export function createPdfTextModel(items: ReadonlyArray<PdfTextContentItem>): Pd
       return codePointSlice(readableText, start, Math.max(start, end), sliceCheckpoints)
     }
   }
-}
-
-export function makePdfTextAnchor(pageNumber: number, start = 0, end = start): string {
-  return `pdf:${pageNumber}:${start}:${end}`
-}
-
-export function parsePdfTextAnchor(anchor: string, pageCount: number, pageLength?: number): PdfTextAnchor | null {
-  const match = PDF_TEXT_ANCHOR_PATTERN.exec(anchor)
-  if (!match) return null
-  const pageNumber = Number(match[1])
-  const start = Number(match[2])
-  const end = Number(match[3])
-  if (
-    !Number.isSafeInteger(pageNumber) ||
-    !Number.isSafeInteger(start) ||
-    !Number.isSafeInteger(end) ||
-    pageNumber < 1 ||
-    pageNumber > pageCount ||
-    start < 0 ||
-    start > end ||
-    (pageLength !== undefined && end > pageLength)
-  ) {
-    return null
-  }
-  return { pageNumber, start, end }
-}
-
-function formatCoordinate(value: number): string {
-  return value.toFixed(REGION_COORDINATE_PRECISION).replace(/\.?0+$/u, '')
-}
-
-export function makePdfRegionAnchor(region: PdfRegionAnchor): string {
-  return [
-    'pdfrect',
-    region.pageNumber,
-    formatCoordinate(region.left),
-    formatCoordinate(region.top),
-    formatCoordinate(region.right),
-    formatCoordinate(region.bottom)
-  ].join(':')
-}
-
-export function parsePdfRegionAnchor(anchor: string, pageCount: number): PdfRegionAnchor | null {
-  if (!anchor.startsWith(PDF_REGION_ANCHOR_PREFIX)) return null
-  const parts = anchor.split(':')
-  if (parts.length !== 6 || parts[0] !== 'pdfrect') return null
-  if (!/^\d+$/u.test(parts[1]) || parts.slice(2).some((value) => !REGION_COORDINATE_PATTERN.test(value))) return null
-  const pageNumber = Number(parts[1])
-  const coordinates = parts.slice(2).map(Number)
-  if (
-    !Number.isSafeInteger(pageNumber) ||
-    pageNumber < 1 ||
-    pageNumber > pageCount ||
-    coordinates.some((value) => !Number.isFinite(value) || value < 0 || value > 1)
-  ) {
-    return null
-  }
-  const [left, top, right, bottom] = coordinates
-  if (left >= right || top >= bottom) return null
-  return { pageNumber, left, top, right, bottom }
 }
 
 function intersectionArea(item: PdfRegionTextItem, region: PdfRegionAnchor): number {
