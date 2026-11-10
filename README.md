@@ -14,7 +14,7 @@
   <a href="https://llm-reader.maaoding.icu/docs/">使用文档</a>
 </p>
 
-当前版本 **v1.3.1**：阅读性能与来源定位优化。[发布说明](https://llm-reader.maaoding.icu/docs/releases/v1.3.1.html) · [更新日志](https://llm-reader.maaoding.icu/docs/changelog.html)
+当前版本 **v1.4.0** · 摘录整理、会话导出与书库备份。[发布说明](https://llm-reader.maaoding.icu/docs/releases/v1.4.0.html) · [更新日志](https://llm-reader.maaoding.icu/docs/changelog.html)
 
 ## 核心功能
 

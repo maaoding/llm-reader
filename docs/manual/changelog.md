@@ -5,16 +5,17 @@ description: 查看 LLM Reader 当前版本变化、历史发布说明，以及 
 
 # 更新日志
 
-当前版本为 **v1.3.1**。从 [GitHub Releases](https://github.com/maaoding/llm-reader/releases/latest) 下载 Windows x64 安装程序，或在应用“设置 → 关于”检查更新。
+当前版本为 **v1.4.0**。从 [GitHub Releases](https://github.com/maaoding/llm-reader/releases/latest) 下载 Windows x64 安装程序，或在应用“设置 → 关于”检查更新。
 
 ## 当前版本
 
-[v1.3.1 — 阅读性能与来源定位优化](./releases/v1.3.1.md)
+[v1.4.0 — 摘录整理、会话导出与书库备份](./releases/v1.4.0.md)
 
-安装、升级及真实服务的验证范围见 [v1.3.1 验收记录](https://github.com/maaoding/llm-reader/blob/main/docs/releases/v1.3.1-validation.md)。
+安装、升级及真实服务的验证范围见 [v1.4.0 验收记录](https://github.com/maaoding/llm-reader/blob/main/docs/releases/v1.4.0-validation.md)。
 
 ## 历史版本
 
+- [v1.3.1 — 阅读性能与来源定位优化](./releases/v1.3.1.md)
 - [v1.3.0 — TXT Markdown 阅读与恢复优化](./releases/v1.3.0.md)
 - [v1.2.0](https://github.com/maaoding/llm-reader/releases/tag/v1.2.0)
 - [v1.1.0](https://github.com/maaoding/llm-reader/releases/tag/v1.1.0)

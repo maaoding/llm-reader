@@ -58,14 +58,14 @@ jobs:
           pnpm build:app
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm exec electron-builder --win nsis --publish never
-      - name: Verify installation, upgrade from v1.3.0 and restore relaunch
+      - name: Verify installation, upgrade from v1.3.1 and restore relaunch
         run: node scripts/validate-windows-package.mjs --output release
       - name: Run installed application regression
         run: |
           if (!$env:LLM_READER_E2E_EXECUTABLE -or !(Test-Path -LiteralPath $env:LLM_READER_E2E_EXECUTABLE)) {
             throw 'The installed application executable is required for package regression.'
           }
-          pnpm exec playwright test tests/e2e/about-panel.spec.ts tests/e2e/pdf-reader.spec.ts tests/e2e/workbenches.spec.ts tests/e2e/session-persistence.spec.ts tests/e2e/session-save-recovery.spec.ts tests/e2e/library-backup.spec.ts tests/e2e/vision-ocr.spec.ts tests/e2e/text-markdown.spec.ts tests/e2e/retrieval-quality.spec.ts tests/e2e/reader-flow.spec.ts tests/e2e/toc-navigation.spec.ts tests/e2e/book-context.spec.ts tests/e2e/document-structure.spec.ts
+          pnpm exec playwright test tests/e2e/about-panel.spec.ts tests/e2e/pdf-reader.spec.ts tests/e2e/workbenches.spec.ts tests/e2e/session-persistence.spec.ts tests/e2e/session-save-recovery.spec.ts tests/e2e/library-backup.spec.ts tests/e2e/vision-ocr.spec.ts tests/e2e/text-markdown.spec.ts tests/e2e/retrieval-quality.spec.ts tests/e2e/reader-flow.spec.ts tests/e2e/toc-navigation.spec.ts tests/e2e/book-context.spec.ts tests/e2e/document-structure.spec.ts tests/e2e/conversation-markdown.spec.ts tests/e2e/highlight-editor.spec.ts tests/e2e/highlight-organizer.spec.ts
       - name: Upload verified unsigned installer
         uses: actions/upload-artifact@v4
         with:

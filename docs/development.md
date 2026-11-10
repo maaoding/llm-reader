@@ -156,7 +156,7 @@ pnpm test:e2e:run tests/e2e/about-panel.spec.ts
 
 [应用 CI](../.github/workflows/ci.yml) 在推送到 `main`、提交 Pull Request 或手动触发时运行：先在 Linux 执行 lint、typecheck、完整单元测试与应用构建，再在 Windows Server 2025 的 1920×1080 桌面执行完整 Electron E2E。CI 从 `package.json` 安装固定版本的 pnpm，按锁文件安装依赖，并安装 Electron 与 Calibre；桌面测试报告、截图及失败 trace 保留 7 天。测试使用隔离书库、合成资料与本机模拟服务，不调用真实付费接口；需要私有 PDF 的用例仍按原条件跳过。CI 检查源码构建与桌面行为，Windows 安装包、覆盖升级及真实服务质量仍需单独验收。
 
-[Windows 安装验收工作流](../.github/workflows/windows-package-validation.yml)可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.3.0 覆盖安装及已安装程序的专项回归。
+[Windows 安装验收工作流](../.github/workflows/windows-package-validation.yml)可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.3.1 覆盖安装及已安装程序的专项回归。覆盖安装检查旧摘录的原文和锚点，以及新增批注与标签的空值默认值。
 
 安装版专项回归包括退出保存失败后的恢复，以及书库备份往返、偏好恢复、凭据排除、原书库保留和损坏备份拒绝。`library-backup.spec.ts` 在打包应用中记录 `app.relaunch()` 请求，再由 Playwright 启动同一可执行文件，覆盖重新打开后的数据状态。
 

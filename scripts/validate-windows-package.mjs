@@ -36,13 +36,13 @@ const executablePath = join(installDir, 'LLM Reader.exe')
 const cleanProfile = join(testRoot, 'clean-profile')
 const upgradeProfile = join(testRoot, 'upgrade-profile')
 const fixturePath = join(testRoot, 'upgrade-fixture.txt')
-const oldInstaller = join(testRoot, 'LLM-Reader-1.3.0-setup.exe')
+const oldInstaller = join(testRoot, 'LLM-Reader-1.3.1-setup.exe')
 const oldRelease = {
-  version: '1.3.0',
+  version: '1.3.1',
   electron: '44.7.2',
-  bytes: 144_797_802,
-  sha256: '781becc4c7b1a1a7ed8c4f3a2e9291a1584c33c8b4202ae2d91ec413c2a3eb47',
-  url: 'https://github.com/maaoding/llm-reader/releases/download/v1.3.0/LLM-Reader-1.3.0-setup.exe'
+  bytes: 144_806_510,
+  sha256: '8e326655299f9428dfa3b040fd4194c0a742ab0ac67d769065e1d447f8a5d80d',
+  url: 'https://github.com/maaoding/llm-reader/releases/download/v1.3.1/LLM-Reader-1.3.1-setup.exe'
 }
 const syntheticKey = `package-validation-${randomUUID()}`
 const marker = 'package-validation-preserved'
@@ -285,20 +285,24 @@ try {
   const upgraded = await launch(upgradeProfile)
   assert.equal(upgraded.runtime.version, manifest.version)
   const archiveHash = verifyArchive()
+  const migrated = {
+    ...before,
+    highlights: before.highlights.map((record) => ({ ...record, note: '', tags: [] }))
+  }
   const after = await retainedState(upgraded.page, bookId)
-  assert.deepEqual(after, before, 'The upgrade changed the seeded library or settings')
+  assert.deepEqual(after, migrated, 'The upgrade changed the seeded library or settings')
   assert.ok(readFileSync(secretPath).equals(encryptedKey), 'The encrypted credential changed during upgrade')
   assert.equal((await upgraded.page.evaluate(() => window.readerApi.testProvider())).ok, true)
   assert.ok(validAuthorizations >= 2)
   await closeApplication()
   const restarted = await launch(upgradeProfile)
-  assert.deepEqual(await retainedState(restarted.page, bookId), before, 'The upgraded data changed after restart')
+  assert.deepEqual(await retainedState(restarted.page, bookId), migrated, 'The upgraded data changed after restart')
   assert.equal((await restarted.page.evaluate(() => window.readerApi.testProvider())).ok, true)
   assert.ok(validAuthorizations >= 3)
   report.checks.upgrade = {
     passed: true, fromVersion: oldRelease.version, toVersion: manifest.version,
     fromElectron: baseline.runtime.electron, toElectron: upgraded.runtime.electron,
-    appAsarSha256: archiveHash, book: true, readingProgress: true, highlight: true,
+    appAsarSha256: archiveHash, book: true, readingProgress: true, highlight: true, highlightMetadataDefaults: true,
     archive: true, sessionDraft: true, workbenchDraftAndTurn: true, localStorage: true,
     providerSettings: true, encryptedSyntheticCredential: true, loopbackProbeAfterRestart: true
   }
