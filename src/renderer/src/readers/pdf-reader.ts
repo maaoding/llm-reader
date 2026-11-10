@@ -127,6 +127,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private root: HTMLElement | null = null
   private documentElement: HTMLElement | null = null
   private capabilityBanner: HTMLElement | null = null
+  private ocrHintRequest = 0
   private highlightStyleElement: HTMLStyleElement | null = null
   private pdfjs: typeof import('pdfjs-dist') | null = null
   private loadingTask: PDFDocumentLoadingTask | null = null
@@ -302,6 +303,16 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.host.style.overflowX = this.originalOverflowX
     this.host.style.overflowY = this.originalOverflowY
     this.host.style.position = this.originalPosition
+  }
+
+  async refreshOcrHint(): Promise<void> {
+    const banner = this.capabilityBanner
+    if (!banner) return
+    const request = ++this.ocrHintRequest
+    const available = await this.callbacks.hasPreparedOcrText?.().catch(() => false)
+    if (this.capabilityBanner !== banner || this.ocrHintRequest !== request) return
+    banner.hidden = available === true
+    if (!banner.parentElement) this.root?.insertBefore(banner, this.documentElement)
   }
 
   search(query: string): Promise<ReadonlyArray<ReaderSearchResult>> {
@@ -1074,8 +1085,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
       banner.dataset.testid = 'pdf-no-text-banner'
       banner.setAttribute('role', 'status')
       banner.textContent = copy('reader.pdfNoText')
-      this.root.insertBefore(banner, this.documentElement)
       this.capabilityBanner = banner
+      void this.refreshOcrHint()
     }
   }
 

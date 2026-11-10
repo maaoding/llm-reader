@@ -48,6 +48,7 @@ export interface ReaderNotice {
 
 export interface ReaderCallbacks {
   bookId: string
+  hasPreparedOcrText?: () => Promise<boolean>
   onRelocated?: (relocation: ReaderRelocation) => void
   onSelectionChanged?: (selection: ReaderSource | null) => void
   onSelectionDraftChanged?: (draft: ReaderSelectionDraft | null) => void

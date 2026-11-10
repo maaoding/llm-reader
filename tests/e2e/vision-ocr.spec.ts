@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http'
 import { resolve } from 'node:path'
 import type { ContextSnapshot } from '../../src/shared/contracts'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
-import { enterReading, hidePreparation, showLibrary, showPreparation } from './support/workspace'
+import { enterReading, hidePreparation, resizeWorkspace, showLibrary, showPreparation } from './support/workspace'
 
 let server: Server, endpoint = '', holdPages = false
 let failNextPage = false, pageText = '扫描原文：独立复核是必要条件。'
@@ -71,6 +71,16 @@ test('reads cached OCR text, selects passages for cited questions and restores t
       await window.readerApi.activateProviderProfile(profiles.profiles[0].id)
     }, endpoint)
     await page.reload(); await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('theme-light').click()
+    await page.getByTestId('scale-100').click()
+    await page.getByTestId('settings-close').click()
+    await resizeWorkspace(application, page, 1180, 800)
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'light')
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', '100')
+    const noTextBanner = page.getByTestId('pdf-no-text-banner')
+    await expect(noTextBanner).toBeVisible()
+    await page.screenshot({ path: test.info().outputPath('pdf-before-ocr-light.png') })
     const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
     await page.getByTestId('ocr-reading-toggle').click()
     await expect(page.getByTestId('ocr-reading-prepare')).toBeVisible()
@@ -80,6 +90,10 @@ test('reads cached OCR text, selects passages for cited questions and restores t
     await page.getByTestId('document-prepare').click()
     await expect.poll(() => status(page, bookId), { timeout: 20_000 }).toBe('ready')
     await hidePreparation(page)
+    await expect(page.getByTestId('pdf-reader')).toBeVisible()
+    await expect(noTextBanner).toHaveAttribute('hidden', '')
+    await expect(noTextBanner).toBeHidden()
+    await page.screenshot({ path: test.info().outputPath('pdf-after-ocr-light.png') })
     const before = await page.evaluate(async () => (await window.readerApi.listBooks())[0])
     await page.getByTestId('ocr-reading-toggle').click()
     await expect(page.getByTestId('ocr-reading-text')).toHaveText(pageText)
@@ -102,12 +116,29 @@ test('reads cached OCR text, selects passages for cited questions and restores t
     await page.getByTestId('citation-valid').click()
     await expect(page.getByTestId('ocr-page-reader')).toHaveCount(0)
     await expect(page.getByTestId('reader-host')).not.toHaveAttribute('inert')
+    await expect(noTextBanner).toBeHidden()
     await expect(page.locator('.pdf-page[data-page-number="1"]')).toBeInViewport()
     await expect(page.locator('.toast.is-error')).toHaveCount(0)
     expect(pageImages()).toHaveLength(1)
 
     launched = await restartReader(application, { userData: workspace.userData }); application = launched.application; page = launched.page
-    await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
+    await showLibrary(page)
+    await page.evaluate(() => window.readerApi.saveKnowledgeSettings({
+      embedding: { enabled: false, baseUrl: '', model: '' }, document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch' }
+    }))
+    await page.getByTestId('book-item').click(); await enterReading(page)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('theme-dark').click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-close').click()
+    await resizeWorkspace(application, page, 940, 600)
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', 'dark')
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', '125')
+    await expect(page.getByTestId('pdf-reader')).toBeVisible()
+    const restoredBanner = page.getByTestId('pdf-no-text-banner')
+    await expect(restoredBanner).toHaveAttribute('hidden', '')
+    await expect(restoredBanner).toBeHidden()
+    await page.screenshot({ path: test.info().outputPath('pdf-after-ocr-restart-dark.png') })
     await page.getByTestId('ocr-reading-toggle').click()
     await expect(page.getByTestId('ocr-reading-text')).toHaveText(pageText)
     expect(pageImages()).toHaveLength(1)

@@ -88,6 +88,7 @@ import { normalizeNeedle } from './highlight'
 import { assistantActionLabel } from './assistant-actions'
 import {
   createReaderAdapter,
+  PdfReaderAdapter,
   READER_SEARCH_QUERY_MAX_LENGTH,
   READER_SEARCH_RESULT_LIMIT,
   splitSearchExcerpt,
@@ -520,6 +521,10 @@ export default function App(): ReactNode {
       setBooks((current) => current.map((item) => item.id === book.id ? payload.book : item))
       const adapter = createReaderAdapter(book.format, hostRef.current, {
         bookId: book.id,
+        hasPreparedOcrText: async () => {
+          const page = await window.readerApi.getBookOcrPage({ bookId: book.id, pageNumber: 1 })
+          return page.status === 'ready'
+        },
         onRelocated: ({ locator, progress, chapterProgress, chapterTitle, chapterHref, reason }) => {
           setCurrentLocator(locator)
           if (reason === 'natural' || (reason === 'restore' && !naturalChapterRef.current)) naturalChapterRef.current = { title: chapterTitle, href: chapterHref ?? null, progress: chapterProgress }
@@ -1294,6 +1299,11 @@ export default function App(): ReactNode {
     if (activeBook?.id) void refreshAnalysis(activeBook.id)
     if (activeConversationTab?.bookId && activeConversationTab.bookId !== activeBook?.id) void refreshAnalysis(activeConversationTab.bookId)
   }, [activeBook?.id, activeConversationTab?.bookId, refreshAnalysis, settingsOpen])
+  const activeDocument = activeBook ? analysis.states[activeBook.id]?.document : undefined
+  useEffect(() => {
+    const adapter = adapterRef.current
+    if (adapter instanceof PdfReaderAdapter) void adapter.refreshOcrHint()
+  }, [activeDocument?.jobId, activeDocument?.status])
   // 进行中或排队中的请求：用于禁用发送、显示停止按钮与阻止重复入队。
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
@@ -1763,7 +1773,7 @@ export default function App(): ReactNode {
         <section ref={readerSurfaceRef} className={`reader-surface is-${bookState}`} data-paper-theme={effectivePaperTheme}>
           <div className="reader-host" data-testid="reader-host" ref={hostRef} inert={ocrReadingOpen && page === 'reading'} aria-hidden={ocrReadingOpen && page === 'reading'} aria-label={copy('reader.areaAria')} />
           {ocrReadingOpen && page === 'reading' && activeBook?.format === 'pdf' && bookState === 'ready' && <OcrPageReader
-            key={`${activeBook.id}:${pdfPageFromLocator(currentLocator)}:${analysis.states[activeBook.id]?.document?.jobId}:${analysis.states[activeBook.id]?.document?.status}`}
+            key={`${activeBook.id}:${pdfPageFromLocator(currentLocator)}:${activeDocument?.jobId}:${activeDocument?.status}`}
             bookId={activeBook.id} pageNumber={pdfPageFromLocator(currentLocator)} onSelection={setSelection} onNavigate={navigateOcrPage} onClose={() => closeOcrReader()}
             onPrepare={() => { closeOcrReader(false); openPreparation(activeBook.id, ocrReadingToggleRef.current ?? undefined) }} />}
 
