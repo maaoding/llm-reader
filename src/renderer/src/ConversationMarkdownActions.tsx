@@ -27,7 +27,7 @@ export function ConversationMarkdownTools({ controller, target }: { controller: 
   </>
 }
 
-export function ConversationMarkdownFallback({ controller }: { controller: ConversationMarkdownController }) {
+export function ConversationMarkdownFallback({ controller, documentTarget = document }: { controller: ConversationMarkdownController; documentTarget?: Document }) {
   const dialogRef = useRef<HTMLElement>(null)
   useDialogFocus(Boolean(controller.failure), controller.closeFailure, dialogRef, controller.returnRef)
   if (!controller.failure) return null
@@ -49,5 +49,5 @@ export function ConversationMarkdownFallback({ controller }: { controller: Conve
           disabled={controller.busy} onClick={controller.savePrepared}>{copy('conversationMarkdown.save')}</button>}
       </footer>
     </section>
-  </div>, document.body)
+  </div>, documentTarget.body)
 }

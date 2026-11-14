@@ -109,7 +109,7 @@ TXT 的选区取材通过 `ContextBlock.codePointLength` 传递当前段落的 `
 | 局部代码 | `pnpm lint:files <源码及测试文件…>` 加相关单测；TS/TSX 或类型契约变化执行 `pnpm typecheck` |
 | 桌面交互 | 相关代码检查加受影响场景的 Electron E2E，复用同一源码的构建 |
 | IPC、安全、迁移、保存恢复等关键链路 | 全量 `pnpm lint`、`pnpm typecheck`、`pnpm test`，加受影响链路 E2E |
-| 正式版本、广泛基础设施重构、构建机制或核心依赖变化 | `pnpm test:all`；明确交付 Windows 安装包时另执行 `pnpm build:win --publish never` 及安装/升级验收 |
+| 正式版本、广泛基础设施重构、构建机制或核心依赖变化 | `pnpm test:all`；商店提交前另执行 `pnpm build:store`、AppX 内容检查和商店安装/升级/数据保留验收 |
 
 局部 UI 修改通过 Playwright `_electron` 实际启动应用，只检查受影响页面的截图与交互，至少覆盖 1180×800 浅色/100% 和 940×600 深色/125%。公共主题、布局或缩放改动覆盖两种主题、两种窗口尺寸及 100%/125% 的组合；不因局部改动遍历所有页面。可用 `LLM_READER_E2E_IMPORT=<书籍文件>` 自动导入合成测试书籍。
 
@@ -150,21 +150,27 @@ pnpm test:e2e:run tests/e2e/about-panel.spec.ts
 
 压力检查记录备份、预览、恢复和启动校验的耗时、检查点文件占用及进程 RSS 采样，并核对全部草稿、文件摘要、偏好、凭据排除、原书库保留和预览后篡改拒绝。样本直接生成到测试数据库，不包括导入解析、界面性能或断电耐久性；结果受本机磁盘和缓存影响，不作为速度承诺。`backend-library-backup.test.ts` 另在真实写入部分文件后注入 `ENOSPC`，验证备份及恢复清理临时文件、解除维护锁并可重试；快照失败与激活失败分别覆盖。
 
-明确交付 Windows 安装包时运行 `pnpm build:win --publish never`，在 `release/` 生成未签名的 Windows x64 NSIS 安装包，以及自动更新所需的 `latest.yml` 元数据；更新源在 `electron-builder.yml` 的 `publish` 中配置为 GitHub Releases。源码任务不默认打包；构建成功不代表解包程序、NSIS 安装/升级或真实服务质量已验收，这些层级分别记录。验证命令不授权提交、推送或发布。
+默认 Windows 打包目标为 x64 AppX。`pnpm build:store` 将 Partner Center 候选包生成到 `release/store/`，运行 `./scripts/validate-appx.ps1` 核对包内容。Microsoft Store 为分发的包签名并管理更新，商店版使用独立的应用资料目录。
 
-## 持续集成与安装验收
+`pnpm build:win --publish never` 在 `release/` 生成供自行使用的未签名 x64 NSIS 安装包。两种构建均关闭发布配置，产物不含 GitHub 更新配置或元数据。复用已验证的 `out/` 时，可直接调用 `pnpm exec electron-builder --win appx --x64 --publish never --config.directories.output=<空目录>`。验证 NSIS 时将目标改为 `nsis`，使用另一个空目录。
+
+GitHub 后续只发布源码标签，`vX.Y.Z` 对应商店 AppX `X.Y.Z.0`。已上架的 `1.4.0.0` 使用独立快照，见[商店首版源码与发布准备](releases/store-v1.4.0.0.md)。先公开对应源码标签并核对匿名下载，再更新商店商品页和官网链接。
+
+## 持续集成与商店验收
 
 [应用 CI](../.github/workflows/ci.yml) 在推送到 `main`、提交 Pull Request 或手动触发时运行：先在 Linux 执行 lint、typecheck、完整单元测试与应用构建，再在 Windows Server 2025 的 1920×1080 桌面执行完整 Electron E2E。CI 从 `package.json` 安装固定版本的 pnpm，按锁文件安装依赖，并安装 Electron 与 Calibre；桌面测试报告、截图及失败 trace 保留 7 天。测试使用隔离书库、合成资料与本机模拟服务，不调用真实付费接口；需要私有 PDF 的用例仍按原条件跳过。CI 检查源码构建与桌面行为，Windows 安装包、覆盖升级及真实服务质量仍需单独验收。
 
-[Windows 安装验收工作流](../.github/workflows/windows-package-validation.yml)可手动构建未发布的 NSIS 包，验证全新安装、从公开 v1.3.1 覆盖安装及已安装程序的专项回归。覆盖安装检查旧摘录的原文和锚点，以及新增批注与标签的空值默认值。
+[Windows AppX 验证工作流](../.github/workflows/windows-package-validation.yml)在相关 PR 或手动触发时打包并核对 AppX 的身份、发布者、四段版本、x64 架构、图标、许可证及更新元数据。工作流上传检查报告和截图。
 
-安装版专项回归包括退出保存失败后的恢复，以及书库备份往返、偏好恢复、凭据排除、原书库保留和损坏备份拒绝。`library-backup.spec.ts` 在打包应用中记录 `app.relaunch()` 请求，再由 Playwright 启动同一可执行文件，覆盖重新打开后的数据状态。
+[validate-restore-relaunch.mjs](../scripts/validate-restore-relaunch.mjs)在隔离目录的解包程序里操作书库备份与恢复，检查应用调用 `app.relaunch()` 后出现新进程，并核对同一资料目录中的书籍、草稿、主题和恢复状态。可对独立的 Windows 或 Linux 打包程序运行。示例使用 AppX 构建留下的 Windows 解包程序：
 
-安装验收脚本另调用 [validate-restore-relaunch.mjs](../scripts/validate-restore-relaunch.mjs) 检查真实自动重启：直接启动隔离安装目录的程序，通过本机调试端口操作界面，仅替代原生目录选择器，不改写 `app.relaunch()`，也不由测试脚本发起第二次启动。检查旧进程以 0 退出、新进程 PID 改变、可执行文件与资料目录一致，以及书籍、草稿、主题恢复和待恢复状态确认。调试连接须等新窗口加载完书库才检查运行时信息；结果写入 `package-validation.json` 的 `checks.restoreRelaunch`，截图随安装验收报告上传。清理仅匹配该隔离目录的可执行文件并删除自己的测试资料。
+```powershell
+node scripts/validate-restore-relaunch.mjs --root release/store --executable "release/store/win-unpacked/LLM Reader.exe" --fixture tests/fixtures/complex-reading.txt
+```
 
-该辅助检查可在 Linux 隔离打包程序上验证脚本，但 Windows 安装验收入口仍只接受 GitHub 托管的原生 Windows 执行器。Linux 打包程序与 Wine 检查分别记录，不能计作原生 Windows 安装或升级通过。
+结果记录在 `restore-relaunch.json` 和 `restore-relaunch.png`。其他已打包程序的专项 E2E 可通过 `LLM_READER_E2E_EXECUTABLE` 指定可执行文件，测试使用隔离资料目录。
 
-验收已安装版本时，将 `LLM_READER_E2E_EXECUTABLE` 指向安装目录中的 `LLM Reader.exe`，再运行 `pnpm test:e2e:run`。测试仍会为每个用例创建并清理隔离的临时用户数据目录，不会读写日常书库。
+下一版提交前在 Microsoft Store 渠道另验收真实安装、从当前商店版更新、用户数据及凭据保留、备份恢复后重启，并记录测试包版本和结果。源码 E2E、包内容、解包程序重启、商店安装升级与真实服务验证分别记录。
 
 `tests/e2e/support/reader-test.ts` 提供带独立启动、清理预算的 Electron fixture，目前用于取材回归。业务断言仍受用例超时约束；窗口启动缓慢或测试失败时，由 fixture 清理隔离进程和资料。PDF 缩放用例等待页面的 `aria-busy` 恢复为 `false` 后再检查文字层，避免把窗口尺寸变化误当成绘制完成。
 

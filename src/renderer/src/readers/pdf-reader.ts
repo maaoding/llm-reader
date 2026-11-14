@@ -2,7 +2,9 @@ import type { BookFormat, PdfImageRegionSource, ReaderSource, SelectionContext, 
 import { pdfImageRegionAnchor } from '@shared/pdf-image-region'
 import { capturePdfImageRegion } from './pdf-image-crop'
 import { copy } from '@shared/copy'
-import { parseOcrTextAnchor } from '@shared/ocr-reading'
+import { parseOcrRegionAnchor, parseOcrTextAnchor } from '@shared/ocr-reading'
+import { OCR_MAX_PAGES } from '@shared/vision-ocr'
+import { hitOcrWord, ocrLineRegion, positionedOcrSelection, selectedOcrWords, type OcrWordPoint, type PositionedOcrPage } from './pdf-ocr-selection'
 import type {
   PDFDocumentLoadingTask,
   PDFDocumentProxy,
@@ -101,6 +103,18 @@ interface PdfPanDrag {
   active: boolean
 }
 
+interface PdfOcrDrag {
+  pointerId: number
+  page: PdfPageState
+  ocr: PositionedOcrPage
+  start: OcrWordPoint
+  startX: number
+  startY: number
+  end?: OcrWordPoint
+  leftPage?: boolean
+  overlay: HTMLElement
+}
+
 interface PdfOutlineNode {
   title: string
   dest: string | unknown[] | null
@@ -127,7 +141,9 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private root: HTMLElement | null = null
   private documentElement: HTMLElement | null = null
   private capabilityBanner: HTMLElement | null = null
-  private ocrHintRequest = 0
+  private preparedOcrRevision: string | null = null
+  private readonly ocrPages = new Map<number, { page?: PositionedOcrPage }>()
+  private ocrDrag: PdfOcrDrag | null = null
   private highlightStyleElement: HTMLStyleElement | null = null
   private pdfjs: typeof import('pdfjs-dist') | null = null
   private loadingTask: PDFDocumentLoadingTask | null = null
@@ -284,7 +300,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const restored = lastLocator
       ? parsePdfTextAnchor(lastLocator, this.pages.length) ??
         parsePdfRegionAnchor(lastLocator, this.pages.length) ??
-        parsePdfPositionAnchor(lastLocator, this.pages.length) ?? parseOcrTextAnchor(lastLocator, this.pages.length)
+        parsePdfPositionAnchor(lastLocator, this.pages.length) ?? parseOcrTextAnchor(lastLocator, this.pages.length) ??
+        parseOcrRegionAnchor(lastLocator, this.pages.length)?.[0]
       : null
     const initialPage = restored?.pageNumber ?? 1
     await this.renderPage(initialPage)
@@ -305,14 +322,65 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.host.style.position = this.originalPosition
   }
 
-  async refreshOcrHint(): Promise<void> {
+  setPreparedOcrRevision(revision: string | null): void {
+    if (revision === this.preparedOcrRevision) return
+    this.preparedOcrRevision = revision
+    this.ocrPages.clear()
+    this.cancelOcrDrag()
+    if (this.draftRegionElement?.classList.contains('pdf-ocr-selection')) this.clearRegionDraft()
+    for (const page of this.pages) {
+      delete page.element.dataset.ocrSelectable
+      page.element.querySelector('.pdf-ocr-hit-layer')?.remove()
+    }
+    void this.refreshOcrHint()
+    if (revision) this.loadVisibleOcrPages()
+  }
+
+  private async refreshOcrHint(): Promise<void> {
     const banner = this.capabilityBanner
     if (!banner) return
-    const request = ++this.ocrHintRequest
-    const available = await this.callbacks.hasPreparedOcrText?.().catch(() => false)
-    if (this.capabilityBanner !== banner || this.ocrHintRequest !== request) return
-    banner.hidden = available === true
+    const revision = this.preparedOcrRevision
+    const response = revision ? await this.callbacks.readPreparedOcrPage?.(1).catch(() => null) : null
+    if (this.capabilityBanner !== banner || this.preparedOcrRevision !== revision) return
+    banner.hidden = response?.status === 'ready' && response.revision === revision
     if (!banner.parentElement) this.root?.insertBefore(banner, this.documentElement)
+  }
+
+  private loadVisibleOcrPages(): void {
+    const hostRect = this.host.getBoundingClientRect()
+    for (const page of this.pages) {
+      if (!page.rendered) continue
+      const rect = page.element.getBoundingClientRect()
+      if (rect.top < hostRect.bottom && rect.bottom > hostRect.top) void this.loadOcrPage(page)
+    }
+  }
+
+  private loadOcrPage(page: PdfPageState): void {
+    const revision = this.preparedOcrRevision
+    const read = this.callbacks.readPreparedOcrPage
+    if (!read || !revision || page.pageNumber > OCR_MAX_PAGES || page.textModel?.rawLength ||
+        this.pages[page.pageNumber - 1] !== page || this.ocrPages.has(page.pageNumber)) return
+    const entry: { page?: PositionedOcrPage } = {}
+    this.ocrPages.set(page.pageNumber, entry)
+    void read(page.pageNumber).then((value) => {
+      if (this.ocrPages.get(page.pageNumber) !== entry || value.status !== 'ready' || value.revision !== revision ||
+          value.pageNumber !== page.pageNumber || !value.wordLines?.length) return
+      const wordLines = value.wordLines
+      const hitLayer = this.document.createElement('div')
+      hitLayer.className = 'pdf-ocr-hit-layer'
+      hitLayer.setAttribute('aria-hidden', 'true')
+      for (const line of wordLines) {
+        const hit = this.document.createElement('span')
+        this.positionRegionOverlay(hit, ocrLineRegion(page.pageNumber, line))
+        hitLayer.append(hit)
+      }
+      page.element.append(hitLayer)
+      page.element.dataset.ocrSelectable = 'true'
+      page.element.querySelector('.pdf-page-no-text')?.remove()
+      entry.page = { ...value, wordLines }
+    }).catch(() => {
+      if (this.ocrPages.get(page.pageNumber) === entry) this.ocrPages.delete(page.pageNumber)
+    })
   }
 
   search(query: string): Promise<ReadonlyArray<ReaderSearchResult>> {
@@ -373,6 +441,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   clearSelection(): void {
     this.selectionRevision += 1
+    this.cancelOcrDrag()
+    if (this.draftRegionElement?.classList.contains('pdf-ocr-selection')) this.clearRegionDraft()
     if (this.regionMode) this.setRegionMode(false)
     if (this.imageRegionMode) this.setImageRegionMode(false)
     this.document.defaultView?.getSelection()?.removeAllRanges()
@@ -384,11 +454,18 @@ export class PdfReaderAdapter implements ReaderAdapter {
   async selectAnchor(anchor: string): Promise<boolean> {
     // External extraction provides a page position, without a selectable text range.
     if (parsePdfPositionAnchor(anchor, this.pages.length) || parseOcrTextAnchor(anchor, this.pages.length)) return false
-    const region = parsePdfRegionAnchor(anchor, this.pages.length)
+    const ocrRegion = parseOcrRegionAnchor(anchor, this.pages.length)?.[0]
+    const region = ocrRegion ?? parsePdfRegionAnchor(anchor, this.pages.length)
     if (region) {
       await this.renderPage(region.pageNumber)
       const pageRect = this.pages[region.pageNumber - 1]?.element.getBoundingClientRect()
       const hostRect = this.host.getBoundingClientRect()
+      if (ocrRegion && pageRect) {
+        return pageRect.top + pageRect.height * region.top >= hostRect.top &&
+          pageRect.top + pageRect.height * region.bottom <= hostRect.bottom &&
+          pageRect.left + pageRect.width * region.left >= hostRect.left &&
+          pageRect.left + pageRect.width * region.right <= hostRect.right
+      }
       return Boolean(pageRect && pageRect.bottom > hostRect.top && pageRect.top < hostRect.bottom)
     }
     const range = await this.rangeForAnchor(anchor)
@@ -408,13 +485,11 @@ export class PdfReaderAdapter implements ReaderAdapter {
       this.clearTemporaryHighlight()
       return
     }
-    const region = parsePdfRegionAnchor(anchor, this.pages.length)
-    if (region) {
-      await this.renderPage(region.pageNumber)
+    const regions = this.regionsForAnchor(anchor)
+    if (regions) {
+      await this.renderPage(regions[0].pageNumber)
       this.clearTemporaryHighlight()
-      const overlay = this.createRegionOverlay(region, 'is-temporary')
-      if (!overlay) throw new Error(copy('reader.pdfInvalidAnchor'))
-      this.temporaryRegionElements = [overlay]
+      this.temporaryRegionElements = regions.flatMap((region) => this.createRegionOverlay(region, 'is-temporary') ?? [])
       return
     }
     const range = await this.rangeForAnchor(anchor)
@@ -534,12 +609,17 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handleRegionPointerDown = (event: PointerEvent): void => {
-    if ((!this.regionMode && !this.imageRegionMode) || event.button !== 0 || this.regionDrag) return
+    if (event.button !== 0 || this.regionDrag || this.ocrDrag) return
     const target = event.target instanceof Element ? event.target : null
     const pageElement = target?.closest<HTMLElement>('.pdf-page[data-page-number]')
     const pageNumber = Number(pageElement?.dataset.pageNumber)
     const page = this.pages[pageNumber - 1]
     if (!pageElement || !page || !page.rendered) return
+    if (!this.regionMode && !this.imageRegionMode) {
+      if (target?.closest('.pdf-ocr-hit-layer')) this.startOcrDrag(event, page)
+      else if (this.selection && parseOcrRegionAnchor(this.selection.anchor)) this.clearSelection()
+      return
+    }
 
     this.clearRegionDraft(false)
     const point = this.regionPoint(event, page)
@@ -567,6 +647,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handleRegionPointerMove = (event: PointerEvent): void => {
+    if (this.ocrDrag?.pointerId === event.pointerId) {
+      this.drawOcrDrag(event)
+      return
+    }
     const drag = this.regionDrag
     if (!drag || drag.pointerId !== event.pointerId) return
     const point = this.regionPoint(event, drag.page)
@@ -576,6 +660,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handleRegionPointerUp = (event: PointerEvent): void => {
+    if (this.ocrDrag?.pointerId === event.pointerId) {
+      this.completeOcrDrag(event, this.ocrDrag)
+      return
+    }
     const drag = this.regionDrag
     if (!drag || drag.pointerId !== event.pointerId) return
     const point = this.regionPoint(event, drag.page)
@@ -606,8 +694,129 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handleRegionPointerCancel = (event: PointerEvent): void => {
+    if (this.ocrDrag?.pointerId === event.pointerId) this.cancelOcrDrag()
     if (!this.regionDrag || this.regionDrag.pointerId !== event.pointerId) return
     this.cancelRegionDrag()
+  }
+
+  private startOcrDrag(event: PointerEvent, page: PdfPageState): void {
+    const ocr = this.ocrPages.get(page.pageNumber)?.page
+    if (!ocr || event.pointerType !== 'mouse') return
+    this.clearSelection()
+    const start = this.ocrWordAt(event, page, ocr)
+    if (!start) return
+    this.clearRegionDraft(false)
+    const overlay = this.document.createElement('div')
+    overlay.className = 'pdf-region-overlay pdf-ocr-selection is-draft'
+    overlay.dataset.testid = 'pdf-ocr-drag'
+    page.element.append(overlay)
+    this.ocrDrag = { pointerId: event.pointerId, page, ocr, start, startX: event.clientX, startY: event.clientY, overlay }
+    page.element.setPointerCapture?.(event.pointerId)
+    event.preventDefault()
+  }
+
+  private ocrWordAt(event: PointerEvent, page: PdfPageState, ocr: PositionedOcrPage): OcrWordPoint | undefined {
+    const rect = page.element.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+    return hitOcrWord(ocr.wordLines, (event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height)
+  }
+
+  private drawOcrDrag(event: PointerEvent): void {
+    const drag = this.ocrDrag
+    if (!drag) return
+    const rect = drag.page.element.getBoundingClientRect()
+    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+      drag.leftPage = true
+      drag.overlay.replaceChildren()
+    }
+    if (drag.leftPage) return
+    const end = this.ocrWordAt(event, drag.page, drag.ocr)
+    if (end && (end.line !== drag.end?.line || end.word !== drag.end.word)) {
+      drag.end = end
+      this.paintOcrSelection(drag.overlay, selectedOcrWords(drag.ocr, drag.start, end)?.regions ?? [])
+    }
+    event.preventDefault()
+  }
+
+  private completeOcrDrag(event: PointerEvent, drag: PdfOcrDrag): void {
+    this.ocrDrag = null
+    if (drag.page.element.hasPointerCapture?.(event.pointerId)) drag.page.element.releasePointerCapture(event.pointerId)
+    const rect = drag.page.element.getBoundingClientRect()
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 4) {
+      drag.overlay.remove()
+      return
+    }
+    if (drag.leftPage || event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+      drag.overlay.remove()
+      this.notice(copy('ocrReading.dragWithinColumn'), 'info')
+      return
+    }
+    const end = this.ocrWordAt(event, drag.page, drag.ocr) ?? drag.end
+    const selected = end && selectedOcrWords(drag.ocr, drag.start, end)
+    if (!selected) {
+      drag.overlay.remove()
+      this.notice(copy('ocrReading.dragWithinColumn'), 'info')
+      return
+    }
+    let context: SelectionContext | null
+    try {
+      context = positionedOcrSelection(this.callbacks.bookId, drag.ocr, selected)
+    } catch {
+      drag.overlay.remove()
+      this.notice(copy('ocrReading.selectionTooLong'))
+      return
+    }
+    if (!context) { drag.overlay.remove(); return }
+    const preview = this.ocrSelectionPreview(drag.page, selected.regions)
+    if (!preview) {
+      drag.overlay.remove()
+      this.notice(copy('ocrReading.previewFailed'))
+      return
+    }
+    this.paintOcrSelection(drag.overlay, selected.regions)
+    this.reviewRegionSelection(context, drag.overlay, preview)
+    event.preventDefault()
+  }
+
+  private paintOcrSelection(overlay: HTMLElement, regions: PdfRegionAnchor[]): void {
+    overlay.replaceChildren(...regions.map((region) => {
+      const line = this.document.createElement('span')
+      this.positionRegionOverlay(line, region)
+      return line
+    }))
+  }
+
+  private ocrSelectionPreview(page: PdfPageState, regions: PdfRegionAnchor[]): string | undefined {
+    const { canvas } = page
+    const left = Math.max(0, Math.floor(Math.min(...regions.map((region) => region.left)) * canvas.width) - 3)
+    const top = Math.max(0, Math.floor(Math.min(...regions.map((region) => region.top)) * canvas.height) - 3)
+    const right = Math.min(canvas.width, Math.ceil(Math.max(...regions.map((region) => region.right)) * canvas.width) + 3)
+    const bottom = Math.min(canvas.height, Math.ceil(Math.max(...regions.map((region) => region.bottom)) * canvas.height) + 3)
+    const width = right - left, height = bottom - top
+    if (width <= 0 || height <= 0) return
+    const scale = Math.min(1, 960 / Math.max(width, height))
+    const preview = this.document.createElement('canvas')
+    preview.width = Math.max(1, Math.ceil(width * scale))
+    preview.height = Math.max(1, Math.ceil(height * scale))
+    try {
+      const context = preview.getContext('2d')
+      if (!context) return
+      context.drawImage(canvas, left, top, width, height, 0, 0, preview.width, preview.height)
+      return preview.toDataURL('image/jpeg', 0.9)
+    } catch {
+      return undefined
+    } finally {
+      preview.width = 0
+      preview.height = 0
+    }
+  }
+
+  private cancelOcrDrag(): void {
+    const drag = this.ocrDrag
+    this.ocrDrag = null
+    if (!drag) return
+    if (drag.page.element.hasPointerCapture?.(drag.pointerId)) drag.page.element.releasePointerCapture(drag.pointerId)
+    drag.overlay.remove()
   }
 
   private regionPoint(event: PointerEvent, page: PdfPageState): { x: number; y: number } | null {
@@ -663,7 +872,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   }
 
   private readonly handlePanPointerDown = (event: PointerEvent): void => {
-    if (this.regionMode || this.imageRegionMode || !this.panable || event.button !== 0 || this.panDrag) return
+    if (this.regionMode || this.imageRegionMode || this.ocrDrag || !this.panable || event.button !== 0 || this.panDrag) return
     const target = event.target instanceof Element ? event.target : null
     if (target?.closest('button, a, input, select, textarea')) return
     this.panDrag = {
@@ -805,6 +1014,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
       return
     }
 
+    this.reviewRegionSelection(context, overlay)
+  }
+
+  private reviewRegionSelection(context: SelectionContext, overlay: HTMLElement, ocrPreview?: string): void {
     this.clearRegionDraft(false)
     const revision = ++this.regionDraftRevision
     this.draftRegionElement = overlay
@@ -829,9 +1042,9 @@ export class PdfReaderAdapter implements ReaderAdapter {
       this.setSelection({ ...context, quote: cleanQuote })
     }
     if (this.callbacks.onSelectionDraftChanged) {
-      this.callbacks.onSelectionDraftChanged({ quote: result.text, confirm, cancel })
+      this.callbacks.onSelectionDraftChanged({ quote: context.quote, ocrPreview, confirm, cancel })
     } else {
-      confirm(result.text)
+      confirm(context.quote)
     }
   }
 
@@ -847,6 +1060,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.zoomFactor = next
     this.zoomMode = mode
     this.updateZoomUi()
+    this.cancelOcrDrag()
     this.clearNativeTextSelectionForRerender()
     for (const page of this.pages) {
       page.renderRevision += 1
@@ -955,7 +1169,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue
           const pageNumber = Number((entry.target as HTMLElement).dataset.pageNumber)
-          if (Number.isSafeInteger(pageNumber)) void this.renderPage(pageNumber)
+          const page = this.pages[pageNumber - 1]
+          if (page) void this.renderPage(pageNumber).then(() => this.loadOcrPage(page))
         }
       }, { root: this.host, rootMargin: '120% 0px' })
       this.pages.forEach((page) => this.observer?.observe(page.element))
@@ -1059,7 +1274,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       element.dataset.pdfTextEnd = String(cursor + length)
       cursor += length
     })
-    if (cursor === 0) {
+    if (cursor === 0 && !state.element.dataset.ocrSelectable) {
       const badge = this.document.createElement('span')
       badge.className = 'pdf-page-no-text'
       badge.textContent = copy('reader.pdfPageNoText')
@@ -1152,7 +1367,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       }
       const page = pageNumber ? this.pages[pageNumber - 1] : null
       if (!page || !pageNumber) return null
-      const viewport = page.page.getViewport({ scale: 1 })
+    const viewport = page.page.getViewport({ scale: 1 })
       return { pageNumber, fraction: pdfDestinationFraction(resolved, viewport) }
     } catch {
       return null
@@ -1210,7 +1425,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   private async goToWithReason(anchor: string, reason: ReaderRelocationReason): Promise<void> {
     const textAnchor = parsePdfTextAnchor(anchor, this.pages.length)
-    const regionAnchor = parsePdfRegionAnchor(anchor, this.pages.length)
+    const ocrRegion = parseOcrRegionAnchor(anchor, this.pages.length)?.[0]
+    const regionAnchor = ocrRegion ?? parsePdfRegionAnchor(anchor, this.pages.length)
     const positionAnchor = parsePdfPositionAnchor(anchor, this.pages.length)
     const ocrAnchor = parseOcrTextAnchor(anchor, this.pages.length)
     const pageNumber = textAnchor?.pageNumber ?? regionAnchor?.pageNumber ?? positionAnchor?.pageNumber ?? ocrAnchor?.pageNumber
@@ -1222,6 +1438,13 @@ export class PdfReaderAdapter implements ReaderAdapter {
       regionAnchor?.top ??
       (pageLength > 0 ? (textAnchor?.start ?? 0) / pageLength : 0)
     this.relocateProgrammatically(pageNumber, fraction, reason)
+    if (ocrRegion && this.panable) {
+      const host = this.host.getBoundingClientRect()
+      const pageRect = page.element.getBoundingClientRect()
+      const left = pageRect.left + ocrRegion.left * pageRect.width
+      const right = pageRect.left + ocrRegion.right * pageRect.width
+      if (left < host.left || right > host.right) this.host.scrollLeft += left - host.left - 24
+    }
   }
 
   private relocateProgrammatically(
@@ -1469,6 +1692,11 @@ export class PdfReaderAdapter implements ReaderAdapter {
       .filter((span) => range.intersectsNode(span))
   }
 
+  private regionsForAnchor(anchor: string): PdfRegionAnchor[] | null {
+    const region = parsePdfRegionAnchor(anchor, this.pages.length)
+    return region ? [region] : parseOcrRegionAnchor(anchor, this.pages.length)
+  }
+
   private createRegionOverlay(region: PdfRegionAnchor, className: string): HTMLElement | null {
     const page = this.pages[region.pageNumber - 1]
     if (!page) return null
@@ -1484,10 +1712,9 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.clearPersistentHighlights()
     const ranges: Range[] = []
     for (const { anchor } of this.persistentHighlightAnchors) {
-      const region = parsePdfRegionAnchor(anchor, this.pages.length)
-      if (region) {
-        const overlay = this.createRegionOverlay(region, 'is-persistent')
-        if (overlay) this.persistentRegionElements.push(overlay)
+      const regions = this.regionsForAnchor(anchor)
+      if (regions) {
+        this.persistentRegionElements.push(...regions.flatMap((region) => this.createRegionOverlay(region, 'is-persistent') ?? []))
         continue
       }
       const parsed = parsePdfTextAnchor(anchor, this.pages.length)
@@ -1569,6 +1796,9 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.resizeFrame = null
     this.zoomCoordinator.reset()
     this.cancelRegionDrag()
+    this.cancelOcrDrag()
+    this.ocrPages.clear()
+    this.preparedOcrRevision = null
     this.clearRegionDraft()
     this.activeRegionElement?.remove()
     this.activeRegionElement = null

@@ -15,7 +15,7 @@ const TITLES = ['正在生成的书', '另一本书', '排队的书']
 const STREAM_CHUNKS = [
   '### 解释\n\n第一段：这段**关键**内容涉及 `术语`。\n\n',
   '第二段：切换标签后仍在后台生成。\n\n',
-  '第三段：回到本书时答案应当完整。'
+  '第三段：回到本书时答案应当完整。 [P1]'
 ]
 
 function holdStreamCompletions(): () => void {
@@ -249,6 +249,64 @@ test('keeps a running answer while switching book tabs and renders the saved ans
     await page.screenshot({ path: test.info().outputPath('answer-compact-dark-125.png') })
   } finally {
     releaseStreams?.()
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('keeps the same stream and citation when the reading assistant is detached, closed and reopened', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-fullscreen-stream-')
+  let application: ElectronApplication | undefined
+  const release = holdStreamCompletions()
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: join(process.cwd(), 'tests/fixtures/complex-reading.txt') })
+    application = launched.application
+    const { page } = launched
+    await configureProvider(page)
+    await page.getByTestId('book-item').click()
+    const paragraphs = page.getByTestId('reader-host').locator('p')
+    await selectNodeContents(paragraphs.first())
+    await page.getByTestId('action-explain').hover()
+    await expect(page.getByTestId('action-explain')).toHaveCSS('translate', '0px -1px')
+    await page.getByTestId('action-explain').click()
+    await expect(page.getByTestId('answer-current')).toContainText('第一段')
+
+    const opening = application.waitForEvent('window')
+    await page.getByTestId('reader-fullscreen').click()
+    let popup = await opening
+    await expect(popup.getByTestId('answer-current')).toContainText('第一段')
+    await expect(popup.getByTestId('cancel-request')).toBeVisible()
+    const closed = popup.waitForEvent('close')
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.getParentWindow())!.close())
+    await closed
+    release()
+
+    const reopening = application.waitForEvent('window')
+    await page.getByTestId('reader-assistant-window').click()
+    popup = await reopening
+    await expect(popup.getByTestId('answer-current')).toContainText('第三段：回到本书时答案应当完整。')
+    await expect(popup.getByTestId('cancel-request')).toHaveCount(0)
+    await expect(popup.locator('.conversation-turn')).toHaveCount(1)
+    await popup.getByTestId('citation-valid').click()
+    await expect.poll(() => page.evaluate(() => {
+      const registry = (window.CSS as unknown as { highlights: Map<string, Iterable<Range>> }).highlights
+      return Array.from(registry.get('llm-reader-temporary') ?? [], (range) => range.toString()).join('')
+    })).toContain('理解一个复杂概念')
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-reading-fullscreen', 'true')
+
+    const closeAgain = popup.waitForEvent('close')
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.getParentWindow())!.close())
+    await closeAgain
+    await selectNodeContents(paragraphs.nth(1))
+    const selecting = application.waitForEvent('window')
+    await page.getByTestId('action-ask').click()
+    popup = await selecting
+    const input = popup.getByTestId('followup-input')
+    await expect(input).toBeFocused()
+    await input.fill('全屏划词后继续提问')
+    await page.getByTestId('reader-fullscreen').click()
+    await expect(page.getByTestId('followup-input')).toHaveValue('全屏划词后继续提问')
+  } finally {
+    release()
     await cleanupE2eWorkspace(application, workspace.root)
   }
 })

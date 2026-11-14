@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
-import { makeOcrTextAnchor, parseOcrTextAnchor, pdfPageFromLocator } from '../../src/shared/ocr-reading'
+import { makeOcrRegionAnchor, makeOcrTextAnchor, parseOcrTextAnchor, pdfPageFromLocator } from '../../src/shared/ocr-reading'
 import { ocrSelection } from '../../src/renderer/src/readers/ocr-selection'
-import { selectionSchema } from '../../src/main/schemas'
+import { highlightSchema, selectionSchema } from '../../src/main/schemas'
 
 const revision = '7157b869-f3e8-48f9-a62a-7a2747c10718'
 const page = { status: 'ready' as const, pageNumber: 2, pageCount: 3, revision, text: '开头。\n  😀独立复核\n  结尾。' }
@@ -36,4 +36,15 @@ it('validates saved OCR locations and resolves existing PDF locator types to the
   for (const value of ['pdf:4:0:10', 'pdfpos:4:0.5', 'pdfrect:4:0:0:1:1', makeOcrTextAnchor(4, 0, 10, revision)]) expect(pdfPageFromLocator(value)).toBe(4)
   expect(pdfPageFromLocator(null)).toBe(1)
   expect(pdfPageFromLocator('pdfpos:601:0')).toBe(1)
+})
+
+it('validates positioned OCR anchors before accepting selections and highlights in the main process', () => {
+  const context = ocrSelection(revision, page, 4, 13)!
+  const anchor = makeOcrRegionAnchor([{ pageNumber: 2, left: 0.1, top: 0.2, right: 0.3, bottom: 0.4 }])
+  const invalid = 'pdfocrrect:2:0.1:0.2:0.3:0.4;0.5:0.6:1.2:0.8'
+  for (const schema of [selectionSchema, highlightSchema]) {
+    expect(schema.safeParse({ ...context, anchor }).success).toBe(true)
+    expect(schema.safeParse({ ...context, anchor: invalid }).success).toBe(false)
+  }
+  expect(selectionSchema.safeParse({ ...context, anchor, passages: [{ ...context.passages[0], anchor: invalid }] }).success).toBe(false)
 })

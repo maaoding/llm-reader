@@ -6,18 +6,12 @@ type Listener = (...args: unknown[]) => void
 const mocks = vi.hoisted(() => {
   const events = new Map<string, Listener>()
   const contentsEvents = new Map<string, Listener>()
-  const quitEvents = new Map<string, Listener>()
-  const app = {
-    isPackaged: false,
-    once: vi.fn((event: string, listener: Listener) => { quitEvents.set(event, listener) }),
-    removeListener: vi.fn((event: string, listener: Listener) => {
-      if (quitEvents.get(event) === listener) quitEvents.delete(event)
-    })
-  }
   const window = {
     on: vi.fn((event: string, listener: Listener) => { events.set(event, listener) }),
     close: vi.fn(),
     show: vi.fn(),
+    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1180, height: 800 })),
+    isFullScreen: vi.fn(() => false),
     isDestroyed: vi.fn(() => false),
     webContents: {
       on: vi.fn((event: string, listener: Listener) => { contentsEvents.set(event, listener) }),
@@ -26,12 +20,13 @@ const mocks = vi.hoisted(() => {
       setWindowOpenHandler: vi.fn()
     }
   }
-  return { app, quitEvents, events, contentsEvents, window, showMessageBox: vi.fn() }
+  return { events, contentsEvents, window, showMessageBox: vi.fn() }
 })
 
 vi.mock('electron', () => ({
-  app: mocks.app,
+  app: { isPackaged: false },
   BrowserWindow: vi.fn(function () { return mocks.window }),
+  screen: { getDisplayMatching: vi.fn(() => ({ workArea: { x: 0, y: 0, width: 1180, height: 800 } })) },
   dialog: { showMessageBox: mocks.showMessageBox },
   session: { defaultSession: {
     setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn(), webRequest: { onBeforeRequest: vi.fn() }
@@ -43,10 +38,58 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.events.clear()
   mocks.contentsEvents.clear()
-  mocks.quitEvents.clear()
   mocks.window.isDestroyed.mockReturnValue(false)
+  mocks.window.isFullScreen.mockReturnValue(false)
   mocks.window.webContents.isDestroyed.mockReturnValue(false)
   mocks.showMessageBox.mockReset().mockResolvedValue({ response: 0 })
+})
+
+describe('reading window controls', () => {
+  it('permits just one fixed blank child for a fresh fullscreen ticket', () => {
+    const { readingWindow } = createMainWindow()
+    const open = mocks.window.webContents.setWindowOpenHandler.mock.calls[0][0]
+    const details = { url: 'about:blank', frameName: 'guessed', features: '', postBody: undefined }
+    expect(readingWindow.reserveAssistantWindow()).toBeNull()
+    expect(open(details)).toEqual({ action: 'deny' })
+    mocks.window.isFullScreen.mockReturnValue(true)
+    const ticket = readingWindow.reserveAssistantWindow()
+    expect(ticket).toBeTruthy()
+    const allowed = { ...details, frameName: ticket }
+    expect(open({ ...allowed, url: 'https://example.test' })).toEqual({ action: 'deny' })
+    expect(open({ ...allowed, features: 'nodeIntegration=yes' })).toEqual({ action: 'deny' })
+    expect(open({ ...allowed, postBody: {} })).toEqual({ action: 'deny' })
+    expect(open(allowed)).toMatchObject({ action: 'allow', overrideBrowserWindowOptions: {
+      parent: mocks.window, modal: false, show: false, alwaysOnTop: false
+    } })
+    expect(open(allowed)).toEqual({ action: 'deny' })
+    expect(readingWindow.reserveAssistantWindow()).toBeNull()
+    const stale = { ...details, frameName: readingWindow.reserveAssistantWindow() }
+    expect(open(stale)).toEqual({ action: 'deny' })
+    vi.advanceTimersByTime(5_001)
+    const expired = readingWindow.reserveAssistantWindow()
+    vi.advanceTimersByTime(5_001)
+    expect(open({ ...details, frameName: expired })).toEqual({ action: 'deny' })
+    const beforeNavigation = readingWindow.reserveAssistantWindow()
+    mocks.contentsEvents.get('did-start-navigation')!({ isMainFrame: true, isSameDocument: false })
+    expect(open({ ...details, frameName: beforeNavigation })).toEqual({ action: 'deny' })
+  })
+
+  it('emits native fullscreen changes and ignores F11 repeats and modifiers', () => {
+    createMainWindow()
+    const handleInput = mocks.contentsEvents.get('before-input-event')!
+    const event = { preventDefault: vi.fn() }
+    handleInput(event, { key: 'F11', type: 'keyDown', control: true })
+    handleInput(event, { key: 'F11', type: 'keyDown', isAutoRepeat: true })
+    handleInput(event, { key: 'F11', type: 'keyUp' })
+    expect(mocks.window.webContents.send).not.toHaveBeenCalled()
+    handleInput(event, { key: 'F11', type: 'keyDown' })
+    expect(event.preventDefault).toHaveBeenCalledTimes(3)
+    expect(mocks.window.webContents.send).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.windowFullscreenShortcut, undefined)
+    mocks.events.get('enter-full-screen')!()
+    mocks.events.get('leave-full-screen')!()
+    expect(mocks.window.webContents.send).toHaveBeenNthCalledWith(2, IPC_CHANNELS.windowFullscreenChange, true)
+    expect(mocks.window.webContents.send).toHaveBeenNthCalledWith(3, IPC_CHANNELS.windowFullscreenChange, false)
+  })
 })
 afterEach(() => { vi.useRealTimers() })
 
@@ -136,61 +179,5 @@ describe('save-before-close handshake', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(mocks.showMessageBox).toHaveBeenCalledOnce()
     expect(mocks.window.close).not.toHaveBeenCalled()
-  })
-
-  it('runs a pending installation only when its close request is approved', () => {
-    const created = createMainWindow()
-    const install = vi.fn(() => true)
-    created.requestClose(install)
-    expect(install).not.toHaveBeenCalled()
-    created.respondToClose({ requestId: 1, approved: false })
-    expect(install).not.toHaveBeenCalled()
-    created.requestClose(install)
-    created.respondToClose({ requestId: 1, approved: true })
-    expect(install).not.toHaveBeenCalled()
-    created.respondToClose({ requestId: 2, approved: true })
-    expect(install).toHaveBeenCalledOnce()
-    expect(mocks.window.close).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    { name: 'an unsuccessful installation', install: () => false },
-    { name: 'an installer exception', install: () => { throw new Error('installer failed') } }
-  ])('restores the close guard and renderer after $name', ({ install }) => {
-    const created = createMainWindow()
-    created.requestClose(install)
-    created.respondToClose({ requestId: 1, approved: true })
-    expect(mocks.window.close).not.toHaveBeenCalled()
-    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appCloseCancelled)
-    requestWindowClose()
-    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appBeforeClose, 2)
-    created.respondToClose({ requestId: 2, approved: true })
-    expect(mocks.window.close).toHaveBeenCalledOnce()
-  })
-
-  it('restores editing after a delayed installer error and cancels the already queued quit', async () => {
-    const created = createMainWindow()
-    let rejectInstall!: () => void
-    const queuedQuit = { preventDefault: vi.fn() }
-    created.requestClose((cancel) => {
-      rejectInstall = cancel
-      setImmediate(() => mocks.quitEvents.get('before-quit')?.(queuedQuit))
-      return true
-    })
-    created.respondToClose({ requestId: 1, approved: true })
-    rejectInstall()
-    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appCloseCancelled)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(queuedQuit.preventDefault).toHaveBeenCalledOnce()
-    expect(mocks.quitEvents.size).toBe(0)
-    requestWindowClose()
-    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appBeforeClose, 2)
-    // Duplicate and stale failures cannot cancel a later close attempt.
-    rejectInstall()
-    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appBeforeClose, 2)
-    created.respondToClose({ requestId: 2, approved: true })
-    expect(mocks.window.close).toHaveBeenCalledOnce()
-    rejectInstall()
-    expect(mocks.window.webContents.send).toHaveBeenLastCalledWith(IPC_CHANNELS.appBeforeClose, 2)
   })
 })

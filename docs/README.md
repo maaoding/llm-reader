@@ -17,7 +17,13 @@
 
 ## 发布记录
 
-发布说明记录版本变化；验收记录说明当时实际执行的检查及限制，不代表后续提交已重新通过相同验证。安装包见 [GitHub Releases](https://github.com/maaoding/llm-reader/releases)，面向使用者的版本入口见[官网更新日志](https://llm-reader.maaoding.icu/docs/changelog.html)。
+官方预编译版通过 [Microsoft Store](https://apps.microsoft.com/detail/9PL7FB24VJMV) 分发。GitHub 后续只发布源码标签 `vX.Y.Z`，对应商店包 `X.Y.Z.0`。发布说明记录版本变化，验收记录说明当时执行的检查及限制。历史安装包保存在 [GitHub Releases](https://github.com/maaoding/llm-reader/releases)。
+
+| 商店包 | 源码标签 | 记录 |
+| --- | --- | --- |
+| `1.4.0.0` | `store-v1.4.0.0` | [源码快照与发布准备](releases/store-v1.4.0.0.md) |
+
+### 历史 GitHub 发布
 
 | 版本 | 发布说明 | 验收记录 |
 | --- | --- | --- |
@@ -35,8 +41,8 @@
 
 | 位置 | 负责的内容 | 阅读入口 |
 | --- | --- | --- |
-| [根 README](../README.md) | 项目简介、下载、使用文档和源码启动入口 | GitHub 仓库首页 |
-| [site/](../site/) | 产品介绍、交互演示与下载 | [官网首页](https://llm-reader.maaoding.icu/) |
+| [根 README](../README.md) | 项目简介、商店购买、使用文档和源码构建入口 | GitHub 仓库首页 |
+| [site/](../site/) | 产品介绍、交互演示和安装入口 | [官网首页](https://llm-reader.maaoding.icu/) |
 | [docs/manual/](manual/index.md) | 安装、阅读、模型配置、问答、PDF、隐私和排错教程 | [官网使用文档](https://llm-reader.maaoding.icu/docs/) |
 | `docs/` 下的开发与协议指南 | 开发命令、接口细节与质量评测 | 本页各专题入口 |
 | [docs/releases/](releases/) | 按版本保存的发布说明与验收记录 | 本页发布记录；当前版本说明同时展示在官网 |

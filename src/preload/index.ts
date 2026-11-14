@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   IPC_CHANNELS,
   type BookExtractionApi,
-  type AppUpdatePhase,
   type BookImportEvent,
   type LlmEvent,
   type ReaderApi
@@ -24,17 +23,8 @@ export const readerApi: ReaderApi = {
   exportConversationMarkdown: (input) => ipcRenderer.invoke(IPC_CHANNELS.conversationMarkdownExport, input),
   getBookOcrPage: (input) => ipcRenderer.invoke(IPC_CHANNELS.documentOcrPage, input),
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.appInfo),
+  openAiContentReport: () => ipcRenderer.invoke(IPC_CHANNELS.appReportAiContent),
   setUiLanguage: (language) => ipcRenderer.invoke(IPC_CHANNELS.uiLanguageSet, language),
-  getAppUpdatePhase: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdatePhase),
-  checkForAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateCheck),
-  downloadAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateDownload),
-  installAppUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.appUpdateInstall),
-  onAppUpdateEvent: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void =>
-      listener(value as AppUpdatePhase)
-    ipcRenderer.on(IPC_CHANNELS.appUpdateEvent, handler)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.appUpdateEvent, handler)
-  },
   listBooks: () => ipcRenderer.invoke(IPC_CHANNELS.booksList),
   importBooks: () => ipcRenderer.invoke(IPC_CHANNELS.booksImport),
   importDroppedBooks: (files) =>
@@ -120,11 +110,6 @@ export const readerApi: ReaderApi = {
     ipcRenderer.on(IPC_CHANNELS.appBeforeClose, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.appBeforeClose, handler)
   },
-  onCloseCancelled: (listener) => {
-    const handler = (): void => listener()
-    ipcRenderer.on(IPC_CHANNELS.appCloseCancelled, handler)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.appCloseCancelled, handler)
-  },
   minimizeWindow: () => ipcRenderer.invoke(IPC_CHANNELS.windowMinimize),
   toggleMaximizeWindow: () => ipcRenderer.invoke(IPC_CHANNELS.windowToggleMaximize),
   closeWindow: () => ipcRenderer.invoke(IPC_CHANNELS.windowClose),
@@ -134,6 +119,29 @@ export const readerApi: ReaderApi = {
       listener(value as boolean)
     ipcRenderer.on(IPC_CHANNELS.windowMaximizedChange, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.windowMaximizedChange, handler)
+  },
+  isWindowFullscreen: () => ipcRenderer.invoke(IPC_CHANNELS.windowIsFullscreen),
+  setWindowFullscreen: (fullscreen) => ipcRenderer.invoke(IPC_CHANNELS.windowSetFullscreen, fullscreen),
+  onWindowFullscreenChange: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+      if (typeof value === 'boolean') listener(value)
+    }
+    ipcRenderer.on(IPC_CHANNELS.windowFullscreenChange, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.windowFullscreenChange, handler)
+  },
+  onWindowFullscreenShortcut: (listener) => {
+    const handler = (): void => listener()
+    ipcRenderer.on(IPC_CHANNELS.windowFullscreenShortcut, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.windowFullscreenShortcut, handler)
+  },
+  reserveAssistantWindow: () => ipcRenderer.invoke(IPC_CHANNELS.assistantWindowReserve),
+  presentAssistantWindow: (presentation) => ipcRenderer.invoke(IPC_CHANNELS.assistantWindowPresent, presentation),
+  onAssistantWindowClosed: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
+      if (typeof value === 'string') listener(value)
+    }
+    ipcRenderer.on(IPC_CHANNELS.assistantWindowClosed, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.assistantWindowClosed, handler)
   }
 }
 

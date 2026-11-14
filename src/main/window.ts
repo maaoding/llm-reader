@@ -2,11 +2,12 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, session } from 'electron'
 import { IPC_CHANNELS, type AppCloseResponse } from '@shared/contracts'
 import { copy } from '@shared/copy'
+import { attachReadingWindow, type ReadingWindow } from './reading-window'
 
 export interface CreatedWindow {
   window: BrowserWindow
   allowedOrigins: ReadonlySet<string>
-  requestClose: (afterSave?: (cancel: () => void) => boolean) => void
+  readingWindow: ReadingWindow
   respondToClose: (response: AppCloseResponse) => void
 }
 
@@ -49,10 +50,11 @@ export function createMainWindow(): CreatedWindow {
       spellcheck: false
     }
   })
+  const readingWindow = attachReadingWindow(window)
 
   let closeApproved = false
   let closeSequence = 0
-  let closeRequest: { id: number; afterSave?: (cancel: () => void) => boolean } | undefined
+  let closeRequestId: number | undefined
   let closeTimer: ReturnType<typeof setTimeout> | undefined
   let closePrompt: number | undefined
   let closePromptController: AbortController | undefined
@@ -63,34 +65,18 @@ export function createMainWindow(): CreatedWindow {
   }
   const completeClose = (): void => {
     if (closeApproved || window.isDestroyed()) return
-    const requestId = closeRequest?.id
-    const afterSave = closeRequest?.afterSave
     closeApproved = true
-    closeRequest = undefined
+    closeRequestId = undefined
     clearCloseTimer()
     closePromptController?.abort()
-    if (!afterSave) { window.close(); return }
-    const cancel = (): void => {
-      if (!closeApproved || closeSequence !== requestId || window.isDestroyed()) return
-      closeApproved = false
-      // electron-updater can emit an installation error after queuing app.quit()
-      // for the next check phase. Cancel that queued quit as well as its UI guard.
-      const preventQueuedQuit = (event: Electron.Event): void => {
-        if (!window.isDestroyed()) event.preventDefault()
-      }
-      app.once('before-quit', preventQueuedQuit)
-      setImmediate(() => app.removeListener('before-quit', preventQueuedQuit))
-      if (!window.webContents.isDestroyed()) window.webContents.send(IPC_CHANNELS.appCloseCancelled)
-    }
-    try { if (afterSave(cancel)) return } catch { /* Installation errors keep the saved workspace open. */ }
-    cancel()
+    window.close()
   }
   const scheduleClosePrompt = (requestId: number): void => {
     clearCloseTimer()
     closeTimer = setTimeout(() => { void showClosePrompt(requestId) }, 15_000)
   }
   const showClosePrompt = async (requestId: number): Promise<void> => {
-    if (closeApproved || window.isDestroyed() || closeRequest?.id !== requestId || closePrompt !== undefined) return
+    if (closeApproved || window.isDestroyed() || closeRequestId !== requestId || closePrompt !== undefined) return
     clearCloseTimer()
     closePrompt = requestId
     const controller = new AbortController()
@@ -107,18 +93,19 @@ export function createMainWindow(): CreatedWindow {
         noLink: true,
         signal: controller.signal
       })
-      if (closeRequest?.id === requestId && result.response === 1) completeClose()
+      if (closeRequestId === requestId && result.response === 1) completeClose()
     } catch { /* A failed or dismissed prompt never authorizes discarding unsaved content. */ }
     finally {
       if (closePrompt === requestId) closePrompt = undefined
       if (closePromptController === controller) closePromptController = undefined
-      if (closeRequest && !closeApproved && !window.isDestroyed()) scheduleClosePrompt(closeRequest.id)
+      if (closeRequestId !== undefined && !closeApproved && !window.isDestroyed()) scheduleClosePrompt(closeRequestId)
     }
   }
-  const requestClose = (afterSave?: (cancel: () => void) => boolean): void => {
-    if (closeApproved || closeRequest || window.isDestroyed()) return
+  const requestClose = (): void => {
+    if (closeApproved || closeRequestId !== undefined || window.isDestroyed()) return
     const requestId = ++closeSequence
-    closeRequest = { id: requestId, afterSave }
+    closeRequestId = requestId
+    readingWindow.setSavingBeforeClose(true)
     if (rendererUnavailable || window.webContents.isDestroyed()) {
       void showClosePrompt(requestId)
       return
@@ -129,12 +116,13 @@ export function createMainWindow(): CreatedWindow {
     } catch { void showClosePrompt(requestId) }
   }
   const respondToClose = ({ requestId, approved }: AppCloseResponse): void => {
-    if (closeApproved || closeRequest?.id !== requestId || window.isDestroyed()) return
+    if (closeApproved || closeRequestId !== requestId || window.isDestroyed()) return
     if (approved) completeClose()
     else {
-      closeRequest = undefined
+      closeRequestId = undefined
       clearCloseTimer()
       closePromptController?.abort()
+      readingWindow.setSavingBeforeClose(false)
     }
   }
   window.on('close', (event) => {
@@ -144,11 +132,11 @@ export function createMainWindow(): CreatedWindow {
   })
   window.on('closed', clearCloseTimer)
   window.on('unresponsive', () => {
-    if (closeRequest) void showClosePrompt(closeRequest.id)
+    if (closeRequestId !== undefined) void showClosePrompt(closeRequestId)
   })
   window.webContents.on('render-process-gone', () => {
     rendererUnavailable = true
-    if (closeRequest) void showClosePrompt(closeRequest.id)
+    if (closeRequestId !== undefined) void showClosePrompt(closeRequestId)
   })
 
   const sendMaximizedChange = (): void => {
@@ -159,7 +147,6 @@ export function createMainWindow(): CreatedWindow {
   window.on('maximize', sendMaximizedChange)
   window.on('unmaximize', sendMaximizedChange)
 
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event, target) => {
     if (!isAllowedNavigation(target, allowedOrigins)) event.preventDefault()
   })
@@ -191,7 +178,7 @@ export function createMainWindow(): CreatedWindow {
     }
   })
 
-  return { window, allowedOrigins, requestClose, respondToClose }
+  return { window, allowedOrigins, readingWindow, respondToClose }
 }
 
 export async function loadMainWindow(window: BrowserWindow): Promise<void> {

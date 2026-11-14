@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { AlertCircle, BookOpen, Check, Cpu, Info, LoaderCircle, MessageSquareText, Palette, Plus, RefreshCw, Save, Sparkles, Trash2, Unplug, X } from 'lucide-react'
-import type { AppUpdatePhase, PersonaSettings, ProviderCompatibility, ProviderOverview, ProviderProfile, ProviderProtocol, RequestSettingsInput, TextReadingMode } from '@shared/contracts'
+import type { AppInfo, PersonaSettings, ProviderCompatibility, ProviderOverview, ProviderProfile, ProviderProtocol, RequestSettingsInput, TextReadingMode } from '@shared/contracts'
 import { copy, type CopyKey, type UiLanguage } from '@shared/copy'
 import { publicRequestSettings } from '@shared/request-settings'
 import appIcon from '../../../resources/icon.png'
@@ -219,7 +219,6 @@ function AssistantActionFields({
 
 const ABOUT_THIRD_PARTY_NOTICE_KEYS = [
   'about.noticeElectron',
-  'about.noticeElectronUpdater',
   'about.noticeEpubjs',
   'about.noticeJszip',
   'about.noticeLocalforage',
@@ -229,33 +228,10 @@ const ABOUT_THIRD_PARTY_NOTICE_KEYS = [
   'about.noticeZod'
 ] as const
 
-function updateStatusText(phase: AppUpdatePhase): string {
-  switch (phase.status) {
-    case 'checking':
-      return copy('about.updateStatusChecking')
-    case 'upToDate':
-      return copy('about.updateStatusUpToDate')
-    case 'available':
-      return copy('about.updateStatusAvailable', { version: phase.version })
-    case 'downloading':
-      return copy('about.updateStatusDownloading', { percent: phase.percent })
-    case 'downloaded':
-      return copy('about.updateStatusDownloaded')
-    case 'error':
-      return copy('about.updateStatusError')
-    case 'installError':
-      return copy('about.updateStatusInstallError')
-    case 'unsupported':
-      return copy('about.updateStatusUnsupported')
-    case 'idle':
-      return copy('about.updateStatusIdle')
-  }
-}
-
 function AboutPanel(): ReactNode {
-  const [version, setVersion] = useState('')
-  const [updatePhase, setUpdatePhase] = useState<AppUpdatePhase | null>(null)
-  const [updateBusy, setUpdateBusy] = useState(false)
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [reportFailed, setReportFailed] = useState(false)
+  const isStore = appInfo?.distribution === 'store'
 
   useEffect(() => {
     if (!window.readerApi) return undefined
@@ -263,63 +239,15 @@ function AboutPanel(): ReactNode {
     void window.readerApi
       .getAppInfo()
       .then((info) => {
-        if (alive) setVersion(info.version)
-      })
-      .catch(() => {
-        if (alive) setVersion(copy('about.versionUnknown'))
-      })
-    void window.readerApi
-      .getAppUpdatePhase()
-      .then((phase) => {
-        if (!alive) return
-        setUpdatePhase(phase)
-        if (phase.status === 'idle') {
-          void window.readerApi
-            ?.checkForAppUpdate()
-            .then((checked) => {
-              if (alive) setUpdatePhase(checked)
-            })
-            .catch(() => undefined)
-        }
+        if (alive) setAppInfo(info)
       })
       .catch(() => undefined)
-    const unsubscribe = window.readerApi.onAppUpdateEvent((phase) => {
-      if (alive) setUpdatePhase(phase)
-    })
-    return () => {
-      alive = false
-      unsubscribe()
-    }
+    return () => { alive = false }
   }, [])
 
-  const updateActionLabel =
-    updatePhase?.status === 'available'
-      ? copy('about.updateDownloadAction')
-      : updatePhase?.status === 'downloaded'
-        ? copy('about.updateInstallAction')
-        : copy('about.updateCheckAction')
-  const updateActionDisabled =
-    !updatePhase ||
-    updateBusy ||
-    updatePhase.status === 'checking' ||
-    updatePhase.status === 'downloading' ||
-    updatePhase.status === 'installError' ||
-    updatePhase.status === 'unsupported'
-
-  const handleUpdateAction = (): void => {
-    const api = window.readerApi
-    if (!api || !updatePhase || updateBusy) return
-    if (updatePhase.status === 'downloaded') {
-      void api.installAppUpdate().catch(() => undefined)
-      return
-    }
-    setUpdateBusy(true)
-    const request: Promise<AppUpdatePhase> =
-      updatePhase.status === 'available' ? api.downloadAppUpdate() : api.checkForAppUpdate()
-    void request
-      .then((phase) => setUpdatePhase(phase))
-      .catch(() => setUpdatePhase((current) => (current?.status === 'downloading' ? current : { status: 'error' })))
-      .finally(() => setUpdateBusy(false))
+  const handleAiReport = (): void => {
+    setReportFailed(false)
+    void window.readerApi?.openAiContentReport().catch(() => setReportFailed(true))
   }
 
   return (
@@ -330,7 +258,7 @@ function AboutPanel(): ReactNode {
       <dl className="about-facts">
         <div>
           <dt>{copy('about.versionLabel')}</dt>
-          <dd data-testid="about-version">{version || copy('about.versionUnknown')}</dd>
+          <dd data-testid="about-version">{appInfo?.version || copy('about.versionUnknown')}</dd>
         </div>
         <div>
           <dt>{copy('about.licenseLabel')}</dt>
@@ -341,35 +269,22 @@ function AboutPanel(): ReactNode {
           <dd className="about-repository">{copy('about.repositoryUrl')}</dd>
         </div>
       </dl>
-      <div className="about-update" data-testid="about-update">
-        <div className="about-update-head">
+      {appInfo && (
+        <div className="about-update" data-testid="about-update">
           <span className="about-update-label">{copy('about.updateLabel')}</span>
-          <button
-            className="secondary-button compact-button"
-            data-testid="update-action-button"
-            type="button"
-            onClick={handleUpdateAction}
-            disabled={updateActionDisabled}
-          >
-            {updateActionLabel}
-          </button>
-        </div>
-        {updatePhase && (
-          <p className="about-update-status" data-testid="update-status" aria-live="polite">
-            {updateStatusText(updatePhase)}
+          <p className="about-update-message">
+            {copy(isStore ? 'about.updateStore' : 'about.updateStandalone')}
           </p>
-        )}
-        {(updatePhase?.status === 'available' || updatePhase?.status === 'downloaded') &&
-          updatePhase.releaseNotes && (
-          <div className="about-update-notes" data-testid="update-release-notes">
-            <h4>{copy('about.updateNotesTitle')}</h4>
-            <p>{updatePhase.releaseNotes}</p>
-          </div>
-        )}
-        {updatePhase?.status === 'downloaded' && (
-          <p className="about-update-hint">{copy('about.updateDownloadedHint')}</p>
-        )}
-      </div>
+        </div>
+      )}
+      {isStore && (
+        <div className="about-report">
+          <button className="secondary-button compact-button" type="button" onClick={handleAiReport}>
+            {copy('about.reportAiContent')}
+          </button>
+          {reportFailed && <p className="about-report-error" role="alert">{copy('about.reportAiContentFailed')}</p>}
+        </div>
+      )}
       <p className="about-license-note">{copy('about.licenseNotice')}</p>
       <div className="about-notices">
         <h4>{copy('about.thirdPartyNoticesTitle')}</h4>

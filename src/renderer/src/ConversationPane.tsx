@@ -58,12 +58,13 @@ export function AssistantScopeControls({ tab, busy, onScope }: { tab: Conversati
   </div>
 }
 
-const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNavigate, highlight, uiLanguage }: {
+const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNavigate, highlight, uiLanguage, documentTarget }: {
   turn: ConversationTurn
   model: string
   onNavigate: (anchor: string, chapterTitle?: string) => void
   highlight: string
   uiLanguage: UiLanguage
+  documentTarget: Document
 }) {
   const context = turn.context
   const navigate = useCallback((anchor: string): void => {
@@ -79,7 +80,7 @@ const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNav
       <EvidenceSources passages={context.passages} onNavigate={onNavigate} uiLanguage={uiLanguage} />
     </>}</DeferredDetails>}
     {turn.context?.webSearch && <WebSources context={turn.context} uiLanguage={uiLanguage} />}
-    {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={highlight} uiLanguage={uiLanguage} />
+    {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={highlight} uiLanguage={uiLanguage} documentTarget={documentTarget} />
       : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy(turn.webSearchPhase === 'deciding' ? 'webSearch.deciding' : turn.webSearchPhase === 'searching' ? 'webSearch.searching' : 'assistant.thinking')}</span></div>
         : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
     {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
@@ -90,6 +91,7 @@ const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNav
 export function ConversationPane({
   markdownBook,
   markdownToolsTarget,
+  documentTarget = document,
   conversationSelection,
   turns,
   provider,
@@ -118,6 +120,7 @@ export function ConversationPane({
   conversationSelection: ReaderSource | null
   markdownBook?: MarkdownBook
   markdownToolsTarget?: HTMLElement | null
+  documentTarget?: Document
   scope?: 'selection' | 'book'
   controls?: ReactNode
   scopeControls?: ReactNode
@@ -193,7 +196,7 @@ export function ConversationPane({
               <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
                 <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
                 <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
-                  <ConversationAnswer turn={turn} model={provider.model} onNavigate={onNavigate} highlight={searchNeedle} uiLanguage={uiLanguage} />
+                  <ConversationAnswer turn={turn} model={provider.model} onNavigate={onNavigate} highlight={searchNeedle} uiLanguage={uiLanguage} documentTarget={documentTarget} />
                   {turn.status === 'error' && isLatest && !activeRequestId && onRegenerate && (
                     <div className="answer-retry-actions">
                       <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
@@ -227,7 +230,7 @@ export function ConversationPane({
         placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')}
         heading={scopeControls} controls={composerControls} blockedReason={blockedReason} resolveLabel={resolveLabel} onResolve={onResolve}
         canAsk={canAsk} busy={Boolean(activeRequestId)} onSubmit={onSubmit} onCancel={onCancel} />
-      {markdownBook && <ConversationMarkdownFallback controller={markdown} />}
+      {markdownBook && <ConversationMarkdownFallback controller={markdown} documentTarget={documentTarget} />}
     </>
   )
 }

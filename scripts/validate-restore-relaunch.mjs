@@ -3,10 +3,11 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { Buffer } from 'node:buffer'
-import { mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import { URL } from 'node:url'
+import { pathToFileURL, URL } from 'node:url'
+import { parseArgs } from 'node:util'
 import { chromium, expect } from '@playwright/test'
 
 async function unusedPort() {
@@ -99,7 +100,7 @@ export async function verifyRestoreRelaunch({ executablePath, root, fixturePath,
   let browser, failure, result
   const child = spawn(executablePath, [`--inspect=127.0.0.1:${mainPort}`, `--remote-debugging-port=${browserPort}`, '--remote-debugging-address=127.0.0.1'], {
     stdio: 'ignore', env: { ...process.env, LLM_READER_USER_DATA: userData,
-      LLM_READER_E2E_IMPORT: fixturePath, LLM_READER_UPDATER_DISABLED: '1', LLM_READER_E2E_NO_RELAUNCH: '1' }
+      LLM_READER_E2E_IMPORT: fixturePath, LLM_READER_E2E_NO_RELAUNCH: '1' }
   })
   let exit = null, launchError
   child.once('error', (error) => { launchError = error })
@@ -190,4 +191,17 @@ export async function verifyRestoreRelaunch({ executablePath, root, fixturePath,
   }
   if (failure) throw failure
   return { ...result, isolatedTestDataRemoved: true }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const { values } = parseArgs({ options: { root: { type: 'string' }, executable: { type: 'string' }, fixture: { type: 'string' } } })
+  assert.ok(values.root && values.executable && values.fixture, 'Specify --root, --executable and --fixture')
+  const root = resolve(values.root)
+  const report = await verifyRestoreRelaunch({
+    root,
+    executablePath: resolve(values.executable),
+    fixturePath: resolve(values.fixture),
+    screenshot: join(root, 'restore-relaunch.png')
+  })
+  await writeFile(join(root, 'restore-relaunch.json'), JSON.stringify(report, null, 2) + '\n')
 }

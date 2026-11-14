@@ -1,7 +1,7 @@
 import { isPageProcessor } from '@shared/request-settings'
 import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { z, ZodError, type ZodType } from 'zod'
-import { IPC_CHANNELS, type AppCloseResponse, type LlmEvent } from '@shared/contracts'
+import { IPC_CHANNELS, type AppCloseResponse, type AppInfo, type LlmEvent } from '@shared/contracts'
 import { copy, setCopyLanguage } from '@shared/copy'
 import { BookImportCoordinator, MAX_BOOK_IMPORT_BATCH } from './book-import-coordinator'
 import type { BookAnalysisService } from './book-analysis'
@@ -11,7 +11,6 @@ import { listSystemFonts } from './fonts'
 import { LibraryService } from './library-service'
 import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
-import { UpdaterService } from './updater-service'
 import type { KnowledgeSettingsService } from './knowledge-settings'
 import type { KnowledgeHttp } from './knowledge-http'
 import { rerank } from './rerank-service'
@@ -20,6 +19,7 @@ import { embed, type SemanticIndexService } from './semantic-index'
 import type { DocumentProcessingService } from './document-processing'
 import type { AppDatabase } from './database'
 import type { LibraryStorage } from './library-storage'
+import type { ReadingWindow } from './reading-window'
 import { parseLibraryPreferences } from '@shared/library-preferences'
 import { conversationExportDefaultName, writeConversationMarkdown } from './conversation-export'
 import { highlightExportDefaultName, writeHighlightMarkdown } from './highlight-export'
@@ -81,9 +81,8 @@ interface IpcDependencies {
   knowledgeHttp?: KnowledgeHttp
   semantic?: SemanticIndexService
   documents?: DocumentProcessingService
-  updater: UpdaterService
+  readingWindow: ReadingWindow
   allowedRendererOrigins: ReadonlySet<string>
-  requestClose: (afterSave?: (cancel: () => void) => boolean) => void
   respondToClose: (response: AppCloseResponse) => void
 }
 
@@ -92,7 +91,8 @@ const activeCalls = new WeakMap<IpcDependencies, Set<symbol>>()
 // Window controls and font enumeration do not access the library. A slow
 // Windows font scan must not prevent a backup or be blocked by maintenance.
 const storageExempt = new Set<string>([IPC_CHANNELS.windowMinimize, IPC_CHANNELS.windowToggleMaximize,
-  IPC_CHANNELS.windowIsMaximized, IPC_CHANNELS.windowClose, IPC_CHANNELS.appCloseReady, IPC_CHANNELS.fontsList])
+  IPC_CHANNELS.windowIsMaximized, IPC_CHANNELS.windowClose, IPC_CHANNELS.appCloseReady, IPC_CHANNELS.fontsList,
+  IPC_CHANNELS.windowIsFullscreen, IPC_CHANNELS.windowSetFullscreen, IPC_CHANNELS.assistantWindowReserve, IPC_CHANNELS.assistantWindowPresent])
 
 function trustedSender(event: IpcMainInvokeEvent, dependencies: IpcDependencies): boolean {
   if (event.sender.id !== dependencies.window.webContents.id) return false
@@ -203,25 +203,25 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     clipboard.writeText(parse(conversationMarkdownCopySchema, value)))
   handle(IPC_CHANNELS.conversationMarkdownExport, dependencies, async (_event, value) => {
     const input = parse(conversationMarkdownExportSchema, value)
-    const result = await dialog.showSaveDialog(dependencies.window, {
+    const parent = dependencies.readingWindow.focusedAssistantWindow() ?? dependencies.window
+    const result = await dialog.showSaveDialog(parent, {
       title: copy('conversationMarkdown.save'), defaultPath: conversationExportDefaultName(input.title),
       filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
     })
     if (result.canceled || !result.filePath) return { canceled: true }
     return { canceled: false, fileName: await writeConversationMarkdown(result.filePath, input.markdown) }
   })
-  handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
+  handle(IPC_CHANNELS.appInfo, dependencies, (): AppInfo => ({
+    version: app.getVersion(),
+    distribution: process.windowsStore ? 'store' : 'standalone'
+  }))
+  handle(IPC_CHANNELS.appReportAiContent, dependencies, async (_event, ...values) => {
+    parse(z.tuple([]), values)
+    await shell.openExternal('https://github.com/maaoding/llm-reader/issues/new')
+  })
   handle(IPC_CHANNELS.uiLanguageSet, dependencies, (_event, value) => {
     setCopyLanguage(parse(uiLanguageSchema, value))
     return null
-  })
-  handle(IPC_CHANNELS.appUpdatePhase, dependencies, () => dependencies.updater.getPhase())
-  handle(IPC_CHANNELS.appUpdateCheck, dependencies, () => dependencies.updater.check('manual'))
-  handle(IPC_CHANNELS.appUpdateDownload, dependencies, () => dependencies.updater.download())
-  handle(IPC_CHANNELS.appUpdateInstall, dependencies, () => {
-    if (dependencies.updater.getPhase().status === 'downloaded') {
-      dependencies.requestClose((cancel) => dependencies.updater.install(cancel))
-    }
   })
   handle(IPC_CHANNELS.booksList, dependencies, () => dependencies.library.listBooks())
   handle(IPC_CHANNELS.booksImport, dependencies, async () => {
@@ -478,6 +478,22 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     dependencies.window.close()
   })
   handle(IPC_CHANNELS.windowIsMaximized, dependencies, () => dependencies.window.isMaximized())
+  handle(IPC_CHANNELS.windowIsFullscreen, dependencies, () => dependencies.window.isFullScreen())
+  handle(IPC_CHANNELS.windowSetFullscreen, dependencies, (_event, ...values) => {
+    const [fullscreen] = parse(z.tuple([z.boolean()]), values)
+    dependencies.window.setFullScreen(fullscreen)
+  })
+  handle(IPC_CHANNELS.assistantWindowReserve, dependencies, (_event, ...values) => {
+    parse(z.tuple([]), values)
+    return dependencies.readingWindow.reserveAssistantWindow()
+  })
+  handle(IPC_CHANNELS.assistantWindowPresent, dependencies, (_event, ...values) => {
+    const [presentation] = parse(z.tuple([z.object({
+      token: z.uuid(),
+      mode: z.enum(['hidden', 'inactive', 'focused'])
+    }).strict()]), values)
+    dependencies.readingWindow.presentAssistantWindow(presentation)
+  })
   handle(IPC_CHANNELS.appCloseReady, dependencies, (_event, value) => {
     const response = parse(z.object({ requestId: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER), approved: z.boolean() }).strict(), value)
     setTimeout(() => dependencies.respondToClose(response), 0)
@@ -492,9 +508,10 @@ export function unregisterIpcHandlers(): void {
         channel !== IPC_CHANNELS.llmEvent &&
         channel !== IPC_CHANNELS.analysisEvent &&
         channel !== IPC_CHANNELS.appBeforeClose &&
-        channel !== IPC_CHANNELS.appCloseCancelled &&
-        channel !== IPC_CHANNELS.appUpdateEvent &&
         channel !== IPC_CHANNELS.booksImportEvent &&
+        channel !== IPC_CHANNELS.windowFullscreenChange &&
+        channel !== IPC_CHANNELS.windowFullscreenShortcut &&
+        channel !== IPC_CHANNELS.assistantWindowClosed &&
         channel !== IPC_CHANNELS.windowMaximizedChange
     )
     .forEach((channel) => ipcMain.removeHandler(channel))

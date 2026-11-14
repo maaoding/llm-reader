@@ -6,10 +6,8 @@ import { useAppClose } from '../../src/renderer/src/use-app-close'
 
 function setup(canLeaveWorkspace?: () => boolean) {
   let beforeClose!: Parameters<ReaderApi['onBeforeClose']>[0]
-  let closeCancelled!: () => void
   Object.defineProperty(window, 'readerApi', { configurable: true, value: {
-    onBeforeClose: (listener: typeof beforeClose) => { beforeClose = listener; return () => undefined },
-    onCloseCancelled: (listener: typeof closeCancelled) => { closeCancelled = listener; return () => undefined }
+    onBeforeClose: (listener: typeof beforeClose) => { beforeClose = listener; return () => undefined }
   } })
   const options = {
     closingRef: { current: false },
@@ -23,7 +21,7 @@ function setup(canLeaveWorkspace?: () => boolean) {
     retryTabRestoration: vi.fn()
   }
   const hook = renderHook(() => useAppClose(options))
-  return { ...hook, options, requestClose: () => beforeClose(), cancelInstallation: () => closeCancelled() }
+  return { ...hook, options, requestClose: () => beforeClose() }
 }
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -115,16 +113,13 @@ it('restores editing and restoration retries when preparing to close throws', as
   expect(options.resumeWorkbenches).toHaveBeenCalledOnce()
 })
 
-it('defers closing during a session operation and restores the guard after installation is cancelled', async () => {
-  const { result, options, requestClose, cancelInstallation } = setup()
+it('defers closing while a session operation is in progress', async () => {
+  const { result, options, requestClose } = setup()
   options.isBusy.mockReturnValueOnce(true)
   await act(async () => { expect(await requestClose()).toBe(false) })
   expect(options.prepareClose).not.toHaveBeenCalled()
-  await act(async () => { expect(await requestClose()).toBe(true) })
-  act(() => cancelInstallation())
   expect(result.current.closing).toBe(false)
   expect(options.closingRef.current).toBe(false)
-  expect(options.resumeWorkbenches).toHaveBeenCalledOnce()
   await act(async () => { expect(await requestClose()).toBe(true) })
-  expect(options.prepareClose).toHaveBeenCalledTimes(2)
+  expect(options.prepareClose).toHaveBeenCalledOnce()
 })

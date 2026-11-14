@@ -25,8 +25,7 @@ async function launchReader(importPath = '') {
     env: {
       ...process.env,
       LLM_READER_USER_DATA: isolatedUserData,
-      LLM_READER_E2E_IMPORT: importPath,
-      LLM_READER_UPDATER_DISABLED: '1'
+      LLM_READER_E2E_IMPORT: importPath
     }
   })
   const page = await launchedApplication.firstWindow()

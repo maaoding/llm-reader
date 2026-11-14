@@ -15,7 +15,7 @@ export async function createEvaluationSession(directory = 'tmp/knowledge-hard-20
   let application
   const launch = async () => {
     application = await electron.launch({ args: ['.'], env: { ...process.env, LLM_READER_USER_DATA: userData,
-      LLM_READER_E2E_IMPORT: '', LLM_READER_UPDATER_DISABLED: '1' } })
+      LLM_READER_E2E_IMPORT: '' } })
     await application.firstWindow()
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide())
   }

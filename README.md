@@ -7,7 +7,9 @@
 <p align="center">本地优先的 Windows 桌面阅读器：连续阅读，用原文核对每次理解。</p>
 
 <p align="center">
-  <a href="https://github.com/maaoding/llm-reader/releases/latest">下载 Windows x64 版本</a>
+  <a href="https://apps.microsoft.com/detail/9PL7FB24VJMV">商店购买</a>
+  ·
+  <a href="docs/manual/build-from-source.md">从源码构建</a>
   ·
   <a href="https://llm-reader.maaoding.icu/">项目主页与交互演示</a>
   ·
@@ -27,8 +29,8 @@
 
 ## 安装与使用
 
-- 从 [GitHub Releases](https://github.com/maaoding/llm-reader/releases/latest) 下载 Windows x64 安装程序。安装包未签名，Windows 可能显示安全提示。
-- 已有版本可在“设置 → 关于”检查更新，点击“重启并安装”，或退出后手动运行新安装器；本机书库和配置继续沿用。
+- Windows x64 预编译版可在 Microsoft Store 购买，后续更新由商店管理。也可以按 GPL-3.0-or-later 许可从源码构建。
+- 旧 GitHub 安装版切换到商店版时，请先备份书库，再按[迁移步骤](docs/manual/faq.md#如何从旧-github-安装版迁移到商店版)恢复。
 - MOBI/AZW3 导入需本机已安装 [Calibre](https://calibre-ebook.com/)，仅支持无 DRM 文件。
 
 导入书籍即可阅读。想使用 AI 时，先配置 OpenAI 兼容或 Anthropic / Claude 模型，再选中原文提问；整本书或多书问答需要先完成“本书准备 → 原文准备”。章节笔记和检索增强均为可选。
@@ -41,7 +43,7 @@
 
 ## 源码开发
 
-Node.js 范围与 pnpm 版本以 [package.json](package.json) 为准。
+指定版本的下载与打包步骤见[从源码构建](docs/manual/build-from-source.md)。开发当前分支时，Node.js 范围与 pnpm 版本以 [package.json](package.json) 为准。
 
 ```powershell
 pnpm install --frozen-lockfile

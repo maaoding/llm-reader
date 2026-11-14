@@ -18,9 +18,11 @@ export function RecentConversations({ currentId, disabled, onList, onRestore }: 
   const panelId = useId()
 
   useEffect(() => {
-    if (!isOpen) return
+    const root = rootRef.current
+    if (!isOpen || !root) return
+    const ownerDocument = root.ownerDocument
     const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setIsOpen(false)
+      if (!event.composedPath().includes(root)) setIsOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
@@ -28,11 +30,11 @@ export function RecentConversations({ currentId, disabled, onList, onRestore }: 
       setIsOpen(false)
       triggerRef.current?.focus()
     }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
+    ownerDocument.addEventListener('pointerdown', onPointerDown)
+    ownerDocument.addEventListener('keydown', onKeyDown)
     return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
+      ownerDocument.removeEventListener('pointerdown', onPointerDown)
+      ownerDocument.removeEventListener('keydown', onKeyDown)
     }
   }, [isOpen])
 

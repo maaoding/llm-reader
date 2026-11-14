@@ -120,12 +120,13 @@ export function PersonaSessionControl({ persona, settings, disabled = false, onC
 
   useLayoutEffect(() => {
     const trigger = triggerRef.current, panel = panelRef.current
-    if (!isOpen || !trigger || !panel) return
+    const view = panel?.ownerDocument.defaultView
+    if (!isOpen || !trigger || !panel || !view) return
     // 原生浮层进入顶层，避免被完整对话页裁切；始终靠近入口并留在窗口内。
     const place = (): void => {
       const rect = (trigger.closest('.assistant-question-box') ?? trigger).getBoundingClientRect()
-      panel.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12))}px`
-      panel.style.bottom = `${window.innerHeight - rect.top + 8}px`
+      panel.style.left = `${Math.max(12, Math.min(rect.left, view.innerWidth - panel.offsetWidth - 12))}px`
+      panel.style.bottom = `${view.innerHeight - rect.top + 8}px`
       panel.style.maxHeight = `${Math.max(0, rect.top - 20)}px`
     }
     place()
@@ -134,8 +135,8 @@ export function PersonaSessionControl({ persona, settings, disabled = false, onC
     observer.observe(trigger)
     const composer = trigger.closest('.assistant-composer')
     if (composer) observer.observe(composer)
-    window.addEventListener('resize', place)
-    return () => { observer.disconnect(); window.removeEventListener('resize', place) }
+    view.addEventListener('resize', place)
+    return () => { observer.disconnect(); view.removeEventListener('resize', place) }
   }, [isOpen, editing])
 
   return <div className="persona-session" data-testid="persona-session">

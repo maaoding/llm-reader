@@ -600,10 +600,6 @@ h1 em {
   font-size: 14px;
 }
 
-.final-cta .button {
-  margin-top: 31px;
-}
-
 .footer {
   display: grid;
   min-height: 190px;
@@ -821,10 +817,6 @@ h1 em {
 
   .final-cta > p:not(.section-kicker) {
     line-height: 1.7;
-  }
-
-  .final-cta .button {
-    width: auto;
   }
 
   .footer {

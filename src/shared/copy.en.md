@@ -164,6 +164,9 @@
 | reader.layoutButton | Layout |
 | reader.displayButton | PDF tools |
 | reader.toolsAria | Reading tools |
+| reader.fullscreenEnter | Enter reading fullscreen (F11) |
+| reader.fullscreenExit | Exit reading fullscreen (F11) |
+| reader.fullscreenFailed | Could not switch reading fullscreen. |
 | sources.wholeTable | This citation can only jump to the page containing the whole table. |
 
 ## Common
@@ -283,6 +286,7 @@
 | vision.test | Test image recognition |
 | vision.testOk | The sample image was recognized successfully. Verify quality on real PDFs against the original text. |
 | vision.testFailed | The sample image was not recognized correctly. Confirm the endpoint and model accept image input, then retry. |
+| vision.paddleWordBoxesRequired | The sample text was recognized, but usable word boxes were missing. Check the PaddleOCR service's word box output. |
 | vision.configRequired | Enter the vision model endpoint URL and model name. |
 | vision.renderFailed | Could not render the current PDF page for recognition. Check the file and retry; finished pages are kept. |
 | vision.invalidResponse | The model returned no valid recognized text. Confirm the model accepts image input and retry. |
@@ -404,7 +408,6 @@
 | about.thirdPartyNoticesTitle | Third-party licenses |
 | about.thirdPartyNoticesIntro | This software uses the following open-source components: |
 | about.noticeElectron | Electron (MIT) |
-| about.noticeElectronUpdater | electron-updater (MIT) |
 | about.noticeEpubjs | epub.js (BSD-2-Clause) |
 | about.noticeJszip | JSZip (MIT OR GPL-3.0-or-later) |
 | about.noticeLocalforage | localforage (Apache-2.0) |
@@ -414,26 +417,18 @@
 | about.noticeZod | Zod (MIT) |
 | about.thirdPartyNoticesFull | Full license texts are in THIRD_PARTY_NOTICES.md in the repository. |
 | about.updateLabel | Updates |
-| about.updateStatusIdle | Updates not checked yet |
-| about.updateStatusChecking | Checking for updates… |
-| about.updateStatusUpToDate | Up to date |
-| about.updateStatusAvailable | New version {version} available |
-| about.updateStatusDownloading | Downloading update… {percent}% |
-| about.updateStatusDownloaded | Update downloaded |
-| about.updateStatusError | Update failed. Try again later. |
-| about.updateStatusInstallError | Update installation failed. You can continue reading. Close and reopen the app before trying the update again. |
-| about.updateStatusUnsupported | Update checks are not supported in this environment |
-| about.updateCheckAction | Check for updates |
-| about.updateDownloadAction | Download update |
-| about.updateInstallAction | Restart and install |
-| about.updateNotesTitle | What's new |
-| about.updateDownloadedHint | The new version installs after a restart; saved reading progress is unaffected. |
+| about.updateStore | This version receives updates through Microsoft Store. |
+| about.updateStandalone | Self-built versions need to be updated manually. |
+| about.reportAiContent | Report inappropriate AI content |
+| about.reportAiContentFailed | Could not open the report page. |
 
 ## Assistant and conversation
 
 | key | text |
 | --- | --- |
 | assistant.title | Reading assistant |
+| assistant.windowOpen | Open reading assistant window |
+| assistant.windowFailed | Could not open the reading assistant window. Try again from the reading toolbar. |
 | assistant.viewsAria | Reading assistant views |
 | assistant.tabCurrent | Current chat |
 | assistant.closeTab | Close session tab |
@@ -698,7 +693,7 @@
 | ocrReading.loading | Loading this page's text… |
 | ocrReading.loadFailed | Could not load recognized text. Try again. |
 | ocrReading.unprepared | Finish page-by-page OCR preparation for this book before viewing and selecting recognized text. |
-| ocrReading.unsupported | This book has no stored page OCR text. Re-prepare the text with a vision model, Mistral OCR or Unstructured. |
+| ocrReading.unsupported | This book has no stored page OCR text. Prepare the text with a page-by-page OCR service. |
 | ocrReading.prepare | Open book preparation |
 | ocrReading.previous | Previous page |
 | ocrReading.next | Next page |
@@ -706,6 +701,11 @@
 | ocrReading.copy | Copy page |
 | ocrReading.blank | No text recognized on this page; check the original PDF page. |
 | ocrReading.selectionTooLong | The selection is too long. Narrow it below 20,000 characters before asking. |
+| ocrReading.dragWithinColumn | Drag within a single page and column to select recognized text. |
+| ocrReading.reviewTitle | Review OCR selection |
+| ocrReading.reviewDetail | Check the selected text against the original page. You can edit it before asking a question or saving an extract. |
+| ocrReading.previewAlt | Selected area of the original PDF |
+| ocrReading.previewFailed | Could not show the selected area. Select the text again. |
 | assistant.recentSessionTurns | {count} turns |
 | assistant.recentSessionsHint | Each book keeps the 20 most recent chats, up to 20 turns each. Click to restore selection, answers and drafts. |
 | assistant.recentSessionsEmpty | No other chats yet. |
@@ -1069,6 +1069,8 @@
 | request.incomplete | The model output ended prematurely. Increase max_tokens or adjust model parameters and retry. |
 | request.mistral | Mistral OCR |
 | request.unstructured | Unstructured Partition |
+| request.paddleOcr | PaddleOCR (select on page) |
+| request.paddleOcrHint | Enter your PaddleOCR general OCR service URL. The deployed model determines the recognition language. After preparation, scanned pages with word coordinates support selection on the original page. |
 | request.ocrModel | OCR model name |
 | request.testOcr | Test OCR |
 | request.pageHint | Recognizes PDF text page by page with a dedicated OCR service; finished pages are cached and you can resume after pausing. Text is saved per page, so complex table structures need checking. Try one page of this book first. |

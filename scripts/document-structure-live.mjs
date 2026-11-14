@@ -25,7 +25,7 @@ let application, page
 async function launch(importPath = '') {
   const executablePath = process.env.LLM_READER_E2E_EXECUTABLE
   application = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: executablePath ? [] : ['.'],
-    env: { ...process.env, LLM_READER_USER_DATA: userData, LLM_READER_E2E_IMPORT: importPath, LLM_READER_UPDATER_DISABLED: '1' } })
+    env: { ...process.env, LLM_READER_USER_DATA: userData, LLM_READER_E2E_IMPORT: importPath } })
   page = await application.firstWindow()
   await expect(page.getByTestId('app-shell')).toBeVisible({ timeout: 30_000 })
 }

@@ -14,6 +14,7 @@ import { useProviderConnection, providerStatusLabel } from './use-provider-conne
 import { useConversationRequests } from './use-conversation-requests'
 import { useReaderSearch } from './use-reader-search'
 import { useAppClose } from './use-app-close'
+import { useReadingFullscreen } from './use-reading-fullscreen'
 import { useConversationSessions } from './use-conversation-sessions'
 import { createArchiveTab, type ConversationTab, type ConversationTurn } from './conversation-session'
 import { SettingsModal, type SettingsSectionId } from './SettingsModal'
@@ -23,6 +24,7 @@ import { WebSearchControl } from './WebSearchControl'
 import { PersonaSessionControl } from './AssistantPersonaSettings'
 import { defaultPersona, MAX_PERSONAS, persistPersonaSettings, personaFromPreset, readPersonaSettings } from './assistant-personas'
 import { RecentConversations } from './RecentConversations'
+import { ReadingAssistant } from './ReadingAssistant'
 import { providerIsConfigured } from '@shared/request-settings'
 import {
   AlertCircle,
@@ -36,7 +38,9 @@ import {
   Info,
   Library,
   LoaderCircle,
+  Maximize,
   MessageSquareText,
+  Minimize,
   PanelLeftClose,
   PanelTop,
   RefreshCw,
@@ -55,6 +59,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -219,9 +224,9 @@ export default function App(): ReactNode {
   const pendingProgressRef = useRef<{ bookId: string; locator: string; progress: number } | null>(null)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const followupRef = useRef<HTMLTextAreaElement>(null)
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null)
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
   const settingsReturnFocusRef = useRef<HTMLButtonElement>(null)
-  const [sidebarMarkdownTarget, setSidebarMarkdownTarget] = useState<HTMLDivElement | null>(null)
   const [conversationMarkdownTarget, setConversationMarkdownTarget] = useState<HTMLDivElement | null>(null)
   const detailsReturnFocusRef = useRef<HTMLButtonElement>(null)
   const assistantDialogRef = useRef<HTMLElement>(null)
@@ -242,7 +247,7 @@ export default function App(): ReactNode {
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const openSettings = useCallback((section: SettingsSectionId, trigger: HTMLButtonElement, service?: 'document' | 'embedding'): void => {
-    settingsReturnFocusRef.current = trigger
+    settingsReturnFocusRef.current = trigger.ownerDocument === document ? trigger : fullscreenButtonRef.current
     setSettingsInitialService(service)
     setSettingsInitialSection(section)
     setSettingsOpen(true)
@@ -255,7 +260,7 @@ export default function App(): ReactNode {
   }, [])
   useDialogFocus(Boolean(preparationBookId) && !settingsOpen, closePreparation, preparationDialogRef, preparationReturnRef)
   const openPreparation = useCallback((bookId: string, trigger?: HTMLButtonElement): void => {
-    preparationReturnRef.current = trigger ?? document.activeElement as HTMLButtonElement
+    preparationReturnRef.current = trigger && trigger.ownerDocument !== document ? fullscreenButtonRef.current : trigger ?? document.activeElement as HTMLButtonElement
     setPreparationBookId(bookId)
   }, [])
   useEffect(() => {
@@ -520,10 +525,7 @@ export default function App(): ReactNode {
       setBooks((current) => current.map((item) => item.id === book.id ? payload.book : item))
       const adapter = createReaderAdapter(book.format, hostRef.current, {
         bookId: book.id,
-        hasPreparedOcrText: async () => {
-          const page = await window.readerApi.getBookOcrPage({ bookId: book.id, pageNumber: 1 })
-          return page.status === 'ready'
-        },
+        readPreparedOcrPage: (pageNumber) => window.readerApi.getBookOcrPage({ bookId: book.id, pageNumber }),
         onRelocated: ({ locator, progress, chapterProgress, chapterTitle, chapterHref, reason }) => {
           setCurrentLocator(locator)
           if (reason === 'natural' || (reason === 'restore' && !naturalChapterRef.current)) naturalChapterRef.current = { title: chapterTitle, href: chapterHref ?? null, progress: chapterProgress }
@@ -723,6 +725,26 @@ export default function App(): ReactNode {
     refreshBooks, openBook, onShowLibrary: showLibraryAfterImport, pushToast, dismissToast, dropsBlocked: isHighlightEditorOpen
   })
 
+  const focusAssistantComposer = useCallback((): void => followupRef.current?.focus({ preventScroll: true }), [])
+  const { fullscreen, toggleFullscreen, openAssistant, assistantContainer } = useReadingFullscreen({
+    reading: page === 'reading' && Boolean(activeBook),
+    blocked: closing || settingsOpen || Boolean(preparationBookId || detailsBook || highlightEditor.draft || selectionDraft || imageRegionDraft || importDialogState),
+    theme: resolvedTheme,
+    scale: interfaceScale,
+    language: uiLanguage,
+    focusComposer: focusAssistantComposer,
+    onError: pushToast
+  })
+  const fullscreenReading = fullscreen && page === 'reading' && Boolean(activeBook)
+  useLayoutEffect(() => {
+    if (!fullscreenReading) return
+    const host = hostRef.current
+    const readingArea = ocrReadingOpen
+      ? readerSurfaceRef.current?.querySelector<HTMLElement>('.ocr-reading-text')
+      : host?.querySelector<HTMLElement>('.epub-container') ?? host
+    readingArea?.focus({ preventScroll: true })
+  }, [fullscreenReading, ocrReadingOpen])
+
   const openSearchView = useCallback((): void => {
     if (!activeBookRef.current || !adapterRef.current) return
     selectLeftView('search')
@@ -849,9 +871,11 @@ export default function App(): ReactNode {
       focusConversationTab(liveTabId)
       adapterRef.current?.clearSelection()
       setSelection(null)
-      window.setTimeout(() => followupRef.current?.focus(), 0)
+      if (fullscreenReading) void openAssistant('composer')
+      else window.setTimeout(focusAssistantComposer, 0)
       return
     }
+    if (fullscreenReading) void openAssistant()
     await enqueueRequest(action, isPdfImageRegion(selection) ? copy('assistant.pdfRegionPrompt') : assistantActions[action].prompt, liveTabId, selection)
   }
 
@@ -1303,8 +1327,10 @@ export default function App(): ReactNode {
   const activeDocument = activeBook ? analysis.states[activeBook.id]?.document : undefined
   useEffect(() => {
     const adapter = adapterRef.current
-    if (adapter instanceof PdfReaderAdapter) void adapter.refreshOcrHint()
-  }, [activeDocument?.jobId, activeDocument?.status])
+    if (adapter instanceof PdfReaderAdapter && bookState === 'ready') {
+      adapter.setPreparedOcrRevision(activeDocument?.status === 'ready' ? activeDocument.jobId : null)
+    }
+  }, [activeBook?.id, activeDocument?.jobId, activeDocument?.status, bookState])
   // 进行中或排队中的请求：用于禁用发送、显示停止按钮与阻止重复入队。
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
@@ -1455,6 +1481,7 @@ export default function App(): ReactNode {
     <div
       className="app-shell workspace-shell"
       data-page={page}
+      data-reading-fullscreen={fullscreenReading}
       data-left-open={leftPanelOpen}
       data-pdf-display={pdfDisplayOpen}
       data-workspace-ready={workspaceReady}
@@ -1547,7 +1574,15 @@ export default function App(): ReactNode {
       {activeBook && !['library', 'archives'].includes(page) && <header className="workspace-bookbar">
         <div className="workspace-book-title"><span className="format-chip">{activeBook.sourceFormat.toUpperCase()}</span><div className="workspace-book-identity"><h1 title={activeBook.title}>{activeBook.title}</h1>{page === 'reading' && <div className="workspace-reading-position reader-heading" data-testid="workspace-reading-position" aria-label={copy('reader.progressAria', { percent: Math.round(currentChapterProgress * 100) })}><span title={currentChapterTitle}>{currentChapterTitle || copy('common.currentChapter')}</span><strong>{Math.round(currentChapterProgress * 100)}%</strong><div className="workspace-reading-progress" data-testid="workspace-reading-progress" aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, currentChapterProgress * 100))}%` }} /></div></div>}</div></div>
         <nav aria-label={copy('workspace.tabs')}>{(['reading', 'notes', 'conversation'] as const).map((item) => <button type="button" key={item} data-testid={'workspace-tab-' + item} aria-current={page === item ? 'page' : undefined} onClick={() => setPage(item)}>{copy(('workspace.' + item) as 'workspace.reading' | 'workspace.notes' | 'workspace.conversation')}</button>)}</nav>
-        <div className="workspace-book-actions"><button className="secondary-button" type="button" data-testid="workspace-prepare" onClick={(event) => openPreparation(activeBook.id, event.currentTarget)}>{copy('workspace.prepare')}</button></div>
+        <div className="workspace-book-actions">
+          <button className="secondary-button" type="button" data-testid="workspace-prepare" onClick={(event) => openPreparation(activeBook.id, event.currentTarget)}>{copy('workspace.prepare')}</button>
+          {page === 'reading' && <button ref={fullscreenButtonRef} className="icon-button reader-fullscreen-button" data-testid="reader-fullscreen" type="button"
+            aria-label={copy(fullscreenReading ? 'reader.fullscreenExit' : 'reader.fullscreenEnter')}
+            title={copy(fullscreenReading ? 'reader.fullscreenExit' : 'reader.fullscreenEnter')}
+            aria-pressed={fullscreenReading} aria-keyshortcuts="F11" onClick={toggleFullscreen}>
+            {fullscreenReading ? <Minimize size={18} /> : <Maximize size={18} />}
+          </button>}
+        </div>
       </header>}
       <aside className="left-sidebar" inert={page !== 'library' && (page !== 'reading' || !leftPanelOpen)}>
         <header className="brand-row">
@@ -1743,13 +1778,15 @@ export default function App(): ReactNode {
             onClick={() => { if (ocrReadingOpen) closeOcrReader(); else { adapterRef.current?.clearSelection(); setSelection(null); setOcrReadingOpen(true) } }}><FileText size={19} /></button>}
           <button className="reader-rail-button" data-testid="reader-settings-button" type="button" aria-label={copy(activeBook.format === 'pdf' ? 'reader.displayButton' : 'reader.layoutButton')} title={copy(activeBook.format === 'pdf' ? 'reader.displayButton' : 'reader.layoutButton')} aria-expanded={activeBook.format === 'pdf' ? pdfDisplayOpen : undefined} onClick={(event) => { if (activeBook.format === 'pdf') setPdfDisplayOpen((open) => !open); else openSettings('reading', event.currentTarget) }}>{activeBook.format === 'pdf' ? <PanelTop size={19} /> : <SlidersHorizontal size={19} />}</button>
           <button className="reader-rail-button" data-testid="book-details-button" type="button" aria-label={copy('bookDetails.openAria', { title: activeBook.title })} title={copy('bookDetails.openAria', { title: activeBook.title })} onClick={(event) => openBookDetails(activeBook, event.currentTarget)}><Info size={19} /></button>
+          {fullscreenReading && <button className="reader-rail-button" data-testid="reader-assistant-window" type="button"
+            aria-label={copy('assistant.windowOpen')} title={copy('assistant.windowOpen')} onClick={() => void openAssistant('window')}><MessageSquareText size={19} /></button>}
         </div>
         <button className="reader-rail-button reader-return" data-testid="reader-return-button" type="button" aria-label={copy('reader.returnToReading')} title={copy('reader.returnToReading')} hidden={bookState !== 'ready' || !naturalLocator || currentLocator === naturalLocator} onClick={() => void returnToReading()}><Undo2 size={19} /></button>
       </nav>}
 
       <main className="reader-column" inert={page !== 'reading'} data-current-chapter-title={currentChapterTitle}>
         <section ref={readerSurfaceRef} className={`reader-surface is-${bookState}`} data-paper-theme={effectivePaperTheme}>
-          <div className="reader-host" data-testid="reader-host" ref={hostRef} inert={ocrReadingOpen && page === 'reading'} aria-hidden={ocrReadingOpen && page === 'reading'} aria-label={copy('reader.areaAria')} />
+          <div className="reader-host" data-testid="reader-host" ref={hostRef} tabIndex={-1} inert={ocrReadingOpen && page === 'reading'} aria-hidden={ocrReadingOpen && page === 'reading'} aria-label={copy('reader.areaAria')} />
           {ocrReadingOpen && page === 'reading' && activeBook?.format === 'pdf' && bookState === 'ready' && <OcrPageReader
             key={`${activeBook.id}:${pdfPageFromLocator(currentLocator)}:${activeDocument?.jobId}:${activeDocument?.status}`}
             bookId={activeBook.id} pageNumber={pdfPageFromLocator(currentLocator)} onSelection={setSelection} onNavigate={navigateOcrPage} onClose={() => closeOcrReader()}
@@ -1819,53 +1856,44 @@ export default function App(): ReactNode {
         </section>
       </main>
 
-      <aside className="right-sidebar" data-testid="ai-panel" inert={page !== 'reading' || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))}>
-        <header className="assistant-header">
-          <div className="assistant-title"><span><Sparkles size={16} /></span><strong>{copy('assistant.title')}</strong></div>
-          <div className="assistant-header-actions">
-            <div className="conversation-markdown-slot" ref={setSidebarMarkdownTarget} inert={Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} />
-            {!assistantDialogOpen && sidebarTab?.kind === 'live' && <RecentConversations
-              key={`${sidebarTab.id}:${sidebarTab.conversationId}`} currentId={sidebarTab.conversationId}
-              disabled={!loadedSessions.has(sidebarTab.bookId) || Boolean(streamingRequestId(sidebarTab)) || changingSessions.includes(sidebarTab.id)}
-              onList={() => listRecentConversations(sidebarTab)}
-              onRestore={(conversationId) => restoreRecentConversation(sidebarTab, conversationId)} />}
-          </div>
-        </header>
-
-        {!assistantDialogOpen && (
-          <ConversationPane
-            key={sidebarTab ? sidebarTab.id + ':' + sidebarTab.conversationId : 'empty-sidebar'}
-            markdownBook={sidebarTab?.kind === 'live' ? books.find((book) => book.id === sidebarTab.bookId) : undefined}
-            markdownToolsTarget={sidebarMarkdownTarget}
-            scope={sidebarTab?.scope}
-            controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />}
-            composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessions.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
-              onChange={(persona) => changeSessionPersona(sidebarTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(sidebarTab, persona)} /></>}
-            conversationSelection={sidebarTab?.selection ?? null}
-            turns={sidebarTab?.turns ?? []}
-            provider={provider}
-            activeRequestId={streamingRequestId(sidebarTab)}
-            draft={sidebarTab?.draft ?? ''}
-            canAsk={canAskSidebar}
-            {...resolveProps(sidebarTab)}
-            onResolve={(trigger) => resolveBlocker(sidebarTab, trigger)}
-            followupRef={followupRef}
-            onDraftChange={(value) => {
-              if (sidebarTab) updateConversationTab(sidebarTab.id, (tab) => ({ ...tab, draft: value }))
-            }}
-            onNavigate={navigateConversationSource}
-            onSave={(turn) => {
-              if (sidebarTab) void saveTurn(sidebarTab.id, turn)
-            }}
-            showSave={sidebarTab?.kind === 'live'}
-            onCancel={() => void cancelRequest(streamingRequestId(sidebarTab))}
-            onRegenerate={(turnId) => { if (sidebarTab) regenerateTurn(sidebarTab, turnId) }}
-            onEditQuestion={(turnId) => { if (sidebarTab) editTurnQuestion(sidebarTab, turnId) }}
-            canRegenerate={canAskSidebar}
-            onSubmit={submitSidebarQuestion}
-          />
-        )}
-      </aside>
+      <ReadingAssistant
+        fullscreen={fullscreenReading}
+        container={assistantContainer}
+        inactive={page !== 'reading' || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))}
+        actions={!assistantDialogOpen && sidebarTab?.kind === 'live' && <RecentConversations
+          key={`${sidebarTab.id}:${sidebarTab.conversationId}`} currentId={sidebarTab.conversationId}
+          disabled={!loadedSessions.has(sidebarTab.bookId) || Boolean(streamingRequestId(sidebarTab)) || changingSessions.includes(sidebarTab.id)}
+          onList={() => listRecentConversations(sidebarTab)}
+          onRestore={(conversationId) => restoreRecentConversation(sidebarTab, conversationId)} />}
+        conversationKey={sidebarTab ? sidebarTab.id + ':' + sidebarTab.conversationId : 'empty-sidebar'}
+        conversation={assistantDialogOpen ? undefined : {
+          markdownBook: sidebarTab?.kind === 'live' ? books.find((book) => book.id === sidebarTab.bookId) : undefined,
+          scope: sidebarTab?.scope,
+          controls: <AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />,
+          composerControls: sidebarTab && (sidebarTab.kind !== 'live' || loadedSessions.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
+            onChange={(persona) => changeSessionPersona(sidebarTab, persona)} onSaveAs={(persona) => saveSessionPersonaAs(sidebarTab, persona)} /></>,
+          conversationSelection: sidebarTab?.selection ?? null,
+          turns: sidebarTab?.turns ?? [],
+          provider,
+          activeRequestId: streamingRequestId(sidebarTab),
+          draft: sidebarTab?.draft ?? '',
+          canAsk: canAskSidebar,
+          ...resolveProps(sidebarTab),
+          onResolve: (trigger) => resolveBlocker(sidebarTab, trigger),
+          followupRef,
+          onDraftChange: (value) => {
+            if (sidebarTab) updateConversationTab(sidebarTab.id, (tab) => ({ ...tab, draft: value }))
+          },
+          onNavigate: navigateConversationSource,
+          onSave: (turn) => { if (sidebarTab) void saveTurn(sidebarTab.id, turn) },
+          showSave: sidebarTab?.kind === 'live',
+          onCancel: () => void cancelRequest(streamingRequestId(sidebarTab)),
+          onRegenerate: (turnId) => { if (sidebarTab) regenerateTurn(sidebarTab, turnId) },
+          onEditQuestion: (turnId) => { if (sidebarTab) editTurnQuestion(sidebarTab, turnId) },
+          canRegenerate: canAskSidebar,
+          onSubmit: submitSidebarQuestion
+        }}
+      />
 
       {activeBook && page === 'notes' && <BookNotesView key={activeBook.id} book={activeBook} state={analysis.states[activeBook.id]} onNavigate={(anchor, title) => void navigateToAnchor(anchor, false, title)} />}
       {preparationBook && <div className="modal-backdrop preparation-backdrop" hidden={settingsOpen} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreparation() }}>

@@ -121,17 +121,18 @@ export class DocumentProcessingService {
     const preparing = this.database.connection.prepare("SELECT book_id FROM book_documents WHERE status = 'preparing' LIMIT 1").get()
     if (this.previewJob || preparing) throw new AppError('ANALYSIS_BUSY', copy('vision.previewBusy'))
     const fingerprint = this.fingerprint(input.bookId)
-    const cachedText = input.force ? undefined : this.vision.cachedPage(input.bookId, input.pageNumber, input.pageCount, fingerprint)
+    const positioned = config.processor === 'paddle-ocr'
+    const cachedText = input.force ? undefined : this.vision.cachedPage(input.bookId, input.pageNumber, input.pageCount, fingerprint, positioned)
     const metadata = { pageNumber: input.pageNumber, pageCount: input.pageCount, processor: config.processor, ...(config.model ? { model: config.model } : {}) }
     if (cachedText !== undefined) return { ...metadata, text: cachedText, cached: true }
     const job = { bookId: input.bookId, requestId: input.requestId, controller: new AbortController() }
     this.previewJob = job
     try {
-      const text = await this.vision.recognize(config, input.imageDataUrl, input.requestId, job.controller.signal)
+      const result = await this.vision.recognize(config, input.imageDataUrl, input.requestId, job.controller.signal)
       job.controller.signal.throwIfAborted()
       if (!this.database.getStoredBook(input.bookId) || this.fingerprint(input.bookId) !== fingerprint) throw new AppError('DOCUMENT_CHANGED', copy('knowledge.documentChanged'))
-      this.vision.savePreview(input.bookId, input.pageNumber, input.pageCount, fingerprint, text)
-      return { ...metadata, text, cached: false }
+      this.vision.savePreview(input.bookId, input.pageNumber, input.pageCount, fingerprint, result, positioned)
+      return { ...metadata, text: result.text, cached: false }
     } finally { if (this.previewJob === job) this.previewJob = undefined }
   }
   reset(bookId: string): void { this.database.connection.prepare('DELETE FROM document_jobs WHERE book_id = ?').run(bookId) }

@@ -29,12 +29,13 @@ export function PdfSelectionReviewDialog({ draft }: { draft: ReaderSelectionDraf
         aria-labelledby="pdf-selection-review-title"
       >
         <header className="modal-header">
-          <h2 id="pdf-selection-review-title">{copy('reader.pdfRegionReviewTitle')}</h2>
+          <h2 id="pdf-selection-review-title">{copy(draft.ocrPreview ? 'ocrReading.reviewTitle' : 'reader.pdfRegionReviewTitle')}</h2>
           <button className="icon-button" type="button" onClick={close} aria-label={copy('reader.pdfRegionCancel')}><X size={16} /></button>
         </header>
         <form onSubmit={submit}>
           <div className="pdf-selection-review-body">
-            <p>{copy('reader.pdfRegionReviewDetail')}</p>
+            <p>{copy(draft.ocrPreview ? 'ocrReading.reviewDetail' : 'reader.pdfRegionReviewDetail')}</p>
+            {draft.ocrPreview && <img className="pdf-image-region-preview" src={draft.ocrPreview} alt={copy('ocrReading.previewAlt')} data-testid="pdf-ocr-review-image" />}
             <textarea
               data-testid="pdf-selection-review-input"
               aria-label={copy('reader.pdfRegionReviewInputAria')}

@@ -9,6 +9,8 @@ description: 按开始使用、问答与笔记、可选增强、帮助与更新�
 
 这份手册按 Windows x64 **v1.4.0** 的界面编写。你可以先导入书籍直接阅读，再按需要配置 AI 服务。
 
+[商店购买](https://apps.microsoft.com/detail/9PL7FB24VJMV) · [从源码构建](./build-from-source.md)
+
 ## 开始使用
 
 | 你想做什么 | 阅读这篇 |
@@ -40,5 +42,3 @@ description: 按开始使用、问答与笔记、可选增强、帮助与更新�
 - [数据、隐私与费用](./privacy.md)：本机保存什么、哪些内容会发给服务商，以及删除和保留的范围。
 - [常见问题](./faq.md)：排查安装、模型连接、原文准备、任务恢复和数据保存问题。
 - [更新日志](./changelog.md)：查看当前版本变化、历史版本和升级方式。
-
-[下载 Windows x64 版本](https://github.com/maaoding/llm-reader/releases/latest) · [查看更新日志](./changelog.md) · [GitHub 源码](https://github.com/maaoding/llm-reader)

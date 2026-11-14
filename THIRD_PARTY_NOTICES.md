@@ -10,7 +10,6 @@ lockfile and dependency packages.
 | Component | Version | License | Copyright |
 | --- | --- | --- | --- |
 | Electron | 44.7.2 | MIT | Copyright (c) Electron contributors |
-| electron-updater | 6.8.10 | MIT | Copyright (c) Vladimir Krivosheev |
 | epub.js | 0.3.93 | BSD-2-Clause | Copyright (c) 2013, FuturePress |
 | JSZip | 3.10.2 | MIT OR GPL-3.0-or-later | Copyright (c) 2009-2025 Stuart Knightley and contributors |
 | parse5 | 8.0.1 | MIT | Copyright (c) 2013-2019 Ivan Nikulin |

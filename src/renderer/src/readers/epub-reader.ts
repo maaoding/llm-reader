@@ -846,6 +846,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       this.scrollInputContainer.removeEventListener('scroll', this.handleContainerScroll)
     }
     this.scrollInputContainer = container
+    container.tabIndex = -1
     container.addEventListener('wheel', this.handleUserScrollInput, { passive: true })
     container.addEventListener('touchmove', this.handleUserScrollInput, { passive: true })
     container.addEventListener('pointerdown', this.handleUserScrollInput)

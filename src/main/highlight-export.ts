@@ -3,7 +3,7 @@ import { basename, isAbsolute } from 'node:path'
 import { HIGHLIGHT_EXPORT_MAX_COUNT, HIGHLIGHT_EXPORT_MAX_LENGTH, type BookRecord, type HighlightRecord } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { parsePdfRegionAnchor, parsePdfTextAnchor } from '@shared/pdf-anchors'
-import { parseOcrTextAnchor } from '@shared/ocr-reading'
+import { parseOcrRegionAnchor, parseOcrTextAnchor } from '@shared/ocr-reading'
 import { AppError } from './errors'
 import { ensureMarkdownExtension, exportStamp, sanitizeExportFileName } from './insight-export'
 
@@ -29,7 +29,7 @@ function headingText(value: string): string {
 
 function pdfPage(anchor: string): number | undefined {
   return (parsePdfTextAnchor(anchor, Number.MAX_SAFE_INTEGER) ??
-    parsePdfRegionAnchor(anchor, Number.MAX_SAFE_INTEGER) ?? parseOcrTextAnchor(anchor))?.pageNumber
+    parsePdfRegionAnchor(anchor, Number.MAX_SAFE_INTEGER) ?? parseOcrTextAnchor(anchor) ?? parseOcrRegionAnchor(anchor)?.[0])?.pageNumber
 }
 
 export function buildHighlightMarkdown(

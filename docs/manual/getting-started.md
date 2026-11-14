@@ -9,11 +9,11 @@ description: 安装 LLM Reader，导入书籍，配置模型并完成第一次�
 
 ## 1. 安装
 
-从 [GitHub Releases](https://github.com/maaoding/llm-reader/releases/latest) 下载 Windows x64 安装程序，运行后按提示选择安装目录。
+[商店购买](https://apps.microsoft.com/detail/9PL7FB24VJMV) · [从源码构建](./build-from-source.md)
 
-当前安装包未签名，Windows 可能显示安全提示。请核对下载来源与文件；发布页提供对应版本的安装文件及验收说明。
+Windows x64 官方预编译版在 Microsoft Store 付费分发，由商店安装和更新。也可以下载相应源码标签自行构建。
 
-已有版本可打开“设置 → 关于”检查更新。下载完成后点击“重启并安装”；也可退出应用，再运行新安装程序。本机书库和配置继续沿用。
+正在使用旧 GitHub 安装版的用户，可通过[备份与恢复迁移书库](./faq.md#如何从旧-github-安装版迁移到商店版)。
 
 ## 2. 导入并阅读
 

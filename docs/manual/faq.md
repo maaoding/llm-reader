@@ -11,11 +11,21 @@ description: 排查 LLM Reader 安装、模型连接、PDF 文字识别、全书
 
 ## 支持 macOS 或 Linux 安装包吗？
 
-目前正式交付 Windows x64 安装包。Linux 可用于源码开发、构建和测试，当前不承诺 Linux 或 macOS 安装包。开发方式见[开发与验证](https://github.com/maaoding/llm-reader/blob/main/docs/development.md)。
+官方预编译版支持 Windows x64，通过 Microsoft Store 分发。Linux 可用于源码开发、构建和测试。安装入口见[快速开始](./getting-started.md)。
 
 ## Windows 提示安装程序未签名怎么办？
 
-当前安装包未签名，Windows 可能显示安全提示。请从[官方 GitHub Releases](https://github.com/maaoding/llm-reader/releases/latest)取得安装文件，核对文件信息，再根据系统提示决定是否继续。升级前也可以先导出需要保留的问答。
+旧 GitHub 安装包和按默认配置自行构建的 NSIS 安装包未签名，Windows 可能显示安全提示。请核对下载来源与文件信息。商店版的签名和更新由 Microsoft Store 管理。
+
+## 如何从旧 GitHub 安装版迁移到商店版
+
+商店版使用独立资料目录。旧 GitHub 安装版的书库和服务配置不会自动迁移。
+
+1. 在旧版打开“设置 → 备份与恢复”，点击“备份书库”，把完整备份保存到应用资料目录以外。早期版本没有备份入口时，可先使用 [v1.4.0 历史安装包](https://github.com/maaoding/llm-reader/releases/tag/v1.4.0)覆盖升级，再备份。
+2. 从 [Microsoft Store](https://apps.microsoft.com/detail/9PL7FB24VJMV) 安装并打开商店版。在“设置 → 备份与恢复”中选择该备份，核对预览后点击“恢复并重启”。
+3. 重启后核对书籍、进度、摘录与会话，再重新填写模型和其他服务配置、API 密钥及自定义认证头。
+
+恢复后，商店版会切换到备份里的书库。恢复前的书库仍保存在本机，两份书库不会合并。备份内容与兼容要求见[如何备份和恢复书库](#如何备份和恢复书库)。
 
 ## 模型连接失败
 
@@ -69,7 +79,7 @@ EPUB/TXT 原文在本机准备。PDF 的全书问答原文需要配置解析或 
 
 ## 更新后数据会丢失吗？能同步到其他设备吗？
 
-正常覆盖升级继续沿用本机书库和配置。应用目前不提供跨设备同步。删除书籍、清空会话和关闭标签的影响不同，见[删除与保留](./privacy.md#删除与保留)。
+同一渠道更新沿用本机书库和配置。跨渠道请按上方步骤迁移。应用目前不提供跨设备同步。删除书籍、清空会话和关闭标签的影响见[删除与保留](./privacy.md#删除与保留)。
 
 若出现保存失败提示，先重试并确认保存成功，再退出。Markdown 导出可保存问答成果，不等于完整书库备份。
 

@@ -1,4 +1,4 @@
-import type { BookFormat, PdfImageRegionSource, ReaderSource, TextReadingMode, TocItem } from '@shared/contracts'
+import type { BookFormat, PdfImageRegionSource, PreparedOcrPage, ReaderSource, TextReadingMode, TocItem } from '@shared/contracts'
 
 export interface ReaderMetadata {
   title: string
@@ -31,6 +31,7 @@ export { READER_SEARCH_QUERY_MAX_LENGTH, READER_SEARCH_RESULT_LIMIT, type Reader
 
 export interface ReaderSelectionDraft {
   quote: string
+  ocrPreview?: string
   confirm: (quote: string) => void
   cancel: () => void
 }
@@ -48,7 +49,7 @@ export interface ReaderNotice {
 
 export interface ReaderCallbacks {
   bookId: string
-  hasPreparedOcrText?: () => Promise<boolean>
+  readPreparedOcrPage?: (pageNumber: number) => Promise<PreparedOcrPage>
   onRelocated?: (relocation: ReaderRelocation) => void
   onSelectionChanged?: (selection: ReaderSource | null) => void
   onSelectionDraftChanged?: (draft: ReaderSelectionDraft | null) => void

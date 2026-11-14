@@ -14,10 +14,10 @@ const electronMocks = vi.hoisted(() => ({
   showSaveDialog: vi.fn(),
   writeText: vi.fn(),
   openExternal: vi.fn(),
-  requestClose: vi.fn(),
+  setFullscreen: vi.fn(),
+  reserveAssistant: vi.fn(),
+  presentAssistant: vi.fn(),
   respondToClose: vi.fn(),
-  updatePhase: vi.fn(() => ({ status: 'idle' })),
-  installUpdate: vi.fn(),
   getVersion: vi.fn(() => '0.3.0')
 }))
 const fonts = vi.hoisted(() => ({ list: vi.fn() }))
@@ -57,6 +57,8 @@ function register(bookImporter: {
       maximize: vi.fn(),
       unmaximize: vi.fn(),
       isMaximized: vi.fn(() => false),
+      isFullScreen: vi.fn(() => true),
+      setFullScreen: electronMocks.setFullscreen,
       close: vi.fn()
     },
     library: extras.library ?? {},
@@ -65,9 +67,12 @@ function register(bookImporter: {
     llm: extras.llm ?? {},
     storage: extras.storage,
     database: extras.database,
-    updater: { getPhase: electronMocks.updatePhase, install: electronMocks.installUpdate },
     allowedRendererOrigins: new Set<string>(),
-    requestClose: electronMocks.requestClose,
+    readingWindow: {
+      reserveAssistantWindow: electronMocks.reserveAssistant,
+      presentAssistantWindow: electronMocks.presentAssistant,
+      focusedAssistantWindow: () => undefined
+    },
     respondToClose: electronMocks.respondToClose
   } as unknown as Parameters<typeof registerIpcHandlers>[0])
 }
@@ -199,14 +204,14 @@ describe('book import IPC', () => {
     conversationFile.defaultName.mockReset().mockReturnValue('conversation.md')
     conversationFile.write.mockReset().mockResolvedValue('conversation.md')
     electronMocks.writeText.mockReset()
-    electronMocks.requestClose.mockReset()
     electronMocks.respondToClose.mockReset()
-    electronMocks.updatePhase.mockReset().mockReturnValue({ status: 'idle' })
-    electronMocks.installUpdate.mockReset()
+    electronMocks.setFullscreen.mockReset()
+    electronMocks.reserveAssistant.mockReset()
+    electronMocks.presentAssistant.mockReset()
     fonts.list.mockReset().mockResolvedValue([])
   })
 
-  afterEach(() => { vi.useRealTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
   it('accepts only validated close decisions from the trusted renderer', async () => {
     vi.useFakeTimers()
@@ -225,27 +230,57 @@ describe('book import IPC', () => {
     expect(electronMocks.respondToClose).toHaveBeenCalledOnce()
   })
 
-  it('runs update installation only after the same save-before-close guard approves it', async () => {
-    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
-    const handler = electronMocks.handlers.get(IPC_CHANNELS.appUpdateInstall)!
-    await handler(trustedEvent())
-    expect(electronMocks.requestClose).not.toHaveBeenCalled()
-    electronMocks.updatePhase.mockReturnValue({ status: 'downloaded' })
-    electronMocks.installUpdate.mockReturnValue(true)
-    await handler(trustedEvent())
-    expect(electronMocks.requestClose).toHaveBeenCalledOnce()
-    expect(electronMocks.installUpdate).not.toHaveBeenCalled()
-    const cancel = vi.fn()
-    expect(electronMocks.requestClose.mock.calls[0][0](cancel)).toBe(true)
-    expect(electronMocks.installUpdate).toHaveBeenCalledExactlyOnceWith(cancel)
+  it('validates fullscreen and assistant window requests at the trusted main frame', async () => {
+    const token = randomUUID()
+    electronMocks.reserveAssistant.mockReturnValue(token)
+    register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() })
+    const setFullscreen = electronMocks.handlers.get(IPC_CHANNELS.windowSetFullscreen)!
+    const reserve = electronMocks.handlers.get(IPC_CHANNELS.assistantWindowReserve)!
+    const present = electronMocks.handlers.get(IPC_CHANNELS.assistantWindowPresent)!
+    const subframe = { ...trustedEvent() as object, senderFrame: { url: 'llm-reader://app/index.html' } }
+    for (const handler of [setFullscreen, reserve, present]) {
+      await expect(handler(subframe)).rejects.toThrow('[UNTRUSTED_SENDER]')
+      await expect(handler({ sender: { id: 99 } })).rejects.toThrow('[UNTRUSTED_SENDER]')
+    }
+    await expect(setFullscreen(trustedEvent(), 'true')).rejects.toThrow('[INVALID_INPUT]')
+    await expect(setFullscreen(trustedEvent(), true, false)).rejects.toThrow('[INVALID_INPUT]')
+    await expect(reserve(trustedEvent(), { url: 'about:blank' })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(present(trustedEvent(), { token, mode: 'focused', url: 'https://example.test' })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(present(trustedEvent(), { token: 'forged', mode: 'hidden' })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(present(trustedEvent(), { token, mode: 'close' })).rejects.toThrow('[INVALID_INPUT]')
+    expect(electronMocks.setFullscreen).not.toHaveBeenCalled()
+    expect(electronMocks.reserveAssistant).not.toHaveBeenCalled()
+    expect(electronMocks.presentAssistant).not.toHaveBeenCalled()
+
+    await expect(electronMocks.handlers.get(IPC_CHANNELS.windowIsFullscreen)!(trustedEvent())).resolves.toBe(true)
+    await setFullscreen(trustedEvent(), false)
+    await expect(reserve(trustedEvent())).resolves.toBe(token)
+    await present(trustedEvent(), { token, mode: 'inactive' })
+    expect(electronMocks.setFullscreen).toHaveBeenCalledExactlyOnceWith(false)
+    expect(electronMocks.reserveAssistant).toHaveBeenCalledOnce()
+    expect(electronMocks.presentAssistant).toHaveBeenCalledExactlyOnceWith({ token, mode: 'inactive' })
   })
 
-  it('reports an installer failure so the close guard can restore the workspace', async () => {
+  it.each([
+    { windowsStore: true, distribution: 'store' },
+    { windowsStore: undefined, distribution: 'standalone' }
+  ])('reports version and $distribution distribution to the trusted renderer', async ({ windowsStore, distribution }) => {
+    vi.stubGlobal('process', Object.create(process, { windowsStore: { value: windowsStore } }))
     register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
-    electronMocks.updatePhase.mockReturnValue({ status: 'downloaded' })
-    electronMocks.installUpdate.mockReturnValue(false)
-    await electronMocks.handlers.get(IPC_CHANNELS.appUpdateInstall)!(trustedEvent())
-    expect(electronMocks.requestClose.mock.calls[0][0]()).toBe(false)
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.appInfo)!
+    await expect(handler({ sender: { id: 99 } })).rejects.toThrow('[UNTRUSTED_SENDER]')
+    await expect(handler(trustedEvent())).resolves.toEqual({ version: '0.3.0', distribution })
+    expect([...electronMocks.handlers.keys()].some((channel) => channel.startsWith('app:update-'))).toBe(false)
+  })
+
+  it('opens the fixed AI content report page without forwarding app data', async () => {
+    register({ isBusy: () => false, importPaths: async () => null, cancel: () => undefined })
+    electronMocks.openExternal.mockReset().mockResolvedValue(undefined)
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.appReportAiContent)!
+    await expect(handler({ sender: { id: 99 } })).rejects.toThrow('[UNTRUSTED_SENDER]')
+    await expect(handler(trustedEvent(), 'https://other.example')).rejects.toThrow('[INVALID_INPUT]')
+    await expect(handler(trustedEvent())).resolves.toBeUndefined()
+    expect(electronMocks.openExternal).toHaveBeenCalledExactlyOnceWith('https://github.com/maaoding/llm-reader/issues/new')
   })
 
   it('validates conversation copy independently of OCR and rejects forged senders', async () => {

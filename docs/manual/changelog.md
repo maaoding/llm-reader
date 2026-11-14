@@ -5,13 +5,13 @@ description: 查看 LLM Reader 当前版本变化、历史发布说明，以及 
 
 # 更新日志
 
-当前版本为 **v1.4.0**。从 [GitHub Releases](https://github.com/maaoding/llm-reader/releases/latest) 下载 Windows x64 安装程序，或在应用“设置 → 关于”检查更新。
+当前应用版本为 **v1.4.0**，商店 AppX 为 **1.4.0.0**，对应源码标签 `store-v1.4.0.0`。[商店购买](https://apps.microsoft.com/detail/9PL7FB24VJMV) · [从源码构建](./build-from-source.md)
 
 ## 当前版本
 
 [v1.4.0 — 摘录整理、会话导出与书库备份](./releases/v1.4.0.md)
 
-安装、升级及真实服务的验证范围见 [v1.4.0 验收记录](https://github.com/maaoding/llm-reader/blob/main/docs/releases/v1.4.0-validation.md)。
+当时的 GitHub 安装版及真实服务验证范围见 [v1.4.0 验收记录](https://github.com/maaoding/llm-reader/blob/main/docs/releases/v1.4.0-validation.md)。
 
 ## 历史版本
 
@@ -20,10 +20,10 @@ description: 查看 LLM Reader 当前版本变化、历史发布说明，以及 
 - [v1.2.0](https://github.com/maaoding/llm-reader/releases/tag/v1.2.0)
 - [v1.1.0](https://github.com/maaoding/llm-reader/releases/tag/v1.1.0)
 - [v1.0.0](https://github.com/maaoding/llm-reader/releases/tag/v1.0.0)
-- [全部发布版本](https://github.com/maaoding/llm-reader/releases)
+- [历史 GitHub Releases](https://github.com/maaoding/llm-reader/releases)
 
 ## 安装与升级
 
-安装包目前未签名，Windows 可能显示安全提示。已有版本可下载更新并点击“重启并安装”，也可正常退出后手动运行新安装程序。
+官方预编译版由 Microsoft Store 更新。后续每个商店包 `X.Y.Z.0` 对应一个 GitHub 源码标签 `vX.Y.Z`。自行构建的版本需手动更新。
 
-本机书库、进度、摘录、问答集和配置继续沿用。升级不会自动重新处理书籍，也不会恢复暂停的外部任务。
+从旧 GitHub 安装版切换到商店版时，请先[备份并迁移书库](./faq.md#如何从旧-github-安装版迁移到商店版)。

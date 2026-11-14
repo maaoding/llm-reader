@@ -91,7 +91,7 @@ if ((!run && !offline && !simulate) || report.blockedReasons.length) {
   const launch = async () => {
     const executablePath = process.env.LLM_READER_E2E_EXECUTABLE
     application = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: executablePath ? [] : ['.'],
-      env: { ...process.env, LLM_READER_USER_DATA: userData, LLM_READER_E2E_IMPORT: '', LLM_READER_UPDATER_DISABLED: '1' } })
+      env: { ...process.env, LLM_READER_USER_DATA: userData, LLM_READER_E2E_IMPORT: '' } })
     page = await application.firstWindow()
     await page.getByTestId('app-shell').waitFor({ state: 'visible', timeout: 30_000 })
   }

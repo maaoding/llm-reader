@@ -39,7 +39,11 @@ function findSelectionAnchorRect(host: HTMLElement | null): SelectionAnchorRect 
   }
   const region = host.querySelector('.pdf-region-overlay.is-selection')
   if (region) {
-    const rect = region.getBoundingClientRect()
+    const viewport = host.getBoundingClientRect()
+    const ocrLine = region.classList.contains('pdf-ocr-selection')
+      ? Array.from(region.children, (line) => line.getBoundingClientRect()).find((line) => line.bottom > viewport.top && line.top < viewport.bottom)
+      : undefined
+    const rect = ocrLine ?? region.getBoundingClientRect()
     return { top: rect.top, bottom: rect.bottom, centerX: rect.left + rect.width / 2 }
   }
   return null

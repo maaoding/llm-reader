@@ -23,6 +23,15 @@ const input = (): SaveKnowledgeSettingsInput => ({
   document: { processor: 'vision', baseUrl: 'http://127.0.0.1/v1', model: 'vision-fixture', compatibility: 'opencode-go', ocr: true, language: 'ch', apiKey: 'ocr-only-secret' }
 })
 const response = (text: string, finish = 'stop') => Response.json({ choices: [{ message: { content: text }, finish_reason: finish }] })
+const sampleImageBytes = Buffer.from(OCR_TEST_IMAGE.split(',')[1], 'base64')
+const sampleImage = { type: 'image', width: sampleImageBytes.readUInt32BE(16), height: sampleImageBytes.readUInt32BE(20) }
+function paddleResult(lines: { text: string; words: string[]; boxes: number[][]; row: number[] }[], width = sampleImage.width) {
+  return Response.json({ errorCode: 0, result: { dataInfo: { ...sampleImage, width }, ocrResults: [{ prunedResult: {
+    rec_texts: lines.map((line) => line.text), text_word: lines.map((line) => line.words),
+    text_word_boxes: lines.map((line) => line.boxes), rec_boxes: lines.map((line) => line.row),
+    model_settings: { use_doc_preprocessor: false, use_textline_orientation: false }
+  } }] } })
+}
 function setup(fetcher = vi.fn<typeof fetch>(async () => response('独立复核是必要条件。')), path = ':memory:') {
   const db = new AppDatabase(path); resources.push(db)
   const bookId = randomUUID()
@@ -38,6 +47,42 @@ function setup(fetcher = vi.fn<typeof fetch>(async () => response('独立复核�
 }
 
 describe('visual model OCR', () => {
+  it('reuses validated PaddleOCR word boxes from preview on preparation without altering an already published page', async () => {
+    const line = { text: '𠮷字 ABC', words: ['𠮷', '字', ' ', 'ABC'],
+      boxes: [[10, 10, 20, 25], [21, 10, 30, 25], [30, 10, 35, 25], [35, 10, 75, 25]], row: [10, 10, 75, 25] }
+    const fixture = setup(vi.fn<typeof fetch>().mockResolvedValueOnce(paddleResult([line])))
+    fixture.settings.save({ ...input(), document: { processor: 'paddle-ocr', baseUrl: 'http://127.0.0.1:8080/ocr', language: 'ch', ocr: true,
+      extraBody: { useDocUnwarping: true, visualize: true, fileType: 0 } } })
+    const request = { bookId: fixture.bookId, requestId: randomUUID(), pageNumber: 1, pageCount: 1, imageDataUrl: OCR_TEST_IMAGE }
+    expect(await fixture.service.previewPage(request)).toMatchObject({ text: line.text, cached: false })
+    expect(await fixture.service.previewPage(request)).toMatchObject({ text: line.text, cached: true })
+    const [url, options] = fixture.fetcher.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:8080/ocr')
+    expect(JSON.parse(String(options?.body))).toMatchObject({ file: sampleImageBytes.toString('base64'), fileType: 1,
+      useDocOrientationClassify: false, useDocUnwarping: false, useTextlineOrientation: false, returnWordBox: true, visualize: false })
+    const store = new BookContextStore(fixture.db), revision = randomUUID()
+    store.prepare(fixture.bookId, revision, 'fixture')
+    await fixture.extract()
+    store.cacheDocument(fixture.bookId, fixture.service.structure(fixture.bookId)!, 1)
+    fixture.db.connection.exec("UPDATE book_documents SET status = 'ready'")
+    const result = fixture.service.readOcrPage(fixture.bookId, 1)
+    expect(result).toMatchObject({ status: 'ready', revision, text: line.text, wordLines: [[
+      { start: 0, end: 1, left: 10 / sampleImage.width }, { start: 1, end: 2 }, { start: 3, end: 6 }
+    ]] })
+    expect(fixture.render).not.toHaveBeenCalled()
+    expect(fixture.fetcher).toHaveBeenCalledTimes(1)
+
+    fixture.fetcher.mockResolvedValueOnce(paddleResult([line], sampleImage.width - 1))
+    expect(await fixture.service.previewPage({ ...request, force: true })).toMatchObject({ text: line.text, cached: false })
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual(result)
+    fixture.service.rebuild(fixture.bookId)
+    await fixture.extract()
+    expect(fixture.service.structure(fixture.bookId)?.units[0].text).toBe(line.text)
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).toMatchObject({ status: 'ready', revision, text: line.text, pageNumber: 1, pageCount: 1 })
+    expect(fixture.service.readOcrPage(fixture.bookId, 1)).not.toHaveProperty('wordLines')
+    expect(fixture.fetcher).toHaveBeenCalledTimes(2)
+  })
+
   it('reads only published OCR pages without requests, preserves blanks and ignores newer previews', async () => {
     const fixture = setup(vi.fn<typeof fetch>().mockResolvedValueOnce(response('😀 第一页原文')).mockResolvedValueOnce(response('[EMPTY_PAGE]')))
     expect(fixture.service.readOcrPage(fixture.bookId, 1)).toEqual({ status: 'unprepared' })

@@ -20,7 +20,7 @@ function SourceContent({ source, bookId }: { source: WebSearchSource; bookId: st
   </div>
 }
 
-function SourceDialog({ source, bookId, onClose }: { source: WebSearchSource; bookId: string; onClose: () => void }) {
+function SourceDialog({ source, bookId, onClose, documentTarget }: { source: WebSearchSource; bookId: string; onClose: () => void; documentTarget: Document }) {
   const ref = useRef<HTMLElement>(null)
   const returnRef = useRef<HTMLElement>(null)
   useDialogFocus(true, onClose, ref, returnRef)
@@ -29,13 +29,13 @@ function SourceDialog({ source, bookId, onClose }: { source: WebSearchSource; bo
       <header><h3>{copy('webSearch.sourcesTitle')}</h3><button type="button" className="text-button" onClick={onClose}>{copy('webSearch.close')}</button></header>
       <SourceContent source={source} bookId={bookId} />
     </section>
-  </div>, document.body)
+  </div>, documentTarget.body)
 }
 
-export function WebCitation({ source, bookId }: { source: WebSearchSource; bookId: string }) {
+export function WebCitation({ source, bookId, documentTarget = document }: { source: WebSearchSource; bookId: string; documentTarget?: Document }) {
   const [expanded, setExpanded] = useState(false)
   return <><button type="button" className="citation citation-valid" data-testid="citation-web" title={source.title} onClick={(event) => { event.stopPropagation(); setExpanded(true) }}>{source.title}</button>
-    {expanded && <SourceDialog source={source} bookId={bookId} onClose={() => setExpanded(false)} />}</>
+    {expanded && <SourceDialog source={source} bookId={bookId} documentTarget={documentTarget} onClose={() => setExpanded(false)} />}</>
 }
 
 export const WebSources = memo(function WebSources({ context, availableBookIds }: { context: ContextSnapshot; availableBookIds?: string[]; uiLanguage?: UiLanguage }) {

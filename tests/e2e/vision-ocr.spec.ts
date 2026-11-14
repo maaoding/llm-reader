@@ -1,4 +1,4 @@
-import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import { resolve } from 'node:path'
 import type { ContextSnapshot } from '../../src/shared/contracts'
@@ -9,12 +9,37 @@ let server: Server, endpoint = '', holdPages = false
 let failNextPage = false, pageText = '扫描原文：独立复核是必要条件。'
 let pageContents: string[] | null = null
 const images: { image: string; session: string | undefined; authorization: string | undefined }[] = []
+const paddleRequests: Record<string, unknown>[] = []
+const scannedLines = ['扫描页测试', '这些字只存在于图片中，不应产生文字层。']
+
+function paddleFixture(file: string) {
+  const bytes = Buffer.from(file, 'base64')
+  const sample = bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+  const width = sample ? bytes.readUInt32BE(16) : 1785
+  const height = sample ? bytes.readUInt32BE(20) : 2525
+  const lines = sample ? ['OCR'] : scannedLines
+  const wordBoxes = sample ? [[[width * 0.05, height * 0.15, width * 0.9, height * 0.85]]] : lines.map((line, index) => Array.from(line, (_, col) => {
+    const em = index ? 32 : 54, y = index ? 285 : 185
+    return [(130 + col * em) / 1240 * width, y / 1754 * height, (130 + (col + 1) * em) / 1240 * width, (y + em) / 1754 * height]
+  }))
+  return { errorCode: 0, result: { dataInfo: { type: 'image', width, height }, ocrResults: [{ prunedResult: {
+    rec_texts: lines, text_word: sample ? [['OCR']] : lines.map((line) => Array.from(line)),
+    text_word_boxes: wordBoxes, rec_boxes: wordBoxes.map((row) => [row[0][0], row[0][1], row.at(-1)![2], row[0][3]]),
+    model_settings: { use_doc_preprocessor: false, use_textline_orientation: false }
+  } }] } }
+}
 test.beforeAll(async () => {
   server = createServer((request, response) => {
     let raw = ''
     request.setEncoding('utf8')
     request.on('data', (chunk: string) => { raw += chunk })
     request.on('end', () => {
+      if (request.url === '/v1/ocr') {
+        const { file, ...options } = JSON.parse(raw) as Record<string, unknown>
+        paddleRequests.push(options)
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(paddleFixture(String(file))))
+        return
+      }
       if (request.url !== '/v1/chat/completions') { response.writeHead(404).end(); return }
       const body = JSON.parse(raw) as { model: string; messages: { content: string | { type: string; image_url?: { url: string } }[] }[] }
       const user = body.messages.at(-1)!.content
@@ -29,9 +54,10 @@ test.beforeAll(async () => {
         const system = String(body.messages[0].content)
         if (system.includes('为阅读问题')) content = '{"chapters":[],"terms":["独立复核"]}'
         else if (system.includes('你是阅读助手')) {
-          const context = JSON.parse(user.split('\n')[1]) as ContextSnapshot
+          const context = JSON.parse(user.split('\n')[1]) as ContextSnapshot & { selectedPassageId?: string }
           const passage = context.passages.find((item) => item.text.includes('独立复核'))
-          content = passage ? `书中要求独立复核。[${passage.id}]` : '未取到扫描原文。'
+          const positioned = context.passages.find((item) => item.id === context.selectedPassageId && item.text === '这些字')
+          content = passage ? `书中要求独立复核。[${passage.id}]` : positioned ? `这是所选文字。[${positioned.id}]` : '未取到扫描原文。'
         }
       }
       response.writeHead(200, { 'content-type': 'application/json' })
@@ -43,7 +69,7 @@ test.beforeAll(async () => {
   if (!address || typeof address === 'string') throw new Error('Fixture server unavailable')
   endpoint = `http://127.0.0.1:${address.port}/v1`
 })
-test.beforeEach(() => { images.length = 0; holdPages = false; failNextPage = false; pageText = '扫描原文：独立复核是必要条件。'; pageContents = null })
+test.beforeEach(() => { images.length = 0; paddleRequests.length = 0; holdPages = false; failNextPage = false; pageText = '扫描原文：独立复核是必要条件。'; pageContents = null })
 test.afterAll(async () => { server.closeAllConnections(); await new Promise<void>((done) => server.close(() => done())) })
 const pageImages = () => images.filter((item) => item.image.startsWith('data:image/jpeg'))
 const status = (page: Page, bookId: string) => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.document?.status), bookId)
@@ -56,6 +82,126 @@ async function selectOcrText(page: Page, quote: string) {
     document.dispatchEvent(new Event('selectionchange'))
   }, quote)
 }
+
+async function dragScanWords(page: Page, sheet: Locator, first: [number, number], last: [number, number]): Promise<void> {
+  const bounds = await sheet.boundingBox()
+  if (!bounds) throw new Error('Scan page has no bounds')
+  await page.mouse.move(bounds.x + bounds.width * first[0], bounds.y + bounds.height * first[1])
+  await page.mouse.down()
+  await page.mouse.move(bounds.x + bounds.width * last[0], bounds.y + bounds.height * last[1], { steps: 12 })
+  await expect(sheet.getByTestId('pdf-ocr-drag')).toBeVisible()
+  await page.mouse.up()
+}
+
+test('selects, reviews and cites PaddleOCR words on the original scan across zoom and restart', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-positioned-ocr-')
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: resolve('tests/e2e/fixtures/scanned-reader.pdf') })
+    application = launched.application
+    let page = launched.page
+    await showLibrary(page)
+    await expect(page.getByTestId('book-item')).toBeVisible()
+    await resizeWorkspace(application, page, 1180, 800)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('theme-light').click()
+    await page.getByTestId('scale-100').click()
+    await page.getByTestId('settings-nav-knowledge').click()
+    await page.getByTestId('document-config').locator('summary').first().click()
+    await page.getByTestId('document-processor').selectOption('paddle-ocr')
+    await page.getByTestId('document-url').fill(endpoint + '/ocr')
+    await page.getByTestId('document-test').click()
+    await expect(page.getByTestId('knowledge-document-status')).toContainText('样图文字识别成功')
+    await page.getByTestId('document-save').click()
+    await expect(page.getByTestId('knowledge-document-status')).toContainText('已保存')
+    await page.getByTestId('settings-close').click()
+    const bookId = await page.evaluate(async (baseUrl) => {
+      const overview = await window.readerApi.createProviderProfile({ name: 'OCR 选区引用', baseUrl, model: 'qa-fixture', apiKey: 'test-only-key' })
+      await window.readerApi.activateProviderProfile(overview.profiles[0].id)
+      return (await window.readerApi.listBooks())[0].id
+    }, endpoint)
+    await page.reload()
+    await showLibrary(page)
+    await page.getByTestId('book-item').click()
+    await enterReading(page)
+    const sheet = page.locator('.pdf-page[data-page-number="1"]')
+    await expect(page.getByTestId('pdf-no-text-banner')).toBeVisible()
+    await expect(sheet.locator('.pdf-ocr-hit-layer')).toHaveCount(0)
+    await showPreparation(page)
+    await page.getByTestId('ocr-preview-start').click()
+    await expect(page.getByTestId('ocr-preview-text')).toContainText(scannedLines[0])
+    await page.getByTestId('document-prepare').click()
+    await expect.poll(() => status(page, bookId)).toBe('ready')
+    await hidePreparation(page)
+    await expect(sheet).toHaveAttribute('data-ocr-selectable', 'true')
+    expect(paddleRequests).toHaveLength(2)
+    expect(paddleRequests[1]).toMatchObject({ fileType: 1, returnWordBox: true, useDocUnwarping: false, visualize: false })
+    const center = (character: number): [number, number] => [(130 + (character + 0.5) * 32) / 1240, 301 / 1754]
+    // Pointer capture must not turn a drag outside the source page into a quote.
+    const host = page.getByTestId('reader-host')
+    const sheetBounds = (await sheet.boundingBox())!
+    const hostBounds = (await host.boundingBox())!
+    await dragScanWords(page, sheet, center(0), [(hostBounds.x - sheetBounds.x + 4) / sheetBounds.width, center(0)[1]])
+    await expect(page.getByTestId('pdf-selection-review')).toHaveCount(0)
+    await expect(page.locator('.toast')).toContainText('同一页、同一栏')
+    await dragScanWords(page, sheet, center(0), center(2))
+    await expect(page.getByTestId('pdf-selection-review-input')).toHaveValue('这些字')
+    await expect(page.getByTestId('pdf-selection-review')).toContainText('校对 OCR 选区')
+    await expect.poll(() => page.getByTestId('pdf-ocr-review-image').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
+    await page.screenshot({ path: test.info().outputPath('scan-ocr-review-light.png'), animations: 'disabled' })
+    await page.getByTestId('pdf-selection-review-cancel').click()
+    await expect(sheet.getByTestId('pdf-ocr-drag')).toHaveCount(0)
+    await expect(page.getByTestId('selection-toolbar')).toBeHidden()
+
+    await page.getByTestId('reader-settings-button').click()
+    await page.getByRole('button', { name: '放大', exact: true }).click()
+    await expect(sheet).toHaveAttribute('aria-busy', 'false')
+    await dragScanWords(page, sheet, center(9), center(6))
+    await expect(page.getByTestId('pdf-selection-review-input')).toHaveValue('于图片中')
+    await page.getByTestId('pdf-selection-review-input').fill('于图片中（已校对）')
+    await page.getByTestId('pdf-selection-review-confirm').click()
+    const selectionToolbar = page.getByTestId('selection-toolbar')
+    await expect(selectionToolbar).toBeVisible()
+    const toolbarBounds = (await selectionToolbar.boundingBox())!
+    const selectedLine = (await sheet.getByTestId('pdf-region-selection').locator('span').boundingBox())!
+    expect(Math.min(Math.abs(toolbarBounds.y - selectedLine.y - selectedLine.height),
+      Math.abs(toolbarBounds.y + toolbarBounds.height - selectedLine.y))).toBeLessThan(30)
+    await page.getByTestId('action-save-highlight').click()
+    const [saved] = await page.evaluate((id) => window.readerApi.listHighlights(id), bookId)
+    expect(saved.quote).toBe('于图片中（已校对）')
+    expect(saved.anchor).toMatch(/^pdfocrrect:1:/u)
+    await dragScanWords(page, sheet, center(0), center(2))
+    await page.getByTestId('pdf-selection-review-confirm').click()
+    await page.getByTestId('action-explain').click()
+    await expect(page.getByTestId('answer-current')).toContainText('这是所选文字')
+    await page.getByTestId('citation-valid').click()
+    const citation = sheet.locator('.pdf-region-overlay.is-temporary')
+    await expect(citation).toBeInViewport()
+    await expect(citation).toHaveAttribute('data-region-anchor', /^pdfrect:1:0\.1048/u)
+
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    page = restarted.page
+    await showLibrary(page)
+    await resizeWorkspace(application, page, 940, 600)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('theme-dark').click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-close').click()
+    await page.getByTestId('book-item').click()
+    const restored = page.locator('.pdf-page[data-ocr-selectable="true"]')
+    await expect(restored.locator('.pdf-region-overlay.is-persistent')).toBeVisible()
+    await page.getByTestId('highlights-tab').click()
+    await page.getByTestId('highlight-item').filter({ hasText: saved.quote }).locator('.highlight-jump').click()
+    await expect(restored.locator('.pdf-region-overlay.is-temporary')).toBeInViewport()
+    await page.screenshot({ path: test.info().outputPath('scan-ocr-extract-dark.png'), animations: 'disabled' })
+    expect(paddleRequests).toHaveLength(2)
+  } finally {
+    server.closeAllConnections()
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
 
 test('reads cached OCR text, selects passages for cited questions and restores the reader after restart', async () => {
   test.setTimeout(120_000)

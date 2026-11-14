@@ -47,7 +47,7 @@ Anthropic 协议用于划词问答、全书问答、检索规划与章节笔记�
 
 阅读增强包含 PDF 解析、按含义查找、原文排序和联网搜索。卡片默认展示功能、状态和开关；填写接口时展开“配置详情”。切换设置栏目保留模型、人设和阅读增强草稿，关闭设置时统一提醒尚未保存的修改。
 
-复杂论文、表格和公式优先选择 MinerU 或 Docling 取得文档结构；扫描页如果主要需要逐页文字，可选择 Mistral OCR 或 Unstructured Partition。已有兼容图片输入的模型时，也可主动选择“视觉模型 OCR”。逐页路线建议先用“先识别一页”对照原 PDF，再决定是否处理全书；当前应用只按页保存识别文字，不把专门 OCR 服务的全部结构化能力作为完整表格结构提供。
+复杂论文、表格和公式优先选择 MinerU 或 Docling 取得文档结构。扫描页需要文字时可选择 Mistral OCR、Unstructured Partition 或兼容图片输入的视觉模型。希望在原图上划词时可使用支持词框输出的 PaddleOCR 通用 OCR 服务。逐页处理前可先识别一页并对照原图。
 
 | 服务 | 地址与认证 | 处理方式 |
 | --- | --- | --- |
@@ -57,6 +57,7 @@ Anthropic 协议用于划词问答、全书问答、检索规划与章节笔记�
 | 视觉模型 OCR | OpenAI 或 Anthropic 协议；独立的模型、地址和密钥 | PDF 逐页图片识别 |
 | Mistral OCR | 默认 `https://api.mistral.ai/v1`；Bearer 密钥 | `/ocr`，默认 `mistral-ocr-latest`，逐页图片识别 |
 | Unstructured Partition | 填写账户提供的 Partition 地址或本机服务地址；`unstructured-api-key` | `/general/v0/general`，逐页 multipart 图片上传 |
+| PaddleOCR（原图划词） | 例如 `http://127.0.0.1:8080/ocr`，可选 Bearer 密钥 | PaddleX 通用 OCR 服务 `/ocr`，逐页发送 Base64 图片，请求原图字词框 |
 
 Unstructured 支持 Partition 兼容端点，不适用于 Workflow API。完整 Partition 地址不会重复追加路径。
 Mistral OCR、Unstructured 和视觉模型的“测试”只发送内置样图，不发送书籍；测试可能消耗服务额度。
@@ -67,9 +68,9 @@ Mistral OCR、Unstructured 和视觉模型的“测试”只发送内置样图�
 可用“复制文字”复制完整原文；“重新识别”会再次请求服务，成功后替换该页预览。失败或取消时保留上次成功结果；点击“重试这一页”才重新请求。已准备好的原文需点击“重新准备原文”后应用新结果，同时使笔记和向量需要重建。
 取消、关闭准备窗口或修改服务配置会终止预览；取消后第三方可能已处理请求。书籍内容、页数或已保存的文档配置变化后不会复用旧预览；删除书籍一并清理对应结果。
 
-三类逐页处理均沿用完成页缓存、暂停续传、失败页重试、600 页上限与本机页码引用。
+逐页处理沿用完成页缓存、暂停续传、失败页重试、600 页上限与本机页码引用。
 Mistral 的 Markdown、页眉和页脚以及 Unstructured 的元素文本进入全文检索、问答和笔记流程。
-这些结果按页组织，引用位置来自 PDF 渲染器，不采用服务返回的页码，也不把 OCR 内容声明为精确表格结构。
+结果按 PDF 实际页码组织。PaddleOCR 采用 `returnWordBox` 返回的 `text_word` 和 `text_word_boxes`，关闭页面方向预处理、去扭曲和行方向调整，以保留原图坐标。客户端核对图片尺寸、行顺序、字词与框的位置。语言由部署的模型决定。若服务只能返回文本，该页仍可在“识别文字”中阅读。参见 [PaddleOCR 通用 OCR 服务文档](https://www.paddleocr.ai/latest/en/version3.x/pipeline_usage/OCR.html)和 [PaddleX `/ocr` 接口](https://github.com/PaddlePaddle/PaddleX/blob/release/3.6/paddlex/inference/serving/schemas/ocr.py)。
 准备完成后，阅读页可切换“识别文字”，在当前 PDF 页逐页阅读、复制与划词提问；提问引用对应实际页码。阅读只使用已经发布的整本准备结果，不会触发额外服务请求。MinerU 和 Docling 等整份 PDF 处理服务暂不提供此逐页阅读视图。
 需要原生章节、表格或单元格结构时，可选择现有的 MinerU / Docling。
 

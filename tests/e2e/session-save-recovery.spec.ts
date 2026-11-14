@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { SaveBookSessionInput, SessionTabsState } from '../../src/shared/contracts'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
-import { enterReading, showLibrary } from './support/workspace'
+import { enterReading, resizeWorkspace, showLibrary } from './support/workspace'
 
 type SaveTable = 'book_sessions' | 'session_tabs'
 type SessionSaveHandler = (event: IpcMainInvokeEvent, payload: SaveBookSessionInput) => unknown
@@ -296,50 +296,63 @@ test('serializes a slow retry with newer edits and keeps retry busy until the la
   }
 })
 
-test('cancels a real window close when saving fails and remains editable until saving and closing again', async () => {
-  const workspace = await createE2eWorkspace('llm-reader-close-save-recovery-')
-  let application: ElectronApplication | undefined
-  try {
-    const launched = await launchReader({ userData: workspace.userData, importPath: bookFixture })
-    application = launched.application
-    let page = launched.page
-    const bookId = await openSavedSession(page)
-    setSaveFailure(workspace.userData, 'book_sessions', true)
-    await page.locator(sidebarDraft).fill('退出前还没保存的草稿')
-    await page.getByTestId('window-close').click()
-    await expect(page.getByTestId('session-save-recovery')).toContainText('已取消退出')
-    // Exercise the actual BrowserWindow close handshake and cross its former
-    // 1.5-second force-close deadline, rather than only sending a renderer event.
-    await new Promise<void>((resolveWait) => setTimeout(resolveWait, 2_000))
-    expect(page.isClosed()).toBe(false)
-    expect(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
-    const latestDraft = '取消退出后继续修改的草稿'
-    await page.locator(sidebarDraft).fill(latestDraft)
-    await page.waitForTimeout(700)
-    await expectSaveFailure(page)
-    expect(await page.evaluate(async (id) => (await window.readerApi.getBookSession(id))?.draft, bookId)).toBe(baselineDraft)
+for (const { width, height, theme, scale, language, closeFailed } of [
+  { width: 1180, height: 800, theme: 'light', scale: 100, language: 'zh', closeFailed: '已取消退出' },
+  { width: 940, height: 600, theme: 'dark', scale: 125, language: 'en', closeFailed: 'closing was cancelled' }
+]) {
+  test(`cancels a real window close when saving fails and remains editable in ${language}`, async () => {
+    const workspace = await createE2eWorkspace('llm-reader-close-save-recovery-')
+    let application: ElectronApplication | undefined
+    try {
+      const launched = await launchReader({ userData: workspace.userData, importPath: bookFixture })
+      application = launched.application
+      let page = launched.page
+      const bookId = await openSavedSession(page)
+      await resizeWorkspace(application, page, width, height)
+      await page.getByTestId('settings-button').click()
+      await page.getByTestId('settings-nav-appearance').click()
+      await page.getByTestId(`theme-${theme}`).click()
+      await page.getByTestId(`scale-${scale}`).click()
+      await page.getByTestId(`ui-language-${language}`).click()
+      await page.getByTestId('settings-close').click()
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-theme', theme)
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-interface-scale', String(scale))
+      setSaveFailure(workspace.userData, 'book_sessions', true)
+      await page.locator(sidebarDraft).fill('退出前还没保存的草稿')
+      await page.getByTestId('window-close').click()
+      const recovery = page.getByTestId('session-save-recovery')
+      await expect(recovery).toContainText(closeFailed)
+      expect(page.isClosed()).toBe(false)
+      expect(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+      const latestDraft = '取消退出后继续修改的草稿'
+      await page.locator(sidebarDraft).fill(latestDraft)
+      await expect(recovery).toBeInViewport()
+      await expect(page.getByTestId('session-save-retry')).toBeEnabled()
+      await page.screenshot({ path: test.info().outputPath(`close-save-${language}-${width}-${theme}-${scale}.png`), animations: 'disabled' })
+      expect(await page.evaluate(async (id) => (await window.readerApi.getBookSession(id))?.draft, bookId)).toBe(baselineDraft)
 
-    setSaveFailure(workspace.userData, 'book_sessions', false)
-    await page.getByTestId('session-save-retry').click()
-    await expect(page.getByTestId('session-save-recovery')).toHaveCount(0)
-    await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.getBookSession(id))?.draft, bookId)).toBe(latestDraft)
-    expect(page.isClosed()).toBe(false)
-    const closed = page.waitForEvent('close')
-    await page.getByTestId('window-close').click()
-    await closed
-    await application.close().catch(() => undefined)
-    application = undefined
+      setSaveFailure(workspace.userData, 'book_sessions', false)
+      await page.getByTestId('session-save-retry').click()
+      await expect(page.getByTestId('session-save-recovery')).toHaveCount(0)
+      await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.getBookSession(id))?.draft, bookId)).toBe(latestDraft)
+      expect(page.isClosed()).toBe(false)
+      const closed = page.waitForEvent('close')
+      await page.getByTestId('window-close').click()
+      await closed
+      await application.close().catch(() => undefined)
+      application = undefined
 
-    const restarted = await launchReader({ userData: workspace.userData })
-    application = restarted.application
-    page = restarted.page
-    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-workspace-ready', 'true')
-    await expect(page.locator(sidebarDraft)).toHaveValue(latestDraft)
-  } finally {
-    clearSaveFailures(workspace.userData)
-    await cleanupE2eWorkspace(application, workspace.root)
-  }
-})
+      const restarted = await launchReader({ userData: workspace.userData })
+      application = restarted.application
+      page = restarted.page
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-workspace-ready', 'true')
+      await expect(page.locator(sidebarDraft)).toHaveValue(latestDraft)
+    } finally {
+      clearSaveFailures(workspace.userData)
+      await cleanupE2eWorkspace(application, workspace.root)
+    }
+  })
+}
 
 test('does not resurrect a cleared conversation when failed saves are retried', async () => {
   const workspace = await createE2eWorkspace('llm-reader-cleared-save-recovery-')
@@ -376,6 +389,40 @@ test('does not resurrect a cleared conversation when failed saves are retried', 
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
     await expect(page.locator(dialogDraft)).toHaveValue('')
     expect(await page.evaluate((id) => window.readerApi.listRecentBookSessions(id), bookId)).toEqual([])
+  } finally {
+    clearSaveFailures(workspace.userData)
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('restores the fullscreen assistant and permits editing when the parent close fails', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-fullscreen-close-save-')
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: bookFixture })
+    application = launched.application
+    const { page } = launched
+    const bookId = await openSavedSession(page)
+    const opening = application.waitForEvent('window')
+    await page.getByTestId('reader-fullscreen').click()
+    const popup = await opening
+    const input = popup.getByTestId('followup-input')
+    await expect(input).toHaveValue(baselineDraft)
+    setSaveFailure(workspace.userData, 'book_sessions', true)
+    await input.fill('浮窗退出失败后的草稿')
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => !window.getParentWindow())!.close())
+    await expect(page.getByTestId('session-save-recovery')).toContainText('已取消退出')
+    await expect.poll(() => application!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.getParentWindow())?.isVisible())).toBe(true)
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-reading-fullscreen', 'true')
+    await expect(input).toHaveValue('浮窗退出失败后的草稿')
+    await input.fill('取消后继续编辑')
+    setSaveFailure(workspace.userData, 'book_sessions', false)
+    await page.getByTestId('session-save-retry').click()
+    await expect(page.getByTestId('session-save-recovery')).toHaveCount(0)
+    await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.getBookSession(id))?.draft, bookId)).toBe('取消后继续编辑')
+    const closed = page.waitForEvent('close')
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => !window.getParentWindow())!.close()).catch(() => undefined)
+    await closed
   } finally {
     clearSaveFailures(workspace.userData)
     await cleanupE2eWorkspace(application, workspace.root)

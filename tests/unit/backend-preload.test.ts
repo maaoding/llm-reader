@@ -76,11 +76,47 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(5, IPC_CHANNELS.highlightsExport, selection)
   })
 
-  it('exposes app info through its dedicated IPC channel', async () => {
-    electronMocks.invoke.mockResolvedValueOnce({ version: '0.2.0' })
+  it('exposes distribution info and AI content reporting through dedicated IPC channels', async () => {
+    const info = { version: '1.4.0', distribution: 'store' }
+    electronMocks.invoke.mockResolvedValueOnce(info).mockResolvedValueOnce(undefined)
 
-    await expect(readerApi.getAppInfo()).resolves.toEqual({ version: '0.2.0' })
-    expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.appInfo)
+    await expect(readerApi.getAppInfo()).resolves.toEqual(info)
+    await expect(readerApi.openAiContentReport()).resolves.toBeUndefined()
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.appInfo)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.appReportAiContent)
+  })
+
+  it('uses the dedicated reading window channels and passes only state to event subscribers', async () => {
+    const token = '5e9dc44f-5868-4d99-97c7-fcb79c179de6'
+    const presentation = { token, mode: 'inactive' as const }
+    electronMocks.invoke.mockResolvedValueOnce(false).mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(token).mockResolvedValueOnce(undefined)
+    await expect(readerApi.isWindowFullscreen()).resolves.toBe(false)
+    await readerApi.setWindowFullscreen(true)
+    await expect(readerApi.reserveAssistantWindow()).resolves.toBe(token)
+    await readerApi.presentAssistantWindow(presentation)
+    expect(electronMocks.invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.windowIsFullscreen],
+      [IPC_CHANNELS.windowSetFullscreen, true],
+      [IPC_CHANNELS.assistantWindowReserve],
+      [IPC_CHANNELS.assistantWindowPresent, presentation]
+    ])
+
+    const changed = vi.fn()
+    const shortcut = vi.fn()
+    const closed = vi.fn()
+    const unsubscribe = [readerApi.onWindowFullscreenChange(changed), readerApi.onWindowFullscreenShortcut(shortcut), readerApi.onAssistantWindowClosed(closed)]
+    const calls = electronMocks.on.mock.calls
+    calls[0][1]({}, 'true')
+    calls[0][1]({}, true)
+    calls[1][1]({}, 'ignored')
+    calls[2][1]({}, { token })
+    calls[2][1]({}, token)
+    expect(changed).toHaveBeenCalledExactlyOnceWith(true)
+    expect(shortcut).toHaveBeenCalledExactlyOnceWith()
+    expect(closed).toHaveBeenCalledExactlyOnceWith(token)
+    unsubscribe.forEach((remove) => remove())
+    expect(electronMocks.removeListener.mock.calls).toEqual(calls)
   })
 
   it('exposes provider profile management and model discovery through dedicated IPC channels', async () => {
@@ -289,16 +325,5 @@ describe('preload ReaderApi', () => {
     await Promise.resolve()
     expect(listener).not.toHaveBeenCalled()
     expect(electronMocks.invoke).not.toHaveBeenCalled()
-  })
-
-  it('notifies the renderer when a failed installation cancels a saved close', () => {
-    const listener = vi.fn()
-    const unsubscribe = readerApi.onCloseCancelled(listener)
-    const handler = electronMocks.on.mock.calls[0][1]
-    handler({})
-    expect(listener).toHaveBeenCalledOnce()
-    unsubscribe()
-    expect(electronMocks.on).toHaveBeenCalledWith(IPC_CHANNELS.appCloseCancelled, handler)
-    expect(electronMocks.removeListener).toHaveBeenCalledWith(IPC_CHANNELS.appCloseCancelled, handler)
   })
 })

@@ -1,6 +1,5 @@
 import { isAbsolute, join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu } from 'electron'
-import electronUpdater from 'electron-updater'
 import { IPC_CHANNELS } from '@shared/contracts'
 import { registerAppScheme, installAppProtocol } from './app-protocol'
 import { BookImportCoordinator } from './book-import-coordinator'
@@ -14,7 +13,6 @@ import { LibraryService } from './library-service'
 import { LlmService } from './llm-service'
 import { ProviderService } from './provider-service'
 import { ProfileSecretStore } from './secret-store'
-import { UpdaterService } from './updater-service'
 import { createMainWindow, loadMainWindow } from './window'
 import { KnowledgeSettingsService } from './knowledge-settings'
 import { KnowledgeHttp } from './knowledge-http'
@@ -33,6 +31,9 @@ if (userDataOverride) {
     throw new Error('LLM_READER_USER_DATA must be an absolute path')
   }
   app.setPath('userData', userDataOverride)
+} else if (process.windowsStore) {
+  // Keep SQLite and its sidecar files in one profile across Store upgrades.
+  app.setPath('userData', join(app.getPath('appData'), 'LLM Reader Store'))
 }
 
 let database: AppDatabase | undefined
@@ -40,7 +41,6 @@ let storage: LibraryStorage | undefined
 let llm: LlmService | undefined
 let library: LibraryService | undefined
 let provider: ProviderService | undefined
-let updater: UpdaterService | undefined
 let bookImporter: BookImportCoordinator | undefined
 let analysis: BookAnalysisService | undefined
 let extractor: BookExtractionRunner | undefined
@@ -48,12 +48,6 @@ let knowledge: KnowledgeSettingsService | undefined
 let knowledgeHttp: KnowledgeHttp | undefined
 let semantic: SemanticIndexService | undefined
 let documents: DocumentProcessingService | undefined
-
-const { autoUpdater } = electronUpdater
-
-if (process.env.LLM_READER_UPDATER_DEBUG === '1') {
-  autoUpdater.logger = console
-}
 
 function createE2eImportDelay(): (() => Promise<void>) | undefined {
   if (app.isPackaged) return undefined
@@ -64,8 +58,6 @@ function createE2eImportDelay(): (() => Promise<void>) | undefined {
 
 async function openWindow(): Promise<void> {
   if (!library || !provider || !llm) throw new Error('Application services are not initialized')
-  updater?.dispose()
-  updater = undefined
   bookImporter?.dispose()
   bookImporter = undefined
   const created = createMainWindow()
@@ -85,15 +77,6 @@ async function openWindow(): Promise<void> {
       created.window.webContents.send(IPC_CHANNELS.booksImportEvent, event)
     }
   }, createE2eImportDelay())
-  updater = new UpdaterService(
-    (phase) => {
-      if (!created.window.isDestroyed() && !created.window.webContents.isDestroyed()) {
-        created.window.webContents.send(IPC_CHANNELS.appUpdateEvent, phase)
-      }
-    },
-    app.isPackaged && process.env.LLM_READER_UPDATER_DISABLED !== '1',
-    autoUpdater
-  )
   registerIpcHandlers({
     database, storage,
     restartAfterRestore: () => {
@@ -112,13 +95,11 @@ async function openWindow(): Promise<void> {
     analysis,
     extractor,
     knowledge, knowledgeHttp, semantic, documents,
-    updater,
+    readingWindow: created.readingWindow,
     allowedRendererOrigins: created.allowedOrigins,
-    requestClose: created.requestClose,
     respondToClose: created.respondToClose
   })
   await loadMainWindow(created.window)
-  updater.scheduleStartupCheck()
 }
 
 async function initialize(): Promise<void> {
@@ -166,7 +147,7 @@ const ownsLibrary = app.requestSingleInstanceLock()
 if (!ownsLibrary) app.quit()
 else {
   app.on('second-instance', () => {
-    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed())
+    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed() && !candidate.getParentWindow())
     if (window?.isMinimized()) window.restore()
     window?.focus()
   })
@@ -186,8 +167,6 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   unregisterIpcHandlers()
-  updater?.dispose()
-  updater = undefined
   bookImporter?.dispose()
   bookImporter = undefined
   llm?.cancelAll()

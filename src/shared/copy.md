@@ -164,6 +164,9 @@
 | reader.layoutButton | 排版 |
 | reader.displayButton | PDF 工具 |
 | reader.toolsAria | 阅读工具 |
+| reader.fullscreenEnter | 进入阅读全屏（F11） |
+| reader.fullscreenExit | 退出阅读全屏（F11） |
+| reader.fullscreenFailed | 无法切换阅读全屏。 |
 | sources.wholeTable | 此处只能定位到整张表所在的页面。 |
 
 本文件是应用自有用户可见文案的唯一来源。`key` 不可重复，动态内容使用 `{name}` 占位符。
@@ -285,6 +288,7 @@
 | vision.test | 测试图片识别 |
 | vision.testOk | 样图文字识别成功。实际 PDF 的识别质量仍需对照原文核验。 |
 | vision.testFailed | 未能正确识别样图。请确认接口和所选模型支持图片输入，再重试。 |
+| vision.paddleWordBoxesRequired | 已识别样图文字，但未收到可用的字词坐标。请检查 PaddleOCR 服务的词框输出。 |
 | vision.configRequired | 请填写视觉模型接口地址及模型名称。 |
 | vision.renderFailed | 无法生成当前 PDF 页的识别图片。请检查文件后重试；已完成页会保留。 |
 | vision.invalidResponse | 模型未返回有效的识别文字。请确认所选模型支持图片输入后重试。 |
@@ -406,7 +410,6 @@
 | about.thirdPartyNoticesTitle | 第三方许可证 |
 | about.thirdPartyNoticesIntro | 本软件使用了以下开源组件： |
 | about.noticeElectron | Electron（MIT） |
-| about.noticeElectronUpdater | electron-updater（MIT） |
 | about.noticeEpubjs | epub.js（BSD-2-Clause） |
 | about.noticeJszip | JSZip（MIT OR GPL-3.0-or-later） |
 | about.noticeLocalforage | localforage（Apache-2.0） |
@@ -416,26 +419,18 @@
 | about.noticeZod | Zod（MIT） |
 | about.thirdPartyNoticesFull | 完整许可文本见仓库中的 THIRD_PARTY_NOTICES.md。 |
 | about.updateLabel | 更新 |
-| about.updateStatusIdle | 尚未检查更新 |
-| about.updateStatusChecking | 正在检查更新… |
-| about.updateStatusUpToDate | 已是最新版本 |
-| about.updateStatusAvailable | 发现新版本 {version} |
-| about.updateStatusDownloading | 正在下载更新… {percent}% |
-| about.updateStatusDownloaded | 更新已下载完成 |
-| about.updateStatusError | 更新失败，请稍后重试 |
-| about.updateStatusInstallError | 更新安装失败，已恢复操作。你可以继续阅读；请退出并重新打开应用后重试更新。 |
-| about.updateStatusUnsupported | 当前环境不支持更新检查 |
-| about.updateCheckAction | 检查更新 |
-| about.updateDownloadAction | 下载更新 |
-| about.updateInstallAction | 重启并安装 |
-| about.updateNotesTitle | 更新内容 |
-| about.updateDownloadedHint | 重启后安装新版本，未保存的阅读进度不受影响。 |
+| about.updateStore | 此版本通过 Microsoft Store 更新。 |
+| about.updateStandalone | 自行构建的版本需手动更新。 |
+| about.reportAiContent | 反馈不当 AI 内容 |
+| about.reportAiContentFailed | 无法打开反馈页面。 |
 
 ## 助手与对话
 
 | key | text |
 | --- | --- |
 | assistant.title | 阅读助手 |
+| assistant.windowOpen | 打开阅读助手浮窗 |
+| assistant.windowFailed | 无法打开阅读助手浮窗。请从阅读工具栏重试。 |
 | assistant.viewsAria | 阅读助手视图 |
 | assistant.tabCurrent | 当前对话 |
 | assistant.closeTab | 关闭会话标签 |
@@ -700,7 +695,7 @@
 | ocrReading.loading | 正在读取本页文字… |
 | ocrReading.loadFailed | 无法读取识别文字，请重试。 |
 | ocrReading.unprepared | 请先完成本书的逐页 OCR 原文准备，再查看和划选识别文字。 |
-| ocrReading.unsupported | 本书没有保存逐页 OCR 文字。可使用视觉模型、Mistral OCR 或 Unstructured 重新准备原文。 |
+| ocrReading.unsupported | 本书没有保存逐页 OCR 文字。请使用逐页 OCR 服务准备原文。 |
 | ocrReading.prepare | 打开本书准备 |
 | ocrReading.previous | 上一页 |
 | ocrReading.next | 下一页 |
@@ -708,6 +703,11 @@
 | ocrReading.copy | 复制本页 |
 | ocrReading.blank | 本页未识别到文字，可查看 PDF 原页核对。 |
 | ocrReading.selectionTooLong | 选中文字过长，请缩小到 2 万字以内再提问。 |
+| ocrReading.dragWithinColumn | 请在同一页、同一栏内拖选识别文字。 |
+| ocrReading.reviewTitle | 校对 OCR 选区 |
+| ocrReading.reviewDetail | 请对照原页确认选中文字，可在提问或摘录前修改。 |
+| ocrReading.previewAlt | 原 PDF 选区图像 |
+| ocrReading.previewFailed | 无法显示原页选区，请重新划选。 |
 | assistant.recentSessionTurns | {count} 轮对话 |
 | assistant.recentSessionsHint | 每本书保留最近 20 个对话，每个最多 20 轮。点击可恢复选区、回答和草稿。 |
 | assistant.recentSessionsEmpty | 还没有其他对话。 |
@@ -1072,6 +1072,8 @@
 | request.incomplete | 模型输出未完整结束，请增加 max_tokens 或调整模型参数后重试。 |
 | request.mistral | Mistral OCR |
 | request.unstructured | Unstructured Partition |
+| request.paddleOcr | PaddleOCR（原图划词） |
+| request.paddleOcrHint | 填写自行部署的 PaddleOCR 通用 OCR 服务地址，识别语言由服务端模型决定。准备原文后，有字词坐标的扫描页可在原图上划词。 |
 | request.ocrModel | OCR 模型名称 |
 | request.testOcr | 测试 OCR |
 | request.pageHint | 使用专门 OCR 服务逐页识别 PDF 文字，完成页会缓存，暂停后可继续。当前应用按页保存文字，复杂表格结构需核对；建议先试本书一页。 |

@@ -8,8 +8,11 @@ import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR
 import { validPdfImageRegion, PDF_REGION_IMAGE_MAX_DATA_URL, PDF_REGION_IMAGE_PATTERN } from '@shared/pdf-image-region'
 import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH, HIGHLIGHT_EXPORT_MAX_COUNT } from '@shared/contracts'
 import { normalizeHighlightTags, validHighlightNote, validHighlightTags } from '@shared/highlight-tags'
+import { parseOcrRegionAnchor } from '@shared/ocr-reading'
 
 const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
+const sourceAnchorSchema = shortText(16_384).refine((anchor) =>
+  !anchor.startsWith('pdfocrrect:') || parseOcrRegionAnchor(anchor) !== null, copy('validation.sourceRange'))
 const idSchema = z.string().uuid()
 const personaSelectionSchema = z.object({
   presetId: z.string().min(1).max(128).regex(/^[\w-]+$/u).nullable(),
@@ -62,7 +65,7 @@ export const progressSchema = z.object({
 export const highlightSchema = z.object({
   bookId: idSchema,
   quote: z.string().min(1).max(20_000),
-  anchor: shortText(16_384),
+  anchor: sourceAnchorSchema,
   chapterTitle: z.string().trim().max(1_000)
 })
 
@@ -81,7 +84,7 @@ export const exportHighlightsSchema = z.object({
 
 const structureId = z.string().min(1).max(128).regex(/^[\w.:/-]+$/u)
 export const sourceRangeSchema = z.object({
-  anchor: shortText(16_384), page: z.number().int().min(1).max(600).optional(),
+  anchor: sourceAnchorSchema, page: z.number().int().min(1).max(600).optional(),
   bbox: z.object({ left: z.number().finite().nonnegative(), top: z.number().finite().nonnegative(), right: z.number().finite().nonnegative(), bottom: z.number().finite().nonnegative(),
     origin: z.enum(['TOPLEFT', 'BOTTOMLEFT']), width: z.number().finite().positive().optional(), height: z.number().finite().positive().optional() }).optional(),
   start: z.number().int().nonnegative().optional(), end: z.number().int().nonnegative().optional(),
@@ -116,7 +119,7 @@ const passageSchema = z.object({
   bookTitle: z.string().max(1_000).optional(),
   id: z.string().trim().min(1).max(128).regex(/^[\w.:/-]+$/u),
   text: z.string().min(1).max(100_000),
-  anchor: shortText(16_384),
+  anchor: sourceAnchorSchema,
   chapterTitle: z.string().max(1_000).optional(),
   blockId: z.string().max(128).optional(),
   chapterId: z.string().max(128).optional(),
@@ -131,7 +134,7 @@ const textSelectionSchema = z
   .object({
     bookId: idSchema,
     quote: z.string().min(1).max(20_000),
-    anchor: shortText(16_384),
+    anchor: sourceAnchorSchema,
     chapterTitle: z.string().trim().max(1_000),
     passages: z.array(passageSchema).min(1).max(200)
   })
@@ -445,7 +448,7 @@ const rerankSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boo
   .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.rerank'))
 const embeddingSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
   .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.embedding'))
-const documentSettingsSchema = z.object({ ...requestSettingsFields, protocol: z.enum(['openai', 'anthropic']).optional(), enabled: z.boolean().optional(), processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured']), baseUrl: knowledgeUrl,
+const documentSettingsSchema = z.object({ ...requestSettingsFields, protocol: z.enum(['openai', 'anthropic']).optional(), enabled: z.boolean().optional(), processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured', 'paddle-ocr']), baseUrl: knowledgeUrl,
     model: z.string().trim().max(256).optional(), compatibility: z.enum(['auto', 'opencode-go']).optional(),
     ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
     .refine((value) => !(value.enabled ?? value.processor !== 'none') || value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl'))

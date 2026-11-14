@@ -33,15 +33,20 @@ describe('static product website', () => {
     }
   })
 
-  it('uses the GitHub project as the primary call to action', () => {
-    const primaryLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('.button-primary'))
-
-    expect(primaryLinks).toHaveLength(2)
-    for (const link of primaryLinks) {
-      // 0.5.0 站点的主动按钮指向 Releases，导航里才是仓库首页；两者都属于 GitHub 项目入口。
-      expect(link.href.startsWith('https://github.com/maaoding/llm-reader')).toBe(true)
+  it('offers Store purchase and source build instructions at both installation entrances', () => {
+    const store = 'https://apps.microsoft.com/detail/9PL7FB24VJMV'
+    const build = '/docs/build-from-source.html'
+    for (const actions of ['.hero .hero-actions', '.final-cta .hero-actions']) {
+      expect(document.querySelector(`${actions} .button-primary`)?.getAttribute('href')).toBe(store)
+      expect(document.querySelector(`${actions} .button-secondary`)?.getAttribute('href')).toBe(build)
     }
-    expect(primaryLinks.some((link) => link.href.endsWith('/releases/latest'))).toBe(true)
+    expect(document.querySelector('a[href*="/releases/latest"]')).toBeNull()
+    for (const path of ['README.md', 'docs/manual/index.md', 'docs/manual/getting-started.md']) {
+      const source = readFileSync(resolve(path), 'utf8')
+      expect(source).toContain(store)
+      expect(source).toMatch(/build-from-source\.(html|md)/u)
+    }
+    expect(readFileSync(resolve('docs/manual/build-from-source.md'), 'utf8')).toContain('/tree/store-v1.4.0.0')
   })
 
   it('ships a desktop-shaped Reader demo built from markup instead of screenshots', () => {

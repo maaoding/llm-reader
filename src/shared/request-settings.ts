@@ -50,5 +50,5 @@ export function mergeRequestHeaders(defaults: Record<string, string>, custom?: R
 }
 
 export function isPageProcessor(processor: string): boolean {
-  return ['vision', 'mistral-ocr', 'unstructured'].includes(processor)
+  return ['vision', 'mistral-ocr', 'unstructured', 'paddle-ocr'].includes(processor)
 }

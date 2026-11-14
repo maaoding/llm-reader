@@ -172,11 +172,12 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
               baseUrl: processor === 'mineru-cloud' ? 'https://mineru.net' : processor === 'mistral-ocr' ? 'https://api.mistral.ai/v1' : processor === 'docling' ? 'http://127.0.0.1:5001' : processor === 'mineru-local' ? 'http://127.0.0.1:8000' : '' } })
           }}>
           <option value="none" disabled>{copy('knowledge.none')}</option>
-          {(['mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured'] as const).map((value) => <option key={value} value={value}>{copy(processorCopy[value])}</option>)}
+          {(['mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured', 'paddle-ocr'] as const).map((value) => <option key={value} value={value}>{copy(processorCopy[value])}</option>)}
         </Select>
         <p className="field-hint">{copy('knowledge.processorGuide')}</p>
         <p className="field-hint">{copy(draft.document.processor === 'vision' ? 'vision.hint' : isPageProcessor(draft.document.processor) ? 'request.pageHint' : 'knowledge.documentHint')}</p>
         {draft.document.processor === 'unstructured' && <p className="field-hint">{copy('request.partitionHint')}</p>}
+        {draft.document.processor === 'paddle-ocr' && <p className="field-hint">{copy('request.paddleOcrHint')}</p>}
         {draft.document.processor !== 'none' && <>
           <label className="field-label" htmlFor="document-url">{copy('knowledge.baseUrl')}</label>
           <input id="document-url" type="url" pattern="https?://[^?#]+" data-testid="document-url" value={draft.document.baseUrl} spellCheck={false} required
@@ -216,10 +217,12 @@ export function KnowledgeSettings({ hidden, onDirty, initialService, onWebSearch
             </Select>
             <p className="field-hint">{copy('knowledge.extractionHint')}</p>
           </> : <p className="field-hint">{copy('knowledge.pageOcrOnly')}</p>}
-          <label className="field-label" htmlFor="document-language">{copy('knowledge.language')}</label>
-          <Select id="document-language" value={draft.document.language} onChange={(event) => update({ ...draft, document: { ...draft.document, language: event.target.value as 'ch' | 'en' } })}>
-            <option value="ch">{copy('knowledge.ch')}</option><option value="en">{copy('knowledge.en')}</option>
-          </Select>
+          {draft.document.processor !== 'paddle-ocr' && <>
+            <label className="field-label" htmlFor="document-language">{copy('knowledge.language')}</label>
+            <Select id="document-language" value={draft.document.language} onChange={(event) => update({ ...draft, document: { ...draft.document, language: event.target.value as 'ch' | 'en' } })}>
+              <option value="ch">{copy('knowledge.ch')}</option><option value="en">{copy('knowledge.en')}</option>
+            </Select>
+          </>}
         </>}
         {draft.document.processor !== 'none' && <RequestSettingsEditor key={editorRevision.document + '-document-' + draft.document.baseUrl + draft.document.processor + draft.document.protocol} id="document" value={draft.document}
           savedHeaders={saved.document.hasCustomHeaders && documentEndpointMatches}

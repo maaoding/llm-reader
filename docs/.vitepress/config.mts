@@ -36,6 +36,7 @@ export default defineConfig({
         items: [
           { text: '文档首页', link: '/' },
           { text: '快速开始', link: '/getting-started' },
+          { text: '从源码构建', link: '/build-from-source' },
           { text: '书库与阅读', link: '/reading' },
           { text: '配置问答模型', link: '/models' }
         ]

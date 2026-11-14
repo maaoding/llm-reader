@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import JSZip from 'jszip'
 
-export async function createSearchLinksEpubFixture(path: string): Promise<void> {
+export async function createSearchLinksEpubFixture(path: string, chapterTwoParagraphs = 0): Promise<void> {
   const zip = new JSZip()
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
   zip.file(
@@ -68,6 +68,7 @@ export async function createSearchLinksEpubFixture(path: string): Promise<void> 
 <html xmlns="http://www.w3.org/1999/xhtml"><head><title>第二章</title></head><body>
   <h1>第二章</h1>
   <p id="destination">第二章包含小写 searchtoken，用于验证跨章和大小写搜索。</p>
+  ${Array.from({ length: chapterTwoParagraphs }, (_, index) => `<p>第二章填充段落 ${index + 1}。</p>`).join('\n  ')}
 </body></html>`
   )
   const bytes = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })

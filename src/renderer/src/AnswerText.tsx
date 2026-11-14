@@ -6,7 +6,7 @@ import { createCitationResolver, withoutIncompleteCitationMarker } from './citat
 import { MarkedText } from './MarkedText'
 import { WebCitation } from './WebSources'
 
-type CitationContext = { bookId: string; resolve: ReturnType<typeof createCitationResolver>; availableBookIds?: string[] }
+type CitationContext = { bookId: string; resolve: ReturnType<typeof createCitationResolver>; availableBookIds?: string[]; documentTarget?: Document }
 const NO_PASSAGES: Passage[] = []
 const NO_WEB_SOURCES: WebSearchSource[] = []
 
@@ -42,7 +42,7 @@ function TextContent({
         </span>
       )
     }
-    if (segment.type === 'web') return <WebCitation key={index} source={segment.source} bookId={selection.bookId} />
+    if (segment.type === 'web') return <WebCitation key={index} source={segment.source} bookId={selection.bookId} documentTarget={selection.documentTarget} />
     const missing = segment.bookId && selection.availableBookIds && !selection.availableBookIds.includes(segment.bookId)
     if (missing) return <span className="citation citation-unknown" key={index} title={copy('workbench.missingSource')}>{segment.label} · {copy('workbench.deletedBook')}</span>
     if (onNavigate) {
@@ -157,7 +157,8 @@ export const AnswerText = memo(function AnswerText({
   readOnly = false,
   highlight = '',
   context,
-  availableBookIds
+  availableBookIds,
+  documentTarget
 }: {
   text: string
   selection: ReaderSource | null
@@ -166,6 +167,7 @@ export const AnswerText = memo(function AnswerText({
   onNavigate?: (anchor: string, bookId?: string) => void
   readOnly?: boolean
   highlight?: string
+  documentTarget?: Document
   /** Invalidates memoized labels independently of the saved answer text. */
   uiLanguage?: UiLanguage
 }): ReactNode {
@@ -174,7 +176,7 @@ export const AnswerText = memo(function AnswerText({
   const webSources = context?.webSearch?.sources ?? NO_WEB_SOURCES
   const resolveCitations = useMemo(() => createCitationResolver(passages, webSources), [passages, webSources])
   const navigate = readOnly ? null : (onNavigate ?? null)
-  const source: CitationContext = { availableBookIds, resolve: resolveCitations, bookId: context?.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context?.bookId ?? selection?.bookId ?? '' }
+  const source: CitationContext = { availableBookIds, resolve: resolveCitations, documentTarget, bookId: context?.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context?.bookId ?? selection?.bookId ?? '' }
   return (
     <div className="answer-text answer-md">
       {blocks.map((block, index) => (

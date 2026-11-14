@@ -37,19 +37,21 @@ export const IPC_CHANNELS = {
   documentOcrPage: 'document:ocr-page',
   appBeforeClose: 'app:before-close',
   appCloseReady: 'app:close-ready',
-  appCloseCancelled: 'app:close-cancelled',
   appInfo: 'app:info',
+  appReportAiContent: 'app:report-ai-content',
   uiLanguageSet: 'app:ui-language-set',
-  appUpdatePhase: 'app:update-phase',
-  appUpdateCheck: 'app:update-check',
-  appUpdateDownload: 'app:update-download',
-  appUpdateInstall: 'app:update-install',
-  appUpdateEvent: 'app:update-event',
   windowMinimize: 'window:minimize',
   windowToggleMaximize: 'window:toggle-maximize',
   windowClose: 'window:close',
   windowIsMaximized: 'window:is-maximized',
   windowMaximizedChange: 'window:maximized-change',
+  windowIsFullscreen: 'window:is-fullscreen',
+  windowSetFullscreen: 'window:set-fullscreen',
+  windowFullscreenChange: 'window:fullscreen-change',
+  windowFullscreenShortcut: 'window:fullscreen-shortcut',
+  assistantWindowReserve: 'assistant-window:reserve',
+  assistantWindowPresent: 'assistant-window:present',
+  assistantWindowClosed: 'assistant-window:closed',
   booksList: 'books:list',
   booksImport: 'books:import',
   booksImportDropped: 'books:import-dropped',
@@ -144,25 +146,30 @@ export interface BookPagePreview {
   model?: string
 }
 
+/** Code point offsets into the OCR text and normalized coordinates on the rendered PDF page. */
+export interface OcrWordBox {
+  start: number
+  end: number
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
 export type PreparedOcrPage =
   | { status: 'unprepared' | 'unsupported' }
-  | { status: 'ready'; revision: string; pageNumber: number; pageCount: number; text: string }
+  | { status: 'ready'; revision: string; pageNumber: number; pageCount: number; text: string; wordLines?: OcrWordBox[][] }
 export type BookSourceFormat = BookFormat | 'mobi' | 'azw3'
 
 export interface AppInfo {
   version: string
+  distribution: 'store' | 'standalone'
 }
 
-export type AppUpdatePhase =
-  | { status: 'idle' }
-  | { status: 'checking' }
-  | { status: 'upToDate' }
-  | { status: 'available'; version: string; releaseNotes: string | null }
-  | { status: 'downloading'; percent: number }
-  | { status: 'downloaded'; version: string; releaseNotes: string | null }
-  | { status: 'error' }
-  | { status: 'installError' }
-  | { status: 'unsupported' }
+export interface AssistantWindowPresentation {
+  token: string
+  mode: 'hidden' | 'inactive' | 'focused'
+}
 
 export interface BookRecord {
   id: string
@@ -432,7 +439,7 @@ export interface RequestSettingsInput extends RequestSettings {
   customHeaders?: Record<string, string> | null
 }
 export type ProviderProtocol = 'openai' | 'anthropic'
-export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling' | 'vision' | 'mistral-ocr' | 'unstructured'
+export type DocumentProcessor = 'none' | 'mineru-local' | 'mineru-cloud' | 'docling' | 'vision' | 'mistral-ocr' | 'unstructured' | 'paddle-ocr'
 export interface EmbeddingSettings extends RequestSettings { enabled: boolean; baseUrl: string; model: string }
 export interface RerankSettings extends RequestSettings { enabled: boolean; baseUrl: string; model: string }
 export interface DocumentSettings extends RequestSettings {
@@ -906,12 +913,8 @@ export interface ReaderApi {
   exportConversationMarkdown(input: ConversationMarkdownExportInput): Promise<InsightExportResult>
   getBookOcrPage(input: { bookId: string; pageNumber: number }): Promise<PreparedOcrPage>
   getAppInfo(): Promise<AppInfo>
+  openAiContentReport(): Promise<void>
   setUiLanguage(language: UiLanguage): Promise<null>
-  getAppUpdatePhase(): Promise<AppUpdatePhase>
-  checkForAppUpdate(): Promise<AppUpdatePhase>
-  downloadAppUpdate(): Promise<AppUpdatePhase>
-  installAppUpdate(): Promise<void>
-  onAppUpdateEvent(listener: (phase: AppUpdatePhase) => void): () => void
   listBooks(): Promise<BookRecord[]>
   importBooks(): Promise<BookImportBatchResult | null>
   importDroppedBooks(files: File[]): Promise<BookImportBatchResult>
@@ -972,10 +975,16 @@ export interface ReaderApi {
   openWebSource(input: { bookId: string; url: string }): Promise<boolean>
   onLlmEvent(listener: (event: LlmEvent) => void): () => void
   onBeforeClose(listener: () => boolean | Promise<boolean>): () => void
-  onCloseCancelled(listener: () => void): () => void
   minimizeWindow(): Promise<void>
   toggleMaximizeWindow(): Promise<void>
   closeWindow(): Promise<void>
   isWindowMaximized(): Promise<boolean>
   onWindowMaximizedChange(listener: (maximized: boolean) => void): () => void
+  isWindowFullscreen(): Promise<boolean>
+  setWindowFullscreen(fullscreen: boolean): Promise<void>
+  onWindowFullscreenChange(listener: (fullscreen: boolean) => void): () => void
+  onWindowFullscreenShortcut(listener: () => void): () => void
+  reserveAssistantWindow(): Promise<string | null>
+  presentAssistantWindow(presentation: AssistantWindowPresentation): Promise<void>
+  onAssistantWindowClosed(listener: (token: string) => void): () => void
 }

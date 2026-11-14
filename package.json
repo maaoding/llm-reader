@@ -25,7 +25,8 @@
     "copy:check": "vitest run tests/unit/ui-copy.test.ts",
     "build:electron": "electron-vite build",
     "build:app": "pnpm copy:check && pnpm build:electron",
-    "build:win": "pnpm build:app && electron-builder --win nsis",
+    "build:win": "pnpm build:app && electron-builder --win nsis --x64",
+    "build:store": "pnpm build:app && electron-builder --win appx --x64 --publish never --config.directories.output=release/store",
     "preview": "electron-vite preview",
     "typecheck": "node node_modules/typescript-compiler/bin/tsc --version && node node_modules/typescript-compiler/bin/tsc --noEmit -p tsconfig.node.json && node node_modules/typescript-compiler/bin/tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint .",
@@ -46,7 +47,6 @@
     "test:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:electron && pnpm test:e2e:run"
   },
   "dependencies": {
-    "electron-updater": "^6.8.11",
     "epubjs": "0.3.93",
     "jszip": "3.10.2",
     "lucide-react": "1.70.0",

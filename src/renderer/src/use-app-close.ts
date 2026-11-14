@@ -66,8 +66,6 @@ export function useAppClose({
     } finally { setStorageWorking(false) }
   }
 
-  useEffect(() => window.readerApi.onCloseCancelled(resume), [resume])
-
   const retrySessionSaves = async (): Promise<void> => {
     if (retryingSaves || closingRef.current || isBusy()) return
     setRetryingSaves(true)
