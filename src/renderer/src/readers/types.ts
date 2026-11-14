@@ -1,4 +1,5 @@
 import type { BookFormat, PdfImageRegionSource, PreparedOcrPage, ReaderSource, TextReadingMode, TocItem } from '@shared/contracts'
+import { copyIn, getCopyLanguage, type UiLanguage } from '@shared/copy'
 
 export interface ReaderMetadata {
   title: string
@@ -7,17 +8,36 @@ export interface ReaderMetadata {
 
 export interface ReaderDocumentInfo {
   metadata: ReaderMetadata
-  toc: TocItem[]
+  toc: ReaderTocItem[]
   textRendering?: 'plain' | 'markdown'
 }
 
 export type ReaderRelocationReason = 'restore' | 'navigation' | 'natural'
+
+export type ReaderTitleCopy =
+  | { key: 'reader.txtFullText' | 'reader.txtOpening' | 'reader.pdfWholeDocument' | 'reader.pdfUntitledSection' | 'reader.epubUntitledChapter' }
+  | { key: 'reader.epubSection'; number: number }
+  | { key: 'knowledge.pdfPage'; page: number }
+
+export interface ReaderTocItem extends TocItem { labelCopy?: ReaderTitleCopy }
+
+export function readerTitle(label: string | ReaderTitleCopy, language: UiLanguage = getCopyLanguage()): string {
+  if (typeof label === 'string') return label
+  if (label.key === 'reader.epubSection') return copyIn(language, label.key, { number: label.number })
+  if (label.key === 'knowledge.pdfPage') return copyIn(language, label.key, { page: label.page })
+  return copyIn(language, label.key)
+}
+
+export function readerRelocationTitle(label: string | ReaderTitleCopy): Pick<ReaderRelocation, 'chapterTitle' | 'chapterTitleCopy'> {
+  return typeof label === 'string' ? { chapterTitle: label } : { chapterTitle: readerTitle(label), chapterTitleCopy: label }
+}
 
 export interface ReaderRelocation {
   locator: string
   progress: number
   chapterProgress: number
   chapterTitle: string
+  chapterTitleCopy?: ReaderTitleCopy
   chapterHref?: string | null
   reason: ReaderRelocationReason
 }
@@ -26,8 +46,9 @@ export interface ReaderHighlightAnchor {
   anchor: string
 }
 
-import type { ReaderSearchResult } from '@shared/reader-search'
-export { READER_SEARCH_QUERY_MAX_LENGTH, READER_SEARCH_RESULT_LIMIT, type ReaderSearchResult } from '@shared/reader-search'
+import type { ReaderSearchResult as SearchResult } from '@shared/reader-search'
+export { READER_SEARCH_QUERY_MAX_LENGTH, READER_SEARCH_RESULT_LIMIT } from '@shared/reader-search'
+export interface ReaderSearchResult extends SearchResult { chapterTitleCopy?: ReaderTitleCopy }
 
 export interface ReaderSelectionDraft {
   quote: string

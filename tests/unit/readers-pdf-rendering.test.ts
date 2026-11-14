@@ -147,7 +147,7 @@ it('replaces prepared outline metadata on reopen and clears it after outline fai
   expect(section(0.25)).toEqual({ title: '新书 小节', href: 'pdfpos:1:0.25', progress: 0 })
   getOutline.mockRejectedValueOnce(new Error('Synthetic unreadable outline'))
   await adapter.open(new Uint8Array([3]))
-  expect(section(0.25)).toEqual({ title: '全文', href: 'pdfpos:1:0', progress: 0.25 })
+  expect(section(0.25)).toEqual({ title: '全文', titleCopy: { key: 'reader.pdfWholeDocument' }, href: 'pdfpos:1:0', progress: 0.25 })
   adapter.destroy()
   expect(Reflect.get(adapter, 'outlineIndex').length).toBe(0)
 })

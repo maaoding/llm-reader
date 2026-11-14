@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { History } from 'lucide-react'
 import type { BookSessionSummary } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, getCopyLocale } from '@shared/copy'
 
 export function RecentConversations({ currentId, disabled, onList, onRestore }: {
   currentId: string
@@ -66,7 +66,7 @@ export function RecentConversations({ currentId, disabled, onList, onRestore }: 
       {otherItems.map((item) => <button type="button" data-testid="recent-conversation"
         key={item.conversationId} disabled={disabled || busy} onClick={() => void restore(item.conversationId)}>
         <span>{item.title || copy(item.scope === 'book' ? 'analysis.book' : 'analysis.selection')}</span>
-        <small>{copy(item.scope === 'book' ? 'analysis.book' : 'analysis.selection')} · {new Date(item.updatedAt).toLocaleString('zh-CN')} · {copy('assistant.recentSessionTurns', { count: item.turnCount })}</small>
+        <small>{copy(item.scope === 'book' ? 'analysis.book' : 'analysis.selection')} · {new Date(item.updatedAt).toLocaleString(getCopyLocale())} · {copy('assistant.recentSessionTurns', { count: item.turnCount })}</small>
       </button>)}
       </div>}
     </div>}

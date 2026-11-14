@@ -2,7 +2,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { BookRecord, PreparedDocumentSearch, ReaderApi } from '../../src/shared/contracts'
-import type { ReaderAdapter, ReaderSearchResult } from '../../src/renderer/src/readers'
+import { readerTitle, type ReaderAdapter, type ReaderSearchResult } from '../../src/renderer/src/readers'
 import { useReaderSearch } from '../../src/renderer/src/use-reader-search'
 import { deferred } from './support/deferred'
 
@@ -65,9 +65,12 @@ it('does not search a replaced PDF adapter when an unavailable prepared index ar
 
 it('uses prepared PDF results and falls back to adapter search only when unavailable', async () => {
   const view = setup('pdf')
-  view.searchBookDocument.mockResolvedValueOnce({ available: true, results: [hit('prepared')] })
+  const prepared = { excerpt: 'prepared', anchor: 'pdfpos:7:0', chapterTitle: '第 7 页' }
+  view.searchBookDocument.mockResolvedValueOnce({ available: true, results: [prepared] })
   await act(async () => view.result.current.runSearch('prepared'))
-  expect(view.result.current.searchResults).toEqual([hit('prepared')])
+  const [result] = view.result.current.searchResults
+  expect(result).toMatchObject(prepared)
+  expect(readerTitle(result.chapterTitleCopy ?? result.chapterTitle, 'en')).toBe('Page 7')
   expect(view.search).not.toHaveBeenCalled()
   view.search.mockResolvedValueOnce([hit('native')])
   await act(async () => view.result.current.runSearch('native'))

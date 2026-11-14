@@ -1,3 +1,5 @@
+import type { ReaderTitleCopy } from './types'
+
 export interface PdfPositionAnchor {
   pageNumber: number
   fraction: number
@@ -5,6 +7,7 @@ export interface PdfPositionAnchor {
 
 export interface PdfOutlineLocation extends PdfPositionAnchor {
   label: string
+  labelCopy?: ReaderTitleCopy
   depth: number
   href: string
   order: number
@@ -12,6 +15,7 @@ export interface PdfOutlineLocation extends PdfPositionAnchor {
 
 export interface PdfSectionState {
   title: string
+  titleCopy?: ReaderTitleCopy
   href: string
   progress: number
 }
@@ -199,7 +203,8 @@ export function pdfSectionAt(
   pageNumber: number,
   fraction: number,
   pageCount: number,
-  wholeDocumentTitle: string
+  wholeDocumentTitle: string,
+  wholeDocumentTitleCopy?: ReaderTitleCopy
 ): PdfSectionState {
   const currentPosition = Math.min(pageCount, Math.max(0, pageNumber - 1 + clampFraction(fraction)))
   const firstAfter = (position: number): number => {
@@ -212,6 +217,7 @@ export function pdfSectionAt(
   if (!current) {
     return {
       title: wholeDocumentTitle,
+      ...(wholeDocumentTitleCopy ? { titleCopy: wholeDocumentTitleCopy } : {}),
       href: makePdfPositionAnchor(1, 0),
       progress: clampFraction(currentPosition / Math.max(1, pageCount))
     }
@@ -222,6 +228,7 @@ export function pdfSectionAt(
   const end = next ? next.pageNumber - 1 + next.fraction : pageCount
   return {
     title: current.label,
+    ...(current.labelCopy ? { titleCopy: current.labelCopy } : {}),
     href: current.href,
     progress: end > start ? clampFraction((currentPosition - start) / (end - start)) : 1
   }

@@ -408,7 +408,6 @@
 | about.repositoryLabel | 源码仓库 |
 | about.repositoryUrl | https://github.com/maaoding/llm-reader |
 | about.thirdPartyNoticesTitle | 第三方许可证 |
-| about.thirdPartyNoticesIntro | 本软件使用了以下开源组件： |
 | about.noticeElectron | Electron（MIT） |
 | about.noticeEpubjs | epub.js（BSD-2-Clause） |
 | about.noticeJszip | JSZip（MIT OR GPL-3.0-or-later） |
@@ -418,9 +417,6 @@
 | about.noticeReact | React、React DOM（MIT） |
 | about.noticeZod | Zod（MIT） |
 | about.thirdPartyNoticesFull | 完整许可文本见仓库中的 THIRD_PARTY_NOTICES.md。 |
-| about.updateLabel | 更新 |
-| about.updateStore | 此版本通过 Microsoft Store 更新。 |
-| about.updateStandalone | 自行构建的版本需手动更新。 |
 | about.reportAiContent | 反馈不当 AI 内容 |
 | about.reportAiContentFailed | 无法打开反馈页面。 |
 

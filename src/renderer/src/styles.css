@@ -393,7 +393,7 @@
 .workspace-shell .settings-section h3 { font-size: 21px; }
 .workspace-shell .settings-section h4 { font-size: 17px; }
 .workspace-shell .settings-section input:not([type="checkbox"]):not([type="range"]), .workspace-shell .settings-section select { font-size: calc(var(--ui-text-size) * var(--interface-scale)); min-height: 38px; }
-.workspace-shell :is(.field-hint, .settings-section small, .provider-hint, .empty-state p, .answer-footer, .source-card-header, .question-bubble > span, .toast, .insight-meta, .analysis-failures small, .about-info-row, .book-detail-row dt) { font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
+.workspace-shell :is(.field-hint, .settings-section small, .provider-hint, .empty-state p, .answer-footer, .source-card-header, .question-bubble > span, .toast, .insight-meta, .analysis-failures small, .book-detail-row dt) { font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .workspace-shell :is(.field-label, .settings-nav button, .settings-section label, .secondary-button, .primary-button, .text-button, .assistant-session-tab-select, .insights-toolbar button, .insights-search input) { font-size: calc(var(--ui-label-size) * var(--interface-scale)); }
 .workspace-shell .primary-button, .workspace-shell .analysis-actions .primary-button { min-height: 36px; padding: 8px 14px; background: var(--ui-accent); color: var(--accent-contrast); border: 1px solid var(--ui-accent); border-radius: var(--radius-md); display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .workspace-shell .secondary-button { min-height: 36px; padding: 8px 12px; border-radius: var(--radius-md); display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
@@ -3606,18 +3606,30 @@ button.citation-valid:hover {
 }
 
 .about-panel {
+  display: grid;
+  gap: 16px;
+  font-size: max(12px, calc(12px * var(--interface-scale)));
+  line-height: 1.55;
+}
+
+.about-identity {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: var(--ui-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
 
 .about-brand {
-  width: 52px;
-  height: 52px;
-  margin: 4px 0 12px;
+  flex: 0 0 auto;
+  width: calc(52px * var(--interface-scale));
+  aspect-ratio: 1;
   overflow: hidden;
   background: var(--accent-soft);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
@@ -3629,122 +3641,115 @@ button.citation-valid:hover {
   border-radius: inherit;
 }
 
-.about-panel h3 {
-  margin-bottom: 4px;
-  font-size: calc(16px * var(--interface-scale));
+.about-identity-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace-shell .about-identity h3 {
+  margin: 0 0 2px;
+  font-size: calc(21px * var(--interface-scale));
+  line-height: 1.2;
+}
+
+.about-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  margin: 0;
+}
+
+.about-version dt,
+.about-facts dt,
+.about-copyright,
+.about-license-note,
+.about-notices p {
+  color: var(--muted);
+}
+
+.about-version dd,
+.about-facts dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-weight: 650;
 }
 
 .about-copyright {
-  margin: 0 0 14px;
-  color: var(--muted);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
+  margin: 2px 0 0;
 }
 
 .about-facts {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 8px 16px;
   margin: 0;
-  gap: 8px;
 }
 
-.about-facts > div {
-  display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 12px;
-  align-items: baseline;
-}
-
-.about-facts dt {
-  color: var(--muted);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
-}
-
-.about-facts dd {
-  min-width: 0;
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
-  font-weight: 650;
-}
-
-.about-facts .about-repository {
+.about-repository {
   overflow-wrap: anywhere;
   user-select: text;
 }
 
-.about-update {
-  margin-top: 14px;
-  padding: 10px 12px;
-  background: var(--ui-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-}
-
-.about-update-label {
-  color: var(--muted);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
-  font-weight: 650;
-}
-
-.about-update-message,
-.about-report-error {
-  margin: 4px 0 0;
-  color: var(--ink-soft);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
-  line-height: 1.6;
-}
-
-.about-report {
-  margin-top: 14px;
-}
-
 .about-license-note {
-  margin: 14px 0 0;
-  padding: 10px 12px;
-  color: var(--ink-soft);
-  background: var(--accent-faint);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
-  line-height: 1.6;
+  margin: 8px 0 0;
+}
+
+.workspace-shell .about-report .secondary-button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.about-report svg {
+  flex-shrink: 0;
+}
+
+.about-report-error {
+  margin: 6px 0 0;
+  color: var(--danger);
 }
 
 .about-notices {
-  margin-top: 14px;
-  padding-top: 12px;
   border-top: 1px solid var(--line);
 }
 
-.about-notices h4 {
-  margin: 0 0 4px;
+.about-notices summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 0;
   color: var(--ink);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
   font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+}
+
+.about-notices summary::-webkit-details-marker { display: none; }
+.about-notices[open] summary svg { transform: rotate(90deg); }
+.about-notices summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .about-notices p {
-  margin: 4px 0 8px;
-  color: var(--muted);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
-  line-height: 1.6;
+  margin: 8px 0 0;
 }
 
 .about-notices ul {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(168px * var(--interface-scale))), 1fr));
   margin: 0;
-  padding: 0;
-  gap: 3px;
+  padding: 4px 0 0 24px;
+  gap: 5px 14px;
   list-style: none;
 }
 
 .about-notices li {
   color: var(--ink-soft);
-  font-size: max(12px, calc(12px * var(--interface-scale)));
-}
-
-.about-notices li::before {
-  content: "·";
-  margin-right: 7px;
-  color: var(--faint);
+  overflow-wrap: anywhere;
 }
 
 .settings-section-heading {

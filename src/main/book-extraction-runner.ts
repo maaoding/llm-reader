@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { IPC_CHANNELS, type BookAnalysisState, type BookExtractionInput, type PdfOcrPageRequest } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, getCopyLanguage } from '@shared/copy'
 import { BookAnalysisService } from './book-analysis'
 import { LibraryService } from './library-service'
 import { bookExtractionBatchSchema, bookExtractionSchema, pdfExtractionSchema, pdfOcrPageSchema } from './schemas'
@@ -23,7 +23,10 @@ export class BookExtractionRunner {
         const active = this.active
         if (!active || !this.trusted(event, active)) throw new Error(`[UNTRUSTED_SENDER] ${copy('error.untrustedSender')}`)
         try {
-          if (channel === IPC_CHANNELS.analysisRead) return { input: active.input, payload: await this.library.readBook(active.input.bookId) }
+          if (channel === IPC_CHANNELS.analysisRead) {
+            const payload = await this.library.readBook(active.input.bookId)
+            return { input: active.input, payload, uiLanguage: getCopyLanguage() }
+          }
           const input = bookExtractionSchema.parse(value)
           if (input.bookId !== active.input.bookId || input.jobId !== active.input.jobId) throw new Error('Invalid extraction job')
           if (channel === IPC_CHANNELS.analysisPdf) {

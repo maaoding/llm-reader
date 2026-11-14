@@ -2,7 +2,7 @@ import { Select } from './Select'
 import { isPageProcessor, providerIsConfigured } from '@shared/request-settings'
 import { useState } from 'react'
 import type { BookAnalysisState, BookRecord, ProviderOverview } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, getCopyLocale } from '@shared/copy'
 import { SemanticIndexControls } from './SemanticIndexControls'
 import { BookOcrPreview } from './BookOcrPreview'
 import { processorCopy } from '@shared/knowledge'
@@ -83,7 +83,7 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
       </div>
       {!documentReady && <p className="field-hint">{copy('analysis.needed')}</p>}
       <details className="preparation-details"><summary>{copy('preparation.details')}</summary><p>{copy('analysis.disclosureRetry')}</p>{state?.usage?.totalTokens !== undefined && <p>{copy('assistant.tokenUsage', { count: state.usage.totalTokens })}</p>}</details>
-      {!!state?.failures?.length && <details className="analysis-failures" data-testid="analysis-failures"><summary>{copy('analysis.recentFailures')}</summary><ol>{state.failures.map((failure, index) => <li key={index}><small>{new Date(failure.occurredAt).toLocaleString('zh-CN')} · {copy(`analysis.stage.${failure.stage}`)}</small><p>{failure.message}</p></li>)}</ol></details>}
+      {!!state?.failures?.length && <details className="analysis-failures" data-testid="analysis-failures"><summary>{copy('analysis.recentFailures')}</summary><ol>{state.failures.map((failure, index) => <li key={index}><small>{new Date(failure.occurredAt).toLocaleString(getCopyLocale())} · {copy(`analysis.stage.${failure.stage}`)}</small><p>{failure.message}</p></li>)}</ol></details>}
     </section>
     <section className="preparation-card"><header><h3>{copy('knowledge.indexTitle')}</h3><span className="status-tag">{copy('workspace.optional')}</span></header>
       <p className="field-hint">{copy('preparation.semanticHint')}</p>

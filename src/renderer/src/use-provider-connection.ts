@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ProviderOverview, ProviderSettings, ProviderTestResult } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, getCopyLanguage, type UiLanguage } from '@shared/copy'
 import { providerIsConfigured, publicRequestSettings } from '@shared/request-settings'
 import { readableError } from './readable-error'
 
 type ProviderConnectionStatus = 'not-configured' | 'checking' | 'connected' | 'disconnected'
 interface ProviderConnectionState {
   status: ProviderConnectionStatus
-  message: string
+  detail?: { message: string; language: UiLanguage }
 }
 
 const EMPTY_PROVIDER: ProviderSettings = {
@@ -38,7 +38,7 @@ export function useProviderConnection(pushToast: (message: string, tone: 'error'
   const [providerOverview, setProviderOverview] = useState<ProviderOverview>(EMPTY_PROVIDER_OVERVIEW)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
   const [providerConnection, setProviderConnection] = useState<ProviderConnectionState>({
-    status: 'not-configured', message: providerStatusLabel('not-configured')
+    status: 'not-configured'
   })
   const providerRef = useRef(EMPTY_PROVIDER)
   const revisionRef = useRef(0)
@@ -50,14 +50,15 @@ export function useProviderConnection(pushToast: (message: string, tone: 'error'
     providerRef.current = settings
     setProvider(settings)
     const status = providerIsConfigured(settings) ? 'checking' : 'not-configured'
-    setProviderConnection({ status, message: providerStatusLabel(status) })
+    setProviderConnection({ status })
     return revision
   }, [])
 
-  const runProviderCheck = useCallback(async (revision: number): Promise<ProviderTestResult & { current: boolean }> => {
+  const runProviderCheck = useCallback(async (revision: number): Promise<ProviderTestResult & { language: UiLanguage }> => {
     const sequence = ++checkSequenceRef.current
+    const language = getCopyLanguage()
     if (revision === revisionRef.current) {
-      setProviderConnection({ status: 'checking', message: providerStatusLabel('checking') })
+      setProviderConnection({ status: 'checking' })
     }
     let result: ProviderTestResult
     try {
@@ -68,9 +69,9 @@ export function useProviderConnection(pushToast: (message: string, tone: 'error'
     const current = revision === revisionRef.current && sequence === checkSequenceRef.current
     if (current) {
       const status = result.ok ? 'connected' : 'disconnected'
-      setProviderConnection({ status, message: result.message || providerStatusLabel(status) })
+      setProviderConnection({ status, detail: { message: result.message, language } })
     }
-    return { ...result, current }
+    return { ...result, language }
   }, [])
 
   const handleProviderOverviewChange = useCallback((overview: ProviderOverview, checkActive: boolean): void => {
@@ -85,7 +86,8 @@ export function useProviderConnection(pushToast: (message: string, tone: 'error'
     const sequence = checkSequenceRef.current
     void check.then((result) => {
       if (!result.ok && revision === revisionRef.current && sequence === checkSequenceRef.current) {
-        pushToast(result.message || copy('provider.backgroundTestFailed'), 'error')
+        const detail = result.language === getCopyLanguage() ? result.message : ''
+        pushToast(detail || copy('provider.backgroundTestFailed'), 'error')
       }
     })
   }, [commitProviderSettings, pushToast, runProviderCheck])
@@ -111,8 +113,8 @@ export function useProviderConnection(pushToast: (message: string, tone: 'error'
     if (revision !== revisionRef.current || (failure && pendingWork > 0)) return
     checkSequenceRef.current += 1
     setProviderConnection(failure
-      ? { status: 'disconnected', message: failure }
-      : { status: 'connected', message: providerStatusLabel('connected') })
+      ? { status: 'disconnected', detail: { message: failure, language: getCopyLanguage() } }
+      : { status: 'connected' })
   }, [])
 
   return { providerOverview, provider, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult }

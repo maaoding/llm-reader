@@ -50,12 +50,15 @@ export type {
   ReaderMetadata,
   ReaderRelocation,
   ReaderRelocationReason,
+  ReaderTitleCopy,
+  ReaderTocItem,
   ReaderSearchResult,
   ReaderSelectionDraft,
   ReaderImageRegionDraft
 } from './types'
 export {
   DEFAULT_READING_PREFERENCES,
+  readerTitle,
   READER_SEARCH_QUERY_MAX_LENGTH,
   READER_SEARCH_RESULT_LIMIT
 } from './types'

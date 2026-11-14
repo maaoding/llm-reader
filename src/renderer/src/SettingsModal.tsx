@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
-import { AlertCircle, BookOpen, Check, Cpu, Info, LoaderCircle, MessageSquareText, Palette, Plus, RefreshCw, Save, Sparkles, Trash2, Unplug, X } from 'lucide-react'
+import { AlertCircle, BookOpen, Check, ChevronRight, Cpu, Flag, Info, LoaderCircle, MessageSquareText, Palette, Plus, RefreshCw, Save, Sparkles, Trash2, Unplug, X } from 'lucide-react'
 import type { AppInfo, PersonaSettings, ProviderCompatibility, ProviderOverview, ProviderProfile, ProviderProtocol, RequestSettingsInput, TextReadingMode } from '@shared/contracts'
 import { copy, type CopyKey, type UiLanguage } from '@shared/copy'
 import { publicRequestSettings } from '@shared/request-settings'
@@ -252,50 +252,48 @@ function AboutPanel(): ReactNode {
 
   return (
     <section className="settings-section about-panel" id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about">
-      <div className="about-brand" aria-hidden="true"><img src={appIcon} alt="" draggable={false} /></div>
-      <h3 id="about-settings-title">{copy('app.name')}</h3>
-      <p className="about-copyright">{copy('about.copyright')}</p>
-      <dl className="about-facts">
-        <div>
-          <dt>{copy('about.versionLabel')}</dt>
-          <dd data-testid="about-version">{appInfo?.version || copy('about.versionUnknown')}</dd>
+      <header className="about-identity">
+        <div className="about-brand" aria-hidden="true"><img src={appIcon} alt="" draggable={false} /></div>
+        <div className="about-identity-text">
+          <h3>{copy('app.name')}</h3>
+          <dl className="about-version">
+            <dt>{copy('about.versionLabel')}</dt>
+            <dd data-testid="about-version">{appInfo?.version || copy('about.versionUnknown')}</dd>
+          </dl>
+          <p className="about-copyright">{copy('about.copyright')}</p>
         </div>
-        <div>
-          <dt>{copy('about.licenseLabel')}</dt>
-          <dd>{copy('about.licenseValue')}</dd>
-        </div>
-        <div>
-          <dt>{copy('about.repositoryLabel')}</dt>
-          <dd className="about-repository">{copy('about.repositoryUrl')}</dd>
-        </div>
-      </dl>
-      {appInfo && (
-        <div className="about-update" data-testid="about-update">
-          <span className="about-update-label">{copy('about.updateLabel')}</span>
-          <p className="about-update-message">
-            {copy(isStore ? 'about.updateStore' : 'about.updateStandalone')}
-          </p>
-        </div>
-      )}
+      </header>
+      <div className="about-license">
+        <dl className="about-facts">
+          <div>
+            <dt>{copy('about.licenseLabel')}</dt>
+            <dd>{copy('about.licenseValue')}</dd>
+          </div>
+          <div>
+            <dt>{copy('about.repositoryLabel')}</dt>
+            <dd className="about-repository">{copy('about.repositoryUrl')}</dd>
+          </div>
+        </dl>
+        <p className="about-license-note">{copy('about.licenseNotice')}</p>
+      </div>
       {isStore && (
         <div className="about-report">
-          <button className="secondary-button compact-button" type="button" onClick={handleAiReport}>
+          <button className="secondary-button" type="button" onClick={handleAiReport}>
+            <Flag size={16} aria-hidden="true" />
             {copy('about.reportAiContent')}
           </button>
           {reportFailed && <p className="about-report-error" role="alert">{copy('about.reportAiContentFailed')}</p>}
         </div>
       )}
-      <p className="about-license-note">{copy('about.licenseNotice')}</p>
-      <div className="about-notices">
-        <h4>{copy('about.thirdPartyNoticesTitle')}</h4>
-        <p>{copy('about.thirdPartyNoticesIntro')}</p>
+      <details className="about-notices">
+        <summary><ChevronRight size={16} aria-hidden="true" />{copy('about.thirdPartyNoticesTitle')}</summary>
         <ul>
           {ABOUT_THIRD_PARTY_NOTICE_KEYS.map((key) => (
             <li key={key}>{copy(key)}</li>
           ))}
         </ul>
         <p>{copy('about.thirdPartyNoticesFull')}</p>
-      </div>
+      </details>
     </section>
   )
 }

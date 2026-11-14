@@ -5,7 +5,7 @@ import ePub, {
   type NavItem,
   type Rendition
 } from 'epubjs'
-import type { BookFormat, SelectionContext, TocItem } from '@shared/contracts'
+import type { BookFormat, SelectionContext } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength, type ContextBlock } from './context'
 import { findOrderedContainingElementIndex, rangeForCodePointSlice } from './dom-text'
@@ -34,11 +34,15 @@ import type {
   ReaderHighlightAnchor,
   ReaderRelocation,
   ReaderRelocationReason,
-  ReaderSearchResult
+  ReaderSearchResult,
+  ReaderTitleCopy,
+  ReaderTocItem
 } from './types'
 import {
   DEFAULT_READING_PREFERENCES,
+  readerRelocationTitle,
   readerSelectionBackground,
+  readerTitle,
   READER_SEARCH_RESULT_LIMIT
 } from './types'
 import { stabilizeContinuousManager } from './epub-continuous-stability'
@@ -169,13 +173,14 @@ function resolveInternalSpineHref(
   return spineHref ? `${spineHref}${fragment}` : null
 }
 
-function flattenToc(items: NavItem[], depth = 0, output: TocItem[] = []): TocItem[] {
+function flattenToc(items: NavItem[], depth = 0, output: ReaderTocItem[] = []): ReaderTocItem[] {
   for (const item of items) {
     if (isSafeInternalHref(item.href)) {
-      const label = item.label.replace(/\s+/gu, ' ').trim() || copy('reader.epubUntitledChapter')
+      const label = item.label.replace(/\s+/gu, ' ').trim()
       output.push({
         id: item.id || `epub-toc-${output.length + 1}`,
-        label,
+        label: label || copy('reader.epubUntitledChapter'),
+        ...(!label ? { labelCopy: { key: 'reader.epubUntitledChapter' } } : {}),
         href: item.href,
         depth
       })
@@ -390,7 +395,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private readonly callbacks: ReaderCallbacks
   private book: Book | null = null
   private rendition: Rendition | null = null
-  private toc: TocItem[] = []
+  private toc: ReaderTocItem[] = []
   private chaptersByHref: ReadonlyMap<string, EpubChapter> = new Map()
   private selection: SelectionContext | null = null
   private readonly paragraphIndex = new EpubParagraphIndex()
@@ -552,13 +557,13 @@ export class EpubReaderAdapter implements ReaderAdapter {
               remaining,
               () => revision === this.searchRevision && this.book === book
             )
-        const chapterTitle = this.chapterTitle(index, section.href)
+        const title = this.relocationTitle(index, section.href)
         for (const match of matches) {
           if (!isEpubCfi(match.cfi)) continue
           results.push({
             anchor: match.cfi,
             excerpt: compactSearchExcerpt(match.excerpt, expression),
-            chapterTitle
+            ...title
           })
           if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
         }
@@ -916,7 +921,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       locator: this.latestLocator,
       progress,
       chapterProgress: this.chapterProgressFromDom(sectionIndex as number) ?? 0,
-      chapterTitle: this.chapterTitle(sectionIndex),
+      ...this.relocationTitle(sectionIndex),
       chapterHref: this.chapterHref(sectionIndex),
       reason: 'natural'
     })
@@ -1029,7 +1034,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
         locator,
         progress: this.spineCount <= 1 ? 0 : sectionIndex / Math.max(1, this.spineCount - 1),
         chapterProgress: 0,
-        chapterTitle: this.chapterTitle(sectionIndex, href),
+        ...this.relocationTitle(sectionIndex, href),
         chapterHref: this.chapterHref(sectionIndex, href),
         reason: 'navigation'
       })
@@ -1247,7 +1252,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       locator,
       progress,
       chapterProgress: this.chapterProgressFor(location),
-      chapterTitle: this.chapterTitle(this.currentSectionIndex, location.start.href),
+      ...this.relocationTitle(this.currentSectionIndex, location.start.href),
       chapterHref: this.chapterHref(this.currentSectionIndex, location.start.href),
       reason
     })
@@ -1286,10 +1291,18 @@ export class EpubReaderAdapter implements ReaderAdapter {
     return this.chaptersByHref.get(normalizeHref(sectionHref))?.href ?? sectionHref
   }
 
-  private chapterTitle(sectionIndex: number, directHref?: string): string {
+  private chapterLabel(sectionIndex: number, directHref?: string): string | ReaderTitleCopy {
     const sectionHref = directHref || this.book?.spine.get(sectionIndex)?.href
     const chapter = sectionHref ? this.chaptersByHref.get(normalizeHref(sectionHref)) : undefined
-    return chapter?.title ?? copy('reader.epubSection', { number: sectionIndex + 1 })
+    return chapter?.titleCopy ?? chapter?.title ?? { key: 'reader.epubSection', number: sectionIndex + 1 }
+  }
+
+  private chapterTitle(sectionIndex: number, directHref?: string): string {
+    return readerTitle(this.chapterLabel(sectionIndex, directHref))
+  }
+
+  private relocationTitle(sectionIndex: number, href?: string): Pick<ReaderRelocation, 'chapterTitle' | 'chapterTitleCopy'> {
+    return readerRelocationTitle(this.chapterLabel(sectionIndex, href))
   }
 
   private setSelection(selection: SelectionContext | null): void {
@@ -1299,12 +1312,10 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
   private emitRelocation(relocation: ReaderRelocation): void {
     this.callbacks.onRelocated?.({
-      locator: relocation.locator,
+      ...relocation,
       progress: Math.min(1, Math.max(0, relocation.progress)),
       chapterProgress: Math.min(1, Math.max(0, relocation.chapterProgress)),
-      chapterTitle: relocation.chapterTitle,
-      chapterHref: relocation.chapterHref ?? null,
-      reason: relocation.reason
+      chapterHref: relocation.chapterHref ?? null
     })
   }
 

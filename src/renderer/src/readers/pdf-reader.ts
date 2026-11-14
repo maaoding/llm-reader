@@ -1,7 +1,7 @@
-import type { BookFormat, PdfImageRegionSource, ReaderSource, SelectionContext, TocItem } from '@shared/contracts'
+import type { BookFormat, PdfImageRegionSource, ReaderSource, SelectionContext } from '@shared/contracts'
 import { pdfImageRegionAnchor } from '@shared/pdf-image-region'
 import { capturePdfImageRegion } from './pdf-image-crop'
-import { copy } from '@shared/copy'
+import { copy, type CopyKey } from '@shared/copy'
 import { parseOcrRegionAnchor, parseOcrTextAnchor } from '@shared/ocr-reading'
 import { OCR_MAX_PAGES } from '@shared/vision-ocr'
 import { hitOcrWord, ocrLineRegion, positionedOcrSelection, selectedOcrWords, type OcrWordPoint, type PositionedOcrPage } from './pdf-ocr-selection'
@@ -54,9 +54,10 @@ import type {
   ReaderHighlightAnchor,
   ReaderRelocation,
   ReaderRelocationReason,
-  ReaderSearchResult
+  ReaderSearchResult,
+  ReaderTocItem
 } from './types'
-import { READER_SEARCH_RESULT_LIMIT } from './types'
+import { readerRelocationTitle, readerTitle, READER_SEARCH_RESULT_LIMIT } from './types'
 
 const MIN_ZOOM = 0.5
 const MAX_ZOOM = 2.5
@@ -144,6 +145,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   private preparedOcrRevision: string | null = null
   private readonly ocrPages = new Map<number, { page?: PositionedOcrPage }>()
   private ocrDrag: PdfOcrDrag | null = null
+  private readonly toolbarLabels: Array<() => void> = []
   private highlightStyleElement: HTMLStyleElement | null = null
   private pdfjs: typeof import('pdfjs-dist') | null = null
   private loadingTask: PDFDocumentLoadingTask | null = null
@@ -412,10 +414,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
           results.push({
             anchor: makePdfTextAnchor(page.pageNumber, start, end),
             excerpt: searchExcerpt(text, match.index, match.index + match[0].length),
-            chapterTitle: this.sectionAt(
-              page.pageNumber,
-              rawLength > 0 ? start / rawLength : 0
-            ).title
+            ...this.relocationTitleAt(page.pageNumber, rawLength > 0 ? start / rawLength : 0)
           })
           if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
           previousUtf16 = match.index + match[0].length
@@ -521,6 +520,17 @@ export class PdfReaderAdapter implements ReaderAdapter {
     return Promise.resolve()
   }
 
+  refreshUiLanguage(): void {
+    for (const applyLabel of this.toolbarLabels) applyLabel()
+    if (this.capabilityBanner) this.capabilityBanner.textContent = copy('reader.pdfNoText')
+    for (const page of this.pages) {
+      page.element.setAttribute('aria-label', copy('reader.pdfPage', { number: page.pageNumber }))
+      for (const link of page.linkLayerElement.children) link.setAttribute('aria-label', copy('reader.pdfInternalLink'))
+      const badge = page.element.querySelector('.pdf-page-no-text')
+      if (badge) badge.textContent = copy('reader.pdfPageNoText')
+    }
+  }
+
   private highlightStylesCss(): string {
     return `
       ::highlight(${TEMPORARY_HIGHLIGHT_NAME}) { background: rgba(246, 190, 72, .36); }
@@ -534,12 +544,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     const toolbar = this.document.createElement('div')
     toolbar.className = 'pdf-toolbar'
     toolbar.dataset.testid = 'pdf-toolbar'
-    const zoomOut = this.toolbarButton('−', copy('reader.pdfZoomOut'), () => this.changeZoom(-ZOOM_STEP))
-    const fitWidth = this.toolbarButton(
-      copy('reader.pdfFitWidth'),
-      copy('reader.pdfFitWidth'),
-      () => this.setZoom(1, 'fit-width', true)
-    )
+    const zoomOut = this.toolbarButton('reader.pdfZoomOut', () => this.changeZoom(-ZOOM_STEP), '−')
+    const fitWidth = this.toolbarButton('reader.pdfFitWidth', () => this.setZoom(1, 'fit-width', true))
     fitWidth.classList.add('pdf-fit-width', 'is-active')
     fitWidth.setAttribute('aria-pressed', 'true')
     this.fitWidthButton = fitWidth
@@ -548,32 +554,34 @@ export class PdfReaderAdapter implements ReaderAdapter {
     zoomValue.dataset.testid = 'pdf-zoom-value'
     zoomValue.value = ''
     zoomValue.toggleAttribute('hidden', true)
-    const zoomIn = this.toolbarButton('+', copy('reader.pdfZoomIn'), () => this.changeZoom(ZOOM_STEP))
-    const regionButton = this.toolbarButton(
-      copy('reader.pdfRegionSelect'),
-      copy('reader.pdfRegionSelect'),
-      () => this.setRegionMode(!this.regionMode)
-    )
+    const zoomIn = this.toolbarButton('reader.pdfZoomIn', () => this.changeZoom(ZOOM_STEP), '+')
+    const regionButton = this.toolbarButton('reader.pdfRegionSelect', () => this.setRegionMode(!this.regionMode))
     regionButton.dataset.testid = 'pdf-region-select'
     regionButton.setAttribute('aria-pressed', 'false')
     regionButton.classList.add('pdf-region-select')
     this.regionButton = regionButton
-    const imageRegionButton = this.toolbarButton(copy('visual.select'), copy('visual.select'), () => this.setImageRegionMode(!this.imageRegionMode))
+    const imageRegionButton = this.toolbarButton('visual.select', () => this.setImageRegionMode(!this.imageRegionMode))
     imageRegionButton.dataset.testid = 'pdf-image-region-select'
     imageRegionButton.setAttribute('aria-pressed', 'false')
     imageRegionButton.classList.add('pdf-region-select')
     this.imageRegionButton = imageRegionButton
-    const paperButton = this.toolbarButton(copy('settings.paperTheme'), copy('settings.paperTheme'), () => this.callbacks.onDisplaySettings?.(paperButton))
+    const paperButton = this.toolbarButton('settings.paperTheme', () => this.callbacks.onDisplaySettings?.(paperButton))
     toolbar.append(zoomOut, fitWidth, zoomValue, zoomIn, paperButton, regionButton, imageRegionButton)
     return toolbar
   }
 
-  private toolbarButton(label: string, ariaLabel: string, activate: () => void): HTMLButtonElement {
+  private toolbarButton(labelKey: Extract<CopyKey, 'reader.pdfZoomIn' | 'reader.pdfZoomOut' | 'reader.pdfFitWidth' | 'reader.pdfRegionSelect' | 'visual.select' | 'settings.paperTheme'>,
+    activate: () => void, symbol?: string): HTMLButtonElement {
     const button = this.document.createElement('button')
     button.type = 'button'
-    button.textContent = label
-    button.setAttribute('aria-label', ariaLabel)
-    button.title = ariaLabel
+    const applyLabel = (): void => {
+      const label = copy(labelKey)
+      button.textContent = symbol ?? label
+      button.setAttribute('aria-label', label)
+      button.title = label
+    }
+    this.toolbarLabels.push(applyLabel)
+    applyLabel()
     button.addEventListener('click', activate)
     return button
   }
@@ -1388,27 +1396,30 @@ export class PdfReaderAdapter implements ReaderAdapter {
     }
   }
 
-  private async readOutline(): Promise<TocItem[]> {
+  private async readOutline(): Promise<ReaderTocItem[]> {
     this.outlineIndex = new PdfOutlineIndex([])
     if (!this.pdfDocument) return []
     try {
       const outline = await this.pdfDocument.getOutline() as PdfOutlineNode[]
-      const toc: TocItem[] = []
+      const toc: ReaderTocItem[] = []
       const locations: PdfOutlineLocation[] = []
       const visit = async (items: PdfOutlineNode[], depth: number): Promise<void> => {
         for (const item of items) {
           if (!item.url && !item.unsafeUrl && item.dest) {
             const position = await this.positionForDestination(item.dest)
             if (position) {
-              const label = item.title.trim() || copy('reader.pdfUntitledSection')
+              const title = item.title.trim()
+              const label = title || copy('reader.pdfUntitledSection')
+              const labelCopy = title ? undefined : { key: 'reader.pdfUntitledSection' as const }
               const href = makePdfPositionAnchor(position.pageNumber, position.fraction)
               toc.push({
                 id: `pdf-toc-${toc.length + 1}`,
                 label,
+                labelCopy,
                 href,
                 depth
               })
-              locations.push({ ...position, label, href, depth, order: locations.length })
+              locations.push({ ...position, label, labelCopy, href, depth, order: locations.length })
             }
           }
           if (item.items.length > 0) await visit(item.items, depth + 1)
@@ -1518,20 +1529,29 @@ export class PdfReaderAdapter implements ReaderAdapter {
       locator: makePdfTextAnchor(pageNumber, offset),
       progress: (pageNumber - 1 + fraction) / Math.max(1, this.pages.length),
       chapterProgress: section.progress,
-      chapterTitle: section.title,
+      ...readerRelocationTitle(section.titleCopy ?? section.title),
       chapterHref: section.href,
       reason
     })
   }
 
   private sectionAt(pageNumber: number, fraction: number): ReturnType<typeof pdfSectionAt> {
-    return pdfSectionAt(
+    const titleCopy = { key: 'reader.pdfWholeDocument' as const }
+    const section = pdfSectionAt(
       this.outlineIndex,
       pageNumber,
       fraction,
       this.pages.length,
-      copy('reader.pdfWholeDocument')
+      readerTitle(titleCopy),
+      titleCopy
     )
+    if (section.titleCopy) section.title = readerTitle(section.titleCopy)
+    return section
+  }
+
+  private relocationTitleAt(pageNumber: number, fraction: number): Pick<ReaderRelocation, 'chapterTitle' | 'chapterTitleCopy'> {
+    const section = this.sectionAt(pageNumber, fraction)
+    return readerRelocationTitle(section.titleCopy ?? section.title)
   }
 
   private emitRelocation(relocation: ReaderRelocation): void {
@@ -1799,6 +1819,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.cancelOcrDrag()
     this.ocrPages.clear()
     this.preparedOcrRevision = null
+    this.toolbarLabels.length = 0
     this.clearRegionDraft()
     this.activeRegionElement?.remove()
     this.activeRegionElement = null

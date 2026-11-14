@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { LibraryBackupPreview } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, getCopyLocale } from '@shared/copy'
 import { readLibraryPreferences } from './library-backup'
 import { readableError } from './readable-error'
 
@@ -35,7 +35,7 @@ export function LibraryBackupSettings({ run, disabled }: {
     </div>
     {preview && <div className="settings-section" data-testid="backup-preview">
       <h4>{copy('backup.preview')}</h4>
-      <p>{copy('backup.summary', { date: new Date(preview.summary.createdAt).toLocaleString(), books: preview.summary.books,
+      <p>{copy('backup.summary', { date: new Date(preview.summary.createdAt).toLocaleString(getCopyLocale()), books: preview.summary.books,
         highlights: preview.summary.highlights, insights: preview.summary.insights, sessions: preview.summary.sessions, workbenches: preview.summary.workbenches })}</p>
       <p className="field-hint">{copy('backup.restoreHint')}</p>
       <button className="primary-button" type="button" data-testid="backup-restore" disabled={busy || disabled} onClick={() => {

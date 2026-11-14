@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
 import type { BookRecord } from '@shared/contracts'
 import { copy } from '@shared/copy'
-import { READER_SEARCH_QUERY_MAX_LENGTH, type ReaderSearchResult } from '@shared/reader-search'
-import type { ReaderAdapter } from './readers'
+import { pdfPageFromLocator } from '@shared/ocr-reading'
+import { READER_SEARCH_QUERY_MAX_LENGTH } from '@shared/reader-search'
+import type { ReaderAdapter, ReaderSearchResult } from './readers'
 import { readableError } from './readable-error'
 
 interface ReaderSearchOptions {
@@ -58,7 +59,11 @@ export function useReaderSearch({ adapterRef, activeBookRef, visible }: ReaderSe
     try {
       const prepared = adapter.format === 'pdf' ? await window.readerApi.searchBookDocument({ bookId, query }) : null
       if (!isCurrent()) return
-      const results = prepared?.available ? prepared.results : await adapter.search(query)
+      const results = prepared?.available
+        ? prepared.results.map((result): ReaderSearchResult => ({
+          ...result, chapterTitleCopy: { key: 'knowledge.pdfPage', page: pdfPageFromLocator(result.anchor) }
+        }))
+        : await adapter.search(query)
       if (!isCurrent()) return
       setSearchResults(results)
       setExecutedSearchQuery(query)

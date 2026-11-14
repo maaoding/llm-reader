@@ -505,7 +505,7 @@ export interface BookExtractionBatch extends BookExtractionInput {
 }
 
 export interface BookExtractionApi {
-  read(): Promise<{ input: BookExtractionInput; payload: BookPayload }>
+  read(): Promise<{ input: BookExtractionInput; payload: BookPayload; uiLanguage: UiLanguage }>
   append(input: BookExtractionBatch): Promise<void>
   finish(input: BookExtractionInput): Promise<void>
   fail(input: BookExtractionInput): Promise<void>

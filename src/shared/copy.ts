@@ -560,7 +560,6 @@ export const COPY_KEYS = [
   'about.repositoryLabel',
   'about.repositoryUrl',
   'about.thirdPartyNoticesTitle',
-  'about.thirdPartyNoticesIntro',
   'about.noticeElectron',
   'about.noticeEpubjs',
   'about.noticeJszip',
@@ -570,9 +569,6 @@ export const COPY_KEYS = [
   'about.noticeReact',
   'about.noticeZod',
   'about.thirdPartyNoticesFull',
-  'about.updateLabel',
-  'about.updateStore',
-  'about.updateStandalone',
   'about.reportAiContent',
   'about.reportAiContentFailed',
   'assistant.title',
@@ -1222,6 +1218,10 @@ let activeCopyLanguage: UiLanguage = 'zh'
 
 export function getCopyLanguage(): UiLanguage {
   return activeCopyLanguage
+}
+
+export function getCopyLocale(): 'zh-CN' | 'en-US' {
+  return activeCopyLanguage === 'en' ? 'en-US' : 'zh-CN'
 }
 
 export function setCopyLanguage(language: UiLanguage): void {

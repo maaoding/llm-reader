@@ -1,7 +1,8 @@
-import type { TocItem } from '@shared/contracts'
+import type { ReaderTitleCopy, ReaderTocItem } from './types'
 
 export interface EpubChapter {
   readonly title: string
+  readonly titleCopy?: ReaderTitleCopy
   readonly href: string
 }
 
@@ -40,14 +41,14 @@ export class EpubSpineIndex {
 }
 
 /** TOC metadata belongs to one opened book; keep its first title and first fragment-free link. */
-export function indexEpubChapters(toc: ReadonlyArray<Pick<TocItem, 'href' | 'label'>>): ReadonlyMap<string, EpubChapter> {
+export function indexEpubChapters(toc: ReadonlyArray<Pick<ReaderTocItem, 'href' | 'label' | 'labelCopy'>>): ReadonlyMap<string, EpubChapter> {
   const chapters = new Map<string, EpubChapter>()
   for (const item of toc) {
     const key = normalizeEpubHref(item.href)
     const previous = chapters.get(key)
-    if (!previous) chapters.set(key, { title: item.label, href: item.href })
+    if (!previous) chapters.set(key, { title: item.label, href: item.href, ...(item.labelCopy ? { titleCopy: item.labelCopy } : {}) })
     else if (previous.href.includes('#') && !item.href.includes('#')) {
-      chapters.set(key, { title: previous.title, href: item.href })
+      chapters.set(key, { ...previous, href: item.href })
     }
   }
   return chapters

@@ -1,4 +1,4 @@
-import type { BookFormat, SelectionContext, TextReadingMode, TocItem } from '@shared/contracts'
+import type { BookFormat, SelectionContext, TextReadingMode } from '@shared/contracts'
 import { looksLikeMarkdown, markdownAnchor, renderMarkdownDocument, type MarkdownParagraph } from './markdown-document'
 import { copy } from '@shared/copy'
 import { buildBoundedPassages, codePointLength } from './context'
@@ -25,11 +25,15 @@ import type {
   ReaderHighlightAnchor,
   ReaderRelocation,
   ReaderRelocationReason,
-  ReaderSearchResult
+  ReaderSearchResult,
+  ReaderTitleCopy,
+  ReaderTocItem
 } from './types'
 import {
   DEFAULT_READING_PREFERENCES,
+  readerRelocationTitle,
   readerSelectionBackground,
+  readerTitle,
   READER_SEARCH_RESULT_LIMIT
 } from './types'
 
@@ -60,7 +64,7 @@ interface TextAnchor {
 }
 
 interface TextChapter {
-  title: string
+  title: string | ReaderTitleCopy
   start: number
   paragraphIndexes: number[]
 }
@@ -340,11 +344,12 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.document.addEventListener('selectionchange', this.handleSelectionChange)
     this.host.addEventListener('scroll', this.handleScroll, { passive: true })
 
-    const toc: TocItem[] = this.chapters
-      .filter((chapter) => this.chapters.length === 1 || chapter.title !== copy('reader.txtOpening'))
+    const toc: ReaderTocItem[] = this.chapters
+      .filter((chapter) => this.chapters.length === 1 || typeof chapter.title === 'string' || chapter.title.key !== 'reader.txtOpening')
       .map((chapter, index) => ({
         id: `txt-toc-${index + 1}`,
-        label: chapter.title,
+        label: readerTitle(chapter.title),
+        ...(typeof chapter.title === 'string' ? {} : { labelCopy: chapter.title }),
         href: makeTextAnchor(chapter.start),
         depth: markdown ? Math.max(0, (parsedParagraphs[chapter.paragraphIndexes[0]]?.level ?? 1) - 1) : 0
       }))
@@ -357,7 +362,7 @@ export class TextReaderAdapter implements ReaderAdapter {
         locator: makeTextAnchor(0),
         progress: 0,
         chapterProgress: this.chapterProgressAt(0),
-        chapterTitle: this.chapters[0]?.title ?? copy('reader.txtFullText'),
+        ...this.relocationTitle(0),
         chapterHref: this.chapters[0] ? makeTextAnchor(this.chapters[0].start) : null,
         reason: 'restore'
       })
@@ -436,7 +441,7 @@ export class TextReaderAdapter implements ReaderAdapter {
         results.push({
           anchor,
           excerpt: searchExcerpt(searchText, match.index, endUtf16),
-          chapterTitle: this.chapters[paragraph.chapterIndex]?.title ?? copy('reader.txtFullText')
+          ...this.relocationTitle(paragraph.chapterIndex)
         })
         if (results.length >= READER_SEARCH_RESULT_LIMIT) return results
         match = expression.exec(searchText)
@@ -474,7 +479,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       locator: makeTextAnchor(parsed.start),
       progress: this.textLength === 0 ? 0 : parsed.start / this.textLength,
       chapterProgress: this.chapterProgressAt(parsed.start),
-      chapterTitle: this.chapters[paragraph.chapterIndex]?.title ?? copy('reader.txtFullText'),
+      ...this.relocationTitle(paragraph.chapterIndex),
       chapterHref: makeTextAnchor(this.chapters[paragraph.chapterIndex]?.start ?? paragraph.start),
       reason
     })
@@ -697,7 +702,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       bookId: this.callbacks.bookId,
       quote,
       anchor: makeTextAnchor(start, end),
-      chapterTitle: chapter.title,
+      chapterTitle: readerTitle(chapter.title),
       passages
     })
   }
@@ -737,7 +742,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       locator: makeTextAnchor(firstVisible.start),
       progress: Math.min(1, Math.max(0, progress)),
       chapterProgress: this.chapterProgressFor(firstVisible, visibleFraction),
-      chapterTitle: this.chapters[firstVisible.chapterIndex]?.title ?? copy('reader.txtFullText'),
+      ...this.relocationTitle(firstVisible.chapterIndex),
       chapterHref: makeTextAnchor(this.chapters[firstVisible.chapterIndex]?.start ?? firstVisible.start),
       reason: 'natural'
     })
@@ -785,7 +790,7 @@ export class TextReaderAdapter implements ReaderAdapter {
     if (!hasHeadings) {
       return [
         {
-          title: copy('reader.txtFullText'),
+          title: { key: 'reader.txtFullText' },
           start: paragraphs[0].start,
           paragraphIndexes: paragraphs.map((paragraph) => paragraph.index)
         }
@@ -797,7 +802,7 @@ export class TextReaderAdapter implements ReaderAdapter {
       const isChapterHeading = headingIndexes.has(paragraph.index)
       if (isChapterHeading || chapters.length === 0) {
         chapters.push({
-          title: isChapterHeading ? paragraph.label ?? cleanHeading(paragraph.text) : copy('reader.txtOpening'),
+          title: isChapterHeading ? paragraph.label ?? cleanHeading(paragraph.text) : { key: 'reader.txtOpening' },
           start: paragraph.start,
           paragraphIndexes: []
         })
@@ -975,16 +980,18 @@ export class TextReaderAdapter implements ReaderAdapter {
     this.callbacks.onSelectionChanged?.(selection)
   }
 
+  private relocationTitle(chapterIndex: number): Pick<ReaderRelocation, 'chapterTitle' | 'chapterTitleCopy'> {
+    return readerRelocationTitle(this.chapters[chapterIndex]?.title ?? { key: 'reader.txtFullText' })
+  }
+
   private emitRelocation(relocation: ReaderRelocation): void {
     if (this.changingTextMode && relocation.reason === 'restore') relocation = { ...relocation, reason: 'navigation' }
     this.lastTextLocator = relocation.locator
     this.callbacks.onRelocated?.({
-      locator: relocation.locator,
+      ...relocation,
       progress: Math.min(1, Math.max(0, relocation.progress)),
       chapterProgress: Math.min(1, Math.max(0, relocation.chapterProgress)),
-      chapterTitle: relocation.chapterTitle,
-      chapterHref: relocation.chapterHref ?? null,
-      reason: relocation.reason
+      chapterHref: relocation.chapterHref ?? null
     })
   }
 

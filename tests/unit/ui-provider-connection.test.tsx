@@ -2,10 +2,11 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ProviderOverview, ProviderTestResult, ReaderApi } from '../../src/shared/contracts'
+import { setCopyLanguage } from '../../src/shared/copy'
 import { useProviderConnection } from '../../src/renderer/src/use-provider-connection'
 import { deferred } from './support/deferred'
 
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); setCopyLanguage('zh') })
 
 function overview(id: string): ProviderOverview {
   return { activeProfileId: id, profiles: [{
@@ -44,7 +45,7 @@ it('ignores failures from checks and requests belonging to a previous provider',
   await act(async () => view.result.current.handleProviderOverviewChange(overview('new'), true))
   await act(async () => oldCheck.resolve({ ok: false, message: 'Old provider failed' }))
   act(() => view.result.current.reportProviderResult(revision, 'Old request failed', 0))
-  expect(view.result.current.providerConnection).toEqual({ status: 'connected', message: 'Connected' })
+  expect(view.result.current.providerConnection).toEqual({ status: 'connected', detail: { message: 'Connected', language: 'zh' } })
   expect(view.pushToast).not.toHaveBeenCalled()
 })
 
@@ -59,7 +60,7 @@ it('keeps a concurrent failure from overriding a healthy connection and gives re
   await act(async () => check.resolve({ ok: false, message: 'Obsolete check' }))
   expect(view.result.current.providerConnection.status).toBe('connected')
   act(() => view.result.current.reportProviderResult(revision, 'Last request failed', 0))
-  expect(view.result.current.providerConnection).toEqual({ status: 'disconnected', message: 'Last request failed' })
+  expect(view.result.current.providerConnection).toEqual({ status: 'disconnected', detail: { message: 'Last request failed', language: 'zh' } })
 })
 
 it('keeps the revision for inactive profile edits but rechecks an explicitly changed active profile', async () => {
@@ -85,4 +86,16 @@ it('discards background check notifications after unmount', async () => {
   view.unmount()
   await act(async () => check.resolve({ ok: false, message: 'Late failure' }))
   expect(view.pushToast).not.toHaveBeenCalled()
+})
+
+it('uses the active language for a status notification after a pending check completes', async () => {
+  const view = setup()
+  const check = deferred<ProviderTestResult>()
+  view.testProvider.mockReturnValueOnce(check.promise)
+  act(() => view.result.current.handleProviderOverviewChange(overview('active'), true))
+  setCopyLanguage('en')
+  await act(async () => check.resolve({ ok: false, message: '无法连接到模型服务。' }))
+  expect(view.result.current.providerConnection.status).toBe('disconnected')
+  expect(view.testProvider).toHaveBeenCalledOnce()
+  expect(view.pushToast).toHaveBeenCalledExactlyOnceWith('API connection check failed.', 'error')
 })

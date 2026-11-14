@@ -1,6 +1,6 @@
 import { AlertCircle, Bookmark, Download, ListChecks, LoaderCircle, PenLine, RefreshCw, SearchX, Trash2 } from 'lucide-react'
 import type { HighlightRecord } from '@shared/contracts'
-import { copy, getCopyLanguage } from '@shared/copy'
+import { copy, getCopyLocale } from '@shared/copy'
 import { EmptyState } from './EmptyState'
 import { Select } from './Select'
 import { useHighlightOrganizer } from './use-highlight-organizer'
@@ -21,7 +21,7 @@ interface HighlightsPanelProps {
 function formatDate(iso: string): string {
   const date = new Date(iso)
   if (!Number.isFinite(date.getTime())) return ''
-  return new Intl.DateTimeFormat(getCopyLanguage() === 'en' ? 'en' : 'zh-CN', {
+  return new Intl.DateTimeFormat(getCopyLocale(), {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
   }).format(date)
 }

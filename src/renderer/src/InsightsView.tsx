@@ -1,7 +1,7 @@
 import { AlertCircle, Bookmark, Download, LoaderCircle, RefreshCw, Search, SearchX, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope } from '@shared/contracts'
-import { copy, copyIn, getCopyLanguage } from '@shared/copy'
+import { copy, copyIn, getCopyLanguage, getCopyLocale } from '@shared/copy'
 import { MarkedText } from './MarkedText'
 import { normalizeNeedle } from './highlight'
 import { AnswerText } from './AnswerText'
@@ -11,7 +11,7 @@ type InsightScope = 'all' | 'book'
 
 function formatDate(iso: string): string {
   try {
-    return new Intl.DateTimeFormat('zh-CN', {
+    return new Intl.DateTimeFormat(getCopyLocale(), {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',

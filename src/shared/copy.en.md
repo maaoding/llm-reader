@@ -406,7 +406,6 @@
 | about.repositoryLabel | Source repository |
 | about.repositoryUrl | https://github.com/maaoding/llm-reader |
 | about.thirdPartyNoticesTitle | Third-party licenses |
-| about.thirdPartyNoticesIntro | This software uses the following open-source components: |
 | about.noticeElectron | Electron (MIT) |
 | about.noticeEpubjs | epub.js (BSD-2-Clause) |
 | about.noticeJszip | JSZip (MIT OR GPL-3.0-or-later) |
@@ -416,9 +415,6 @@
 | about.noticeReact | React, React DOM (MIT) |
 | about.noticeZod | Zod (MIT) |
 | about.thirdPartyNoticesFull | Full license texts are in THIRD_PARTY_NOTICES.md in the repository. |
-| about.updateLabel | Updates |
-| about.updateStore | This version receives updates through Microsoft Store. |
-| about.updateStandalone | Self-built versions need to be updated manually. |
 | about.reportAiContent | Report inappropriate AI content |
 | about.reportAiContentFailed | Could not open the report page. |
 

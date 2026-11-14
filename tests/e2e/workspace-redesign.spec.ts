@@ -63,7 +63,7 @@ test('keeps compact service switches and uniform settings cards across themes an
         const cardBackground = await page.locator('.workspace-shell').evaluate((node) => getComputedStyle(node).backgroundColor)
         for (const [section, selector, count] of [
           ['assistant', '.assistant-action-card', 3], ['knowledge', '.knowledge-service-card', 4],
-          ['persona', '.persona-default-group', 1], ['about', '.about-update', 1]
+          ['persona', '.persona-default-group', 1], ['about', '.about-identity', 1]
         ] as const) {
           await page.getByTestId(`settings-nav-${section}`).click()
           const cards = page.locator(`#settings-panel-${section}`).locator(selector)

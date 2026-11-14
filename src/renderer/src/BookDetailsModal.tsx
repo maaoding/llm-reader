@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { AlertCircle, LoaderCircle, RefreshCw, Trash2, X } from 'lucide-react'
 import type { BookCoverPayload, BookDetails, BookRecord } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, getCopyLocale } from '@shared/copy'
 import { BookCoverView } from './BookCover'
 import { readableError } from './readable-error'
 import { useDialogFocus } from './use-dialog-focus'
@@ -56,7 +56,7 @@ function sourceFormatLabel(book: BookRecord): string {
 
 function formatFullDate(iso: string): string {
   try {
-    return new Intl.DateTimeFormat('zh-CN', {
+    return new Intl.DateTimeFormat(getCopyLocale(), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

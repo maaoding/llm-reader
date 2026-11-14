@@ -1,4 +1,5 @@
 import type { BookExtractionApi, BookExtractionInput } from '@shared/contracts'
+import { setCopyLanguage } from '@shared/copy'
 import { extractBookSections } from './readers/book-extraction'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { renderPdfOcrPage } from './readers/pdf-ocr'
@@ -8,6 +9,7 @@ let input: BookExtractionInput | undefined
 void (async () => {
   const job = await api.read()
   input = job.input
+  setCopyLanguage(job.uiLanguage)
   if (job.payload.book.format === 'pdf') {
     const pdf = await import('pdfjs-dist')
     pdf.GlobalWorkerOptions.workerSrc = pdfWorkerUrl

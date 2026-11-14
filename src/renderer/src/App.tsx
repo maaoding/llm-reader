@@ -74,8 +74,7 @@ import type {
   PersonaSelection,
   PersonaSettings,
   SavedInsight,
-  TextReadingMode,
-  TocItem
+  TextReadingMode
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { BookAnalysisControls } from './BookAnalysisControls'
@@ -98,11 +97,14 @@ import {
   PdfReaderAdapter,
   READER_SEARCH_QUERY_MAX_LENGTH,
   READER_SEARCH_RESULT_LIMIT,
+  readerTitle,
   splitSearchExcerpt,
   type ReaderAdapter,
   type ReaderSearchResult,
   type ReaderSelectionDraft,
-  type ReaderImageRegionDraft
+  type ReaderImageRegionDraft,
+  type ReaderTitleCopy,
+  type ReaderTocItem
 } from './readers'
 
 type AssistantDialogView = 'conversation' | 'insights'
@@ -159,7 +161,7 @@ export default function App(): ReactNode {
   useEffect(() => { try { localStorage.setItem('llm-reader-archive-view', archiveView) } catch { /* Keep the in-memory choice. */ } }, [archiveView])
   const [libraryError, setLibraryError] = useState('')
   const [coverCache] = useState(() => new BookCoverCache((bookId) => window.readerApi.getBookCover(bookId)))
-  const [toc, setToc] = useState<TocItem[]>([])
+  const [toc, setToc] = useState<ReaderTocItem[]>([])
   const [collapsedTocItems, setCollapsedTocItems] = useState<Set<string>>(() => new Set())
   const [leftView, setLeftView] = useState<LeftView>('library')
   const [page, setPage] = useState<WorkspacePage>('library')
@@ -198,7 +200,8 @@ export default function App(): ReactNode {
   const [currentLocator, setCurrentLocator] = useState<string | null>(null)
   const [naturalLocator, setNaturalLocator] = useState<string | null>(null)
   const [currentChapterProgress, setCurrentChapterProgress] = useState(0)
-  const [currentChapterTitle, setCurrentChapterTitle] = useState('')
+  const [currentChapterLabel, setCurrentChapterLabel] = useState<string | ReaderTitleCopy>('')
+  const currentChapterTitle = readerTitle(currentChapterLabel, uiLanguage)
   const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialService, setSettingsInitialService] = useState<'document' | 'embedding'>()
@@ -233,8 +236,8 @@ export default function App(): ReactNode {
   const readingPreferencesRef = useRef(readingPreferences)
   const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const naturalPositionRef = useRef<{ locator: string | null; progress: number }>({ locator: null, progress: 0 })
-  const naturalChapterRef = useRef<{ title: string; href: string | null; progress: number } | null>(null)
-  const chapterTitleOverrideRef = useRef<string | null>(null)
+  const naturalChapterRef = useRef<{ title: string | ReaderTitleCopy; href: string | null; progress: number } | null>(null)
+  const chapterTitleOverrideRef = useRef<string | ReaderTitleCopy | null>(null)
   const leftViewRevisionRef = useRef(0)
   const selectLeftView = useCallback((view: LeftView): void => {
     leftViewRevisionRef.current += 1
@@ -298,6 +301,8 @@ export default function App(): ReactNode {
   }, [])
 
   const { provider, providerOverview, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult } = useProviderConnection(pushToast)
+  const providerLabel = providerStatusLabel(providerConnection.status)
+  const providerDetail = providerConnection.detail
 
   useEffect(() => {
     readingPreferencesRef.current = effectiveReadingPreferences
@@ -512,7 +517,7 @@ export default function App(): ReactNode {
     setNaturalLocator(book.lastLocator)
     naturalChapterRef.current = null
     setCurrentChapterProgress(0)
-    setCurrentChapterTitle('')
+    setCurrentChapterLabel('')
     setCurrentChapterHref(null)
     resetSearch()
     naturalPositionRef.current = { locator: book.lastLocator, progress: book.progress }
@@ -526,16 +531,17 @@ export default function App(): ReactNode {
       const adapter = createReaderAdapter(book.format, hostRef.current, {
         bookId: book.id,
         readPreparedOcrPage: (pageNumber) => window.readerApi.getBookOcrPage({ bookId: book.id, pageNumber }),
-        onRelocated: ({ locator, progress, chapterProgress, chapterTitle, chapterHref, reason }) => {
+        onRelocated: ({ locator, progress, chapterProgress, chapterTitle, chapterTitleCopy, chapterHref, reason }) => {
+          const label = chapterTitleCopy ?? chapterTitle
           setCurrentLocator(locator)
-          if (reason === 'natural' || (reason === 'restore' && !naturalChapterRef.current)) naturalChapterRef.current = { title: chapterTitle, href: chapterHref ?? null, progress: chapterProgress }
+          if (reason === 'natural' || (reason === 'restore' && !naturalChapterRef.current)) naturalChapterRef.current = { title: label, href: chapterHref ?? null, progress: chapterProgress }
           setCurrentChapterProgress(chapterProgress)
           if (reason === 'natural') {
             chapterTitleOverrideRef.current = null
-            setCurrentChapterTitle(chapterTitle)
+            setCurrentChapterLabel(label)
             setCurrentChapterHref(chapterHref ?? null)
           } else if (!chapterTitleOverrideRef.current) {
-            setCurrentChapterTitle(chapterTitle)
+            setCurrentChapterLabel(label)
             setCurrentChapterHref(chapterHref ?? null)
           }
           if (reason === 'natural') {
@@ -943,7 +949,7 @@ export default function App(): ReactNode {
       await adapter.highlight(anchor)
       if (chapterTitle) {
         chapterTitleOverrideRef.current = chapterTitle
-        setCurrentChapterTitle(chapterTitle)
+        setCurrentChapterLabel(chapterTitle)
         setCurrentLocator(anchor)
       }
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
@@ -971,10 +977,11 @@ export default function App(): ReactNode {
   }, [books, navigateToAnchor, openBook, pushToast])
 
   const navigateToSearchResult = useCallback(async (result: ReaderSearchResult): Promise<void> => {
-    chapterTitleOverrideRef.current = result.chapterTitle
+    const label = result.chapterTitleCopy ?? result.chapterTitle
+    chapterTitleOverrideRef.current = label
     await navigateToAnchor(result.anchor)
     setCurrentLocator(result.anchor)
-    setCurrentChapterTitle(result.chapterTitle)
+    setCurrentChapterLabel(label)
     setCurrentChapterProgress(0)
   }, [navigateToAnchor])
 
@@ -1037,7 +1044,7 @@ export default function App(): ReactNode {
     focusConversationTab(tabId)
     setPage('conversation')
   }, [books, conversationTabsRef, focusConversationTab, openBook, pushToast])
-  const navigateToToc = useCallback(async (href: string, chapterTitle?: string): Promise<void> => {
+  const navigateToToc = useCallback(async (href: string, chapterTitle: string | ReaderTitleCopy): Promise<void> => {
     const adapter = adapterRef.current
     if (!adapter) return
     try {
@@ -1049,7 +1056,7 @@ export default function App(): ReactNode {
       await adapter.goTo(href)
       if (chapterTitle) {
         chapterTitleOverrideRef.current = chapterTitle
-        setCurrentChapterTitle(chapterTitle)
+        setCurrentChapterLabel(chapterTitle)
         setCurrentChapterHref(href)
         setCurrentChapterProgress(0)
       }
@@ -1072,7 +1079,7 @@ export default function App(): ReactNode {
       chapterTitleOverrideRef.current = chapter?.title ?? null
       await adapter.goTo(target)
       setCurrentLocator(target)
-      if (chapter) { setCurrentChapterTitle(chapter.title); setCurrentChapterHref(chapter.href); setCurrentChapterProgress(chapter.progress) }
+      if (chapter) { setCurrentChapterLabel(chapter.title); setCurrentChapterHref(chapter.href); setCurrentChapterProgress(chapter.progress) }
     } catch (error) {
       pushToast(readableError(error, copy('reader.navigateChapterFailed')), 'error')
     }
@@ -1120,7 +1127,7 @@ export default function App(): ReactNode {
     setCurrentLocator(null)
     setNaturalLocator(null)
     setCurrentChapterProgress(0)
-    setCurrentChapterTitle('')
+    setCurrentChapterLabel('')
     setCurrentChapterHref(null)
     resetSearch()
     naturalPositionRef.current = { locator: null, progress: 0 }
@@ -1331,6 +1338,11 @@ export default function App(): ReactNode {
       adapter.setPreparedOcrRevision(activeDocument?.status === 'ready' ? activeDocument.jobId : null)
     }
   }, [activeBook?.id, activeDocument?.jobId, activeDocument?.status, bookState])
+
+  useLayoutEffect(() => {
+    const adapter = adapterRef.current
+    if (bookState === 'ready' && adapter instanceof PdfReaderAdapter) adapter.refreshUiLanguage()
+  }, [activeBook?.id, bookState, uiLanguage])
   // 进行中或排队中的请求：用于禁用发送、显示停止按钮与阻止重复入队。
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
@@ -1424,16 +1436,17 @@ export default function App(): ReactNode {
   const visibleToc = useMemo(() => {
     const ancestorIds: string[] = []
     return toc.map((item, index) => {
+      const label = readerTitle(item.labelCopy ?? item.label, uiLanguage)
       ancestorIds.length = item.depth
       const hidden = ancestorIds.some((id) => collapsedTocItems.has(id))
       const hasChildren = index + 1 < toc.length && toc[index + 1].depth > item.depth
       const isCurrent = currentChapterHref
         ? tocHrefMatchesCurrent(item.href, currentChapterHref)
-        : Boolean(currentChapterTitle) && item.label === currentChapterTitle
+        : Boolean(currentChapterTitle) && label === currentChapterTitle
       ancestorIds[item.depth] = item.id
-      return { item, index, hidden, hasChildren, isCurrent }
+      return { item, label, index, hidden, hasChildren, isCurrent }
     }).filter((entry) => !entry.hidden)
-  }, [collapsedTocItems, currentChapterHref, currentChapterTitle, toc])
+  }, [collapsedTocItems, currentChapterHref, currentChapterTitle, toc, uiLanguage])
 
   // 标签需要记住每本书上次停在哪一页，而 page 的变更分散在多个回调里；
   // 按 React 官方推荐的渲染期派生写法同步，避免 effect 里的额外渲染级联。
@@ -1552,7 +1565,8 @@ export default function App(): ReactNode {
           })}
         </div>
         <button ref={settingsButtonRef} className="workspace-settings" data-testid="settings-button" type="button" onClick={(event) => openSettings('appearance', event.currentTarget)}><Settings size={17} />{copy('settings.title')}
-          <i className={'connection-status-dot is-' + providerConnection.status} data-testid="provider-connection-status" role="status" aria-label={providerStatusLabel(providerConnection.status)} title={providerConnection.message || providerStatusLabel(providerConnection.status)} />
+          <i className={'connection-status-dot is-' + providerConnection.status} data-testid="provider-connection-status" role="status" aria-label={providerLabel}
+            title={providerDetail?.language === uiLanguage && providerDetail.message ? providerDetail.message : providerLabel} />
         </button><WindowControls />
       </header>
       <div className="session-recovery-stack">
@@ -1661,17 +1675,17 @@ export default function App(): ReactNode {
               {bookState === 'ready' && toc.length === 0 && (
                 <EmptyState icon={<SearchX size={20} />} title={copy('library.tocEmptyTitle')} detail={copy('library.tocEmptyDetail')} />
               )}
-              {visibleToc.map(({ item, index, hasChildren, isCurrent }) => (
+              {visibleToc.map(({ item, label, index, hasChildren, isCurrent }) => (
                 <div className="toc-row" style={{ '--toc-depth': Math.min(item.depth, 3) } as CSSProperties} key={`${item.id}-${index}`}>
-                  <button className={`toc-item ${isCurrent ? 'is-current' : ''}`} data-testid="toc-item" data-current={isCurrent ? 'true' : undefined} aria-current={isCurrent ? 'true' : undefined} data-toc-id={item.id} type="button" onClick={() => void navigateToToc(item.href, item.label)} title={item.label}>
-                    <span>{item.label}</span>
+                  <button className={`toc-item ${isCurrent ? 'is-current' : ''}`} data-testid="toc-item" data-current={isCurrent ? 'true' : undefined} aria-current={isCurrent ? 'true' : undefined} data-toc-id={item.id} type="button" onClick={() => void navigateToToc(item.href, item.labelCopy ?? item.label)} title={label}>
+                    <span>{label}</span>
                   </button>
                   {hasChildren && (
                     <button
                       className="toc-disclosure"
                       data-testid="toc-disclosure"
                       type="button"
-                      aria-label={copy(collapsedTocItems.has(item.id) ? 'library.tocExpandAria' : 'library.tocCollapseAria', { title: item.label })}
+                      aria-label={copy(collapsedTocItems.has(item.id) ? 'library.tocExpandAria' : 'library.tocCollapseAria', { title: label })}
                       aria-expanded={!collapsedTocItems.has(item.id)}
                       onClick={() => setCollapsedTocItems((current) => {
                         const next = new Set(current)
@@ -1751,7 +1765,7 @@ export default function App(): ReactNode {
                     key={`${result.anchor}-${index}`}
                     onClick={() => void navigateToSearchResult(result)}
                   >
-                    <span>{result.chapterTitle || copy('common.currentChapter')}</span>
+                    <span>{readerTitle(result.chapterTitleCopy ?? result.chapterTitle, uiLanguage) || copy('common.currentChapter')}</span>
                     <p>
                       {splitSearchExcerpt(result.excerpt, executedSearchQuery).map((segment, segmentIndex) => (
                         segment.hit
