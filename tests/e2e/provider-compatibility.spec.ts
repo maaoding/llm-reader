@@ -39,6 +39,7 @@ test('Go proxy drafts, profile switching and persisted settings work in both the
     let page = launched.page
     await page.getByTestId('settings-button').click()
     await page.getByTestId('settings-nav-model').click()
+    await page.getByTestId('provider-adapter').locator('summary').click()
     await expect(page.getByTestId('provider-compatibility')).toHaveValue('auto')
     await page.getByTestId('provider-profile-name').fill('Go 中转')
     await page.getByTestId('provider-base-url').fill(endpoint)

@@ -315,7 +315,7 @@ test('keeps the home quiet and applies unified appearance, reading and provider 
     await expect(providerStatus).toHaveAttribute('aria-label', 'API 未配置')
     await expect(providerStatus).not.toHaveClass(/is-connected/u)
     const initialStatusColor = await providerStatus.evaluate((element) => getComputedStyle(element).backgroundColor)
-    expect(initialStatusColor).toBe('rgb(174, 74, 65)')
+    expect(initialStatusColor).toBe('rgb(113, 129, 138)')
     await page.keyboard.press('Control+,')
     await expect(page.getByTestId('settings-modal')).toHaveCount(0)
     await page.keyboard.press('Control+O')
@@ -460,7 +460,7 @@ test('shows an import welcome for an empty library and keeps quiet once books ex
 
     const welcome = page.getByTestId('library-list').locator('.empty-state')
     await expect(welcome).toBeVisible()
-    await expect(welcome.locator('strong')).toHaveText('书库为空')
+    await expect(welcome.locator('strong')).toHaveText('从一本书开始')
     await expect(welcome).toContainText('导入')
     await expect(page.getByTestId('import-book')).toBeVisible()
 

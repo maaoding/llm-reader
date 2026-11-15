@@ -33,7 +33,7 @@ async function selectNodeContents(locator: Locator): Promise<void> {
 }
 
 async function configureProvider(page: Page): Promise<void> {
-  await page.getByTestId('settings-button').click()
+  if (!await page.getByTestId('settings-modal').isVisible()) await page.getByTestId('settings-button').click()
   await page.getByTestId('settings-nav-model').click()
   await page.getByTestId('provider-profile-name').fill('连接状态测试')
   await page.getByTestId('provider-base-url').fill(endpoint)

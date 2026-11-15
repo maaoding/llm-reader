@@ -4,6 +4,8 @@ import { BookImportDialog } from './BookImportDialog'
 import { PdfSelectionReviewDialog, PdfImageRegionReviewDialog } from './PdfSelectionReviewDialog'
 import { ConversationPane, AssistantContextControls, AssistantScopeControls } from './ConversationPane'
 import { EmptyState } from './EmptyState'
+import { ReadingGuide, AnswerGuide } from './ReadingGuide'
+import { useReadingGuide } from './use-reading-guide'
 import { useAppPreferences } from './use-app-preferences'
 import { useBookImport } from './use-book-import'
 import { useSelectionToolbar } from './use-selection-toolbar'
@@ -113,6 +115,14 @@ interface ToastState {
   message: string
 }
 
+interface PendingSelectionAction {
+  tabId: string
+  conversationId: string
+  source: ReaderSource
+  action: LlmAction
+  question: string
+}
+
 function tocHrefMatchesCurrent(itemHref: string, currentHref: string | null): boolean {
   return Boolean(currentHref && itemHref.trim() === currentHref.trim())
 }
@@ -172,6 +182,7 @@ export default function App(): ReactNode {
   const [leftPanelOpen, setLeftPanelOpen] = useState(false)
   const [libraryQuery, setLibraryQuery] = useState('')
   const [preparationBookId, setPreparationBookId] = useState<string | null>(null)
+  const [guidedPreparation, setGuidedPreparation] = useState(false)
   const [pdfDisplayOpen, setPdfDisplayOpen] = useState(false)
   const [ocrReadingOpen, setOcrReadingOpen] = useState(false)
   const ocrReadingToggleRef = useRef<HTMLButtonElement>(null)
@@ -207,6 +218,7 @@ export default function App(): ReactNode {
   const [currentChapterTitle, setCurrentChapterTitle] = useState('')
   const [currentChapterHref, setCurrentChapterHref] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [pendingSelectionAction, setPendingSelectionAction] = useState<PendingSelectionAction | null>(null)
   const [settingsInitialService, setSettingsInitialService] = useState<'document' | 'embedding'>()
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>('appearance')
   const assistantDialogOpen = page === 'conversation' || page === 'archives'
@@ -253,6 +265,7 @@ export default function App(): ReactNode {
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const openSettings = useCallback((section: SettingsSectionId, trigger: HTMLButtonElement, service?: 'document' | 'embedding'): void => {
+    setToast(null)
     settingsReturnFocusRef.current = trigger
     setSettingsInitialService(service)
     setSettingsInitialSection(section)
@@ -265,7 +278,9 @@ export default function App(): ReactNode {
     setDetailsBook(book)
   }, [])
   useDialogFocus(Boolean(preparationBookId) && !settingsOpen, closePreparation, preparationDialogRef, preparationReturnRef)
-  const openPreparation = useCallback((bookId: string, trigger?: HTMLButtonElement): void => {
+  const openPreparation = useCallback((bookId: string, trigger?: HTMLButtonElement, guided = false): void => {
+    setToast(null)
+    setGuidedPreparation(guided)
     preparationReturnRef.current = trigger ?? document.activeElement as HTMLButtonElement
     setPreparationBookId(bookId)
   }, [])
@@ -303,7 +318,8 @@ export default function App(): ReactNode {
     setToast(null)
   }, [])
 
-  const { provider, providerOverview, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult } = useProviderConnection(pushToast)
+  const { provider, providerOverview, providerLoaded, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult } = useProviderConnection(pushToast)
+  const readingGuide = useReadingGuide(libraryState === 'ready' && providerLoaded, books.length > 0 || providerOverview.profiles.length > 0)
 
   useEffect(() => {
     readingPreferencesRef.current = effectiveReadingPreferences
@@ -399,6 +415,7 @@ export default function App(): ReactNode {
   }, [flushProgress])
 
   const destroyReader = useCallback((): void => {
+    setPendingSelectionAction(null)
     invalidateSearch()
     if (progressTimerRef.current) {
       clearTimeout(progressTimerRef.current)
@@ -757,29 +774,29 @@ export default function App(): ReactNode {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [assistantDialogOpen, bookState, detailsBook, openSearchView, settingsOpen])
 
-  const enqueueRequest = async (action: LlmAction, question: string, tabId: string, sourceSelection?: ReaderSource, replaceTurnId?: string): Promise<void> => {
+  const enqueueRequest = async (action: LlmAction, question: string, tabId: string, sourceSelection?: ReaderSource, replaceTurnId?: string): Promise<boolean> => {
     const cleanQuestion = question.trim()
-    if (!cleanQuestion) return
+    if (!cleanQuestion || !providerIsConfigured(provider)) return false
     let tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
-    if (!tab || closingRef.current || tabHasActiveRequest(tab.id)) return
+    if (!tab || closingRef.current || tabHasActiveRequest(tab.id)) return false
     const scope = sourceSelection ? 'selection' : tab.scope
     const context = scope === 'book' ? null : sourceSelection ?? tab.selection
-    if (scope === 'selection' && !context) return
+    if (scope === 'selection' && !context) return false
 
     let imageDataUrl: string | undefined
     if (isPdfImageRegion(context)) {
       try {
         imageDataUrl = await adapterRef.current?.captureImageRegion?.(context)
         if (!imageDataUrl) throw new Error(copy('visual.renderFailed'))
-      } catch { pushToast(copy('visual.renderFailed'), 'error'); return }
+      } catch { pushToast(copy('visual.renderFailed'), 'error'); return false }
     }
-    if (closingRef.current || tabHasActiveRequest(tab.id) || conversationTabsRef.current.find((candidate) => candidate.id === tabId) !== tab) return
+    if (closingRef.current || tabHasActiveRequest(tab.id) || conversationTabsRef.current.find((candidate) => candidate.id === tabId) !== tab) return false
     const newContext = scope !== tab.scope || (scope === 'selection' && tab.selection?.anchor !== context?.anchor)
     if (newContext) {
-      if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) return
+      if (!await replaceSession(tab, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) return false
       tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)!
     }
-    if (closingRef.current || tabHasActiveRequest(tab.id)) return
+    if (closingRef.current || tabHasActiveRequest(tab.id)) return false
     const conversationId = tab.conversationId
     const priorTurns = newContext ? [] : tab.turns.filter((turn) => turn.id !== replaceTurnId && turn.status === 'completed' && turn.answer)
     const requestId = createId()
@@ -824,6 +841,7 @@ export default function App(): ReactNode {
         { role: 'assistant' as const, content: item.answer.slice(-20_000) }
       ])
     }, getProviderRevision())
+    return true
   }
   // 划词工具栏跟随选区:出现时同步定位,滚动/缩放时按帧重算并直接写样式,
   // 避免经过 React 状态造成级联渲染。
@@ -832,10 +850,20 @@ export default function App(): ReactNode {
     selection, ready: bookState === 'ready', interfaceScale
   })
 
-  const handleSelectionAction = async (action: LlmAction): Promise<void> => {
+  const handleSelectionAction = async (action: LlmAction, trigger: HTMLButtonElement): Promise<void> => {
     if (compactWindow) setLeftPanelOpen(false)
     if (!selection || !activeBook) return
     const liveTabId = ensureLiveTab(activeBook)
+    readingGuide.dismiss('reading')
+    if (action !== 'ask' && !providerIsConfigured(provider)) {
+      const tab = conversationTabsRef.current.find((item) => item.id === liveTabId)
+      if (!tab || tabHasActiveRequest(tab.id)) return
+      setPendingSelectionAction({ tabId: tab.id, conversationId: tab.conversationId, source: selection, action,
+        question: isPdfImageRegion(selection) ? copy('assistant.pdfRegionPrompt') : assistantActions[action].prompt })
+      openSettings('model', trigger)
+      return
+    }
+    setPendingSelectionAction(null)
     if (action === 'ask') {
       const liveTab = conversationTabsRef.current.find((tab) => tab.id === liveTabId)
       if (!liveTab || tabHasActiveRequest(liveTab.id)) return
@@ -848,6 +876,17 @@ export default function App(): ReactNode {
       return
     }
     await enqueueRequest(action, isPdfImageRegion(selection) ? copy('assistant.pdfRegionPrompt') : assistantActions[action].prompt, liveTabId, selection)
+  }
+
+  const continueSelectionAction = async (): Promise<void> => {
+    const pending = pendingSelectionAction
+    if (!pending) return
+    const tab = conversationTabsRef.current.find((item) => item.id === pending.tabId)
+    if (activeBookRef.current?.id !== pending.source.bookId || tab?.conversationId !== pending.conversationId) {
+      setPendingSelectionAction(null)
+      return
+    }
+    if (await enqueueRequest(pending.action, pending.question, pending.tabId, pending.source)) setPendingSelectionAction(null)
   }
 
   const submitTabQuestion = (tabId: string): void => {
@@ -1286,6 +1325,9 @@ export default function App(): ReactNode {
   const sidebarTab = activeBook
     ? activeConversationTab?.bookId === activeBook.id ? activeConversationTab : conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id)
     : undefined
+  const pendingActionVisible = pendingSelectionAction && pendingSelectionAction.source.bookId === activeBook?.id &&
+    conversationTabs.some((tab) => tab.id === pendingSelectionAction.tabId && tab.conversationId === pendingSelectionAction.conversationId)
+  const pendingActionLabel = pendingSelectionAction ? copy('guide.continue') + ' ' + assistantActionLabel(assistantActions, pendingSelectionAction.action) : ''
   useEffect(() => {
     if (activeBook?.id) void refreshAnalysis(activeBook.id)
     if (activeConversationTab?.bookId && activeConversationTab.bookId !== activeBook?.id) void refreshAnalysis(activeConversationTab.bookId)
@@ -1310,6 +1352,20 @@ export default function App(): ReactNode {
       : tab
     const context = scope === 'selection' ? (selection?.bookId === tab.bookId ? selection : tab.selection) : null
     if (await replaceSession(target, async () => ({ conversationId: crypto.randomUUID(), scope, selection: context, turns: [], draft: '', persona: defaultPersona(personaSettings), webSearch: webSearchEnabled ? 'auto' : 'off' }))) focusConversationTab(target.id)
+  }
+  const askPreparedBook = async (book: BookRecord): Promise<void> => {
+    if (activeBookRef.current?.id !== book.id) await openBook(book, 'reading')
+    const tabId = ensureLiveTab(book)
+    const tab = conversationTabsRef.current.find((item) => item.id === tabId)
+    if (!tab) return
+    if (tab.scope !== 'book') await changeConversationScope(tab, 'book')
+    if (conversationTabsRef.current.find((item) => item.id === tabId)?.scope !== 'book') return
+    setPendingSelectionAction(null)
+    readingGuide.dismiss('reading')
+    focusConversationTab(tabId)
+    closePreparation()
+    setPage('reading')
+    requestAnimationFrame(() => followupRef.current?.focus())
   }
   const listRecentConversations = async (tab: ConversationTab) => {
     const current = conversationTabsRef.current.find((item) => item.id === tab.id)
@@ -1561,7 +1617,12 @@ export default function App(): ReactNode {
                 />
               )}
               {libraryState === 'ready' && books.length === 0 && (
-                <EmptyState icon={<BookOpen size={20} />} title={copy('library.emptyTitle')} detail={copy('library.emptyDetail')} />
+                <EmptyState icon={<BookOpen size={24} />} title={copy('reader.welcomeTitle')} detail={copy('guide.importDetail')}
+                  action={<div className="library-getting-started">
+                    <button className="primary-button" data-testid="library-first-import" type="button" disabled={importing} onClick={(event) => void importBooks(event.currentTarget)}><Import size={16} />{copy('guide.importButton')}</button>
+                    <p>{copy('guide.formatsHint')}</p>
+                    <button className="text-button" type="button" data-testid="library-quick-start" onClick={(event) => openSettings('about', event.currentTarget)}>{copy('guide.quickStart')}</button>
+                  </div>} />
               )}
               {books.length > 0 && !filteredBooks.length && <EmptyState icon={<SearchX size={20} />} title={copy('workspace.libraryNoResults')} detail={copy('workspace.libraryNoResultsHint')} />}
               {filteredBooks.map((book) => (
@@ -1813,12 +1874,12 @@ export default function App(): ReactNode {
             >
               <span className="selection-spark"><Sparkles size={15} /></span>
               {isPdfImageRegion(selection) ? <>
-                <button data-testid="action-visual-explain" type="button" onClick={() => handleSelectionAction('explain')}><Sparkles size={15} />{copy('visual.explain')}</button>
-                <button data-testid="action-visual-ask" type="button" onClick={() => handleSelectionAction('ask')}><MessageSquareText size={15} />{copy('visual.ask')}</button>
+                <button data-testid="action-visual-explain" type="button" onClick={(event) => void handleSelectionAction('explain', event.currentTarget)}><Sparkles size={15} />{copy('visual.explain')}</button>
+                <button data-testid="action-visual-ask" type="button" onClick={(event) => void handleSelectionAction('ask', event.currentTarget)}><MessageSquareText size={15} />{copy('visual.ask')}</button>
               </> : <>
-                <button data-testid="action-explain" data-icon={assistantActions.explain.icon} type="button" title={assistantActions.explain.label} onClick={() => handleSelectionAction('explain')}><AssistantActionIconView icon={assistantActions.explain.icon} size={15} />{assistantActions.explain.label}</button>
-                <button data-testid="action-context" data-icon={assistantActions.context.icon} type="button" title={assistantActions.context.label} onClick={() => handleSelectionAction('context')}><AssistantActionIconView icon={assistantActions.context.icon} size={15} />{assistantActions.context.label}</button>
-                <button data-testid="action-ask" data-icon={assistantActions.ask.icon} type="button" title={assistantActions.ask.label} onClick={() => handleSelectionAction('ask')}><AssistantActionIconView icon={assistantActions.ask.icon} size={15} />{assistantActions.ask.label}</button>
+                <button data-testid="action-explain" data-icon={assistantActions.explain.icon} type="button" title={assistantActions.explain.label} onClick={(event) => void handleSelectionAction('explain', event.currentTarget)}><AssistantActionIconView icon={assistantActions.explain.icon} size={15} />{assistantActions.explain.label}</button>
+                <button data-testid="action-context" data-icon={assistantActions.context.icon} type="button" title={assistantActions.context.label} onClick={(event) => void handleSelectionAction('context', event.currentTarget)}><AssistantActionIconView icon={assistantActions.context.icon} size={15} />{assistantActions.context.label}</button>
+                <button data-testid="action-ask" data-icon={assistantActions.ask.icon} type="button" title={assistantActions.ask.label} onClick={(event) => void handleSelectionAction('ask', event.currentTarget)}><AssistantActionIconView icon={assistantActions.ask.icon} size={15} />{assistantActions.ask.label}</button>
                 <button data-testid="action-save-highlight" type="button" onClick={() => void saveSelectionHighlight()}><Bookmark size={15} />{copy('assistant.actionSaveHighlight')}</button>
               </>}
               <button className="toolbar-close" type="button" onClick={() => { adapterRef.current?.clearSelection(); setSelection(null) }} aria-label={copy('assistant.selectionCloseAria')}><X size={14} /></button>
@@ -1844,8 +1905,21 @@ export default function App(): ReactNode {
           </div>
         </header>
 
+        {!assistantDialogOpen && pendingActionVisible && pendingSelectionAction && <section className="pending-selection-action" data-testid="pending-selection-action" role="status">
+          <button className="icon-button guide-dismiss" type="button" data-testid="pending-action-dismiss" aria-label={copy('guide.cancelAction')} onClick={() => setPendingSelectionAction(null)}><X size={14} /></button>
+          <p>{copy(providerIsConfigured(provider) ? 'guide.pendingReady' : 'guide.pendingModel')}</p>
+          <button className="secondary-button" type="button" data-testid="pending-action-continue" disabled={Boolean(streamingRequestId(sidebarTab))}
+            onClick={(event) => { if (providerIsConfigured(provider)) void continueSelectionAction(); else openSettings('model', event.currentTarget) }}>
+            {providerIsConfigured(provider) ? pendingActionLabel : copy('preparation.configureModel')}
+          </button>
+        </section>}
         {!assistantDialogOpen && (
           <ConversationPane
+            emptyState={!pendingActionVisible && readingGuide.showReading && bookState === 'ready' ? <ReadingGuide
+              onDismiss={() => readingGuide.dismiss('reading')}
+              onSelection={() => { readingGuide.dismiss('reading'); if (sidebarTab) void changeConversationScope(sidebarTab, 'selection'); pushToast(copy('guide.selectHint')) }}
+              onPrepare={(trigger) => { readingGuide.dismiss('reading'); if (activeBook) openPreparation(activeBook.id, trigger, true) }} /> : undefined}
+            completionHint={readingGuide.showAnswer ? <AnswerGuide onDismiss={() => readingGuide.dismiss('answer')} /> : undefined}
             scope={sidebarTab?.scope}
             controls={<AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />}
             composerControls={sidebarTab && (sidebarTab.kind !== 'live' || loadedSessions.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
@@ -1862,8 +1936,9 @@ export default function App(): ReactNode {
             onDraftChange={(value) => {
               if (sidebarTab) updateConversationTab(sidebarTab.id, (tab) => ({ ...tab, draft: value }))
             }}
-            onNavigate={(anchor, chapterTitle) => void navigateToAnchor(anchor, false, chapterTitle)}
+            onNavigate={(anchor, chapterTitle) => { readingGuide.dismiss('answer'); void navigateToAnchor(anchor, false, chapterTitle) }}
             onSave={(turn) => {
+              readingGuide.dismiss('answer')
               if (sidebarTab) void saveTurn(sidebarTab.id, turn)
             }}
             showSave={sidebarTab?.kind === 'live'}
@@ -1882,7 +1957,8 @@ export default function App(): ReactNode {
           <header className="modal-header"><div><h2 id="preparation-title">{copy('preparation.title')}</h2><p title={preparationBook.title}>{preparationBook.title}</p></div><button className="icon-button" type="button" data-testid="preparation-close" aria-label={copy('preparation.close')} onClick={closePreparation}><X size={18} /></button></header>
           <BookAnalysisControls key={preparationBook.id} book={preparationBook} state={analysis.states[preparationBook.id]} error={analysis.errors[preparationBook.id]} profiles={providerOverview} suspended={settingsOpen}
             onStart={(profileId, rebuild) => analysis.start(preparationBook.id, profileId, rebuild)} onCancel={() => void analysis.cancel(preparationBook.id)}
-            onPrepare={(rebuild) => analysis.prepare(preparationBook.id, rebuild)} onCancelPreparation={() => void analysis.cancelPreparation(preparationBook.id)} onConfigure={openSettings} />
+            onPrepare={(rebuild) => analysis.prepare(preparationBook.id, rebuild)} onCancelPreparation={() => void analysis.cancelPreparation(preparationBook.id)} onConfigure={openSettings}
+            onAsk={() => void askPreparedBook(preparationBook)} collapseOptionalAfterReady={guidedPreparation} />
         </section>
       </div>}
       {selectionDraft && <PdfSelectionReviewDialog draft={selectionDraft} />}
@@ -2055,6 +2131,15 @@ export default function App(): ReactNode {
           onWebSearchChange={setWebSearchEnabled}
           returnFocusRef={settingsReturnFocusRef}
           onClose={closeSettings}
+          continueLabel={pendingActionVisible ? pendingActionLabel : copy('guide.returnReading')}
+          onContinue={activeBook ? () => {
+            closeSettings()
+            closePreparation()
+            setPage('reading')
+            if (pendingActionVisible) void continueSelectionAction()
+            else requestAnimationFrame(() => followupRef.current?.focus())
+          } : undefined}
+          onReplayGuide={() => { readingGuide.replay(); closeSettings(); setPage(activeBook ? 'reading' : 'library') }}
           onOverviewChange={handleProviderOverviewChange}
           onThemeChange={setThemePreference}
           onInterfaceScaleChange={setInterfaceScale}

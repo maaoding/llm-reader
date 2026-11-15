@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { QuickStart } from './ReadingGuide'
 import { AlertCircle, BookOpen, Check, Cpu, Info, LoaderCircle, MessageSquareText, Palette, Plus, RefreshCw, Save, Sparkles, Trash2, Unplug, X } from 'lucide-react'
 import type { AppUpdatePhase, PersonaSettings, ProviderCompatibility, ProviderOverview, ProviderProfile, ProviderProtocol, RequestSettingsInput, TextReadingMode } from '@shared/contracts'
 import { copy, type CopyKey, type UiLanguage } from '@shared/copy'
@@ -251,7 +252,7 @@ function updateStatusText(phase: AppUpdatePhase): string {
   }
 }
 
-function AboutPanel(): ReactNode {
+function AboutPanel({ onReplayGuide }: { onReplayGuide?: () => void }): ReactNode {
   const [version, setVersion] = useState('')
   const [updatePhase, setUpdatePhase] = useState<AppUpdatePhase | null>(null)
   const [updateBusy, setUpdateBusy] = useState(false)
@@ -323,6 +324,7 @@ function AboutPanel(): ReactNode {
 
   return (
     <section className="settings-section about-panel" id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about">
+      <QuickStart onReplay={onReplayGuide} />
       <div className="about-brand" aria-hidden="true"><img src={appIcon} alt="" draggable={false} /></div>
       <h3 id="about-settings-title">{copy('app.name')}</h3>
       <p className="about-copyright">{copy('about.copyright')}</p>
@@ -398,6 +400,9 @@ export function SettingsModal({
   personaSettings,
   returnFocusRef,
   onClose,
+  onContinue,
+  continueLabel,
+  onReplayGuide,
   onOverviewChange,
   onThemeChange,
   onInterfaceScaleChange,
@@ -422,6 +427,9 @@ export function SettingsModal({
   personaSettings: PersonaSettings
   returnFocusRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
+  onContinue?: () => void
+  continueLabel?: string
+  onReplayGuide?: () => void
   onOverviewChange: (overview: ProviderOverview, checkActive: boolean) => void
   onThemeChange: (preference: ThemePreference) => void
   onInterfaceScaleChange: (scale: InterfaceScale) => void
@@ -433,14 +441,15 @@ export function SettingsModal({
   onWebSearchChange?: (enabled: boolean) => void
   pushToast: (message: string, tone?: 'success' | 'error' | 'neutral') => void
 }): ReactNode {
+  const providerFormId = useId()
   const initiallySelected = initialOverview.profiles.find((profile) => profile.id === initialOverview.activeProfileId)
     ?? initialOverview.profiles[0]
     ?? null
   const [overview, setOverview] = useState(initialOverview)
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(initiallySelected?.id ?? null)
-  const [profileName, setProfileName] = useState(initiallySelected?.name ?? '')
+  const [profileName, setProfileName] = useState(initiallySelected?.name ?? copy('settings.defaultProfileName'))
   const [baseUrl, setBaseUrl] = useState(initiallySelected?.baseUrl ?? 'https://api.openai.com')
-  const [model, setModel] = useState(initiallySelected?.model ?? 'gpt-4.1-mini')
+  const [model, setModel] = useState(initiallySelected?.model ?? '')
   const [compatibility, setCompatibility] = useState<ProviderCompatibility>(initiallySelected?.compatibility ?? 'auto')
   const [protocol, setProtocol] = useState<ProviderProtocol>(initiallySelected?.protocol ?? 'openai')
   const [requestSettings, setRequestSettings] = useState<RequestSettingsInput>(publicRequestSettings(initiallySelected ?? {}))
@@ -449,9 +458,9 @@ export function SettingsModal({
   const [baseline, setBaseline] = useState({
     protocol: initiallySelected?.protocol ?? 'openai' as ProviderProtocol,
     requestSettings: JSON.stringify(publicRequestSettings(initiallySelected ?? {})),
-    name: initiallySelected?.name ?? '',
+    name: initiallySelected?.name ?? copy('settings.defaultProfileName'),
     baseUrl: initiallySelected?.baseUrl ?? 'https://api.openai.com',
-    model: initiallySelected?.model ?? 'gpt-4.1-mini',
+    model: initiallySelected?.model ?? '',
     compatibility: initiallySelected?.compatibility ?? 'auto' as ProviderCompatibility
   })
   const [keyDirty, setKeyDirty] = useState(false)
@@ -476,9 +485,11 @@ export function SettingsModal({
 
   const confirmDiscard = (): boolean => !dirty || window.confirm(copy('settings.discardChanges'))
 
+  const confirmClose = useCallback((): boolean => (!dirty && !knowledgeDirty && !personaDirty) || window.confirm(copy('settings.discardChanges')),
+    [dirty, knowledgeDirty, personaDirty])
   const requestClose = useCallback((): void => {
-    if ((!dirty && !knowledgeDirty && !personaDirty) || window.confirm(copy('settings.discardChanges'))) onClose()
-  }, [dirty, knowledgeDirty, personaDirty, onClose])
+    if (confirmClose()) onClose()
+  }, [confirmClose, onClose])
 
   useDialogFocus(true, requestClose, dialogRef, returnFocusRef)
 
@@ -539,7 +550,7 @@ export function SettingsModal({
       protocol: active?.protocol ?? 'openai' as ProviderProtocol,
       requestSettings: '{}',
       baseUrl: active?.baseUrl ?? 'https://api.openai.com',
-      model: active?.model ?? 'gpt-4.1-mini',
+      model: active?.model ?? '',
       compatibility: 'auto' as ProviderCompatibility
     }
     setSelectedProfileId(null)
@@ -976,7 +987,7 @@ export function SettingsModal({
                   onSaved={() => pushToast(copy('persona.saved'), 'success')} onDirtyChange={setPersonaDirty} />
               </section>
 
-            {activeSection === 'about' && <AboutPanel />}
+            {activeSection === 'about' && <AboutPanel onReplayGuide={onReplayGuide ? () => { if (confirmClose()) onReplayGuide() } : undefined} />}
             <KnowledgeSettings hidden={activeSection !== 'knowledge'} onDirty={setKnowledgeDirty} initialService={initialService} onWebSearchChange={onWebSearchChange} />
 
             <section
@@ -987,9 +998,9 @@ export function SettingsModal({
               hidden={activeSection !== 'model'}
             >
                 <h3 id="model-settings-title">{copy('settings.modelTitle')}</h3>
-                <p className="field-hint">{copy('settings.modelSaveHint')}</p>
-                <form onSubmit={handleSave}>
-                  <div className="provider-profile-toolbar">
+                <p className="field-hint">{copy(initialOverview.profiles.length === 0 ? 'settings.firstModelHint' : 'settings.modelSaveHint')}</p>
+                <form id={providerFormId} onSubmit={handleSave}>
+                  <div className="provider-profile-toolbar" hidden={overview.profiles.length === 0}>
                     <div className="provider-profile-select">
                       <label className="field-label" htmlFor="provider-profile">{copy('settings.profileLabel')}</label>
                       <Select
@@ -1036,18 +1047,6 @@ export function SettingsModal({
                   {overview.profiles.length >= 10 && <p className="field-hint">{copy('settings.profileLimit')}</p>}
                   {dirty && <p className="field-hint" data-testid="provider-dirty-hint">{copy('settings.unsavedHint')}</p>}
 
-                  <label className="field-label" htmlFor="provider-profile-name">{copy('settings.profileNameLabel')}</label>
-                  <input
-                    id="provider-profile-name"
-                    data-testid="provider-profile-name"
-                    value={profileName}
-                    onChange={(event) => setProfileName(event.target.value)}
-                    disabled={busy !== null}
-                    placeholder={copy('settings.profileNamePlaceholder')}
-                    maxLength={60}
-                    required
-                  />
-
                   <label className="field-label" htmlFor="provider-protocol">{copy('request.protocol')}</label>
                   <Select id="provider-protocol" data-testid="provider-protocol" value={protocol} disabled={busy !== null}
                     onChange={(event) => {
@@ -1082,41 +1081,6 @@ export function SettingsModal({
                   />
                   <p className="field-hint">{copy('settings.baseUrlHint', { path: protocol === 'anthropic' ? '/v1/messages' : '/v1/chat/completions' })}</p>
 
-                  <label className="field-label" htmlFor="provider-compatibility">{copy('settings.compatibilityLabel')}</label>
-                  <Select id="provider-compatibility" data-testid="provider-compatibility" value={compatibility} disabled={busy !== null}
-                    onChange={(event) => {
-                      setCompatibility(event.target.value as ProviderCompatibility)
-                      modelCacheRef.current.delete(cacheKey(selectedProfileId))
-                      setModelOptions([])
-                      setModelStatus(null)
-                      setStatus(null)
-                    }}>
-                    <option value="auto">{copy('settings.compatibilityAuto')}</option>
-                    <option value="opencode-go">{copy('settings.compatibilityGo')}</option>
-                  </Select>
-                  <p className="field-hint">{copy('settings.compatibilityHint')}</p>
-
-                  <div className="provider-model-heading">
-                    <label className="field-label" htmlFor="provider-model">{copy('settings.modelLabel')}</label>
-                    <button
-                      className="text-button"
-                      data-testid="provider-models-fetch"
-                      type="button"
-                      disabled={busy !== null || requestInvalid || !baseUrl.trim()}
-                      onClick={handleFetchModels}
-                    >
-                      {busy === 'models' ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
-                      {busy === 'models' ? copy('settings.fetchingModels') : copy('settings.fetchModels')}
-                    </button>
-                  </div>
-                  <ModelCombobox value={model} options={modelOptions} disabled={busy !== null}
-                    onChange={(value) => { setModel(value); setStatus(null) }} />
-                  {modelStatus && (
-                    <p className={`field-hint ${modelStatus.ok ? 'is-success-text' : 'is-error-text'}`} data-testid="provider-models-status" role="status">
-                      {modelStatus.message}
-                    </p>
-                  )}
-
                   <div className="label-row">
                     <label className="field-label" htmlFor="provider-api-key">{copy('settings.apiKeyLabel')}</label>
                     {savedKeyMatches && <span className="saved-key"><Check size={12} /> {copy('settings.apiKeySaved')}</span>}
@@ -1139,6 +1103,39 @@ export function SettingsModal({
                   />
                   <p className="field-hint">{copy('settings.apiKeyHint')}</p>
 
+                  <div className="provider-model-heading">
+                    <label className="field-label" htmlFor="provider-model">{copy('settings.modelLabel')}</label>
+                    <button
+                      className="text-button"
+                      data-testid="provider-models-fetch"
+                      type="button"
+                      disabled={busy !== null || requestInvalid || !baseUrl.trim()}
+                      onClick={handleFetchModels}
+                    >
+                      {busy === 'models' ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
+                      {busy === 'models' ? copy('settings.fetchingModels') : copy('settings.fetchModels')}
+                    </button>
+                  </div>
+                  <ModelCombobox value={model} options={modelOptions} disabled={busy !== null}
+                    onChange={(value) => { setModel(value); setStatus(null) }} />
+                  {modelStatus && (
+                    <p className={`field-hint ${modelStatus.ok ? 'is-success-text' : 'is-error-text'}`} data-testid="provider-models-status" role="status">
+                      {modelStatus.message}
+                    </p>
+                  )}
+
+                  <label className="field-label" htmlFor="provider-profile-name">{copy('settings.profileNameLabel')}</label>
+                  <input
+                    id="provider-profile-name"
+                    data-testid="provider-profile-name"
+                    value={profileName}
+                    onChange={(event) => setProfileName(event.target.value)}
+                    disabled={busy !== null}
+                    placeholder={copy('settings.profileNamePlaceholder')}
+                    maxLength={60}
+                    required
+                  />
+
                   {status && (
                     <div className={`provider-status ${status.ok ? 'is-success' : 'is-error'}`} data-testid="provider-status" role="status">
                       {status.ok ? <Check size={16} /> : <AlertCircle size={16} />}
@@ -1146,6 +1143,22 @@ export function SettingsModal({
                     </div>
                   )}
 
+                  <details className="provider-adapter" data-testid="provider-adapter" open={Boolean(initiallySelected)}>
+                    <summary>{copy('settings.optionalAdapter')}</summary>
+                    <label className="field-label" htmlFor="provider-compatibility">{copy('settings.compatibilityLabel')}</label>
+                    <Select id="provider-compatibility" data-testid="provider-compatibility" value={compatibility} disabled={busy !== null}
+                      onChange={(event) => {
+                        setCompatibility(event.target.value as ProviderCompatibility)
+                        modelCacheRef.current.delete(cacheKey(selectedProfileId))
+                        setModelOptions([])
+                        setModelStatus(null)
+                        setStatus(null)
+                      }}>
+                      <option value="auto">{copy('settings.compatibilityAuto')}</option>
+                      <option value="opencode-go">{copy('settings.compatibilityGo')}</option>
+                    </Select>
+                    <p className="field-hint">{copy('settings.compatibilityHint')}</p>
+                  </details>
                   <fieldset disabled={busy !== null} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
                     <RequestSettingsEditor key={selectedProfileId + ':' + requestEditorRevision + ':' + baseUrl + ':' + protocol} id="provider" value={requestSettings}
                       savedHeaders={selectedProfile?.hasCustomHeaders && selectedProfile.baseUrl === baseUrl && (selectedProfile.protocol ?? 'openai') === protocol}
@@ -1154,46 +1167,53 @@ export function SettingsModal({
                         modelCacheRef.current.delete(cacheKey(selectedProfileId))
                       }} />
                   </fieldset>
-                  <footer className="modal-actions provider-modal-actions">
-                    <button
-                      className="secondary-button"
-                      data-testid="provider-test"
-                      type="button"
-                      disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
-                      onClick={() => void handleTest()}
-                    >
-                      {busy === 'test' ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}
-                      {copy('settings.testConnection')}
-                    </button>
-                    <button className="secondary-button" data-testid="provider-test-stream" type="button"
-                      disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
-                      onClick={() => void handleTest('stream')}>{copy('settings.testStream')}</button>
-                    <button
-                      className={selectedProfile?.isActive ? 'secondary-button' : 'primary-button'}
-                      data-testid="provider-activate"
-                      type={!selectedProfile?.isActive && (!selectedProfile || dirty) ? 'submit' : 'button'}
-                      name="action"
-                      value="save-and-use"
-                      disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim() || selectedProfile?.isActive}
-                      onClick={selectedProfile && !dirty ? handleActivate : undefined}
-                    >
-                      {busy === 'activate' || busy === 'save-and-use' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
-                      {selectedProfile?.isActive ? copy('settings.activeProfile') : !selectedProfile || dirty ? copy('settings.saveAndUse') : copy('settings.setActive')}
-                    </button>
-                    <button
-                      className={selectedProfile?.isActive ? 'primary-button' : 'secondary-button'}
-                      data-testid="provider-save"
-                      type="submit"
-                      disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim() || Boolean(selectedProfile && !dirty)}
-                    >
-                      {busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
-                      {copy('settings.save')}
-                    </button>
-                  </footer>
+
                 </form>
             </section>
           </div>
         </div>
+        {activeSection === 'model' && (
+          <footer className="modal-actions provider-modal-actions">
+            <button
+              className="secondary-button"
+              data-testid="provider-test"
+              type="button"
+              disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
+              onClick={() => void handleTest()}
+            >
+              {busy === 'test' ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}
+              {copy('settings.testConnection')}
+            </button>
+            <button className="secondary-button" data-testid="provider-test-stream" type="button"
+              disabled={busy !== null || requestInvalid || !baseUrl.trim() || !model.trim()}
+              onClick={() => void handleTest('stream')}>{copy('settings.testStream')}</button>
+            <button
+              className={selectedProfile?.isActive ? 'secondary-button' : 'primary-button'}
+              data-testid="provider-activate"
+              form={providerFormId}
+              type={!selectedProfile?.isActive && (!selectedProfile || dirty) ? 'submit' : 'button'}
+              name="action"
+              value="save-and-use"
+              disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim() || selectedProfile?.isActive}
+              onClick={selectedProfile && !dirty ? handleActivate : undefined}
+            >
+              {busy === 'activate' || busy === 'save-and-use' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}
+              {selectedProfile?.isActive ? copy('settings.activeProfile') : !selectedProfile || dirty ? copy('settings.saveAndUse') : copy('settings.setActive')}
+            </button>
+            <button
+              className={selectedProfile?.isActive ? 'primary-button' : 'secondary-button'}
+              data-testid="provider-save"
+              form={providerFormId}
+              type="submit"
+              disabled={busy !== null || requestInvalid || !profileName.trim() || !baseUrl.trim() || !model.trim() || Boolean(selectedProfile && !dirty)}
+            >
+              {busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
+              {copy('settings.save')}
+            </button>
+            {onContinue && selectedProfile?.isActive && !dirty && <button className="primary-button" type="button" data-testid="provider-continue" disabled={busy !== null}
+              onClick={() => { if (confirmClose()) onContinue() }}>{continueLabel ?? copy('guide.returnReading')}</button>}
+          </footer>
+        )}
       </section>
     </div>
   )

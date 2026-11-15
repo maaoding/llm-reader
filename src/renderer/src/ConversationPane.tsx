@@ -71,6 +71,8 @@ export function ConversationPane({
   controls,
   scopeControls,
   composerControls,
+  emptyState,
+  completionHint,
   showSave = true,
   blockedReason = '',
   onResolve,
@@ -85,6 +87,8 @@ export function ConversationPane({
   controls?: ReactNode
   scopeControls?: ReactNode
   composerControls?: ReactNode
+  emptyState?: ReactNode
+  completionHint?: ReactNode
   turns: ConversationTurn[]
   provider: ProviderSettings
   activeRequestId: string | null
@@ -135,10 +139,11 @@ export function ConversationPane({
           assistantFollowRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 40
         }}
       >
-        {!conversationSelection && turns.length === 0 && scope !== 'book' && (
+        {!conversationSelection && turns.length === 0 && emptyState}
+        {!emptyState && !conversationSelection && turns.length === 0 && scope !== 'book' && (
           <EmptyState icon={<Sparkles size={21} />} title={copy('assistant.emptyTitle')} detail={copy('assistant.emptyDetail')} />
         )}
-        {!conversationSelection && turns.length === 0 && scope === 'book' && <EmptyState icon={<BookOpen size={21} />} title={copy('assistant.bookEmptyTitle')} detail={copy('assistant.bookEmptyHint')} />}
+        {!emptyState && !conversationSelection && turns.length === 0 && scope === 'book' && <EmptyState icon={<BookOpen size={21} />} title={copy('assistant.bookEmptyTitle')} detail={copy('assistant.bookEmptyHint')} />}
         {conversationSelection && scope !== 'book' && (
           <div className="source-card">
             <div className="source-card-header"><span>{copy('assistant.sourceTitle')}</span><small>{isPdfImageRegion(conversationSelection) ? copy('visual.source', { page: conversationSelection.pageNumber }) : copy('assistant.sourceSummary', { chapter: conversationSelection.chapterTitle || copy('common.currentChapter'), count: selectedPassageCount })}</small></div>
@@ -191,6 +196,7 @@ export function ConversationPane({
           })}
         </div>
       </div>
+      {turns.at(-1)?.status === 'completed' && completionHint}
       <AssistantComposer inputRef={followupRef} draft={draft} onDraftChange={onDraftChange}
         placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')}
         heading={scopeControls} controls={composerControls} blockedReason={blockedReason} resolveLabel={resolveLabel} onResolve={onResolve}

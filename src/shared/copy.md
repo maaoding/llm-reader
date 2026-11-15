@@ -4,6 +4,34 @@
 
 | key | text |
 | --- | --- |
+| guide.optionalEnhancements | 可选增强：章节笔记与含义查找 |
+| guide.readingTitle | 从一段原文开始 |
+| guide.readingDetail | 选中正文中的文字，再点击“解释这段”。想围绕整本书提问时，先准备原文。 |
+| guide.readingOptional | 普通阅读无需模型；章节笔记和含义查找可稍后开启。 |
+| guide.trySelection | 试试划词解释 |
+| guide.tryBook | 准备整本书 |
+| guide.dismiss | 关闭此提示 |
+| guide.selectHint | 在正文中选中一段文字，再点击“解释这段”。 |
+| guide.answerDetail | 点击回答中的有效引用可回到原文核对；有用的回答可以归档，方便以后查阅。 |
+| guide.pendingModel | 已保留选中的原文。配置模型后，可以继续刚才的操作。 |
+| guide.pendingReady | 模型已配置，可以继续刚才的操作。 |
+| guide.continue | 继续： |
+| guide.cancelAction | 取消待继续的操作 |
+| guide.returnReading | 返回阅读 |
+| guide.askBook | 返回并开始提问 |
+| guide.quickStart | 快速开始 |
+| guide.replay | 重新查看使用提示 |
+| guide.importTitle | 导入并阅读 |
+| guide.importDetail | 导入 EPUB、TXT 或 PDF 即可在本机阅读，AI 功能可稍后配置。 |
+| guide.importButton | 导入第一本书 |
+| guide.formatsHint | 也可以将文件拖入窗口。MOBI / AZW3 需要本机安装 Calibre。 |
+| guide.selectionTitle | 选中原文提问 |
+| guide.selectionDetail | 选中文字，点击“解释这段”“联系上下文”或“自由提问”。使用 AI 前配置模型服务，无需先准备整本书。 |
+| guide.bookTitle | 围绕整本书提问 |
+| guide.bookDetail | 打开“本书准备”并准备原文，就绪后切换为“整本书”。章节笔记与含义查找是可选增强；PDF 原文准备需要解析或 OCR 服务。 |
+| settings.firstModelHint | 填写服务商提供的接口地址、密钥和模型，保存后即可使用阅读助手。普通阅读无需配置。 |
+| settings.defaultProfileName | 阅读助手 |
+| settings.optionalAdapter | 请求适配（可选） |
 | reader.markdownFallback | 内容较大或无法完整解析，已按纯文本显示。 |
 | settings.textReadingMode | 当前 TXT 显示方式 |
 | settings.textModeAuto | 自动识别 |
@@ -607,7 +635,7 @@
 | settings.apiKeySaved | 已安全保存 |
 | settings.apiKeyPlaceholderSaved | 留空以继续使用已保存的密钥 |
 | settings.apiKeyPlaceholderEmpty | 输入 API 密钥 |
-| settings.apiKeyHint | 密钥只交给主进程加密保存，不写入书库数据库。 |
+| settings.apiKeyHint | 密钥仅在本机加密保存；自定义认证可在高级请求设置中配置。 |
 | assistant.recentSessions | 最近对话 |
 | assistant.recentSessionsLoading | 正在读取最近对话… |
 | assistant.promptDetails | 查看本次提示词 |
@@ -912,7 +940,7 @@
 | error.requestTimeout | 模型请求超时。 |
 | error.requestStartFailed | 请求未能启动，请检查模型设置。 |
 | error.keyStorageUnavailable | 当前系统无法安全保存 API 密钥。 |
-| error.providerNotConfigured | 请先保存 API 密钥和模型设置。 |
+| error.providerNotConfigured | 请先设置并启用模型服务。 |
 | error.keyReadUnavailable | 当前系统无法读取 API 密钥。 |
 | error.keyDecryptFailed | API 密钥解密失败，请重新保存。 |
 | provider.testConnected | 文本测试通过：已收到有效回复。 |
