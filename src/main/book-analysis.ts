@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as waitForRetry } from 'node:timers/promises'
 import { z } from 'zod'
-import type { BookAnalysisProgress, BookAnalysisState, BookExtractionBatch, BookExtractionInput, ContextSnapshot, DocumentSection, LlmRequest, LlmUsage, Passage, PrepareBookDocumentInput, StartBookAnalysisInput, WebSearchRecord } from '@shared/contracts'
+import { MAX_WORKBENCH_BOOKS, type BookAnalysisProgress, type BookAnalysisState, type BookExtractionBatch, type BookExtractionInput, type ContextSnapshot, type DocumentSection, type DocumentSettings, type LlmRequest, type LlmUsage, type Passage, type PrepareBookDocumentInput, type StartBookAnalysisInput, type WebSearchRecord } from '@shared/contracts'
 import { addUsage, BOOK_ANALYSIS_VERSION, BOOK_EXTRACTION_VERSION, characters, limitText, MAX_BOOK_CHARACTERS, MAX_BOOK_SECTIONS, type SectionNote } from '@shared/book-context'
 import { copy } from '@shared/copy'
 import { BookContextStore, type AnalysisRecord, type BookRetriever } from './book-context-store'
@@ -25,7 +25,7 @@ const noteSchema = z.object({
 })
 // Invalid optional book selection falls back to the request's books without losing
 // otherwise valid chapters and translated terms. Never infer IDs from objects.
-const planSchema = z.object({ chapters: z.array(z.string().max(128)).max(6), terms: z.array(z.string().max(80)).max(8), books: z.array(z.string().max(128)).max(5).optional().catch(undefined) })
+const planSchema = z.object({ chapters: z.array(z.string().max(128)).max(6), terms: z.array(z.string().max(80)).max(8), books: z.array(z.string().max(128)).max(MAX_WORKBENCH_BOOKS).optional().catch(undefined) })
 const webPlanSchema = planSchema.extend({ webSearch: z.object({ needed: z.boolean(), query: z.string().trim().max(400).default('') })
   .refine((value) => !value.needed || Boolean(value.query)) })
 const MAX_ATTEMPTS = 3
@@ -61,6 +61,7 @@ export class BookAnalysisService {
   private active: { bookId: string; jobId: string; controller: AbortController } | undefined
   private preparing: { bookId: string; jobId: string; controller: AbortController; sections?: DocumentSection[] } | undefined
   onState: (state: BookAnalysisState) => void = () => undefined
+  onSettingsChanged: () => void = () => undefined
   constructor(readonly store: BookContextStore, private readonly provider: ProviderService, private readonly llm: LlmService, private readonly retriever: BookRetriever = store, private readonly retryDelayMs = 1_000) {
     store.db.prepare("UPDATE book_analysis SET status = 'paused' WHERE status IN ('extracting', 'analyzing')").run()
     store.db.prepare("UPDATE book_documents SET status = 'paused' WHERE status = 'preparing'").run()
@@ -68,29 +69,30 @@ export class BookAnalysisService {
 
   state(bookId: string): BookAnalysisState {
     const state = this.store.state(bookId)
-    if (state.status === 'unsupported' && this.documents?.enabled()) state.status = 'empty'
-    if (this.semantic) state.semantic = this.semantic.state(bookId)
-    if (this.knowledge) { const config = this.knowledge.get().document; state.documentProcessor = config.enabled ? config.processor : 'none' }
-    if (state.document && this.documents?.usesVision()) state.document.ocrProgress = this.documents.progress(bookId)
+    const settings = this.knowledge?.get()
+    if (state.status === 'unsupported' && this.documents?.enabled(settings?.document)) state.status = 'empty'
+    if (this.semantic) state.semantic = this.semantic.state(bookId, settings?.embedding)
+    if (settings) state.documentProcessor = settings.document.enabled ? settings.document.processor : 'none'
+    if (state.document && this.documents?.usesVision(settings?.document)) state.document.ocrProgress = this.documents.progress(bookId)
     return state
   }
   emit(bookId: string): void { this.onState(this.state(bookId)) }
-  knowledgeChanged(): void {
+  knowledgeChanged(settings?: DocumentSettings): void {
     if (this.preparing && this.store.database.getStoredBook(this.preparing.bookId)?.format === 'pdf') {
       const record = this.store.document(this.preparing.bookId)
       if (record) {
-        if (!this.documents?.enabled()) this.cancelPreparation(record.book_id, copy('knowledge.pdfPausedByDisable'))
-        else if (record.fingerprint !== this.documentFingerprint(record.book_id)) this.cancelPreparation(record.book_id, copy('knowledge.documentChanged'))
+        if (!this.documents?.enabled(settings)) this.cancelPreparation(record.book_id, copy('knowledge.pdfPausedByDisable'))
+        else if (record.fingerprint !== this.documentFingerprint(record.book_id, settings)) this.cancelPreparation(record.book_id, copy('knowledge.documentChanged'))
       }
     }
-    for (const row of this.store.db.prepare('SELECT id FROM books').all()) this.emit(String(row.id))
+    this.onSettingsChanged()
   }
 
-  private documentFingerprint(bookId: string): string {
+  private documentFingerprint(bookId: string, settings?: DocumentSettings): string {
     const book = this.store.database.getStoredBook(bookId)
     if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     return createHash('sha256').update(JSON.stringify([book.sha256, DOCUMENT_STRUCTURE_VERSION,
-      book.format === 'pdf' ? this.documents?.identity() ?? '' : 'local'])).digest('hex')
+      book.format === 'pdf' ? this.documents?.identity(settings) ?? '' : 'local'])).digest('hex')
   }
 
   prepare(input: PrepareBookDocumentInput): BookAnalysisState {
@@ -452,13 +454,12 @@ export class BookAnalysisService {
       if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
       const document = this.store.document(id)
       if (document?.status !== 'ready') throw new AppError('BOOK_NOT_READY', copy('workbench.unready'))
-      return { id, title: limitText(book.title, 400), jobId: document.job_id }
+      return { id, title: limitText(book.title, 400), jobId: document.job_id, chapters: this.store.chapterDirectory(id) }
     })
     const directory: Array<{ id: string; title: string; bookId: string; chapterId: string }> = []
     for (const [bookIndex, book] of books.entries()) {
-      const chapters = this.store.chapterDirectory(book.id)
       let budget = Math.floor(6_000 / books.length)
-      for (const [index, chapter] of chapters.entries()) {
+      for (const [index, chapter] of book.chapters.entries()) {
         const title = limitText(`《${book.title}》 ${chapter.title}`, 200)
         budget -= characters(title) + 40
         if (budget < 0 || index >= 40) break
@@ -474,7 +475,7 @@ export class BookAnalysisService {
     for (let start = 0; start < targets.length; start += 2) {
       const batch = await Promise.all(targets.slice(start, start + 2).map(async (book) => {
         const result = await this.context({ ...request, scope: 'book', bookId: book.id, webSearch: 'off' }, credentials, signal, () => undefined,
-          { chapters: directory.filter((chapter) => chapter.bookId === book.id && plan.chapters.includes(chapter.id)).map((chapter) => chapter.chapterId), terms: plan.terms })
+          { chapters: directory.filter((chapter) => chapter.bookId === book.id && plan.chapters.includes(chapter.id)).map((chapter) => chapter.chapterId), terms: plan.terms, directory: book.chapters })
         return { ...result, passages: result.passages.map((passage) => ({ ...passage, bookId: book.id, bookTitle: book.title })) }
       }))
       snapshots.push(...batch)
@@ -493,7 +494,7 @@ export class BookAnalysisService {
   }
 
   async context(request: LlmRequest, credentials: ProviderCredentials, signal: AbortSignal, progress: (phase: 'deciding' | 'searching') => void = () => undefined,
-    preparedPlan?: { chapters: string[]; terms: string[]; planningUsage?: LlmUsage; webSearch?: WebSearchRecord }): Promise<ContextSnapshot> {
+    preparedPlan?: { chapters: string[]; terms: string[]; directory?: ReturnType<BookContextStore['chapterDirectory']>; planningUsage?: LlmUsage; webSearch?: WebSearchRecord }): Promise<ContextSnapshot> {
     signal.throwIfAborted()
     if (request.scope === 'books') return this.multiBookContext(request, credentials, signal, progress)
     if (request.scope === 'visual') return this.llm.localContext(request)
@@ -501,7 +502,6 @@ export class BookAnalysisService {
     const searchConfig = request.webSearch === 'auto' ? this.webSearch?.snapshot() : undefined
     const bookId = request.scope === 'book' ? request.bookId : request.selection.bookId
     if (!this.store.database.getStoredBook(bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
-    const record = this.store.record(bookId)
     const document = this.store.document(bookId)
     if (document?.status !== 'ready') {
       const local = this.llm.localContext(request)
@@ -512,10 +512,11 @@ export class BookAnalysisService {
       }
       return local
     }
-    const sections = this.store.sections(bookId)
-    const structure = this.store.structure(bookId)
-    const chapters = structure?.nodes.filter((node) => node.kind === 'section').map((node) => ({ id: node.id, title: node.title, parentId: node.parentId })) ??
-      [...new Map(sections.map(({ section }) => [section.chapterId, { id: section.chapterId, title: section.chapterTitle }])).values()]
+    const isCurrentDocument = (): boolean => {
+      const current = this.store.document(bookId)
+      return current?.job_id === document.job_id && current.status === 'ready'
+    }
+    const chapters = preparedPlan?.directory ?? this.store.chapterDirectory(bookId)
     const planningChapters: typeof chapters = []
     let directoryBudget = 6_000
     for (const chapter of chapters) {
@@ -524,11 +525,11 @@ export class BookAnalysisService {
       if (size > directoryBudget || planningChapters.length >= 200) break
       planningChapters.push(item); directoryBudget -= size
     }
-    const plan = preparedPlan ?? await this.planContext(request, credentials, signal, planningChapters, record?.overview ?? undefined, searchConfig, progress)
+    const plan = preparedPlan ?? await this.planContext(request, credentials, signal, planningChapters, this.store.record(bookId)?.overview ?? undefined, searchConfig, progress)
     const chosenChapters = plan.chapters.filter((id) => chapters.some((chapter) => chapter.id === id))
     const { terms, planningUsage, webSearch } = plan
     signal.throwIfAborted()
-    if (this.store.document(bookId)?.job_id !== document.job_id || this.store.document(bookId)?.status !== 'ready') return this.llm.localContext(request)
+    if (!isCurrentDocument()) return this.llm.localContext(request)
     const selected = request.scope === 'book' ? null : request.selection
     const question = rankConfig?.enabled ? actionPrompt(request) : request.question
     const query = [question, selected ? limitText(selected.quote, 600) : ''].join(' ')
@@ -537,53 +538,21 @@ export class BookAnalysisService {
     const hits = this.semantic ? await this.semantic.search(bookId, limitText(`${question}\n${selected?.quote ?? ''}`.trim() || [query, ...terms].join(' '), 6_000), lexical, signal, limit) : lexical
     signal.throwIfAborted()
     if (!this.store.database.getStoredBook(bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
-    if (this.store.document(bookId)?.job_id !== document.job_id || this.store.document(bookId)?.status !== 'ready') return this.llm.localContext(request)
-    const hitIds = new Set(hits.slice(0, 6).map((passage) => passage.blockId))
-    const localAnchors = new Set(selected?.passages.map((item) => item.anchor) ?? [])
-    const relevant = sections.filter(({ section }) => chosenChapters.includes(section.chapterId) ||
-      (!rankConfig?.enabled && section.chapterTitle === selected?.chapterTitle) ||
-      section.blocks.some((block) => hitIds.has(block.id) || block.anchor === selected?.anchor || (rankConfig?.enabled && localAnchors.has(block.anchor))))
+    if (!isCurrentDocument()) return this.llm.localContext(request)
+    const anchors = selected ? [selected.anchor, ...(rankConfig?.enabled ? selected.passages.map((item) => item.anchor) : [])] : []
+    const relevant = this.store.matchingNotes(bookId, {
+      chapterIds: chosenChapters, chapterTitle: rankConfig?.enabled ? undefined : selected?.chapterTitle,
+      blockIds: hits.slice(0, 6).flatMap((passage) => passage.blockId ?? []), anchors
+    })
+    const coverage = this.store.coverage(bookId)
     const sourceIds = relevant.flatMap(({ note }) => note ? [...note.claims, ...note.conditions, ...note.exceptions, ...note.concepts].flatMap((point) => point.sourceIds) : [])
     // Each chapter contributes evidence for whole-book questions, including chapters absent from top-k search.
-    if (request.scope === 'book') {
-      const firstNotes = new Map<string, SectionNote | null>()
-      for (const { section, note } of sections) {
-        // Preserve a missing first note rather than substituting a later section's note.
-        if (!firstNotes.has(section.chapterId)) firstNotes.set(section.chapterId, note)
-      }
-      for (const chapter of chapters) {
-        const note = firstNotes.get(chapter.id)
-        if (note) sourceIds.push(...[...note.claims, ...note.concepts].slice(0, 1).flatMap((point) => point.sourceIds))
-      }
+    if (request.scope === 'book' && coverage.covered > 0) {
+      const firstSources = this.store.firstChapterSources(bookId)
+      for (const chapter of chapters) sourceIds.push(...(firstSources.get(chapter.id) ?? []))
     }
-    // Reuse source rows within this request; job checks still guard each async step.
-    let originals: Passage[] | undefined
-    const readOriginals = (): Passage[] => originals ??= this.store.originals(bookId)
-    let references: Passage[]
-    let rerankRecord: ContextSnapshot['rerank']
-    if (rankConfig?.enabled && this.rerank) {
-      const originals = readOriginals()
-      const ids = new Set(sourceIds)
-      const targets = targetChapters(chosenChapters, hits)
-      const pool = rerankCandidates(hits, originals.filter((item) => ids.has(item.blockId!)), targets)
-      const result = await this.rerank.rank(rankConfig, rerankQuery(request, terms), pool, signal)
-      signal.throwIfAborted()
-      if (!this.store.database.getStoredBook(bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
-      if (this.store.document(bookId)?.job_id !== document.job_id || this.store.document(bookId)?.status !== 'ready') return this.llm.localContext(request)
-      references = organizeEvidence(result.passages, nearbyEvidence(selected, originals), targets)
-      rerankRecord = result.record
-    } else if (structure) {
-      references = organizeEvidence([...hits, ...this.store.passages(bookId, [...new Set(sourceIds)])],
-        selected ? nearbyEvidence(selected, readOriginals()) : [], targetChapters(chosenChapters, hits))
-    } else {
-      const local = selected ? this.llm.localContext(request).passages : []
-      references = [...local, ...hits.slice(0, 12), ...this.store.passages(bookId, [...new Set(sourceIds)])]
-    }
-    if (structure && references.length > 0 && references.length < 12) {
-      // Related originals use spare slots only; exclude every existing hit from expansion.
-      references.push(...this.store.related(bookId, references, structure, readOriginals()).slice(0, 12 - references.length))
-    }
-    const relevantChapters = new Set(relevant.map(({ section }) => section.chapterId))
+
+    const relevantChapters = new Set(relevant.map(({ chapterId }) => chapterId))
     const summaryChapters = request.scope === 'book' ? chapters : chapters.filter((chapter) => relevantChapters.has(chapter.id))
     const summaries = this.store.summaries(bookId, summaryChapters.map((chapter) => `chapter-${chapter.id}-final`))
     const candidates = summaryChapters.flatMap((chapter) => {
@@ -593,10 +562,36 @@ export class BookAnalysisService {
     // Small books include every chapter note; large books use the complete hierarchical overview plus relevant chapters.
     const chapterNotes = (characters(candidates.map((chapter) => chapter.text).join('\n')) <= 2_500
       ? candidates : candidates.filter((chapter) => relevantChapters.has(chapter.id)).slice(0, 2)).map((chapter) => chapter.text).join('\n')
-    const notes = relevant.filter(({ note }) => note).slice(0, 8).map(({ section, note }) => `${section.chapterTitle}: ${note!.summary}\n${note!.concepts.map((item) => `${item.term}: ${item.text}`).join('\n')}`).join('\n')
+    const notes = relevant.filter(({ note }) => note).slice(0, 8).map(({ chapterTitle, note }) => `${chapterTitle}: ${note!.summary}\n${note!.concepts.map((item) => `${item.term}: ${item.text}`).join('\n')}`).join('\n')
+    const overview = this.store.record(bookId)?.overview
+
+    const referencedIds = [...new Set(sourceIds)]
+    const nearby = rankConfig?.enabled || document.has_document
+      ? nearbyEvidence(selected, (passage) => this.store.passageAt(bookId, passage.anchor, passage.text)) : []
+    let references: Passage[]
+    let rerankRecord: ContextSnapshot['rerank']
+    if (rankConfig?.enabled && this.rerank) {
+      const targets = targetChapters(chosenChapters, hits)
+      const pool = rerankCandidates(hits, this.store.passagesInReadingOrder(bookId, referencedIds), targets)
+      const result = await this.rerank.rank(rankConfig, rerankQuery(request, terms), pool, signal)
+      signal.throwIfAborted()
+      if (!this.store.database.getStoredBook(bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+      if (!isCurrentDocument()) return this.llm.localContext(request)
+      references = organizeEvidence(result.passages, nearby, targets)
+      rerankRecord = result.record
+    } else if (document.has_document) {
+      references = organizeEvidence([...hits, ...this.store.passages(bookId, referencedIds)], nearby, targetChapters(chosenChapters, hits))
+    } else {
+      const local = selected ? this.llm.localContext(request).passages : []
+      references = [...local, ...hits.slice(0, 12), ...this.store.passages(bookId, referencedIds)]
+    }
+    if (document.has_document && references.length > 0 && references.length < 12) {
+      // Related originals use spare slots only; exclude every existing hit from expansion.
+      references.push(...this.store.related(bookId, references, 12 - references.length))
+    }
     return { scope: selected ? 'selection' : 'book', bookId, selection: selected, passages: references,
-      background: limitText([record?.overview ? `全书概要（由全部分节笔记汇总，需核对原文）：\n${record.overview}` : '',
+      background: limitText([overview ? `全书概要（由全部分节笔记汇总，需核对原文）：\n${overview}` : '',
         chapterNotes ? `章节笔记：\n${chapterNotes}` : '', notes ? `相关分节与概念：\n${notes}` : ''].filter(Boolean).join('\n'), 12_000),
-      coverage: { covered: sections.filter(({ note }) => note).length, total: sections.length }, ...(planningUsage ? { planningUsage } : {}), ...(rerankRecord ? { rerank: rerankRecord } : {}), ...(webSearch ? { webSearch } : {}) }
+      coverage, ...(planningUsage ? { planningUsage } : {}), ...(rerankRecord ? { rerank: rerankRecord } : {}), ...(webSearch ? { webSearch } : {}) }
   }
 }

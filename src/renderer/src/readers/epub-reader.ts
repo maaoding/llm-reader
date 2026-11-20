@@ -52,6 +52,7 @@ const TEMPORARY_HIGHLIGHT_CLASS = 'llm-reader-temporary-highlight'
 const PERSISTENT_HIGHLIGHT_CLASS = 'llm-reader-persistent-highlight'
 const READING_PREFERENCES_STYLESHEET = 'llm-reader-reading-preferences'
 const PROGRAMMATIC_SCROLL_SETTLE_MS = 750
+const EPUB_LOCATION_INTERVAL = 1_600
 const READING_PREFERENCES_STYLE_ELEMENT_ID =
   `epubjs-inserted-css-${READING_PREFERENCES_STYLESHEET}`
 const ORDINARY_PARAGRAPH_SELECTOR =
@@ -148,7 +149,7 @@ function isSafeInternalHref(value: string): boolean {
 function resolveInternalSpineHref(
   currentHref: string,
   value: string,
-  spineHrefs: ReadonlyArray<string>
+  spine: EpubSpineIndex
 ): string | null {
   if (!isSafeInternalHref(value)) return null
   const href = value.trim()
@@ -168,8 +169,7 @@ function resolveInternalSpineHref(
   const targetSegments = decodedPath.length === 0
     ? currentPath.split('/')
     : [...directory, ...decodedPath.split('/')].filter((segment) => segment !== '.')
-  const resolvedPath = targetSegments.join('/')
-  const spineHref = spineHrefs.find((candidate) => normalizeHref(candidate) === resolvedPath)
+  const spineHref = spine.hrefForPath(targetSegments.join('/'))
   return spineHref ? `${spineHref}${fragment}` : null
 }
 
@@ -388,6 +388,11 @@ function readerStylesheetCss(
   return rules.filter(Boolean).join('\n')
 }
 
+interface EpubLocationIndex {
+  parse(contents: Element, cfiBase: string, characters: number): string[]
+  load(locations: string[]): string[]
+}
+
 export class EpubReaderAdapter implements ReaderAdapter {
   readonly format: BookFormat = 'epub'
 
@@ -395,7 +400,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   private readonly callbacks: ReaderCallbacks
   private book: Book | null = null
   private rendition: Rendition | null = null
-  private toc: ReaderTocItem[] = []
+  private readonly tocHrefs = new Set<string>()
   private chaptersByHref: ReadonlyMap<string, EpubChapter> = new Map()
   private selection: SelectionContext | null = null
   private readonly paragraphIndex = new EpubParagraphIndex()
@@ -435,19 +440,25 @@ export class EpubReaderAdapter implements ReaderAdapter {
 
     const book = ePub(Uint8Array.from(bytes).buffer)
     this.book = book
+    const ensureCurrentBook = (): void => {
+      if (this.book !== book) throw new DOMException('EPUB opening cancelled', 'AbortError')
+    }
     // epub.js 0.3.93 registers replaceBase as its first spine content hook.
     // Blob resource replacements and our validated links do not need it;
     // inserting it even into a detached document violates the base-uri CSP.
     const [baseHook] = book.spine.hooks.content.list()
     book.spine.hooks.content.deregister(baseHook)
     await book.ready
+    ensureCurrentBook()
     const [metadata, navigation, spine] = await Promise.all([
       book.loaded.metadata,
       book.loaded.navigation,
       book.loaded.spine
     ])
-    this.toc = flattenToc(navigation.toc)
-    this.chaptersByHref = indexEpubChapters(this.toc)
+    ensureCurrentBook()
+    const toc = flattenToc(navigation.toc)
+    this.chaptersByHref = indexEpubChapters(toc)
+    for (const item of toc) this.tocHrefs.add(item.href)
     this.spineCount = spine.length
     this.spineIndex = new EpubSpineIndex(this.spineCount, (index) => book.spine.get(index)?.href)
     this.reflowable = metadata.layout !== 'pre-paginated'
@@ -467,6 +478,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     rendition.on('relocated', this.handleRelocated)
 
     await rendition.started
+    ensureCurrentBook()
     if (rendition.settings?.layout === 'pre-paginated') {
       this.reflowable = false
       this.host.dataset.epubLayout = 'fixed'
@@ -476,42 +488,63 @@ export class EpubReaderAdapter implements ReaderAdapter {
     }
     this.bindRendererScrollInput(rendition)
 
-    try {
-      const generatedLocations = await book.locations.generate(1_600)
-      this.locationsReady = true
-      this.buildSectionPercentageBounds(generatedLocations)
-    } catch {
-      this.locationsReady = false
-      this.sectionPercentageBounds.clear()
-    }
-
     this.programmaticScroll = true
     this.relocationReason = 'restore'
     const initialLocator = lastLocator && isEpubCfi(lastLocator) ? lastLocator : undefined
     await this.enqueueNavigation(async () => {
+      ensureCurrentBook()
       if (initialLocator) {
         try {
           await rendition.display(initialLocator)
         } catch {
+          ensureCurrentBook()
           await rendition.display()
         }
       } else {
         await rendition.display()
       }
     })
+    ensureCurrentBook()
     this.scheduleProgrammaticScrollRelease()
+    void this.indexLocations(book)
 
     return {
       metadata: {
         title: metadata.title?.trim() || copy('reader.epubUntitled'),
         author: metadata.creator?.trim() || null
       },
-      toc: this.toc
+      toc
     }
   }
 
   destroy(): void {
     this.resetDocument()
+  }
+
+  private async indexLocations(book: Book): Promise<void> {
+    // The epub.js 0.3.93 runtime exposes parse and accepts CFI arrays in load.
+    const locations = book.locations as unknown as EpubLocationIndex
+    const cfis: string[] = []
+    try {
+      for (let index = 0; index < this.spineCount; index += 1) {
+        await yieldSearchWork()
+        if (this.book !== book) return
+        const section = book.spine.get(index)
+        if (!section?.linear) continue
+        // Read a detached document so indexing leaves the shared spine section cache alone.
+        const chapter = await book.load(section.url) as Document
+        if (this.book !== book) return
+        for (const cfi of locations.parse(chapter.documentElement, section.cfiBase, EPUB_LOCATION_INTERVAL)) {
+          cfis.push(cfi)
+        }
+      }
+      if (cfis.length === 0) return
+      locations.load(cfis)
+      this.buildSectionPercentageBounds(cfis)
+      this.locationsReady = true
+    } catch {
+      // Chapter-based progress remains available if the location index cannot be built.
+    }
   }
 
   search(query: string): Promise<ReadonlyArray<ReaderSearchResult>> {
@@ -593,7 +626,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     const rendition = this.requireRendition()
     if (
       !isEpubCfi(anchor) &&
-      !this.toc.some((item) => item.href === anchor) &&
+      !this.tocHrefs.has(anchor) &&
       !this.isSpineHref(anchor)
     ) {
       throw new Error(copy('reader.epubInvalidAnchor'))
@@ -1263,26 +1296,14 @@ export class EpubReaderAdapter implements ReaderAdapter {
     return this.spineIndex?.get(href) ?? null
   }
 
-  private spineHrefs(): string[] {
-    if (!this.book) return []
-    const hrefs: string[] = []
-    for (let index = 0; index < this.spineCount; index += 1) {
-      const href = this.book.spine.get(index)?.href
-      if (href) hrefs.push(href)
-    }
-    return hrefs
-  }
-
   private isSpineHref(value: string): boolean {
-    if (!isSafeInternalHref(value)) return false
-    const normalized = normalizeHref(value)
-    return this.spineHrefs().some((href) => normalizeHref(href) === normalized)
+    return isSafeInternalHref(value) && this.sectionIndexFromHref(value) !== null
   }
 
   private resolveInternalHref(sectionIndex: number, value: string): string | null {
     const currentHref = this.book?.spine.get(sectionIndex)?.href
-    if (!currentHref) return null
-    return resolveInternalSpineHref(currentHref, value, this.spineHrefs())
+    if (!currentHref || !this.spineIndex) return null
+    return resolveInternalSpineHref(currentHref, value, this.spineIndex)
   }
 
   private chapterHref(sectionIndex: number, directHref?: string): string | null {
@@ -1341,7 +1362,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.book?.destroy()
     this.book = null
     this.rendition = null
-    this.toc = []
+    this.tocHrefs.clear()
     this.chaptersByHref = new Map()
     this.selection = null
     this.spineCount = 0

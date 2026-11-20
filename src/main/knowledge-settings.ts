@@ -31,20 +31,21 @@ export class KnowledgeSettingsService {
   documentRevision(): string { return this.row('document')?.revision ?? '' }
   get(): KnowledgeSettings {
     const result = structuredClone(defaults)
-    for (const kind of ['embedding', 'rerank', 'document', 'webSearch'] as const) {
-      const row = this.row(kind)
-      if (row) {
-        const config = JSON.parse(row.config_json) as Record<string, unknown>
-        Object.assign(result[kind], config, { hasApiKey: Boolean(row.secret), ...(row.headers_secret ? { hasCustomHeaders: true } : {}) })
-        if (kind === 'document' && config.enabled === undefined) result.document.enabled = result.document.processor !== 'none'
-      }
+    const rows = this.database.connection.prepare(`SELECT kind, config_json, secret IS NOT NULL AS has_api_key,
+      headers_secret IS NOT NULL AS has_headers FROM knowledge_settings`).all()
+    for (const row of rows) {
+      const kind = row.kind as Kind
+      const config = JSON.parse(String(row.config_json)) as Record<string, unknown>
+      Object.assign(result[kind], config, { hasApiKey: Boolean(row.has_api_key), ...(row.has_headers ? { hasCustomHeaders: true } : {}) })
+      if (kind === 'document' && config.enabled === undefined) result.document.enabled = result.document.processor !== 'none'
     }
     return result
   }
   private sameEndpoint(kind: Kind, value: { baseUrl: string; processor?: string; protocol?: string; provider?: WebSearchSettings['provider'] }): boolean {
-    const saved = this.get()[kind]
-    return normalizeUrl(saved.baseUrl) === normalizeUrl(value.baseUrl) && (kind !== 'webSearch' || (value.provider ?? 'tavily') === (this.get().webSearch.provider ?? 'tavily')) && (kind !== 'document' ||
-      value.processor === this.get().document.processor && (value.protocol ?? 'openai') === (this.get().document.protocol ?? 'openai'))
+    const settings = this.get()
+    return normalizeUrl(settings[kind].baseUrl) === normalizeUrl(value.baseUrl) &&
+      (kind !== 'webSearch' || (value.provider ?? 'tavily') === (settings.webSearch.provider ?? 'tavily')) &&
+      (kind !== 'document' || value.processor === settings.document.processor && (value.protocol ?? 'openai') === (settings.document.protocol ?? 'openai'))
   }
   private secret(kind: Kind, value: { baseUrl: string; apiKey?: string | null; processor?: string; protocol?: string; provider?: WebSearchSettings['provider'] }): string {
     if (value.apiKey !== undefined) return value.apiKey ?? ''

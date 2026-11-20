@@ -3,6 +3,7 @@
 import type { NavItem } from 'epubjs'
 import { describe, expect, it, vi } from 'vitest'
 import { buildBoundedPassages, codePointLength } from '../../src/renderer/src/readers/context'
+import { EpubSpineIndex } from '../../src/renderer/src/readers/epub-navigation'
 import {
   flattenToc,
   isEpubCfi,
@@ -17,6 +18,7 @@ import {
   parseTextAnchor,
   parseTextParagraphs
 } from '../../src/renderer/src/readers/text-reader'
+import { deferred } from './support/deferred'
 
 const { epubFactory } = vi.hoisted(() => ({ epubFactory: vi.fn() }))
 
@@ -24,6 +26,10 @@ vi.mock('epubjs', () => ({ default: epubFactory }))
 
 function mockSpineHooks() {
   return { content: { list: vi.fn(() => [vi.fn()]), deregister: vi.fn() } }
+}
+
+function mockEpubLocations() {
+  return { parse: vi.fn().mockReturnValue([]), load: vi.fn() }
 }
 
 function bytes(value: string): Uint8Array {
@@ -282,7 +288,7 @@ describe('EPUB adapter safety utilities', () => {
       },
       load: vi.fn().mockResolvedValue(undefined),
       renderTo: vi.fn(() => rendition),
-      locations: { generate: vi.fn().mockResolvedValue(['epubcfi(/6/2!/4/1:0)']) },
+      locations: mockEpubLocations(),
       spine: {
         hooks: mockSpineHooks(),
         get: vi.fn((target: number | string) => {
@@ -308,10 +314,19 @@ describe('EPUB adapter safety utilities', () => {
     adapter.destroy()
   })
 
-  it('restores the last locator once and never redisplays it for relocation events', async () => {
+  it('restores the last locator once while the location index is still loading', async () => {
     const handlers = new Map<string, (...eventArguments: unknown[]) => void>()
     const display = vi.fn().mockResolvedValue(undefined)
-    const generateLocations = vi.fn().mockResolvedValue(['epubcfi(/6/2!/4/1:0)'])
+    const firstChapter = deferred<Document>()
+    const chapterDocument = document.implementation.createHTMLDocument('Indexing')
+    const sections = [
+      { href: 'first.xhtml', url: '/first.xhtml', cfiBase: '/6/2', linear: true },
+      { href: 'second.xhtml', url: '/second.xhtml', cfiBase: '/6/4', linear: true },
+      { href: 'appendix.xhtml', url: '/appendix.xhtml', cfiBase: '/6/6', linear: false }
+    ]
+    const generated = ['epubcfi(/6/2!/4/1:0)', 'epubcfi(/6/4!/4/1:0)']
+    const locations = mockEpubLocations()
+    locations.parse.mockReturnValueOnce([generated[0]]).mockReturnValueOnce([generated[1]])
     const rendition = {
       hooks: {
         content: {
@@ -333,11 +348,12 @@ describe('EPUB adapter safety utilities', () => {
       loaded: {
         metadata: Promise.resolve({ title: '恢复位置测试', creator: '作者' }),
         navigation: Promise.resolve({ toc: [] }),
-        spine: Promise.resolve([{ index: 0 }, { index: 1 }])
+        spine: Promise.resolve(sections)
       },
+      load: vi.fn().mockReturnValueOnce(firstChapter.promise).mockResolvedValue(chapterDocument),
       renderTo: vi.fn(() => rendition),
-      locations: { generate: generateLocations },
-      spine: { hooks: mockSpineHooks(), get: vi.fn(() => ({ href: 'chapter.xhtml' })) },
+      locations,
+      spine: { hooks: mockSpineHooks(), get: (index: number) => sections[index] },
       destroy: vi.fn()
     }
     epubFactory.mockReturnValue(book)
@@ -349,28 +365,78 @@ describe('EPUB adapter safety utilities', () => {
     })
     const restoredLocator = 'epubcfi(/6/4!/4/2/1:12)'
 
-    await adapter.open(new Uint8Array([1, 2, 3]), restoredLocator)
-
-    expect(book.renderTo).toHaveBeenCalledOnce()
-    expect(generateLocations).toHaveBeenCalledOnce()
-    expect(display).toHaveBeenCalledOnce()
-    expect(display).toHaveBeenLastCalledWith(restoredLocator)
-
-    for (let index = 0; index < 20; index += 1) {
+    try {
+      await adapter.open(new Uint8Array([1, 2, 3]), restoredLocator)
+      expect(book.renderTo).toHaveBeenCalledOnce()
+      expect(display).toHaveBeenCalledExactlyOnceWith(restoredLocator)
+      await vi.waitFor(() => expect(book.load).toHaveBeenCalledExactlyOnceWith('/first.xhtml'))
+      expect(locations.load).not.toHaveBeenCalled()
       handlers.get('relocated')?.({
-        start: {
-          cfi: `epubcfi(/6/4!/4/2/1:${index})`,
-          percentage: 0.7 - index / 100,
-          index: 1
-        }
+        start: { cfi: restoredLocator, href: 'second.xhtml', index: 1 }
       })
+      expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({
+        locator: restoredLocator, progress: 0.5, reason: 'restore'
+      }))
+
+      firstChapter.resolve(chapterDocument)
+      await vi.waitFor(() => expect(locations.load).toHaveBeenCalledExactlyOnceWith(generated))
+      expect(book.load.mock.calls).toEqual([['/first.xhtml'], ['/second.xhtml']])
+      expect(locations.parse).toHaveBeenLastCalledWith(chapterDocument.documentElement, '/6/4', 1_600)
+
+      for (let index = 0; index < 20; index += 1) {
+        handlers.get('relocated')?.({
+          start: {
+            cfi: `epubcfi(/6/4!/4/2/1:${index})`,
+            percentage: 0.7,
+            index: 1
+          }
+        })
+      }
+
+      expect(onRelocated).toHaveBeenCalledTimes(21)
+      expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ progress: 0.7 }))
+      expect(display).toHaveBeenCalledExactlyOnceWith(restoredLocator)
+      expect(book.renderTo).toHaveBeenCalledOnce()
+    } finally {
+      adapter.destroy()
     }
+  })
 
-    expect(onRelocated).toHaveBeenCalledTimes(20)
-    expect(display).toHaveBeenCalledOnce()
-    expect(book.renderTo).toHaveBeenCalledOnce()
-
-    adapter.destroy()
+  it('discards pending location indexing when the EPUB is closed', async () => {
+    const chapter = deferred<Document>()
+    const locations = mockEpubLocations()
+    const rendition = {
+      hooks: { content: { register: vi.fn() } },
+      on: vi.fn(),
+      off: vi.fn(),
+      display: vi.fn().mockResolvedValue(undefined)
+    }
+    const section = { href: 'chapter.xhtml', url: '/chapter.xhtml', cfiBase: '/6/2', linear: true }
+    const book = {
+      ready: Promise.resolve(),
+      loaded: {
+        metadata: Promise.resolve({ title: 'Indexing' }),
+        navigation: Promise.resolve({ toc: [] }),
+        spine: Promise.resolve([section])
+      },
+      load: vi.fn().mockReturnValue(chapter.promise),
+      renderTo: () => rendition,
+      locations,
+      spine: { hooks: mockSpineHooks(), get: () => section },
+      destroy: vi.fn()
+    }
+    epubFactory.mockReturnValue(book)
+    const adapter = createReaderAdapter('epub', document.createElement('div'), { bookId: 'epub-index-cancel' })
+    try {
+      await adapter.open(new Uint8Array([1]))
+      await vi.waitFor(() => expect(book.load).toHaveBeenCalledOnce())
+    } finally {
+      adapter.destroy()
+      chapter.resolve(document.implementation.createHTMLDocument('Closed'))
+      await chapter.promise
+    }
+    expect(locations.parse).not.toHaveBeenCalled()
+    expect(locations.load).not.toHaveBeenCalled()
   })
 
   it('keeps a slow EPUB navigation separate from the previous restore timer', async () => {
@@ -384,7 +450,7 @@ describe('EPUB adapter safety utilities', () => {
     const book = {
       ready: Promise.resolve(),
       loaded: { metadata: Promise.resolve({ title: '慢速跳转' }), navigation: Promise.resolve({ toc: [] }), spine: Promise.resolve([{ index: 0 }]) },
-      renderTo: () => rendition, locations: { generate: vi.fn().mockResolvedValue([]) },
+      renderTo: () => rendition, locations: mockEpubLocations(),
       spine: { hooks: mockSpineHooks(), get: () => ({ href: 'chapter.xhtml' }) }, destroy: vi.fn()
     }
     epubFactory.mockReturnValue(book)
@@ -445,7 +511,7 @@ describe('EPUB adapter safety utilities', () => {
         spine: Promise.resolve([{ index: 0 }])
       },
       renderTo: vi.fn(() => rendition),
-      locations: { generate: vi.fn().mockResolvedValue(['epubcfi(/6/2!/4/1:0)']) },
+      locations: mockEpubLocations(),
       spine: { hooks: mockSpineHooks(), get: vi.fn(() => ({ href: 'chapter.xhtml' })) },
       destroy: vi.fn()
     }
@@ -506,12 +572,12 @@ describe('EPUB adapter safety utilities', () => {
     expect(selected && !('kind' in selected) ? selected.passages.map((passage) => passage.id) : []).toEqual(['P1', 'P2'])
 
     handlers.get('relocated')?.({
-      start: { cfi: 'epubcfi(/6/2!/4/1:0)', percentage: 0.25, index: 0 }
+      start: { cfi: 'epubcfi(/6/2!/4/1:0)', index: 0 }
     })
     expect(onRelocated).toHaveBeenCalledWith({
       locator: 'epubcfi(/6/2!/4/1:0)',
-      progress: 0.25,
-      chapterProgress: 0.25,
+      progress: 0,
+      chapterProgress: 0,
       chapterTitle: '第一章',
       chapterHref: 'chapter.xhtml',
       reason: 'restore'
@@ -553,23 +619,65 @@ describe('EPUB adapter safety utilities', () => {
     expect(isSafeInternalHref('../chapter.xhtml')).toBe(false)
     expect(isSafeInternalHref('%2e%2e/chapter.xhtml')).toBe(false)
     expect(isSafeInternalHref('javascript:alert(1)')).toBe(false)
+    const spineHrefs = ['Text/chapter-1.xhtml', 'Text/chapter%202.xhtml']
+    const spineIndex = new EpubSpineIndex(spineHrefs.length, (index) => spineHrefs[index])
     expect(resolveInternalSpineHref(
       'Text/chapter-1.xhtml',
-      'chapter-2.xhtml#note',
-      ['Text/chapter-1.xhtml', 'Text/chapter-2.xhtml']
-    )).toBe('Text/chapter-2.xhtml#note')
+      'chapter%202.xhtml#note',
+      spineIndex
+    )).toBe('Text/chapter%202.xhtml#note')
     expect(resolveInternalSpineHref(
       'Text/chapter-1.xhtml',
       '#note',
-      ['Text/chapter-1.xhtml', 'Text/chapter-2.xhtml']
+      spineIndex
     )).toBe('Text/chapter-1.xhtml#note')
     expect(resolveInternalSpineHref(
       'Text/chapter-1.xhtml',
       'missing.xhtml',
-      ['Text/chapter-1.xhtml', 'Text/chapter-2.xhtml']
+      spineIndex
     )).toBeNull()
     expect(isEpubCfi('epubcfi(/6/2!/4/1:0)')).toBe(true)
     expect(isEpubCfi('chapter.xhtml')).toBe(false)
+  })
+
+  it('keeps the first matching EPUB title and prefers the whole-file target for encoded chapter paths', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => void>()
+    const href = 'Text/chapter%20one.xhtml'
+    const rendition = {
+      hooks: { content: { register: vi.fn() } },
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => handlers.set(event, handler)),
+      off: vi.fn(),
+      display: vi.fn().mockResolvedValue(undefined),
+      annotations: { remove: vi.fn() }
+    }
+    epubFactory.mockReturnValue({
+      ready: Promise.resolve(),
+      loaded: {
+        metadata: Promise.resolve({ title: 'Indexed EPUB' }),
+        navigation: Promise.resolve({ toc: [
+          { id: 'intro', href: './' + href + '#intro', label: '第一节' },
+          { id: 'chapter', href, label: '整章' }
+        ] }),
+        spine: Promise.resolve([{ index: 0 }])
+      },
+      renderTo: () => rendition,
+      locations: mockEpubLocations(),
+      spine: { hooks: mockSpineHooks(), get: () => ({ href }) },
+      destroy: vi.fn()
+    })
+    const onRelocated = vi.fn()
+    const adapter = createReaderAdapter('epub', document.createElement('div'), { bookId: 'encoded-chapter', onRelocated })
+    try {
+      await adapter.open(new Uint8Array([1]))
+      handlers.get('relocated')?.({
+        start: { cfi: 'epubcfi(/6/2!/4/1:0)', href: './Text/chapter one.xhtml#intro', index: 0, percentage: 0 }
+      })
+      expect(onRelocated).toHaveBeenLastCalledWith(expect.objectContaining({ chapterTitle: '第一节', chapterHref: href }))
+      await adapter.goTo(href + '#note')
+      expect(rendition.display).toHaveBeenLastCalledWith(href + '#note')
+    } finally {
+      adapter.destroy()
+    }
   })
 
   it('removes active content and blocks links before EPUB content is exposed', () => {

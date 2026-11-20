@@ -72,7 +72,7 @@ function createEpubHarness(layout: 'reflowable' | 'pre-paginated' = 'reflowable'
       spine: Promise.resolve([{ index: 0 }, { index: 1 }])
     },
     renderTo: vi.fn(() => rendition),
-    locations: { generate: vi.fn().mockResolvedValue([FIRST_CFI]) },
+    locations: { parse: vi.fn().mockReturnValue([]), load: vi.fn() },
     spine: {
       hooks: { content: { list: vi.fn(() => [vi.fn()]), deregister: vi.fn() } },
       get: vi.fn(() => ({ href: 'chapter.xhtml' }))

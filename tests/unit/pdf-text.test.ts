@@ -37,6 +37,33 @@ describe('PDF readable text mapping', () => {
     expect(model.readableSliceForRaw(0, 2)).toBe('星河')
   })
 
+  it('maps both sides of successive inserted spaces and preserves explicit whitespace', () => {
+    const model = createPdfTextModel([
+      { str: '😀A', hasEOL: true },
+      { str: '' },
+      { str: '𠮷', hasEOL: true },
+      { str: 'B ', hasEOL: true },
+      { str: '终', hasEOL: true },
+      { str: '' }
+    ])
+
+    expect(model.rawText).toBe('😀A𠮷B 终')
+    expect(model.readableText).toBe('😀A 𠮷 B 终')
+    const rawPositions = Array.from({ length: model.rawLength + 1 }, (_, index) => index)
+    const readablePositions = Array.from({ length: model.readableLength + 1 }, (_, index) => index)
+    expect(rawPositions.map((offset) => model.readableOffsetForRaw(offset, 'start'))).toEqual([0, 1, 3, 5, 6, 7, 8])
+    expect(rawPositions.map((offset) => model.readableOffsetForRaw(offset, 'end'))).toEqual([0, 1, 2, 4, 6, 7, 8])
+    for (const bias of ['start', 'end'] as const) {
+      expect(readablePositions.map((offset) => model.rawOffsetForReadable(offset, bias))).toEqual([0, 1, 2, 2, 3, 3, 4, 5, 6])
+    }
+    expect(model.readableSliceForRaw(2, 3)).toBe('𠮷')
+    expect(model.readableSliceForRaw(2, 2)).toBe('')
+    expect(model.readableOffsetForRaw(-1, 'start')).toBe(8)
+    expect(model.readableOffsetForRaw(7, 'end')).toBe(0)
+    expect(model.rawOffsetForReadable(9, 'start')).toBe(6)
+    expect(model.rawOffsetForReadable(1.5, 'end')).toBe(0)
+  })
+
   it('validates legacy and normalized region anchors', () => {
     expect(parsePdfTextAnchor('pdf:2:3:8', 3, 12)).toEqual({ pageNumber: 2, start: 3, end: 8 })
     expect(parsePdfTextAnchor('pdf:4:3:8', 3)).toBeNull()

@@ -212,6 +212,7 @@ describe('answer markdown component', () => {
 
     expect(container.querySelector('script')).toBeNull()
     expect(container.querySelector('b')).toBeNull()
+    expect(container.querySelector('p')?.childElementCount).toBe(0)
     expect(container.textContent).toContain('<script>alert("x")</script>')
     expect(container.textContent).toContain('<b>不是标签</b>')
   })
@@ -225,6 +226,9 @@ describe('answer markdown component', () => {
 
     rerender(<AnswerText text={'加粗 **未完成'} selection={selection} onNavigate={vi.fn()} />)
     expect(container.textContent).toContain('**未完成')
+
+    rerender(<AnswerText text={'生成中的文字。[P'} selection={selection} onNavigate={vi.fn()} />)
+    expect(container.textContent).toBe('生成中的文字。')
   })
 
   it('updates highlights, citation sources, callbacks and read-only mode while the answer stays unchanged', () => {

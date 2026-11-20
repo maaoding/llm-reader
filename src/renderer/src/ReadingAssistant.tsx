@@ -9,11 +9,12 @@ interface ReadingAssistantProps {
   fullscreen: boolean
   inactive: boolean
   actions?: ReactNode
+  notice?: ReactNode
   conversation?: ComponentProps<typeof ConversationPane>
   conversationKey?: string
 }
 
-export function ReadingAssistant({ container, fullscreen, inactive, actions, conversation, conversationKey }: ReadingAssistantProps) {
+export function ReadingAssistant({ container, fullscreen, inactive, actions, notice, conversation, conversationKey }: ReadingAssistantProps) {
   const [markdownTarget, setMarkdownTarget] = useState<HTMLDivElement | null>(null)
   if (fullscreen && !container) return null
   const documentTarget = fullscreen ? container?.ownerDocument : undefined
@@ -26,6 +27,7 @@ export function ReadingAssistant({ container, fullscreen, inactive, actions, con
           {actions}
         </div>
       </header>
+      {notice}
       {conversation && <ConversationPane key={conversationKey} {...conversation}
         markdownToolsTarget={markdownTarget?.isConnected && markdownTarget.ownerDocument === (documentTarget ?? document) ? markdownTarget : null}
         documentTarget={documentTarget} />}

@@ -1,4 +1,4 @@
-import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope, type Passage, type ContextSnapshot } from '@shared/contracts'
+import { isPdfImageRegion, type InsightArchiveRecord, type Passage, type ContextSnapshot } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { webSearchStatus } from '@shared/web-search'
 
@@ -73,26 +73,8 @@ export function ensureMarkdownExtension(path: string): string {
   return /\.md$/iu.test(path) ? path : `${path}.md`
 }
 
-export function selectInsightExportRecords(
-  records: ReadonlyArray<InsightArchiveRecord>,
-  scope: InsightExportScope
-): InsightArchiveRecord[] {
-  if (scope.kind === 'all') return [...records]
-  if (scope.kind === 'book') return records.filter((record) => record.bookId === scope.bookId)
-  return records.filter((record) => record.id === scope.insightId)
-}
-
-export function buildInsightExportDefaultName(
-  records: ReadonlyArray<InsightArchiveRecord>,
-  fallbackTitle?: string
-): string {
-  const uniqueBooks = new Set(records.map((record) => record.bookId))
-  const title =
-    records.length > 0 && uniqueBooks.size === 1
-      ? copy('export.fileNameBook', { title: records[0].book.title })
-      : fallbackTitle
-        ? copy('export.fileNameBook', { title: fallbackTitle })
-        : copy('export.fileNameAll')
+export function buildInsightExportDefaultName(bookTitle?: string): string {
+  const title = bookTitle === undefined ? copy('export.fileNameAll') : copy('export.fileNameBook', { title: bookTitle })
   return `${sanitizeExportFileName(title)}-${exportStamp()}.md`
 }
 

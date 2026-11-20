@@ -46,8 +46,7 @@ export class SemanticIndexService {
     return createHash('sha256').update(JSON.stringify([this.store.database.getStoredBook(bookId)?.sha256,
       this.store.document(bookId)?.embedding_identity, config.revision, config.baseUrl, config.model, 1])).digest('hex')
   }
-  state(bookId: string): SemanticIndexState {
-    const config = this.settings.get().embedding
+  state(bookId: string, config = this.settings.get().embedding): SemanticIndexState {
     const row = this.row(bookId)
     const count = this.store.db.prepare('SELECT count(*) AS total FROM book_blocks WHERE book_id = ? AND searchable = 1').get(bookId)!
     const done = this.store.db.prepare('SELECT count(*) AS total FROM book_vectors WHERE book_id = ?').get(bookId)!

@@ -138,4 +138,6 @@ export interface ReaderAdapter {
   setHighlights(highlights: ReadonlyArray<ReaderHighlightAnchor>): Promise<void>
   setPreferences(preferences: ReadingPreferences): Promise<void>
   setTextMode?(mode: TextReadingMode): Promise<ReaderDocumentInfo | undefined>
+  setPreparedOcrRevision?(revision: string | null): void
+  refreshUiLanguage?(): void
 }

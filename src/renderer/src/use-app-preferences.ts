@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { isUiLanguage, setCopyLanguage, type UiLanguage } from '@shared/copy'
 import type { ThemePreference, InterfaceScale } from './SettingsModal'
-import { DEFAULT_READING_PREFERENCES, normalizeReadingPreferences, normalizePaperThemePreference, resolveEffectivePaperTheme, type ReadingPreferences, type PaperThemePreference } from './readers'
+import { DEFAULT_READING_PREFERENCES, type ReadingPreferences, type PaperThemePreference } from './readers/types'
+import { normalizeReadingPreferences, normalizePaperThemePreference, resolveEffectivePaperTheme } from './readers/reading-preferences'
 import { readAssistantActionSettings, persistAssistantActionSettings, normalizeAssistantActionSettings, type AssistantActionSettings } from './assistant-actions'
 
 type ResolvedTheme = Exclude<ThemePreference, 'system'>

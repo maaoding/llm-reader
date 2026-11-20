@@ -11,6 +11,7 @@ interface RecoveryFixture {
   mode: ReadMode
   release?: () => void
   readsCompleted: number
+  archiveReads: string[][]
   closeReady: number
 }
 type RecoveryGlobal = typeof globalThis & { sessionTabsRecovery: RecoveryFixture }
@@ -38,7 +39,7 @@ async function installRecoveryFixture(application: ElectronApplication, page: Pa
   // Let the current renderer's normal debounce settle before installing fault handlers.
   await page.waitForTimeout(650)
   await application.evaluate(({ ipcMain }, input) => {
-    const fixture: RecoveryFixture = { ...input.data, mode: input.mode, writes: [], readsCompleted: 0, closeReady: 0 }
+    const fixture: RecoveryFixture = { ...input.data, mode: input.mode, writes: [], readsCompleted: 0, archiveReads: [], closeReady: 0 }
     ;(globalThis as RecoveryGlobal).sessionTabsRecovery = fixture
     ipcMain.removeHandler('session-tabs:list')
     ipcMain.handle('session-tabs:list', async () => {
@@ -47,10 +48,11 @@ async function installRecoveryFixture(application: ElectronApplication, page: Pa
       if (fixture.mode === 'tabs-error') throw new Error('Synthetic session tab read failure')
       return fixture.saved
     })
-    ipcMain.removeHandler('insights:list-all')
-    ipcMain.handle('insights:list-all', () => {
+    ipcMain.removeHandler('insights:read-archives')
+    ipcMain.handle('insights:read-archives', (_event, ids: string[]) => {
+      fixture.archiveReads.push(ids)
       if (fixture.mode === 'archives-error') throw new Error('Synthetic archive read failure')
-      return fixture.insights
+      return fixture.insights.filter((insight) => ids.includes(insight.id))
     })
     ipcMain.removeHandler('session-tabs:save')
     ipcMain.handle('session-tabs:save', (_event, state: SessionTabsState) => {
@@ -69,8 +71,8 @@ async function installRecoveryFixture(application: ElectronApplication, page: Pa
 
 async function fixtureState(application: ElectronApplication) {
   return application.evaluate(() => {
-    const { saved, writes, readsCompleted, closeReady } = (globalThis as RecoveryGlobal).sessionTabsRecovery
-    return { saved, writes, readsCompleted, closeReady }
+    const { saved, writes, readsCompleted, archiveReads, closeReady } = (globalThis as RecoveryGlobal).sessionTabsRecovery
+    return { saved, writes, readsCompleted, archiveReads, closeReady }
   })
 }
 
@@ -89,6 +91,7 @@ async function expectRestored(application: ElectronApplication, page: Page, save
   await expect(tabs.nth(1)).toHaveAttribute('data-tab-kind', 'archive')
   await expect(page.locator('.assistant-session-tab.is-active').getByTestId('assistant-session-tab')).toHaveAttribute('data-tab-kind', 'archive')
   await expect(page.locator('.assistant-dialog [data-testid="followup-input"]')).toHaveValue(saved.tabs[1].draft)
+  expect((await fixtureState(application)).archiveReads.at(-1)).toEqual([saved.tabs[1].insightId])
   await expect.poll(async () => (await fixtureState(application)).saved).toEqual(saved)
   await expect.poll(async () => (await fixtureState(application)).writes.length).toBeGreaterThan(0)
 }

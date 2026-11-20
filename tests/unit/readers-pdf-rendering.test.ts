@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
+import type { PreparedOcrPage } from '../../src/shared/contracts'
 import { PdfReaderAdapter } from '../../src/renderer/src/readers/pdf-reader'
 import type { PdfSectionState } from '../../src/renderer/src/readers/pdf-navigation'
+import type { ReaderCallbacks } from '../../src/renderer/src/readers/types'
 
 const pdf = vi.hoisted(() => ({ getDocument: vi.fn() }))
 vi.mock('pdfjs-dist', () => ({
@@ -35,9 +37,15 @@ afterEach(() => {
   for (const adapter of adapters.splice(0)) adapter.destroy()
   document.body.replaceChildren()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
-function setup() {
+function setup({ numPages = 1, hostWidth = 500, deferText = true, readPreparedOcrPage }: {
+  numPages?: number
+  hostWidth?: number
+  deferText?: boolean
+  readPreparedOcrPage?: ReaderCallbacks['readPreparedOcrPage']
+} = {}) {
   const content = { items: [{ str: 'Synthetic page text' }] }
   const text = deferred<typeof content>()
   const page = {
@@ -46,20 +54,21 @@ function setup() {
       convertToViewportPoint: (x: number, y: number) => [x * scale, (700 - y) * scale]
     }),
     render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
-    // The first read indexes text; the second read belongs to page rendering.
-    getTextContent: vi.fn().mockResolvedValue(content).mockResolvedValueOnce(content).mockReturnValueOnce(text.promise),
+    getTextContent: vi.fn().mockResolvedValue(content),
     getAnnotations: vi.fn().mockResolvedValue([])
   }
   const getOutline = vi.fn().mockResolvedValue([])
+  // The first read indexes text; the second read belongs to page rendering.
+  if (deferText) page.getTextContent.mockResolvedValueOnce(content).mockReturnValueOnce(text.promise)
   pdf.getDocument.mockReturnValue({
-    promise: Promise.resolve({ numPages: 1, getPage: async () => page, getOutline, getMetadata: async () => ({ info: {} }) }),
+    promise: Promise.resolve({ numPages, getPage: async () => page, getOutline, getMetadata: async () => ({ info: {} }) }),
     destroy: async () => undefined
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D)
   const host = document.createElement('div')
-  Object.defineProperty(host, 'clientWidth', { value: 500 })
+  Object.defineProperty(host, 'clientWidth', { value: hostWidth })
   document.body.append(host)
-  const adapter = new PdfReaderAdapter(host, { bookId: 'render-race' })
+  const adapter = new PdfReaderAdapter(host, { bookId: 'render-race', readPreparedOcrPage })
   adapters.push(adapter)
   return { adapter, host, page, getOutline, finishText: () => text.resolve(content) }
 }
@@ -150,4 +159,72 @@ it('replaces prepared outline metadata on reopen and clears it after outline fai
   expect(section(0.25)).toEqual({ title: '全文', titleCopy: { key: 'reader.pdfWholeDocument' }, href: 'pdfpos:1:0', progress: 0.25 })
   adapter.destroy()
   expect(Reflect.get(adapter, 'outlineIndex').length).toBe(0)
+})
+
+it('loads OCR word positions when revisiting a page rendered before OCR finished', async () => {
+  const readPreparedOcrPage = vi.fn(async (pageNumber: number): Promise<PreparedOcrPage> => ({
+    status: 'ready', pageNumber, pageCount: 2, revision: 'ocr-ready', text: 'Scan',
+    wordLines: [[{ start: 0, end: 4, left: 0.1, right: 0.3, top: 0.1, bottom: 0.2 }]]
+  }))
+  const { adapter, host, page } = setup({ numPages: 2, deferText: false, readPreparedOcrPage })
+  page.getTextContent.mockResolvedValue({ items: [] })
+  await adapter.open(new Uint8Array([1]))
+  await adapter.goTo('pdfpos:2:0')
+  const secondPage = host.querySelector('.pdf-page[data-page-number="2"]')!
+  expect(secondPage.hasAttribute('data-ocr-selectable')).toBe(false)
+  adapter.setPreparedOcrRevision('ocr-ready')
+  expect(readPreparedOcrPage).not.toHaveBeenCalledWith(2)
+
+  await adapter.goTo('pdfpos:2:0')
+  expect(readPreparedOcrPage).toHaveBeenCalledWith(2)
+  expect(secondPage.getAttribute('data-ocr-selectable')).toBe('true')
+  expect(page.render).toHaveBeenCalledTimes(2)
+})
+
+it('reclaims distant canvas pixels and repaints them without rebuilding text or links', async () => {
+  let deliver!: (entries: Pick<IntersectionObserverEntry, 'target' | 'isIntersecting'>[]) => void
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(callback: typeof deliver) { deliver = callback }
+    observe() {}
+    disconnect() {}
+  })
+  const { adapter, host, page } = setup({ numPages: 3, hostWidth: 2048, deferText: false })
+  await adapter.open(new Uint8Array([1]))
+  const sheets = [...host.querySelectorAll<HTMLElement>('.pdf-page')]
+  const canvases = sheets.map((sheet) => sheet.querySelector('canvas')!)
+  const intersect = (...entries: [number, boolean][]) => {
+    deliver(entries.map(([index, isIntersecting]) => ({ target: sheets[index], isIntersecting })))
+  }
+  intersect([0, true], [1, true], [2, true])
+  await vi.waitFor(() => {
+    expect(canvases.map((canvas) => canvas.width)).toEqual([2048, 2048, 2048])
+    expect(sheets.every((sheet) => sheet.getAttribute('aria-busy') === 'false')).toBe(true)
+  })
+  const secondText = sheets[1].querySelector('.pdf-text-layer span')
+  expect(secondText).not.toBeNull()
+  const secondHeight = sheets[1].style.height
+  const dimensions = [canvases[1].width, canvases[1].height]
+
+  // Three nearby bitmaps exceed the budget. Reclaim the page that left.
+  intersect([1, false])
+  expect(canvases.map((canvas) => canvas.width)).toEqual([2048, 0, 2048])
+  expect(canvases[1].height).toBe(0)
+  expect(sheets[1].style.height).toBe(secondHeight)
+  await adapter.setHighlights([{ anchor: 'pdf:2:0:9' }])
+  expect(secondText?.classList.contains('pdf-persistent-highlight')).toBe(true)
+  expect(canvases[1].width).toBe(0)
+  expect(page.render).toHaveBeenCalledTimes(3)
+
+  // Explicit navigation also repaints a destination before it enters view.
+  intersect([0, false], [2, false])
+  await adapter.goTo('pdfpos:2:0.25')
+  expect([canvases[1].width, canvases[1].height]).toEqual(dimensions)
+  expect(sheets[1].querySelector('.pdf-text-layer span')).toBe(secondText)
+  expect(secondText?.classList.contains('pdf-persistent-highlight')).toBe(true)
+  expect(page.render).toHaveBeenCalledTimes(4)
+  expect(page.getAnnotations).toHaveBeenCalledTimes(3)
+  expect(page.getTextContent).toHaveBeenCalledTimes(6)
+
+  adapter.destroy()
+  expect(canvases.every((canvas) => canvas.width === 0 && canvas.height === 0)).toBe(true)
 })

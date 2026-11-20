@@ -17,15 +17,21 @@ export function normalizeEpubHref(value: string): string {
 
 /** Index only the prefix needed to resolve hrefs within one opened book's stable spine. */
 export class EpubSpineIndex {
-  private readonly indices = new Map<string, number>()
+  private readonly sections = new Map<string, { index: number; href: string }>()
   private scanned = 0
 
   constructor(private readonly length: number, private readonly hrefAt: (index: number) => string | undefined) {}
 
   get(href: string): number | null {
-    if (!href) return null
-    const key = normalizeEpubHref(href)
-    const existing = this.indices.get(key)
+    return href ? this.sectionAtPath(normalizeEpubHref(href))?.index ?? null : null
+  }
+
+  hrefForPath(path: string): string | undefined {
+    return this.sectionAtPath(path)?.href
+  }
+
+  private sectionAtPath(path: string): { index: number; href: string } | undefined {
+    const existing = this.sections.get(path)
     if (existing !== undefined) return existing
     while (this.scanned < this.length) {
       const index = this.scanned, candidate = this.hrefAt(index)
@@ -33,10 +39,13 @@ export class EpubSpineIndex {
       if (!candidate) continue
       const normalized = normalizeEpubHref(candidate)
       // Repeated sections keep the first matching index, as in the original scan.
-      if (!this.indices.has(normalized)) this.indices.set(normalized, index)
-      if (normalized === key) return index
+      if (!this.sections.has(normalized)) {
+        const section = { index, href: candidate }
+        this.sections.set(normalized, section)
+        if (normalized === path) return section
+      }
     }
-    return null
+    return undefined
   }
 }
 

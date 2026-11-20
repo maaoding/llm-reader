@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  createPdfOutlineIndex,
   makePdfPositionAnchor,
   parsePdfPositionAnchor,
   pdfDestinationFraction,
@@ -7,7 +8,6 @@ import {
   pdfReadingPosition,
   pdfSectionAt,
   PdfZoomCoordinator,
-  sortPdfOutlineLocations,
   type PdfOutlineLocation,
   type PdfPageBounds
 } from '../../src/renderer/src/readers/pdf-navigation'
@@ -103,7 +103,7 @@ describe('PDF position navigation', () => {
   })
 
   it('selects the deepest current outline section and computes section progress', () => {
-    const locations = sortPdfOutlineLocations([
+    const locations = createPdfOutlineIndex([
       location('第一章', 0, 1, 0, 0),
       location('1.1 同页小节', 1, 1, 0.25, 1),
       location('1.1.1 最细小节', 2, 1, 0.25, 2),
@@ -115,8 +115,20 @@ describe('PDF position navigation', () => {
     expect(pdfSectionAt(locations, 3, 1, 3, '全文')).toMatchObject({ title: '第二章', progress: 1 })
   })
 
+  it('keeps depth ordering for nearly coincident destinations and the same section progress', () => {
+    const outline = createPdfOutlineIndex([
+      location('浅层', 0, 1, 0.3000005, 0),
+      location('深层', 1, 1, 0.3, 1),
+      location('后续', 0, 1, 0.8, 2)
+    ])
+    expect(pdfSectionAt(outline, 1, 0.29999925, 2, '全文').title).toBe('全文')
+    const section = pdfSectionAt(outline, 1, 0.55, 2, '全文')
+    expect(section.title).toBe('深层')
+    expect(section.progress).toBeCloseTo(0.5)
+  })
+
   it('uses whole-document progress before the first outline entry and without an outline', () => {
-    const locations = [location('第一章', 0, 2, 0, 0)]
+    const locations = createPdfOutlineIndex([location('第一章', 0, 2, 0, 0)])
     expect(pdfSectionAt(locations, 1, 0.5, 4, '全文')).toEqual({
       title: '全文',
       href: 'pdfpos:1:0',

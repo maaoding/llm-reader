@@ -35,6 +35,7 @@ export function providerStatusLabel(status: ProviderConnectionStatus): string {
 /** Owns provider restoration and connection checks; request results carry the
  * revision they started with so an older provider cannot change the new status. */
 export function useProviderConnection(pushToast: (message: string, tone: 'error') => void) {
+  const [providerLoaded, setProviderLoaded] = useState(false)
   const [providerOverview, setProviderOverview] = useState<ProviderOverview>(EMPTY_PROVIDER_OVERVIEW)
   const [provider, setProvider] = useState<ProviderSettings>(EMPTY_PROVIDER)
   const [providerConnection, setProviderConnection] = useState<ProviderConnectionState>({
@@ -75,6 +76,7 @@ export function useProviderConnection(pushToast: (message: string, tone: 'error'
   }, [])
 
   const handleProviderOverviewChange = useCallback((overview: ProviderOverview, checkActive: boolean): void => {
+    setProviderLoaded(true)
     setProviderOverview(overview)
     const settings = activeProviderSettings(overview)
     const previous = providerRef.current
@@ -96,7 +98,9 @@ export function useProviderConnection(pushToast: (message: string, tone: 'error'
     if (!window.readerApi) return undefined
     let alive = true
     void window.readerApi.getProviderOverview().catch(() => EMPTY_PROVIDER_OVERVIEW).then((overview) => {
-      if (!alive || revisionRef.current !== 0) return
+      if (!alive) return
+      setProviderLoaded(true)
+      if (revisionRef.current !== 0) return
       setProviderOverview(overview)
       const settings = activeProviderSettings(overview)
       const revision = commitProviderSettings(settings)
@@ -117,5 +121,5 @@ export function useProviderConnection(pushToast: (message: string, tone: 'error'
       : { status: 'connected' })
   }, [])
 
-  return { providerOverview, provider, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult }
+  return { providerOverview, provider, providerLoaded, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult }
 }

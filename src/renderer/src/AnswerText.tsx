@@ -24,11 +24,7 @@ function TextContent({
   const segments = selection.resolve(withoutIncompleteCitationMarker(text))
   return segments.map((segment, index) => {
     if (segment.type === 'text') {
-      return (
-        <span key={index}>
-          {highlight ? <MarkedText value={segment.text} needle={highlight} /> : segment.text}
-        </span>
-      )
+      return highlight ? <MarkedText key={index} value={segment.text} needle={highlight} /> : segment.text
     }
     if (segment.type === 'unverified') {
       return (
@@ -85,6 +81,9 @@ function InlineContent({
 }): ReactNode {
   return nodes.map((node, index) => {
     if (node.type === 'text') {
+      if (!node.text.includes('[')) {
+        return highlight ? <MarkedText key={index} value={node.text} needle={highlight} /> : node.text
+      }
       return <TextContent text={node.text} selection={selection} onNavigate={onNavigate} highlight={highlight} key={index} />
     }
     if (node.type === 'code') return <code className="answer-code-inline" key={index}>{node.text}</code>

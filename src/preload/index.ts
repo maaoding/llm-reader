@@ -14,6 +14,8 @@ export const readerApi: ReaderApi = {
   getRestoredPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.backupPreferences),
   acknowledgeRestoredPreferences: (token) => ipcRenderer.invoke(IPC_CHANNELS.backupPreferencesApplied, token),
   listWorkbenches: () => ipcRenderer.invoke(IPC_CHANNELS.workbenchesList),
+  listWorkbenchSummaries: () => ipcRenderer.invoke(IPC_CHANNELS.workbenchesListSummaries),
+  getWorkbench: (id) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesGet, id),
   createWorkbench: (input) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesCreate, input),
   saveWorkbench: (input) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesSave, input),
   deleteWorkbench: (id) => ipcRenderer.invoke(IPC_CHANNELS.workbenchesDelete, id),
@@ -51,6 +53,8 @@ export const readerApi: ReaderApi = {
   exportHighlights: (input) => ipcRenderer.invoke(IPC_CHANNELS.highlightsExport, input),
   listInsights: (bookId) => ipcRenderer.invoke(IPC_CHANNELS.insightsList, bookId),
   listAllInsights: () => ipcRenderer.invoke(IPC_CHANNELS.insightsListAll),
+  listInsightPreviews: () => ipcRenderer.invoke(IPC_CHANNELS.insightsListPreviews),
+  readInsightArchives: (insightIds) => ipcRenderer.invoke(IPC_CHANNELS.insightsReadArchives, insightIds),
   exportInsights: (scope) => ipcRenderer.invoke(IPC_CHANNELS.insightsExport, scope),
   saveInsight: (input) => ipcRenderer.invoke(IPC_CHANNELS.insightsSave, input),
   deleteInsight: (id) => ipcRenderer.invoke(IPC_CHANNELS.insightsDelete, id),
@@ -91,6 +95,11 @@ export const readerApi: ReaderApi = {
     const handler = (_event: Electron.IpcRendererEvent, state: Parameters<typeof listener>[0]): void => listener(state)
     ipcRenderer.on(IPC_CHANNELS.analysisEvent, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.analysisEvent, handler)
+  },
+  onBookAnalysisSettingsChanged: (listener) => {
+    const handler = (): void => listener()
+    ipcRenderer.on(IPC_CHANNELS.analysisSettingsChanged, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.analysisSettingsChanged, handler)
   },
   cancelLlm: (requestId) => ipcRenderer.invoke(IPC_CHANNELS.llmCancel, requestId),
   openWebSource: (input) => ipcRenderer.invoke(IPC_CHANNELS.webSourceOpen, input),

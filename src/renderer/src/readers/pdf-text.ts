@@ -1,3 +1,4 @@
+import { codePointLength } from './context'
 import type { PdfRegionAnchor } from '@shared/pdf-anchors'
 export { makePdfTextAnchor, parsePdfTextAnchor, makePdfRegionAnchor, parsePdfRegionAnchor, type PdfTextAnchor, type PdfRegionAnchor } from '@shared/pdf-anchors'
 
@@ -108,69 +109,71 @@ export function pdfTextOffset(runs: ReadonlyArray<PdfTextRun>, offset: number, s
 export function createPdfTextModel(items: ReadonlyArray<PdfTextContentItem>): PdfTextModel {
   const rawParts: string[] = []
   const readableParts: string[] = []
-  const runs: PdfTextRun[] = []
-  let rawOffset = 0
-  let readableOffset = 0
+  const separatorOffsets: number[] = []
+  let rawLength = 0
   let pendingLineBreak = false
-
-  const appendSeparator = (): void => {
-    readableParts.push(' ')
-    runs.push({
-      rawStart: rawOffset,
-      rawEnd: rawOffset,
-      readableStart: readableOffset,
-      readableEnd: readableOffset + 1,
-      separator: true
-    })
-    readableOffset += 1
-  }
 
   for (const item of items) {
     const value = item.str ?? ''
-    const valueCodePoints = codePoints(value)
-    if (valueCodePoints.length > 0) {
-      const previous = readableParts.at(-1)?.at(-1)
-      const next = valueCodePoints[0]
-      if (pendingLineBreak && readableOffset > 0 && !isWhitespace(previous) && !isWhitespace(next)) {
-        appendSeparator()
+    if (value.length > 0) {
+      if (pendingLineBreak && rawLength > 0 &&
+          !isWhitespace(readableParts.at(-1)?.at(-1)) && !isWhitespace(value[0])) {
+        separatorOffsets.push(rawLength)
+        readableParts.push(' ')
       }
       pendingLineBreak = false
-
-      const length = valueCodePoints.length
       rawParts.push(value)
       readableParts.push(value)
-      runs.push({
-        rawStart: rawOffset,
-        rawEnd: rawOffset + length,
-        readableStart: readableOffset,
-        readableEnd: readableOffset + length,
-        separator: false
-      })
-      rawOffset += length
-      readableOffset += length
+      rawLength += codePointLength(value)
     }
     if (item.hasEOL) pendingLineBreak = true
   }
 
   const rawText = rawParts.join('')
-  const readableText = readableParts.join('')
-  // Index the joined string, so surrogate pairs split across PDF items keep their prior slicing behavior.
+  const readableText = separatorOffsets.length ? readableParts.join('') : rawText
+  const readableLength = rawLength + separatorOffsets.length
   const sliceCheckpoints = [0]
 
-  const readableOffsetForRaw = (offset: number, bias: OffsetBias): number => pdfTextOffset(runs, offset, 'raw', bias)
-  const rawOffsetForReadable = (offset: number, bias: OffsetBias): number => pdfTextOffset(runs, offset, 'readable', bias)
+  const separatorsBefore = (offset: number, readableCoordinates: boolean): number => {
+    let low = 0
+    let high = separatorOffsets.length
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2)
+      // Each earlier separator adds one code point to the readable position.
+      const position = separatorOffsets[middle] + (readableCoordinates ? middle : 0)
+      if (position < offset) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    return low
+  }
+
+  const readableOffsetForRaw = (offset: number, bias: OffsetBias): number => {
+    if (!validOffset(offset, rawLength)) return bias === 'start' ? readableLength : 0
+    // At a line break, start includes the separator and end stops before it.
+    const limit = bias === 'start' ? offset + 1 : offset
+    return offset + separatorsBefore(limit, false)
+  }
+
+  const rawOffsetForReadable = (offset: number, bias: OffsetBias): number => {
+    if (!validOffset(offset, readableLength)) return bias === 'start' ? rawLength : 0
+    if (offset === 0) return 0
+    return offset - separatorsBefore(offset, true)
+  }
 
   return {
     rawText,
     readableText,
-    rawLength: rawOffset,
-    readableLength: readableOffset,
+    rawLength,
+    readableLength,
     readableOffsetForRaw,
     rawOffsetForReadable,
     readableSliceForRaw(rawStart: number, rawEnd: number): string {
-      if (!validOffset(rawStart, rawOffset) || !validOffset(rawEnd, rawOffset) || rawEnd < rawStart) return ''
+      if (!validOffset(rawStart, rawLength) || !validOffset(rawEnd, rawLength) || rawEnd < rawStart) return ''
       if (rawStart === rawEnd) return ''
-      if (rawStart === 0 && rawEnd === rawOffset) return codePoints(readableText).join('')
+      if (rawStart === 0 && rawEnd === rawLength) return codePoints(readableText).join('')
       const start = readableOffsetForRaw(rawStart, 'start')
       const end = readableOffsetForRaw(rawEnd, 'end')
       return codePointSlice(readableText, start, Math.max(start, end), sliceCheckpoints)

@@ -198,6 +198,10 @@ export class PdfOutlineIndex {
   }
 }
 
+export function createPdfOutlineIndex(locations: ReadonlyArray<PdfOutlineLocation>): PdfOutlineIndex {
+  return new PdfOutlineIndex(sortPdfOutlineLocations(locations))
+}
+
 export function pdfSectionAt(
   locations: ReadonlyArray<PdfOutlineLocation> | PdfOutlineIndex,
   pageNumber: number,

@@ -55,7 +55,7 @@ describe('lightweight book directories', () => {
     document.nodes[1].order = 20; document.nodes[2].order = 10
     const bookId = state.addBook('节点样本', document)
     expect(state.store.chapterDirectory(bookId)).toEqual([
-      { id: 'n1', title: '同名😀𠮷章节' }, { id: 'n2', title: '章节2' }, { id: 'n3', title: '同名😀𠮷章节' }
+      { id: 'n1', title: '同名😀𠮷章节', parentId: 'n0' }, { id: 'n2', title: '章节2', parentId: null }, { id: 'n3', title: '同名😀𠮷章节', parentId: null }
     ])
   })
 
@@ -114,13 +114,15 @@ describe('lightweight book directories', () => {
     expect(payload.chapters).toHaveLength(long ? 24 : 80)
   })
 
-  it('loads full text only for selected books and maps planner IDs to the original chapter IDs', async () => {
+  it('reads relevant notes only for selected books and maps planner IDs to the original chapter IDs', async () => {
     const state = setup(), first = state.addBook('甲书', fixture()), second = state.addBook('乙书', fixture(2, '乙书'))
     state.planner.mockResolvedValue({ text: JSON.stringify({ chapters: ['B0C1', 'B1C0'], terms: ['词'], books: [first] }) })
     const structure = vi.spyOn(state.store, 'structure'), sections = vi.spyOn(state.store, 'sections')
+    const notes = vi.spyOn(state.store, 'matchingNotes')
     const result = await context(state, [first, second])
-    expect(structure).toHaveBeenCalledExactlyOnceWith(first)
-    expect(sections).toHaveBeenCalledExactlyOnceWith(first)
+    expect(structure).not.toHaveBeenCalled()
+    expect(sections).not.toHaveBeenCalled()
+    expect(notes).toHaveBeenCalledExactlyOnceWith(first, expect.objectContaining({ chapterIds: ['n1'] }))
     expect(state.search.mock.calls[0][3]).toEqual(['n1'])
     expect(state.search.mock.calls[0][4]).toEqual(['词'])
     expect(result.passages.every((passage) => passage.bookId === first)).toBe(true)

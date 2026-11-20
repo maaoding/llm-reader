@@ -34,6 +34,34 @@
 
 | key | text |
 | --- | --- |
+| guide.optionalEnhancements | Optional: chapter notes and semantic search |
+| guide.readingTitle | Start with a passage |
+| guide.readingDetail | Select text in the book, then choose “Explain this”. Prepare the source text when you want to ask about the whole book. |
+| guide.readingOptional | Reading needs no model. Chapter notes and semantic search can wait. |
+| guide.trySelection | Try a passage |
+| guide.tryBook | Prepare this book |
+| guide.dismiss | Dismiss this tip |
+| guide.selectHint | Select a passage in the book, then choose “Explain this”. |
+| guide.answerDetail | Use verified citations to check the source. Save useful answers to find them again later. |
+| guide.pendingModel | Your passage is kept. Set up a model to continue your action. |
+| guide.pendingReady | A model is configured. You can continue your action. |
+| guide.continue | Continue:  |
+| guide.cancelAction | Cancel the pending action |
+| guide.returnReading | Return to reading |
+| guide.askBook | Return and ask |
+| guide.quickStart | Quick start |
+| guide.replay | Show reading tips again |
+| guide.importTitle | Import and read |
+| guide.importDetail | Import EPUB, TXT or PDF to read locally. Set up AI whenever you need it. |
+| guide.importButton | Import your first book |
+| guide.formatsHint | You can also drop files into this window. MOBI / AZW3 requires Calibre on your computer. |
+| guide.selectionTitle | Ask about a passage |
+| guide.selectionDetail | Select text and choose Explain, Add context or Ask freely. Configure a model for AI; whole-book preparation is not required. |
+| guide.bookTitle | Ask about the whole book |
+| guide.bookDetail | Prepare source text in Book preparation, then choose Whole book. Notes and semantic search are optional. PDF preparation requires a parsing or OCR service. |
+| settings.firstModelHint | Enter your provider’s address, key and model to use the reading assistant. Reading itself needs no setup. |
+| settings.defaultProfileName | Reading assistant |
+| settings.optionalAdapter | Request compatibility (optional) |
 | reader.markdownFallback | This content is too large or could not be fully parsed. Showing plain text. |
 | settings.textReadingMode | Current TXT presentation |
 | settings.textModeAuto | Detect automatically |
@@ -655,7 +683,7 @@
 | settings.apiKeySaved | Saved securely |
 | settings.apiKeyPlaceholderSaved | Leave blank to keep the saved key |
 | settings.apiKeyPlaceholderEmpty | Enter API key |
-| settings.apiKeyHint | The key is encrypted by the main process only and never written to the library database. |
+| settings.apiKeyHint | Your key is encrypted locally. Configure custom authentication in advanced request settings. |
 | assistant.recentSessions | Recent chats |
 | assistant.recentSessionsLoading | Loading recent chats… |
 | assistant.promptDetails | View this prompt |
@@ -991,7 +1019,7 @@
 | error.requestTimeout | The model request timed out. |
 | error.requestStartFailed | The request could not start. Check the model settings. |
 | error.keyStorageUnavailable | This system cannot store API keys securely. |
-| error.providerNotConfigured | Save the API key and model settings first. |
+| error.providerNotConfigured | Set up and activate a model service first. |
 | error.keyReadUnavailable | This system cannot read API keys. |
 | error.keyDecryptFailed | The API key could not be decrypted. Save it again. |
 | provider.testConnected | Text test passed: a valid reply was received. |

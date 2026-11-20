@@ -38,6 +38,7 @@ async function configureProvider(page: Page, compatibility = 'auto'): Promise<vo
   await page.getByTestId('provider-base-url').fill(endpoint)
   await page.getByTestId('provider-model').fill('mock-session-persistence')
   await page.getByTestId('provider-api-key').fill('test-only-key')
+  if (!await page.getByTestId('provider-compatibility').isVisible()) await page.getByTestId('provider-adapter').locator('summary').click()
   await page.getByTestId('provider-compatibility').selectOption(compatibility)
   await page.getByTestId('provider-save').click()
   await page.getByTestId('provider-activate').click()

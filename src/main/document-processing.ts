@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import JSZip from 'jszip'
 import { z } from 'zod'
-import type { BookPagePreview, BookPagePreviewInput, DocumentSection, NormalizedDocument, PreparedOcrPage } from '@shared/contracts'
+import type { BookPagePreview, BookPagePreviewInput, DocumentSection, DocumentSettings, NormalizedDocument, PreparedOcrPage } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppDatabase } from './database'
 import { AppError } from './errors'
@@ -91,18 +91,17 @@ export class DocumentProcessingService {
     private readonly http: KnowledgeHttp, private readonly pollMs = 2_000, private readonly foregroundBusy: () => boolean = () => false) {
     this.vision = new VisionOcrService(database, settings, http)
   }
-  usesVision(): boolean { return this.enabled() && isPageProcessor(this.settings.get().document.processor) }
+  usesVision(config: DocumentSettings = this.settings.get().document): boolean { return this.enabled(config) && isPageProcessor(config.processor) }
   progress(bookId: string): { completed: number; total: number } | undefined { return this.vision.progress(bookId) }
   readOcrPage(bookId: string, pageNumber: number): PreparedOcrPage { return this.vision.preparedPage(bookId, pageNumber) }
-  identity(): string {
-    const config = this.settings.get().document
+  identity(config: DocumentSettings = this.settings.get().document): string {
     const revision = this.database.connection.prepare("SELECT revision FROM knowledge_settings WHERE kind = 'document'").get()?.revision
     return JSON.stringify([config.processor, config.baseUrl, config.ocr, config.language, revision, 1])
   }
   private fingerprint(bookId: string): string {
     return createHash('sha256').update(JSON.stringify([this.database.getStoredBook(bookId)?.sha256, this.identity()])).digest('hex')
   }
-  enabled(): boolean { const config = this.settings.get().document; return config.enabled && config.processor !== 'none' }
+  enabled(config: DocumentSettings = this.settings.get().document): boolean { return config.enabled && config.processor !== 'none' }
   cancelPreview(requestId?: string): void {
     if (!this.previewJob || (requestId && this.previewJob.requestId !== requestId)) return
     this.previewJob.controller.abort()

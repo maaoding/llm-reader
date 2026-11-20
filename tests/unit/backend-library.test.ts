@@ -561,6 +561,7 @@ describe('LibraryService', () => {
       })
     const clock = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-01-01T00:00:00.000Z')
     const firstInsight = makeInsight(firstBook.id, '第一条回答。')
+    expect(library.insightExportDefaultName({ kind: 'all' })).toContain(firstBook.title)
     clock.mockReturnValue('2026-01-01T00:00:01.000Z')
     const secondInsight = makeInsight(secondBook.id, '第二条回答。')
     clock.mockRestore()
@@ -574,6 +575,15 @@ describe('LibraryService', () => {
       author: secondBook.author,
       format: secondBook.format
     })
+    const previews = library.listInsightPreviews()
+    expect(previews.map((insight) => insight.id)).toEqual([secondInsight.id, firstInsight.id])
+    expect(previews[0]).toMatchObject({
+      book: all[0].book, selection: all[0].selection, answer: all[0].answer
+    })
+    expect(previews[0]).not.toHaveProperty('history')
+    expect(library.readInsightArchives([firstInsight.id, 'missing', firstInsight.id])).toEqual([all[1]])
+    expect(library.readInsightArchives([])).toEqual([])
+    expect(library.insightExportDefaultName({ kind: 'all' })).toContain('全部问答集')
 
     const target = join(root, 'exported.md')
     expect(await library.exportInsights({ kind: 'book', bookId: firstBook.id }, target)).toBe('exported.md')
@@ -583,6 +593,9 @@ describe('LibraryService', () => {
     expect(markdown).not.toContain(secondBook.title)
     expect(markdown).toContain('第一条回答。')
 
+    // Scoped exports can read the selected archive even when another archive cannot be decoded.
+    database.connection.prepare('UPDATE insights SET selection_json = ? WHERE id = ?').run('{', firstInsight.id)
+    expect(library.insightExportDefaultName({ kind: 'insight', insightId: secondInsight.id })).toContain(secondBook.title)
     expect(await library.exportInsights({ kind: 'insight', insightId: secondInsight.id }, join(root, 'single'))).toBe('single.md')
     expect(await readFile(join(root, 'single.md'), 'utf8')).toContain('第二条回答。')
     expect(library.insightExportDefaultName({ kind: 'book', bookId: firstBook.id })).toContain(firstBook.title)

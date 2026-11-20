@@ -46,11 +46,11 @@ function workbenchProps(turns: ConversationTurn[]): ComponentProps<typeof Workbe
     turns: turns.map((item) => ({ ...item, bookIds: ['first'] })), webSearch: 'off', persona: null, createdAt: '', updatedAt: '' }
   return {
     books, provider, states: {}, personas: { presets: [], defaultId: null }, webSearchEnabled: false,
-    coverCache: {} as ComponentProps<typeof WorkbenchesView>['coverCache'], refresh: vi.fn(async () => undefined),
+    coverCache: {} as ComponentProps<typeof WorkbenchesView>['coverCache'], refresh: vi.fn(async () => undefined), settingsVersion: 0,
     onPrepare: vi.fn(), onNavigate: vi.fn(), onConfigure: vi.fn(), onSavePersonaAs: vi.fn(), onArchiveViewChange: vi.fn(),
-    controller: { records: [record], activeId: record.id, active: record, activate: vi.fn(), create: vi.fn(), remove: vi.fn(),
+    controller: { records: [record], summaries: [], selectedId: record.id, active: record, activate: vi.fn(), create: vi.fn(), remove: vi.fn(),
       update: vi.fn(), submit: vi.fn(), cancel: vi.fn(), flush: vi.fn(), beforeClose: vi.fn(), resumeAfterClose: vi.fn(),
-      retrySaves: vi.fn(), loading: false, loadError: '', load: vi.fn(), errors: {}, dirty: [] }
+      retrySaves: vi.fn(), loading: false, loadError: '', retryLoad: vi.fn(), errors: {}, dirty: [] }
   }
 }
 

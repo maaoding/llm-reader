@@ -7,9 +7,11 @@ import { SemanticIndexControls } from './SemanticIndexControls'
 import { BookOcrPreview } from './BookOcrPreview'
 import { processorCopy } from '@shared/knowledge'
 
-export function BookAnalysisControls({ book, state, error, profiles, suspended = false, onStart, onCancel, onPrepare, onCancelPreparation, onConfigure }: {
+export function BookAnalysisControls({ book, state, error, profiles, suspended = false, onStart, onCancel, onPrepare, onCancelPreparation, onConfigure, onAsk, collapseOptionalAfterReady = false }: {
   book: BookRecord; state?: BookAnalysisState; error?: { load?: string; document?: string; notes?: string }; profiles: ProviderOverview
   suspended?: boolean
+  onAsk?: () => void
+  collapseOptionalAfterReady?: boolean
   onStart: (profileId: string, rebuild: boolean) => Promise<void>
   onCancel: () => void; onPrepare: (rebuild: boolean) => Promise<void>; onCancelPreparation: () => void
   onConfigure: (section: 'model' | 'knowledge', trigger: HTMLButtonElement, service?: 'document' | 'embedding') => void
@@ -50,6 +52,7 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
       {error?.document && <p className="analysis-error" role="status">{error.document}</p>}
       {state?.document?.message && <p className={state.document.status === 'paused' ? 'field-hint' : 'analysis-error'} role="status">{state.document.message}</p>}
       <div className="analysis-actions">
+        {documentReady && onAsk && <button className="primary-button" type="button" data-testid="document-ask" onClick={onAsk}>{copy('guide.askBook')}</button>}
         {book.format === 'pdf' && !documentReady && !canPreparePdf ? <button className="primary-button" type="button" onClick={(event) => onConfigure('knowledge', event.currentTarget, 'document')}>{copy('preparation.configureDocument')}</button>
           : preparing ? <button className="secondary-button" data-testid="document-cancel" onClick={onCancelPreparation}>{copy('preparation.pause')}</button>
           : <>{!documentReady && <button className="primary-button" data-testid="document-prepare" disabled={busy || starting} onClick={() => void prepare(false)}>{copy(state?.document?.status === 'paused' ? 'preparation.resume' : state?.document?.status === 'error' ? 'preparation.retry' : 'preparation.prepare')}</button>}
@@ -63,32 +66,35 @@ export function BookAnalysisControls({ book, state, error, profiles, suspended =
         {state.document.diagnostics.length > 100 && <p>{copy('preparation.checkLimit', { count: state.document.diagnostics.length })}</p>}
       </details>}
     </section>
-    <section className="preparation-card">
-      <header><h3>{copy('preparation.notes')}</h3><span className="status-tag">{copy('workspace.optional')}</span></header>
-      <p className="field-hint">{copy('preparation.notesHint')}</p>
-      <p data-testid="notes-status">{copy(`analysis.status.${state?.status ?? 'empty'}`)}{state?.sections ? ` · ${copy('workspace.noteCount', { completed: state.completedSections, total: state.sections })}` : ''}</p>
-      {error?.notes && <p className="analysis-error" role="status">{error.notes}</p>}
-      {state?.message && <p className="analysis-error" role="status">{state.message}</p>}
-      {state?.progress && state.progress.total > 0 && <p data-testid="analysis-stage-progress" role="status">{copy('analysis.stageProgress', { stage: copy(`analysis.stage.${state.progress.stage}`), completed: state.progress.completed, total: state.progress.total })}</p>}
-      {state?.progress?.retryAttempt && <p data-testid="analysis-retrying">{copy('analysis.retrying', { attempt: state.progress.retryAttempt })}</p>}
-      <label>{copy('analysis.profile')}<Select data-testid="analysis-profile" value={profileId} disabled={busy || starting} onChange={(event) => setChosenProfile(event.target.value)}>
-        <option value="" disabled>{copy('analysis.profile')}</option>{profiles.profiles.map((profile) => <option key={profile.id} value={profile.id} disabled={!providerIsConfigured(profile)}>{profile.name} · {profile.model}</option>)}
-      </Select></label>
-      <p className="field-hint">{copy('analysis.disclosure')}</p>
-      <div className="analysis-actions">
-        {state?.status === 'analyzing' ? <button className="secondary-button" data-testid="analysis-cancel" onClick={onCancel}>{copy('analysis.cancel')}</button>
-          : <>{!canStart && <button className="secondary-button" onClick={(event) => onConfigure('model', event.currentTarget)}>{copy('preparation.configureModel')}</button>}
-            {state?.status !== 'ready' && state?.status !== 'stale' && <button className="primary-button" data-testid="analysis-start" disabled={!canStart || !documentReady || busy} onClick={() => void start(false)}>{copy(state && !['empty', 'unsupported'].includes(state.status) ? 'analysis.resume' : 'analysis.prepare')}</button>}
-            {state && state.status !== 'empty' && <button className="secondary-button" data-testid="analysis-rebuild" disabled={!canStart || !documentReady || busy} onClick={() => void start(true)}>{copy('analysis.rebuild')}</button>}</>}
-      </div>
-      {!documentReady && <p className="field-hint">{copy('analysis.needed')}</p>}
-      <details className="preparation-details"><summary>{copy('preparation.details')}</summary><p>{copy('analysis.disclosureRetry')}</p>{state?.usage?.totalTokens !== undefined && <p>{copy('assistant.tokenUsage', { count: state.usage.totalTokens })}</p>}</details>
-      {!!state?.failures?.length && <details className="analysis-failures" data-testid="analysis-failures"><summary>{copy('analysis.recentFailures')}</summary><ol>{state.failures.map((failure, index) => <li key={index}><small>{new Date(failure.occurredAt).toLocaleString(getCopyLocale())} · {copy(`analysis.stage.${failure.stage}`)}</small><p>{failure.message}</p></li>)}</ol></details>}
-    </section>
-    <section className="preparation-card"><header><h3>{copy('knowledge.indexTitle')}</h3><span className="status-tag">{copy('workspace.optional')}</span></header>
-      <p className="field-hint">{copy('preparation.semanticHint')}</p>
-      {documentReady && state?.semantic ? <SemanticIndexControls key={book.id} bookId={book.id} state={state.semantic} /> : <p>{copy('analysis.needed')}</p>}
-      {(!state?.semantic || state.semantic.status === 'disabled') && <button className="secondary-button" onClick={(event) => onConfigure('knowledge', event.currentTarget, 'embedding')}>{copy('preparation.configureSemantic')}</button>}
-    </section>
+    <details className="optional-enhancements" data-testid="optional-enhancements" open={!documentReady || !collapseOptionalAfterReady}>
+      <summary>{copy('guide.optionalEnhancements')}</summary>
+      <section className="preparation-card">
+        <header><h3>{copy('preparation.notes')}</h3><span className="status-tag">{copy('workspace.optional')}</span></header>
+        <p className="field-hint">{copy('preparation.notesHint')}</p>
+        <p data-testid="notes-status">{copy(`analysis.status.${state?.status ?? 'empty'}`)}{state?.sections ? ` · ${copy('workspace.noteCount', { completed: state.completedSections, total: state.sections })}` : ''}</p>
+        {error?.notes && <p className="analysis-error" role="status">{error.notes}</p>}
+        {state?.message && <p className="analysis-error" role="status">{state.message}</p>}
+        {state?.progress && state.progress.total > 0 && <p data-testid="analysis-stage-progress" role="status">{copy('analysis.stageProgress', { stage: copy(`analysis.stage.${state.progress.stage}`), completed: state.progress.completed, total: state.progress.total })}</p>}
+        {state?.progress?.retryAttempt && <p data-testid="analysis-retrying">{copy('analysis.retrying', { attempt: state.progress.retryAttempt })}</p>}
+        <label>{copy('analysis.profile')}<Select data-testid="analysis-profile" value={profileId} disabled={busy || starting} onChange={(event) => setChosenProfile(event.target.value)}>
+          <option value="" disabled>{copy('analysis.profile')}</option>{profiles.profiles.map((profile) => <option key={profile.id} value={profile.id} disabled={!providerIsConfigured(profile)}>{profile.name} · {profile.model}</option>)}
+        </Select></label>
+        <p className="field-hint">{copy('analysis.disclosure')}</p>
+        <div className="analysis-actions">
+          {state?.status === 'analyzing' ? <button className="secondary-button" data-testid="analysis-cancel" onClick={onCancel}>{copy('analysis.cancel')}</button>
+            : <>{!canStart && <button className="secondary-button" onClick={(event) => onConfigure('model', event.currentTarget)}>{copy('preparation.configureModel')}</button>}
+              {state?.status !== 'ready' && state?.status !== 'stale' && <button className={documentReady && onAsk ? 'secondary-button' : 'primary-button'} data-testid="analysis-start" disabled={!canStart || !documentReady || busy} onClick={() => void start(false)}>{copy(state && !['empty', 'unsupported'].includes(state.status) ? 'analysis.resume' : 'analysis.prepare')}</button>}
+              {state && state.status !== 'empty' && <button className="secondary-button" data-testid="analysis-rebuild" disabled={!canStart || !documentReady || busy} onClick={() => void start(true)}>{copy('analysis.rebuild')}</button>}</>}
+        </div>
+        {!documentReady && <p className="field-hint">{copy('analysis.needed')}</p>}
+        <details className="preparation-details"><summary>{copy('preparation.details')}</summary><p>{copy('analysis.disclosureRetry')}</p>{state?.usage?.totalTokens !== undefined && <p>{copy('assistant.tokenUsage', { count: state.usage.totalTokens })}</p>}</details>
+        {!!state?.failures?.length && <details className="analysis-failures" data-testid="analysis-failures"><summary>{copy('analysis.recentFailures')}</summary><ol>{state.failures.map((failure, index) => <li key={index}><small>{new Date(failure.occurredAt).toLocaleString(getCopyLocale())} · {copy(`analysis.stage.${failure.stage}`)}</small><p>{failure.message}</p></li>)}</ol></details>}
+      </section>
+      <section className="preparation-card"><header><h3>{copy('knowledge.indexTitle')}</h3><span className="status-tag">{copy('workspace.optional')}</span></header>
+        <p className="field-hint">{copy('preparation.semanticHint')}</p>
+        {documentReady && state?.semantic ? <SemanticIndexControls key={book.id} bookId={book.id} state={state.semantic} /> : <p>{copy('analysis.needed')}</p>}
+        {(!state?.semantic || state.semantic.status === 'disabled') && <button className="secondary-button" onClick={(event) => onConfigure('knowledge', event.currentTarget, 'embedding')}>{copy('preparation.configureSemantic')}</button>}
+      </section>
+    </details>
   </div>
 }

@@ -64,7 +64,7 @@ test('deletes an unopened book from its details modal and keeps it gone after re
     application = launched.application
     ;({ page } = launched)
     await expect(page.getByTestId('book-item')).toHaveCount(0)
-    await expect(page.getByText('书库为空')).toBeVisible()
+    await expect(page.getByTestId('library-list').getByText('从一本书开始', { exact: true })).toBeVisible()
   } finally {
     await cleanupE2eWorkspace(application, workspace.root)
   }

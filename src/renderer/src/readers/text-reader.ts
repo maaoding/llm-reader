@@ -104,15 +104,6 @@ function normalizedHeading(text: string): string {
   return cleanHeading(text).normalize('NFKC').replace(/\s+/gu, '').toLocaleLowerCase()
 }
 
-function headingsCorrespond(left: ParsedTextParagraph, right: ParsedTextParagraph): boolean {
-  const leftLabel = normalizedHeading(left.text)
-  const rightLabel = normalizedHeading(right.text)
-  if (leftLabel === rightLabel) return true
-
-  const shorterLength = Math.min(leftLabel.length, rightLabel.length)
-  return shorterLength >= 4 && (leftLabel.startsWith(rightLabel) || rightLabel.startsWith(leftLabel))
-}
-
 function navigationalHeadingIndexes(paragraphs: ParsedTextParagraph[]): Set<number> {
   const headings = paragraphs.filter((paragraph) => paragraph.heading)
   if (headings.length < TOC_LIKE_HEADING_RUN_MINIMUM) {
@@ -136,27 +127,41 @@ function navigationalHeadingIndexes(paragraphs: ParsedTextParagraph[]): Set<numb
   for (const denseRun of denseRuns) {
     denseRun.forEach((heading) => denseHeadingIndexes.add(heading.index))
   }
+  if (!denseHeadingIndexes.size) return new Set(headings.map((heading) => heading.index))
 
   const documentEnd = paragraphs[paragraphs.length - 1]?.end ?? 0
-  const followingSpans = new Map<number, number>()
-  headings.forEach((heading, index) => {
+  const indexed = headings.map((heading, index) => {
     const nextStart = headings[index + 1]?.start ?? documentEnd
-    followingSpans.set(heading.index, Math.max(0, nextStart - heading.start))
+    return { heading, label: normalizedHeading(heading.text), span: Math.max(0, nextStart - heading.start) }
   })
-
-  const ignored = new Set<number>()
-  for (const heading of headings) {
-    if (!denseHeadingIndexes.has(heading.index)) continue
-    const currentSpan = followingSpans.get(heading.index) ?? 0
-    const hasBetterBodyCandidate = headings.some((candidate) =>
-      candidate.index !== heading.index &&
-      headingsCorrespond(heading, candidate) &&
-      (followingSpans.get(candidate.index) ?? 0) > currentSpan
-    )
-    if (hasBetterBodyCandidate) ignored.add(heading.index)
+  interface LabelSpan { label: string; span: number; prefixSpan: number; descendantSpan: number; matchSpan: number }
+  const labels = new Map<string, LabelSpan>()
+  for (const { label, span } of indexed) {
+    const record = labels.get(label)
+    if (record) { record.span = Math.max(record.span, span); record.descendantSpan = record.span }
+    else labels.set(label, { label, span, prefixSpan: 0, descendantSpan: span, matchSpan: span })
   }
 
-  const retained = headings.filter((heading) => !ignored.has(heading.index))
+  // UTF-16 lexical order keeps descendants together. Index only actual labels,
+  // not every character prefix, and normalize each heading just once.
+  const stack: LabelSpan[] = []
+  const finish = (): void => {
+    const record = stack.pop()!
+    if (record.label.length < 4) return // Short labels match exact duplicates only.
+    record.matchSpan = Math.max(record.matchSpan, record.descendantSpan)
+    const parent = stack.at(-1)
+    if (parent && parent.label.length >= 4) parent.descendantSpan = Math.max(parent.descendantSpan, record.descendantSpan)
+  }
+  for (const record of [...labels.values()].sort((a, b) => a.label < b.label ? -1 : a.label > b.label ? 1 : 0)) {
+    while (stack.length && !record.label.startsWith(stack[stack.length - 1].label)) finish()
+    record.prefixSpan = record.label.length >= 4 ? Math.max(record.span, stack.at(-1)?.prefixSpan ?? 0) : 0
+    record.matchSpan = Math.max(record.span, record.prefixSpan)
+    stack.push(record)
+  }
+  while (stack.length) finish()
+  const retained = indexed.filter(({ heading, label, span }) =>
+    !denseHeadingIndexes.has(heading.index) || labels.get(label)!.matchSpan <= span
+  ).map(({ heading }) => heading)
   const selected = retained.length > 0 ? retained : headings
   return new Set(selected.map((heading) => heading.index))
 }

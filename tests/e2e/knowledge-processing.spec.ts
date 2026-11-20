@@ -211,9 +211,13 @@ test('TXT indexes completed batches, pauses across restart and retrieves synonym
   try {
     const launched = await launchReader({ userData: workspace.userData, importPath: fixture }); application = launched.application
     let page = launched.page
+    const setEmbedding = (enabled: boolean) => page.evaluate(({ enabled, url }) => window.readerApi.saveKnowledgeSettings({
+      target: 'embedding', embedding: { enabled, baseUrl: `${url}/v1`, model: 'embedding-test' },
+      document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch' }
+    }), { enabled, url: endpoint })
     await showLibrary(page); await expect(page.getByTestId('book-item')).toBeVisible()
     await prepareQa(page)
-    await page.evaluate(async (url) => window.readerApi.saveKnowledgeSettings({ embedding: { enabled: true, baseUrl: `${url}/v1`, model: 'embedding-test' }, document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch' } }), endpoint)
+    await setEmbedding(true)
     const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
     await page.reload(); await showLibrary(page); await page.getByTestId('book-item').click(); await enterReading(page)
     await page.evaluate((bookId) => window.readerApi.prepareBookDocument({ bookId }), bookId)
@@ -232,6 +236,10 @@ test('TXT indexes completed batches, pauses across restart and retrieves synonym
     await showPreparation(page)
     await page.getByTestId('semantic-start').click()
     await expect.poll(() => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.semantic?.status), bookId)).toBe('ready')
+    for (const enabled of [false, true]) {
+      await setEmbedding(enabled)
+      await expect(page.getByTestId('semantic-details').locator('summary')).toContainText(enabled ? '可以按含义查找' : '尚未启用')
+    }
     await ask(page)
     expect(lastContext?.passages.some((passage) => passage.text.includes('群体压力'))).toBe(true)
     await page.screenshot({ path: test.info().outputPath('semantic-answer.png') })

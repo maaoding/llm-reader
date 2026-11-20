@@ -88,6 +88,57 @@ const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNav
   </>
 })
 
+const ConversationTurnCard = memo(function ConversationTurnCard({
+  turn, model, isLatest, searchNeedle, uiLanguage, documentTarget, onNavigate,
+  onSave, onRegenerate, onEditQuestion, canRegenerate, onCopy, canCopy
+}: {
+  turn: ConversationTurn
+  model: string
+  isLatest: boolean
+  searchNeedle: string
+  uiLanguage: UiLanguage
+  documentTarget: Document
+  onNavigate: (anchor: string, chapterTitle?: string) => void
+  onSave?: (turn: ConversationTurn) => void
+  onRegenerate?: (turnId: string) => void
+  onEditQuestion?: (turnId: string) => void
+  canRegenerate: boolean
+  onCopy?: (turnId: string, trigger: HTMLElement) => void
+  canCopy: boolean
+}): ReactNode {
+  return (
+    <article className={`conversation-turn is-${turn.status}`}>
+      <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
+      <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
+        <ConversationAnswer turn={turn} model={model} onNavigate={onNavigate} highlight={searchNeedle} uiLanguage={uiLanguage} documentTarget={documentTarget} />
+        {turn.status === 'error' && onRegenerate && (
+          <div className="answer-retry-actions">
+            <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
+          </div>
+        )}
+        {(turn.status === 'completed' || (turn.status === 'error' && onCopy)) && (
+          <footer className="answer-footer">
+            {turn.status === 'completed' && <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />}
+            {turn.status === 'completed' && (onRegenerate || onEditQuestion) && (
+              <span className="answer-retry-actions">
+                {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
+                {onEditQuestion && <button data-testid="answer-edit-question" type="button" onClick={() => onEditQuestion(turn.id)}><PenLine size={13} />{copy('assistant.editQuestion')}</button>}
+              </span>
+            )}
+            {onCopy && <button type="button" data-testid="answer-copy" disabled={!canCopy}
+              onClick={(event) => onCopy(turn.id, event.currentTarget)}><Copy size={14} />{copy('conversationMarkdown.copyTurn')}</button>}
+            {turn.status === 'completed' && onSave && (
+              <button data-testid={isLatest ? 'answer-save' : undefined} className={`answer-save${turn.saved ? ' is-saved' : ''}`} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
+                {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
+              </button>
+            )}
+          </footer>
+        )}
+      </div>
+    </article>
+  )
+})
+
 export function ConversationPane({
   markdownBook,
   markdownToolsTarget,
@@ -108,6 +159,8 @@ export function ConversationPane({
   controls,
   scopeControls,
   composerControls,
+  emptyState,
+  completionHint,
   showSave = true,
   blockedReason = '',
   onResolve,
@@ -125,6 +178,8 @@ export function ConversationPane({
   controls?: ReactNode
   scopeControls?: ReactNode
   composerControls?: ReactNode
+  emptyState?: ReactNode
+  completionHint?: ReactNode
   turns: ConversationTurn[]
   provider: ProviderSettings
   activeRequestId: string | null
@@ -147,6 +202,11 @@ export function ConversationPane({
 }): ReactNode {
   const selectedPassageCount = conversationSelection && !isPdfImageRegion(conversationSelection) ? conversationSelection.passages.length : 0
   const markdown = useConversationMarkdown(markdownBook, turns, activeRequestId)
+  const latestCopyTurn = useRef(markdown.copyTurn)
+  useLayoutEffect(() => { latestCopyTurn.current = markdown.copyTurn }, [markdown.copyTurn])
+  const copyTurn = useCallback((turnId: string, trigger: HTMLElement): void => {
+    latestCopyTurn.current(turnId, trigger)
+  }, [])
   const assistantScrollRef = useRef<HTMLDivElement | null>(null)
   const assistantFollowRef = useRef(true)
   const uiLanguage = getCopyLanguage()
@@ -178,10 +238,11 @@ export function ConversationPane({
           assistantFollowRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 40
         }}
       >
-        {!conversationSelection && turns.length === 0 && scope !== 'book' && (
+        {!conversationSelection && turns.length === 0 && emptyState}
+        {!emptyState && !conversationSelection && turns.length === 0 && scope !== 'book' && (
           <EmptyState icon={<Sparkles size={21} />} title={copy('assistant.emptyTitle')} detail={copy('assistant.emptyDetail')} />
         )}
-        {!conversationSelection && turns.length === 0 && scope === 'book' && <EmptyState icon={<BookOpen size={21} />} title={copy('assistant.bookEmptyTitle')} detail={copy('assistant.bookEmptyHint')} />}
+        {!emptyState && !conversationSelection && turns.length === 0 && scope === 'book' && <EmptyState icon={<BookOpen size={21} />} title={copy('assistant.bookEmptyTitle')} detail={copy('assistant.bookEmptyHint')} />}
         {conversationSelection && scope !== 'book' && (
           <div className="source-card">
             <div className="source-card-header"><span>{copy('assistant.sourceTitle')}</span><small>{isPdfImageRegion(conversationSelection) ? copy('visual.source', { page: conversationSelection.pageNumber }) : copy('assistant.sourceSummary', { chapter: conversationSelection.chapterTitle || copy('common.currentChapter'), count: selectedPassageCount })}</small></div>
@@ -192,40 +253,17 @@ export function ConversationPane({
         <div className="conversation-list" aria-live="polite">
           {turns.map((turn, index) => {
             const isLatest = index === turns.length - 1
-            return (
-              <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
-                <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
-                <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
-                  <ConversationAnswer turn={turn} model={provider.model} onNavigate={onNavigate} highlight={searchNeedle} uiLanguage={uiLanguage} documentTarget={documentTarget} />
-                  {turn.status === 'error' && isLatest && !activeRequestId && onRegenerate && (
-                    <div className="answer-retry-actions">
-                      <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
-                    </div>
-                  )}
-                  {(turn.status === 'completed' || (turn.status === 'error' && markdownBook)) && (
-                    <footer className="answer-footer">
-                      {turn.status === 'completed' && <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />}
-                      {turn.status === 'completed' && isLatest && !activeRequestId && (onRegenerate || onEditQuestion) && (
-                        <span className="answer-retry-actions">
-                          {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
-                          {onEditQuestion && <button data-testid="answer-edit-question" type="button" onClick={() => onEditQuestion(turn.id)}><PenLine size={13} />{copy('assistant.editQuestion')}</button>}
-                        </span>
-                      )}
-                      {markdownBook && <button type="button" data-testid="answer-copy" disabled={!markdown.canCopyTurn(turn)}
-                        onClick={(event) => markdown.copyTurn(turn.id, event.currentTarget)}><Copy size={14} />{copy('conversationMarkdown.copyTurn')}</button>}
-                      {turn.status === 'completed' && showSave && onSave && (
-                        <button data-testid={isLatest ? 'answer-save' : undefined} className={`answer-save${turn.saved ? ' is-saved' : ''}`} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
-                          {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
-                        </button>
-                      )}
-                    </footer>
-                  )}
-                </div>
-              </article>
-            )
+            const canEdit = isLatest && !activeRequestId
+            return <ConversationTurnCard key={turn.id} turn={turn} isLatest={isLatest} model={provider.model}
+              uiLanguage={uiLanguage} documentTarget={documentTarget} searchNeedle={searchNeedle}
+              onNavigate={onNavigate} onSave={showSave ? onSave : undefined}
+              onRegenerate={canEdit ? onRegenerate : undefined} onEditQuestion={canEdit ? onEditQuestion : undefined}
+              canRegenerate={canEdit && canRegenerate} onCopy={markdownBook ? copyTurn : undefined}
+              canCopy={markdown.canCopyTurn(turn)} />
           })}
         </div>
       </div>
+      {turns.at(-1)?.status === 'completed' && completionHint}
       <AssistantComposer inputRef={followupRef} draft={draft} onDraftChange={onDraftChange}
         placeholder={scope === 'book' ? copy('analysis.bookQuestion') : conversationSelection ? (turns.length ? copy('assistant.placeholderFollowup') : copy('assistant.placeholderFirst')) : copy('assistant.placeholderNoSelection')}
         heading={scopeControls} controls={composerControls} blockedReason={blockedReason} resolveLabel={resolveLabel} onResolve={onResolve}
