@@ -73,9 +73,14 @@ async function openWindow(): Promise<void> {
     semantic?.dispose()
     documents?.cancelPreview()
   })
-  if (analysis) analysis.onState = (state) => {
-    extractor?.observe(state)
-    if (!created.window.isDestroyed()) created.window.webContents.send(IPC_CHANNELS.analysisEvent, state)
+  if (analysis) {
+    analysis.onState = (state) => {
+      extractor?.observe(state)
+      if (!created.window.isDestroyed()) created.window.webContents.send(IPC_CHANNELS.analysisEvent, state)
+    }
+    analysis.onSettingsChanged = () => {
+      if (!created.window.isDestroyed()) created.window.webContents.send(IPC_CHANNELS.analysisSettingsChanged)
+    }
   }
   bookImporter = new BookImportCoordinator(library, (event) => {
     if (!created.window.isDestroyed() && !created.window.webContents.isDestroyed()) {

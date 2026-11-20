@@ -13,6 +13,7 @@ import type {
   BookSourceFormat,
   HighlightRecord,
   ImportedBookResult,
+  InsightArchivePreview,
   InsightArchiveRecord,
   InsightExportScope,
   BookSessionRecord,
@@ -25,7 +26,7 @@ import type {
   UpdateInsightHistoryInput
 } from '@shared/contracts'
 import { copy } from '@shared/copy'
-import type { WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
+import type { WorkbenchInput, WorkbenchRecord, WorkbenchSummary } from '@shared/contracts'
 import { buildWorkbenchMarkdown } from './workbench-export'
 import { AppDatabase, type StoredBook } from './database'
 import { CalibreEpubConverter, type EpubConverter } from './calibre-converter'
@@ -33,8 +34,7 @@ import { AppError } from './errors'
 import {
   buildInsightExportDefaultName,
   buildInsightExportMarkdown,
-  ensureMarkdownExtension,
-  selectInsightExportRecords
+  ensureMarkdownExtension
 } from './insight-export'
 
 const MAX_IMPORT_BYTES = 250 * 1024 * 1024
@@ -714,9 +714,22 @@ export class LibraryService {
     return this.database.listSessionTabs()
   }
 
+  private recoverWorkbench(record: WorkbenchRecord): WorkbenchRecord {
+    return { ...record, turns: record.turns.map((turn) => turn.status === 'queued' || turn.status === 'streaming'
+      ? { ...turn, status: 'error', error: copy('workbench.interrupted') } : turn) }
+  }
+
   listWorkbenches(): WorkbenchRecord[] {
-    return this.database.listWorkbenches().map((record) => ({ ...record, turns: record.turns.map((turn) =>
-      turn.status === 'queued' || turn.status === 'streaming' ? { ...turn, status: 'error', error: copy('workbench.interrupted') } : turn) }))
+    return this.database.listWorkbenches().map((record) => this.recoverWorkbench(record))
+  }
+
+  listWorkbenchSummaries(): WorkbenchSummary[] {
+    return this.database.listWorkbenchSummaries()
+  }
+
+  getWorkbench(id: string): WorkbenchRecord | null {
+    const record = this.database.getWorkbench(id)
+    return record && this.recoverWorkbench(record)
   }
 
   createWorkbench(input: { name: string; bookIds: string[] }): WorkbenchRecord {
@@ -738,7 +751,7 @@ export class LibraryService {
   deleteWorkbench(id: string): boolean { return this.database.deleteWorkbench(id) }
 
   async exportWorkbench(id: string, path: string): Promise<string> {
-    const record = this.database.getWorkbench(id)
+    const record = this.getWorkbench(id)
     if (!record) throw new AppError('WORKBENCH_NOT_FOUND', copy('workbench.missing'))
     if (!isAbsolute(path)) throw new AppError('INVALID_EXPORT_PATH', copy('error.importAbsolutePath'))
     const target = ensureMarkdownExtension(path)
@@ -754,27 +767,35 @@ export class LibraryService {
     return this.database.listAllInsights()
   }
 
+  listInsightPreviews(): InsightArchivePreview[] {
+    return this.database.listInsightPreviews()
+  }
+
+  readInsightArchives(insightIds: string[]): InsightArchiveRecord[] {
+    return this.database.readInsightArchives(insightIds)
+  }
+
   insightExportDefaultName(scope: InsightExportScope): string {
-    const storedBook = scope.kind === 'book' ? this.database.getStoredBook(scope.bookId) : null
-    if (scope.kind === 'book' && !storedBook) {
-      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    if (scope.kind === 'book') {
+      const book = this.database.getStoredBook(scope.bookId)
+      if (!book) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+      return buildInsightExportDefaultName(book.title)
     }
-    const records = selectInsightExportRecords(this.database.listAllInsights(), scope)
-    if (scope.kind === 'insight' && records.length === 0) {
+    const title = this.database.getInsightExportBookTitle(scope)
+    if (scope.kind === 'insight' && title === undefined) {
       throw new AppError('INSIGHT_NOT_FOUND', copy('insights.alreadyRemoved'))
     }
-    return buildInsightExportDefaultName(records, storedBook?.title)
+    return buildInsightExportDefaultName(title)
   }
 
   async exportInsights(scope: InsightExportScope, targetPath: string): Promise<string> {
     if (!isAbsolute(targetPath)) {
       throw new AppError('INVALID_EXPORT_PATH', copy('error.importAbsolutePath'))
     }
-    const storedBook = scope.kind === 'book' ? this.database.getStoredBook(scope.bookId) : null
-    if (scope.kind === 'book' && !storedBook) {
+    if (scope.kind === 'book' && !this.database.getStoredBook(scope.bookId)) {
       throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     }
-    const records = selectInsightExportRecords(this.database.listAllInsights(), scope)
+    const records = this.database.listAllInsights(scope)
     if (scope.kind === 'insight' && records.length === 0) {
       throw new AppError('INSIGHT_NOT_FOUND', copy('insights.alreadyRemoved'))
     }

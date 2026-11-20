@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { BookRecord, PersonaSelection, WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MAX_WORKBENCH_TURNS, type BookRecord, type PersonaSelection, type WorkbenchInput, type WorkbenchRecord, type WorkbenchSummary } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { readableError } from './readable-error'
 import { LlmEventBuffer, subscribeToBufferedLlmEvents } from './llm-event-buffer'
@@ -9,18 +9,22 @@ const input = ({ id, name, bookIds, draft, turns, webSearch, persona }: Workbenc
 export const workbenchBusy = (record: WorkbenchRecord): boolean => record.turns.some((turn) => turn.status === 'queued' || turn.status === 'streaming')
 
 /** Mounted with the application: leaving the workbench view never drops its requests or pending writes. */
-export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
+export function useWorkbenches(books: BookRecord[], libraryReady: boolean, visible: boolean) {
   const [records, setRecords] = useState<WorkbenchRecord[]>([])
   const recordsRef = useRef(records)
   const [activeId, setActiveId] = useState<string | null>(() => { try { return localStorage.getItem(ACTIVE_KEY) } catch { return null } })
-  const [loading, setLoading] = useState(true)
+  const activeIdRef = useRef(activeId)
+  const [summaries, setSummaries] = useState<WorkbenchSummary[] | null>(null)
+  const loadingList = useRef(false)
   const [loadError, setLoadError] = useState('')
+  const [detailError, setDetailError] = useState('')
+  const [detailAttempt, setDetailAttempt] = useState(0)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState<string[]>([])
   const dirtyIds = useRef(new Set<string>())
   const revisions = useRef(new Map<string, number>())
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
-  const writes = useRef(new Map<string, Promise<void>>())
+  const writes = useRef(new Map<string, { revision: number; promise: Promise<void> }>())
   const requests = useRef(new Map<string, string>())
   const requestStartedAt = useRef(new Map<string, number>())
   const closing = useRef(false)
@@ -28,29 +32,61 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
   const publish = useCallback((next: WorkbenchRecord[]) => { recordsRef.current = next; setRecords(next) }, [])
 
   const activate = useCallback((id: string | null) => {
+    activeIdRef.current = id
     setActiveId(id)
+    setDetailError('')
     try { if (id) localStorage.setItem(ACTIVE_KEY, id); else localStorage.removeItem(ACTIVE_KEY) } catch { /* State remains usable without localStorage. */ }
   }, [])
 
   const load = useCallback(async () => {
-    if (!window.readerApi.listWorkbenches) { setLoading(false); return }
-    setLoading(true); setLoadError('')
-    try { publish(await window.readerApi.listWorkbenches()) }
+    if (loadingList.current) return
+    loadingList.current = true
+    setLoadError('')
+    try { setSummaries(await window.readerApi.listWorkbenchSummaries()) }
     catch (error) { setLoadError(readableError(error, copy('workbench.loadFailed'))) }
-    finally { setLoading(false) }
-  }, [publish])
-  useEffect(() => { void load() }, [load])
+    finally { loadingList.current = false }
+  }, [])
+  useEffect(() => { if (visible && !summaries) void load() }, [visible, summaries, load])
+
+  const selectedId = summaries?.some((summary) => summary.id === activeId) ? activeId : null
+  const active = records.find((record) => record.id === selectedId)
+  useEffect(() => {
+    if (!visible || !selectedId || active) return
+    let watching = true
+    const isCurrent = (): boolean => watching && activeIdRef.current === selectedId
+    void window.readerApi.getWorkbench(selectedId).then((record) => {
+      if (!isCurrent()) return
+      if (record) {
+        publish([...recordsRef.current, record])
+      } else {
+        setSummaries((current) => current?.filter((summary) => summary.id !== selectedId) ?? null)
+        activate(null)
+      }
+    }).catch((error: unknown) => {
+      if (isCurrent()) setDetailError(readableError(error, copy('workbench.loadFailed')))
+    })
+    return () => { watching = false }
+  }, [visible, selectedId, active, detailAttempt, activate, publish])
+
+  const retryLoad = (): void => {
+    if (!selectedId) { void load(); return }
+    setDetailError('')
+    setDetailAttempt((attempt) => attempt + 1)
+  }
 
   const flush = useCallback(async (id: string): Promise<void> => {
     clearTimeout(timers.current.get(id)); timers.current.delete(id)
+    const running = writes.current.get(id)
+    if (!dirtyIds.current.has(id)) return running?.promise
     const record = recordsRef.current.find((item) => item.id === id)
     if (!record) return
-    const version = revisions.current.get(id) ?? 0
+    const revision = revisions.current.get(id) ?? 0
+    if (running?.revision === revision) return running.promise
     const payload = input(record)
-    const pending = (writes.current.get(id) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const promise = (running?.promise ?? Promise.resolve()).catch(() => undefined).then(async () => {
       try {
         await window.readerApi.saveWorkbench(payload)
-        if ((revisions.current.get(id) ?? 0) === version) {
+        if ((revisions.current.get(id) ?? 0) === revision) {
           dirtyIds.current.delete(id)
           setDirty((current) => current.filter((value) => value !== id))
           setErrors((current) => ({ ...current, [id]: '' }))
@@ -64,8 +100,8 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
         throw error
       }
     })
-    writes.current.set(id, pending)
-    try { await pending } finally { if (writes.current.get(id) === pending) writes.current.delete(id) }
+    writes.current.set(id, { revision, promise })
+    try { await promise } finally { if (writes.current.get(id)?.promise === promise) writes.current.delete(id) }
   }, [])
 
   const update = useCallback((id: string, change: (record: WorkbenchRecord) => WorkbenchRecord) => {
@@ -79,13 +115,15 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     if (!closing.current) timers.current.set(id, setTimeout(() => { void flush(id).catch(() => undefined) }, 350))
   }, [flush, publish])
 
+  const hasLoadedRecords = records.length > 0
+  const available = useMemo(() => libraryReady && hasLoadedRecords ? new Set(books.map((book) => book.id)) : null,
+    [books, libraryReady, hasLoadedRecords])
   useEffect(() => {
-    if (!libraryReady || loading) return
-    const available = new Set(books.map((book) => book.id))
-    for (const record of recordsRef.current) if (record.bookIds.some((id) => !available.has(id))) {
+    if (!available) return
+    for (const record of records) if (record.bookIds.some((id) => !available.has(id))) {
       update(record.id, (current) => ({ ...current, bookIds: current.bookIds.filter((id) => available.has(id)) }))
     }
-  }, [books, libraryReady, loading, update])
+  }, [available, records, update])
 
   useEffect(() => subscribeToBufferedLlmEvents(events, (id) => requests.current.has(id), (event) => {
     const id = requests.current.get(event.requestId)
@@ -148,35 +186,37 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     for (const timer of timers.current.values()) clearTimeout(timer)
     timers.current.clear()
     const cancellations = await Promise.allSettled([...new Set(requests.current.values())].map(cancel))
-    let ids = recordsRef.current.map((record) => record.id)
-    do {
+    // An edit may arrive after its own write finishes, while a different workbench is saving.
+    while (dirtyIds.current.size || writes.current.size) {
+      const ids = [...new Set([...dirtyIds.current, ...writes.current.keys()])]
       const saves = await Promise.allSettled(ids.map(flushLatest))
       if (saves.some((result) => result.status === 'rejected')) return false
-      // A different workbench may be edited after its own write settled, while
-      // another workbench is still saving. Include those edits before approving.
-      ids = [...dirtyIds.current]
-    } while (ids.length > 0)
+    }
     return cancellations.every((result) => result.status === 'fulfilled')
   }, [cancel, flushLatest])
 
   const create = useCallback(async (name: string, bookIds: string[], persona: PersonaSelection | null) => {
     const record = await window.readerApi.createWorkbench({ name, bookIds })
     revisions.current.set(record.id, 0)
+    const summary = { id: record.id, name: record.name, bookIds: record.bookIds, turnCount: record.turns.length }
+    setSummaries((current) => [summary, ...(current ?? [])])
     publish([record, ...recordsRef.current]); activate(record.id)
     if (persona) update(record.id, (current) => ({ ...current, persona }))
   }, [activate, publish, update])
 
   const remove = useCallback(async (id: string) => {
     await cancel(id)
-    await flush(id)
+    await flushLatest(id)
     await window.readerApi.deleteWorkbench(id)
     clearTimeout(timers.current.get(id)); timers.current.delete(id)
     dirtyIds.current.delete(id)
+    revisions.current.delete(id)
     setDirty((current) => current.filter((value) => value !== id))
     setErrors((current) => { const next = { ...current }; delete next[id]; return next })
     publish(recordsRef.current.filter((record) => record.id !== id))
-    activate(null)
-  }, [activate, cancel, flush, publish])
+    setSummaries((current) => current?.filter((summary) => summary.id !== id) ?? null)
+    if (activeIdRef.current === id) activate(null)
+  }, [activate, cancel, flushLatest, publish])
 
   const submit = useCallback(async (id: string, model: string, regenerate = false, editedQuestion?: string) => {
     const record = recordsRef.current.find((item) => item.id === id)
@@ -184,7 +224,7 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     const previous = regenerate ? record.turns.at(-1) : undefined
     const question = editedQuestion?.trim() ?? previous?.question ?? record.draft.trim()
     const bookIds = previous?.bookIds ?? [...record.bookIds]
-    if (!question || !bookIds.length || (!regenerate && record.turns.length >= 200)) return
+    if (!question || !bookIds.length || (!regenerate && record.turns.length >= MAX_WORKBENCH_TURNS)) return
     const prior = regenerate ? record.turns.slice(0, -1) : record.turns
     const persona = previous ? previous.persona ?? null : record.persona
     const requestId = crypto.randomUUID()
@@ -209,5 +249,10 @@ export function useWorkbenches(books: BookRecord[], libraryReady: boolean) {
     }
   }, [events, flush, update])
 
-  return { records, activeId, active: records.find((record) => record.id === activeId), activate, create, remove, update, submit, cancel, flush, beforeClose, resumeAfterClose, retrySaves, loading, loadError, load, errors, dirty }
+  return {
+    records, summaries: summaries ?? [], selectedId, active, activate, create, remove, update, submit, cancel,
+    flush: flushLatest, beforeClose, resumeAfterClose, retrySaves, errors, dirty, retryLoad,
+    loading: (!summaries && !loadError) || Boolean(selectedId && !active && !detailError),
+    loadError: loadError || (selectedId && !active ? detailError : '')
+  }
 }

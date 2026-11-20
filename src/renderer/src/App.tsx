@@ -64,12 +64,12 @@ import { isPdfImageRegion, type ReaderSource } from '@shared/contracts'
 import type {
   BookRecord,
   HighlightRecord,
+  InsightArchivePreview,
   InsightArchiveRecord,
   InsightExportScope,
   LlmAction,
   PersonaSelection,
   PersonaSettings,
-  SavedInsight,
   TextReadingMode,
   TocItem
 } from '@shared/contracts'
@@ -82,23 +82,25 @@ import { bookTabPage, readWorkspaceState, saveWorkspaceState, type BookTabState,
 import { useBookAnalysis } from './use-book-analysis'
 import { isSelectPickerOpen, useDialogFocus } from './use-dialog-focus'
 import { BookCoverCache } from './book-cover-cache'
-import { BookCover } from './BookCover'
+import { LibraryBookGrid } from './LibraryBookGrid'
 import InsightsView from './InsightsView'
 import WorkbenchesView, { ArchiveViewSwitch } from './WorkbenchesView'
 import { useWorkbenches } from './use-workbenches'
 import { readableError } from './readable-error'
 import { normalizeNeedle } from './highlight'
 import { assistantActionLabel } from './assistant-actions'
+import { loadReaderAdapter } from './readers/reader-loader'
 import {
-  createReaderAdapter,
   READER_SEARCH_QUERY_MAX_LENGTH,
   READER_SEARCH_RESULT_LIMIT,
-  splitSearchExcerpt,
-  type ReaderAdapter,
-  type ReaderSearchResult,
-  type ReaderSelectionDraft,
-  type ReaderImageRegionDraft
-} from './readers'
+  splitSearchExcerpt
+} from '@shared/reader-search'
+import type {
+  ReaderAdapter,
+  ReaderSearchResult,
+  ReaderSelectionDraft,
+  ReaderImageRegionDraft
+} from './readers/types'
 
 type AssistantDialogView = 'conversation' | 'insights'
 type LeftView = 'library' | 'toc' | 'highlights' | 'search'
@@ -167,10 +169,6 @@ export default function App(): ReactNode {
   const [bookState, setBookState] = useState<LoadState>('idle')
   const [bookError, setBookError] = useState('')
   const [libraryState, setLibraryState] = useState<'loading' | 'ready' | 'error'>('loading')
-  const workbenches = useWorkbenches(books, libraryState === 'ready')
-  const closeWorkbenches = workbenches.beforeClose
-  const resumeWorkbenches = workbenches.resumeAfterClose
-  const retryWorkbenchSaves = workbenches.retrySaves
   const [archiveView, setArchiveView] = useState<'archived' | 'workbenches'>(() => { try { return localStorage.getItem('llm-reader-archive-view') === 'workbenches' ? 'workbenches' : 'archived' } catch { return 'archived' } })
   useEffect(() => { try { localStorage.setItem('llm-reader-archive-view', archiveView) } catch { /* Keep the in-memory choice. */ } }, [archiveView])
   const [libraryError, setLibraryError] = useState('')
@@ -179,8 +177,13 @@ export default function App(): ReactNode {
   const [collapsedTocItems, setCollapsedTocItems] = useState<Set<string>>(() => new Set())
   const [leftView, setLeftView] = useState<LeftView>('library')
   const [page, setPage] = useState<WorkspacePage>('library')
+  const workbenches = useWorkbenches(books, libraryState === 'ready', page === 'archives' && archiveView === 'workbenches')
+  const closeWorkbenches = workbenches.beforeClose
+  const resumeWorkbenches = workbenches.resumeAfterClose
+  const retryWorkbenchSaves = workbenches.retrySaves
   const [leftPanelOpen, setLeftPanelOpen] = useState(false)
   const [libraryQuery, setLibraryQuery] = useState('')
+  const libraryListRef = useRef<HTMLDivElement>(null)
   const [preparationBookId, setPreparationBookId] = useState<string | null>(null)
   const [guidedPreparation, setGuidedPreparation] = useState(false)
   const [pdfDisplayOpen, setPdfDisplayOpen] = useState(false)
@@ -201,7 +204,7 @@ export default function App(): ReactNode {
   const [selection, setSelection] = useState<ReaderSource | null>(null)
   const [selectionDraft, setSelectionDraft] = useState<ReaderSelectionDraft | null>(null)
   const [imageRegionDraft, setImageRegionDraft] = useState<ReaderImageRegionDraft | null>(null)
-  const [insights, setInsights] = useState<InsightArchiveRecord[]>([])
+  const [insights, setInsights] = useState<InsightArchivePreview[]>([])
   const [insightsLoading, setInsightsLoading] = useState(false)
   const [insightsError, setInsightsError] = useState('')
   const insightsRequestRef = useRef(0)
@@ -320,6 +323,7 @@ export default function App(): ReactNode {
 
   const { provider, providerOverview, providerLoaded, providerConnection, handleProviderOverviewChange, getProviderRevision, reportProviderResult } = useProviderConnection(pushToast)
   const readingGuide = useReadingGuide(libraryState === 'ready' && providerLoaded, books.length > 0 || providerOverview.profiles.length > 0)
+  const dismissReadingGuide = readingGuide.dismiss
 
   useEffect(() => {
     readingPreferencesRef.current = effectiveReadingPreferences
@@ -356,7 +360,7 @@ export default function App(): ReactNode {
     setInsightsLoading(true)
     setInsightsError('')
     try {
-      const records = await window.readerApi.listAllInsights()
+      const records = await window.readerApi.listInsightPreviews()
       if (request !== insightsRequestRef.current || closingRef.current) return
       setInsights(records)
     } catch (error) {
@@ -429,15 +433,11 @@ export default function App(): ReactNode {
     adapterRef.current?.destroy()
     adapterRef.current = null
     setSelectionDraft(null)
+    setImageRegionDraft(null)
     if (hostRef.current) hostRef.current.replaceChildren()
   }, [flushProgress, invalidateSearch])
 
   const onSessionRestoreError = useCallback(() => pushToast(copy('assistant.sessionRestoreFailed'), 'error'), [pushToast])
-  const onArchiveSaved = useCallback((updated: SavedInsight) => {
-    if (deletingBooksRef.current.has(updated.bookId) || deletingInsightsRef.current.has(updated.id)) return
-    setInsights((current) => current.map((insight) => insight.id === updated.id
-      ? { ...insight, history: updated.history, persona: updated.persona, webSearch: updated.webSearch } : insight))
-  }, [])
   const {
     conversationTabs, conversationTabsRef, activeTabId, activeTabIdRef,
     commitConversationTabs, updateConversationTab, focusConversationTab,
@@ -449,7 +449,7 @@ export default function App(): ReactNode {
   } = useConversationSessions({
     books, activeBookId: activeBook?.id, activeBookRef, libraryReady: libraryState === 'ready',
     workspaceReady, personaSettings, webSearchEnabled, closingRef, deletingBooksRef, deletingInsightsRef,
-    onRestoreError: onSessionRestoreError, onArchiveSaved
+    onRestoreError: onSessionRestoreError
   })
 
   const { hasConversationRequest, enqueueConversationRequest, cancelRequest, cancelBookRequests, cancelTabRequests, cancelAllRequests } = useConversationRequests({
@@ -502,6 +502,7 @@ export default function App(): ReactNode {
     })
     if (activeBookRef.current?.id === book.id && adapterRef.current) return
     const sequence = ++openSequenceRef.current
+    const isCurrent = (): boolean => sequence === openSequenceRef.current && activeBookRef.current?.id === book.id
     const leftViewRevision = leftViewRevisionRef.current
     destroyReader()
     const liveTabId = ensureLiveTab(book)
@@ -515,7 +516,6 @@ export default function App(): ReactNode {
     setSelectionDraft(null)
     setToc([])
     setCollapsedTocItems(new Set())
-    setInsights([])
     setHighlights([])
     highlightsRequestRef.current += 1
     setHighlightsLoading(false)
@@ -531,14 +531,18 @@ export default function App(): ReactNode {
     naturalPositionRef.current = { locator: book.lastLocator, progress: book.progress }
 
     try {
-      const payload = await window.readerApi.readBook(book.id)
-      if (sequence !== openSequenceRef.current || !hostRef.current) return
+      const [payload, Reader] = await Promise.all([
+        window.readerApi.readBook(book.id),
+        loadReaderAdapter(book.format)
+      ])
+      if (!isCurrent() || !hostRef.current) return
       setActiveBook(payload.book)
       activeBookRef.current = payload.book
       setBooks((current) => current.map((item) => item.id === book.id ? payload.book : item))
-      const adapter = createReaderAdapter(book.format, hostRef.current, {
+      const adapter = new Reader(hostRef.current, {
         bookId: book.id,
         onRelocated: ({ locator, progress, chapterProgress, chapterTitle, chapterHref, reason }) => {
+          if (!isCurrent()) return
           setCurrentLocator(locator)
           if (reason === 'natural' || (reason === 'restore' && !naturalChapterRef.current)) naturalChapterRef.current = { title: chapterTitle, href: chapterHref ?? null, progress: chapterProgress }
           setCurrentChapterProgress(chapterProgress)
@@ -559,28 +563,29 @@ export default function App(): ReactNode {
             setNaturalLocator(locator)
           }
         },
-        onSelectionChanged: setSelection,
+        onSelectionChanged: (source) => { if (isCurrent()) setSelection(source) },
         onSelectionDraftChanged: (draft) => {
+          if (!isCurrent()) return
           if (draft) dismissToast()
           setSelectionDraft(draft)
         },
         onImageRegionDraftChanged: (draft) => {
+          if (!isCurrent()) return
           if (draft) dismissToast()
           setImageRegionDraft(draft)
         },
-        onDisplaySettings: (trigger) => openSettings('reading', trigger),
-        onInternalNavigation: () => { chapterTitleOverrideRef.current = null },
-        onNotice: ({ message, tone }) => pushToast(message, tone === 'info' ? 'neutral' : 'error')
+        onDisplaySettings: (trigger) => { if (isCurrent()) openSettings('reading', trigger) },
+        onInternalNavigation: () => { if (isCurrent()) chapterTitleOverrideRef.current = null },
+        onNotice: ({ message, tone }) => { if (isCurrent()) pushToast(message, tone === 'info' ? 'neutral' : 'error') }
       })
       adapterRef.current = adapter
       await adapter.setPreferences(readingPreferencesRef.current)
+      if (!isCurrent()) return
       const textMode = readTextReadingMode(book.id)
       await adapter.setTextMode?.(textMode)
+      if (!isCurrent()) return
       const result = await adapter.open(payload.bytes, book.lastLocator)
-      if (sequence !== openSequenceRef.current) {
-        adapter.destroy()
-        return
-      }
+      if (!isCurrent()) return
       setToc(result.toc)
       setTextReadingMode(textMode)
       setTextRendering(result.textRendering ?? 'plain')
@@ -588,26 +593,31 @@ export default function App(): ReactNode {
       if (leftViewRevision === leftViewRevisionRef.current) {
         setLeftView('toc')
       }
-      void refreshInsights()
       void refreshHighlights(book.id)
 
-      const nextTitle = result.metadata.title.trim() || titleFromOriginalName(book.originalName, book.title)
+      const nextTitle = result.metadata.title.trim() || titleFromOriginalName(book.originalName, payload.book.title)
       const nextAuthor = result.metadata.author?.trim() || null
-      if (nextTitle !== book.title || nextAuthor !== book.author) {
+      if (nextTitle !== payload.book.title || nextAuthor !== payload.book.author) {
         try {
           const updated = await window.readerApi.updateBookMetadata(book.id, nextTitle, nextAuthor)
-          setActiveBook(updated)
-          activeBookRef.current = updated
-          setBooks((current) => current.map((item) => item.id === updated.id ? updated : item))
+          if (deletingBooksRef.current.has(book.id)) return
+          const metadata = { title: updated.title, author: updated.author }
+          const active = activeBookRef.current
+          if (active && isCurrent()) {
+            activeBookRef.current = { ...active, ...metadata }
+            setActiveBook((current) => current?.id === book.id ? { ...current, ...metadata } : current)
+          }
+          setBooks((current) => current.map((item) => item.id === book.id ? { ...item, ...metadata } : item))
           commitConversationTabs((current) => current.map((tab) => (
-            tab.kind === 'live' && tab.bookId === updated.id ? { ...tab, title: updated.title } : tab
+            tab.kind === 'live' && tab.bookId === book.id ? { ...tab, title: metadata.title } : tab
           )))
+          void refreshInsights()
         } catch {
           // Metadata enrichment is optional; reading remains available.
         }
       }
     } catch (error) {
-      if (sequence !== openSequenceRef.current) return
+      if (!isCurrent()) return
       adapterRef.current?.destroy()
       adapterRef.current = null
       if (hostRef.current) hostRef.current.replaceChildren()
@@ -656,7 +666,7 @@ export default function App(): ReactNode {
     // 书已被删除的标签不再恢复；标签列表随工作区状态持久化。
     setBookTabs(saved.tabs.filter((tab) => books.some((book) => book.id === tab.bookId)))
     const target = books.find((book) => book.id === saved.bookId)
-    if (target) void openBook(target).then(() => { setPage(saved.page); setWorkspaceReady(true) })
+    if (target) void openBook(target, saved.page).then(() => setWorkspaceReady(true))
     else { if (saved.page === 'archives') setPage('archives'); setWorkspaceReady(true) }
   }, [books, libraryState, openBook])
 
@@ -966,6 +976,15 @@ export default function App(): ReactNode {
     }
   }, [pushToast])
 
+  const navigateToAnswerSource = useCallback((anchor: string, chapterTitle?: string): void => {
+    void navigateToAnchor(anchor, false, chapterTitle)
+  }, [navigateToAnchor])
+
+  const navigateToSidebarAnswerSource = useCallback((anchor: string, chapterTitle?: string): void => {
+    dismissReadingGuide('answer')
+    navigateToAnswerSource(anchor, chapterTitle)
+  }, [dismissReadingGuide, navigateToAnswerSource])
+
   const navigateWorkbenchSource = async (bookId: string, anchor: string, chapterTitle?: string): Promise<void> => {
     const book = books.find((item) => item.id === bookId)
     if (!book) { pushToast(copy('workbench.missingSource'), 'error'); return }
@@ -996,28 +1015,51 @@ export default function App(): ReactNode {
     if (restoreFocus) requestAnimationFrame(() => ocrReadingToggleRef.current?.focus({ preventScroll: true }))
   }, [])
 
-  const openInsight = useCallback(async (insight: InsightArchiveRecord): Promise<void> => {
-    const book = activeBookRef.current?.id === insight.bookId ? null : books.find((candidate) => candidate.id === insight.bookId)
+  const openInsight = useCallback(async (insight: InsightArchivePreview, signal: AbortSignal): Promise<void> => {
+    const isCurrent = (): boolean => !signal.aborted && !closingRef.current &&
+      !deletingBooksRef.current.has(insight.bookId) && !deletingInsightsRef.current.has(insight.id)
+    if (!isCurrent()) return
+    const book = books.find((candidate) => candidate.id === insight.bookId)
     if (activeBookRef.current?.id !== insight.bookId && !book) {
       pushToast(copy('insights.bookMissing'), 'error')
       return
     }
 
-    markArchiveOpened(insight.id)
-    let tabId = conversationTabsRef.current.find((tab) => tab.kind === 'archive' && tab.insightId === insight.id)?.id
-    if (!tabId) {
-      const tab = createArchiveTab(insight)
-      commitConversationTabs((current) => [...current, tab])
-      tabId = tab.id
+    const findTab = (): ConversationTab | undefined => conversationTabsRef.current.find(
+      (tab) => tab.kind === 'archive' && tab.insightId === insight.id
+    )
+    let tab = findTab()
+    if (!tab) {
+      let record: InsightArchiveRecord | undefined
+      try {
+        const records = await window.readerApi.readInsightArchives([insight.id])
+        record = records[0]
+      } catch (error) {
+        if (isCurrent()) pushToast(readableError(error, copy('insights.readFailed')), 'error')
+        return
+      }
+      if (!isCurrent()) return
+      if (!record || record.bookId !== insight.bookId) {
+        setInsights((current) => current.filter((candidate) => candidate.id !== insight.id))
+        pushToast(copy('insights.alreadyRemoved'), 'neutral')
+        return
+      }
+      tab = findTab()
+      if (!tab) {
+        const archiveTab = createArchiveTab(record)
+        commitConversationTabs((current) => [...current, archiveTab])
+        tab = archiveTab
+      }
     }
     // 先进入对话页，目标书籍在后台打开，避免先跳到书籍页面。
-    focusConversationTab(tabId)
+    markArchiveOpened(insight.id)
+    focusConversationTab(tab.id)
     setPage('conversation')
-    if (!book) return
+    if (!book || activeBookRef.current?.id === insight.bookId) return
     adapterRef.current?.clearSelection()
     setSelection(null)
     await openBook(book, null, { focusLiveTab: false })
-    if (activeBookRef.current?.id !== insight.bookId || !adapterRef.current) {
+    if (activeBookRef.current?.id === insight.bookId && !adapterRef.current) {
       pushToast(copy('reader.openFailed'), 'error')
     }
   }, [books, commitConversationTabs, conversationTabsRef, focusConversationTab, markArchiveOpened, openBook, pushToast])
@@ -1035,7 +1077,7 @@ export default function App(): ReactNode {
       focusConversationTab(tabId)
       setPage('conversation')
       await openBook(book, null, { focusLiveTab: false })
-      if (activeBookRef.current?.id !== tab.bookId || !adapterRef.current) {
+      if (activeBookRef.current?.id === tab.bookId && !adapterRef.current) {
         pushToast(copy('reader.openFailed'), 'error')
       }
       return
@@ -1106,7 +1148,7 @@ export default function App(): ReactNode {
   const closeBookSession = async (bookId: string, options: { dropConversations?: boolean } = {}): Promise<void> => {
     if (activeBookRef.current?.id !== bookId) return
     openSequenceRef.current += 1
-    await flushProgress()
+    const savedProgress = flushProgress()
     destroyReader()
     activeBookRef.current = null
     setActiveBook(null)
@@ -1117,7 +1159,6 @@ export default function App(): ReactNode {
     setPreparationBookId(null)
     setToc([])
     setCollapsedTocItems(new Set())
-    setInsights([])
     setHighlights([])
     highlightsRequestRef.current += 1
     setHighlightsLoading(false)
@@ -1133,6 +1174,7 @@ export default function App(): ReactNode {
     if (detailsBook?.id === bookId) setDetailsBook(null)
     setLeftView('library')
 
+    await savedProgress
     if (options.dropConversations) {
       // 书籍被删除时丢弃它的会话与请求；关闭标签只是回到书库，保留逐书草稿与历史。
       await cancelBookRequests(bookId)
@@ -1215,7 +1257,7 @@ export default function App(): ReactNode {
         pushToast(copy('library.deletedToast', { title: book.title }), 'success')
       } else {
         removeBookTab(book.id)
-        await refreshBooks()
+        await Promise.all([refreshBooks(), refreshInsights()])
         pushToast(copy('library.alreadyRemoved'), 'neutral')
       }
     } catch (error) {
@@ -1295,7 +1337,7 @@ export default function App(): ReactNode {
     }
   }
 
-  const saveTurn = async (tabId: string, turn: ConversationTurn): Promise<void> => {
+  const saveTurn = useCallback(async (tabId: string, turn: ConversationTurn): Promise<void> => {
     const tab = conversationTabsRef.current.find((candidate) => candidate.id === tabId)
     if (!tab || turn.status !== 'completed' || !turn.answer || turn.saved) return
     try {
@@ -1319,19 +1361,29 @@ export default function App(): ReactNode {
     } catch (error) {
       pushToast(readableError(error, copy('insights.saveFailed')), 'error')
     }
-  }
+  }, [conversationTabsRef, provider.model, pushToast, refreshInsights, updateConversationTab])
 
   const activeConversationTab = conversationTabs.find((tab) => tab.id === activeTabId)
   const sidebarTab = activeBook
     ? activeConversationTab?.bookId === activeBook.id ? activeConversationTab : conversationTabs.find((tab) => tab.kind === 'live' && tab.bookId === activeBook.id)
     : undefined
+  const sidebarTabId = sidebarTab?.id
+  const saveSidebarTurn = useCallback((turn: ConversationTurn): void => {
+    dismissReadingGuide('answer')
+    if (sidebarTabId) void saveTurn(sidebarTabId, turn)
+  }, [dismissReadingGuide, saveTurn, sidebarTabId])
+  const saveConversationTurn = useCallback((turn: ConversationTurn): void => {
+    if (activeTabId) void saveTurn(activeTabId, turn)
+  }, [activeTabId, saveTurn])
   const pendingActionVisible = pendingSelectionAction && pendingSelectionAction.source.bookId === activeBook?.id &&
     conversationTabs.some((tab) => tab.id === pendingSelectionAction.tabId && tab.conversationId === pendingSelectionAction.conversationId)
   const pendingActionLabel = pendingSelectionAction ? copy('guide.continue') + ' ' + assistantActionLabel(assistantActions, pendingSelectionAction.action) : ''
+  const visibleAnalysisBookId = page === 'conversation' ? activeConversationTab?.bookId ?? activeBook?.id
+    : page === 'reading' || page === 'notes' ? activeBook?.id : undefined
   useEffect(() => {
-    if (activeBook?.id) void refreshAnalysis(activeBook.id)
-    if (activeConversationTab?.bookId && activeConversationTab.bookId !== activeBook?.id) void refreshAnalysis(activeConversationTab.bookId)
-  }, [activeBook?.id, activeConversationTab?.bookId, refreshAnalysis, settingsOpen])
+    if (visibleAnalysisBookId) void refreshAnalysis(visibleAnalysisBookId)
+    if (preparationBookId && preparationBookId !== visibleAnalysisBookId) void refreshAnalysis(preparationBookId)
+  }, [visibleAnalysisBookId, preparationBookId, refreshAnalysis, analysis.settingsVersion])
   // 进行中或排队中的请求：用于禁用发送、显示停止按钮与阻止重复入队。
   const streamingRequestId = (tab: ConversationTab | undefined): string | null =>
     tab?.turns.find((turn) => turn.status === 'streaming' || turn.status === 'queued')?.requestId ?? null
@@ -1355,6 +1407,7 @@ export default function App(): ReactNode {
   }
   const askPreparedBook = async (book: BookRecord): Promise<void> => {
     if (activeBookRef.current?.id !== book.id) await openBook(book, 'reading')
+    if (activeBookRef.current?.id !== book.id || !adapterRef.current) return
     const tabId = ensureLiveTab(book)
     const tab = conversationTabsRef.current.find((item) => item.id === tabId)
     if (!tab) return
@@ -1420,11 +1473,16 @@ export default function App(): ReactNode {
     else if (tab?.scope === 'book') openPreparation(tab.bookId, trigger)
   }
   const preparationBook = books.find((book) => book.id === preparationBookId)
+  const sortedBooks = useMemo(() => [...books].sort(
+    (a, b) => (b.lastOpenedAt ?? b.importedAt).localeCompare(a.lastOpenedAt ?? a.importedAt)
+  ), [books])
   const filteredBooks = useMemo(() => {
     const query = libraryQuery.trim().toLocaleLowerCase()
-    return books.filter((book) => !query || [book.title, book.author ?? ''].some((text) => text.toLocaleLowerCase().includes(query)))
-      .sort((a, b) => (b.lastOpenedAt ?? b.importedAt).localeCompare(a.lastOpenedAt ?? a.importedAt))
-  }, [books, libraryQuery])
+    if (!query) return sortedBooks
+    return sortedBooks.filter((book) => (
+      book.title.toLocaleLowerCase().includes(query) || book.author?.toLocaleLowerCase().includes(query)
+    ))
+  }, [sortedBooks, libraryQuery])
   const resumeBook = useMemo(() => {
     let latest: BookRecord | null = null
     let latestOpenedAt = ''
@@ -1592,7 +1650,17 @@ export default function App(): ReactNode {
           </div>
         </header>
 
-        {page === 'library' && <header className="library-page-toolbar"><div><h1>{copy('workspace.library')}</h1><p>{copy('workspace.libraryCount', { count: books.length })}</p></div><label className="library-page-search"><Search size={17} /><input data-testid="library-search" type="search" aria-label={copy('workspace.librarySearch')} placeholder={copy('workspace.librarySearch')} value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} /></label>
+        {page === 'library' && <header className="library-page-toolbar"><div><h1>{copy('workspace.library')}</h1><p>{copy('workspace.libraryCount', { count: books.length })}</p></div><label className="library-page-search"><Search size={17} /><input
+          data-testid="library-search"
+          type="search"
+          aria-label={copy('workspace.librarySearch')}
+          placeholder={copy('workspace.librarySearch')}
+          value={libraryQuery}
+          onChange={(event) => {
+            if (libraryListRef.current) libraryListRef.current.scrollTop = 0
+            setLibraryQuery(event.target.value)
+          }}
+        /></label>
           <button className="primary-button" data-testid="import-book" type="button" disabled={importing} onClick={(event) => void importBooks(event.currentTarget)}><Import size={17} />{copy(importing ? 'library.importing' : 'library.import')}</button></header>}
         {page === 'library' && resumeBook && (
           <div className="library-resume" data-testid="library-resume">
@@ -1604,7 +1672,7 @@ export default function App(): ReactNode {
         )}
         <div className="sidebar-content">
           {page === 'library' && (
-            <div className="library-list" data-testid="library-list">
+            <div className="library-list" data-testid="library-list" ref={libraryListRef}>
               {libraryState === 'loading' && (
                 <div className="sidebar-loading"><LoaderCircle className="spin" size={17} /> {copy('library.loading')}</div>
               )}
@@ -1625,39 +1693,14 @@ export default function App(): ReactNode {
                   </div>} />
               )}
               {books.length > 0 && !filteredBooks.length && <EmptyState icon={<SearchX size={20} />} title={copy('workspace.libraryNoResults')} detail={copy('workspace.libraryNoResultsHint')} />}
-              {filteredBooks.map((book) => (
-                <div className={'book-item ' + (activeBook?.id === book.id ? 'is-active' : '')} key={book.id}>
-                  <button
-                    className="book-item-open"
-                    data-testid="book-item"
-                    data-book-id={book.id}
-                    data-source-format={book.sourceFormat}
-                    type="button"
-                    onClick={() => void openBook(book)}
-                  >
-                    <BookCover book={book} cache={coverCache} />
-                    <span className="book-meta">
-                      <strong title={book.title}>{book.title}</strong>
-                      <small title={book.author || copy('common.unknownAuthor')}>{book.author || copy('common.unknownAuthor')}</small>
-                      <span className="book-meta-foot">
-                        <span className="format-chip" data-testid="book-format" data-format={book.sourceFormat}>{book.sourceFormat.toUpperCase()}</span>
-                        <span className="book-progress-text">{copy('workspace.readingProgress', { percent: Math.round(book.progress * 100) })}</span>
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    className="book-item-info"
-                    data-testid="book-info"
-                    data-book-id={book.id}
-                    type="button"
-                    aria-label={copy('bookDetails.openAria', { title: book.title })}
-                    title={copy('bookDetails.openAria', { title: book.title })}
-                    onClick={(event) => openBookDetails(book, event.currentTarget)}
-                  >
-                    <Info size={14} />
-                  </button>
-                </div>
-              ))}
+              <LibraryBookGrid
+                books={filteredBooks}
+                columns={compactWindow ? 2 : 3}
+                activeBookId={activeBook?.id}
+                coverCache={coverCache}
+                onOpen={openBook}
+                onDetails={openBookDetails}
+              />
             </div>
           )}
 
@@ -1936,11 +1979,8 @@ export default function App(): ReactNode {
             onDraftChange={(value) => {
               if (sidebarTab) updateConversationTab(sidebarTab.id, (tab) => ({ ...tab, draft: value }))
             }}
-            onNavigate={(anchor, chapterTitle) => { readingGuide.dismiss('answer'); void navigateToAnchor(anchor, false, chapterTitle) }}
-            onSave={(turn) => {
-              readingGuide.dismiss('answer')
-              if (sidebarTab) void saveTurn(sidebarTab.id, turn)
-            }}
+            onNavigate={navigateToSidebarAnswerSource}
+            onSave={saveSidebarTurn}
             showSave={sidebarTab?.kind === 'live'}
             onCancel={() => void cancelRequest(streamingRequestId(sidebarTab))}
             onRegenerate={(turnId) => { if (sidebarTab) regenerateTurn(sidebarTab, turnId) }}
@@ -2060,7 +2100,7 @@ export default function App(): ReactNode {
             </nav>}
             <div className="assistant-dialog-body" inert={assistantDialogView === 'conversation' && Boolean(activeConversationTab && changingSessions.includes(activeConversationTab.id))}>
               {assistantDialogView === 'insights' ? (archiveView === 'workbenches' ? <WorkbenchesView
-                controller={workbenches} books={books} coverCache={coverCache} states={analysis.states} refresh={analysis.refresh} provider={provider} personas={personaSettings} webSearchEnabled={webSearchEnabled} onSavePersonaAs={savePersonaAs} onArchiveViewChange={setArchiveView}
+                controller={workbenches} books={books} coverCache={coverCache} states={analysis.states} refresh={analysis.refresh} settingsVersion={analysis.settingsVersion} provider={provider} personas={personaSettings} webSearchEnabled={webSearchEnabled} onSavePersonaAs={savePersonaAs} onArchiveViewChange={setArchiveView}
                 onPrepare={(id) => openPreparation(id)} onNavigate={(id, anchor, title) => void navigateWorkbenchSource(id, anchor, title)} onConfigure={(trigger) => openSettings('model', trigger)} /> :
                 <InsightsView
                   viewSwitch={<ArchiveViewSwitch value={archiveView} onChange={setArchiveView} />}
@@ -2071,7 +2111,7 @@ export default function App(): ReactNode {
                   activeBookId={activeBook?.id ?? null}
                   pendingDeleteInsightId={pendingDeleteInsightId}
                   exporting={exportingInsights}
-                  onOpenInsight={(insight) => void openInsight(insight)}
+                  onOpenInsight={openInsight}
                   onRequestDeleteInsight={(id) => setPendingDeleteInsightId(id)}
                   onDeleteInsight={(id) => void deleteInsight(id)}
                   onCancelDeleteInsight={() => setPendingDeleteInsightId(null)}
@@ -2095,8 +2135,8 @@ export default function App(): ReactNode {
                   onResolve={(trigger) => resolveBlocker(activeConversationTab, trigger)}
                   followupRef={followupRef}
                   onDraftChange={(value) => updateConversationTab(activeConversationTab.id, (tab) => ({ ...tab, draft: value }))}
-                  onNavigate={(anchor, chapterTitle) => void navigateToAnchor(anchor, false, chapterTitle)}
-                  onSave={activeConversationTab.kind === 'live' ? (turn) => void saveTurn(activeConversationTab.id, turn) : undefined}
+                  onNavigate={navigateToAnswerSource}
+                  onSave={activeConversationTab.kind === 'live' ? saveConversationTurn : undefined}
                   showSave={activeConversationTab.kind === 'live'}
                   onRegenerate={(turnId) => regenerateTurn(activeConversationTab, turnId)}
                   onEditQuestion={(turnId) => editTurnQuestion(activeConversationTab, turnId)}

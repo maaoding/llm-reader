@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { InsightArchiveRecord } from '../../src/shared/contracts'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 import { resizeWorkspace } from './support/workspace'
 
@@ -81,4 +82,119 @@ test('archive cards use two equal columns, retain actions at 125% and fall back 
     await expect(page.getByTestId('assistant-dialog')).toBeVisible()
     await expect(page.getByTestId('answer-current')).toContainText('短回答')
   } finally { await cleanupE2eWorkspace(application, workspace.root) }
+})
+
+test('renders an offscreen archive preview on scroll and finds matches beyond its visible lines', async () => {
+  const workspace = await createE2eWorkspace('reader-insights-previews-')
+  const fixture = join(workspace.root, '问答集预览.txt')
+  await writeFile(fixture, '问答集预览\n\n用于打开归档完整回答的正文。', 'utf8')
+  const { application, page } = await launchReader({ userData: workspace.userData, importPath: fixture })
+  try {
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    const tail = '归档回答末尾的匹配词'
+    const targetId = await page.evaluate(async (tailMarker) => {
+      const book = (await window.readerApi.listBooks())[0]
+      const context = { scope: 'book' as const, bookId: book.id, selection: null, passages: [], background: '', coverage: { covered: 0, total: 0 } }
+      const target = await window.readerApi.saveInsight({
+        bookId: book.id, selection: null, context, question: '需要滚动才显示预览的归档',
+        answer: `## 预览标题\n\n**保留强调**和\`代码术语\`。\n\n${'这段内容让答案超出卡片的三行预览。'.repeat(25)}\n\n${tailMarker}`,
+        model: 'preview-fixture'
+      })
+      for (let index = 0; index < 31; index += 1) {
+        await window.readerApi.saveInsight({
+          bookId: book.id, selection: null, context, question: `其他归档 ${index + 1}`,
+          answer: '另一条回答。', model: 'preview-fixture'
+        })
+      }
+      return target.id
+    }, tail)
+    await page.reload()
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    await page.getByTestId('book-item').click()
+    await expect(page.locator('.reader-surface')).toHaveClass(/is-ready/u)
+    await page.getByTestId('nav-archives').click()
+    await expect(page.getByTestId('insight-item')).toHaveCount(32)
+    const target = page.locator(`[data-insight-id="${targetId}"]`)
+    await expect(target.locator('.answer-text')).toHaveCount(0)
+    await target.scrollIntoViewIfNeeded()
+    await expect(target.locator('.answer-text strong')).toHaveText('保留强调')
+    await expect(target.locator('.answer-code-inline')).toHaveText('代码术语')
+    await expect(target.locator('.answer-text')).toHaveClass(/is-clamped/u)
+
+    await page.getByTestId('insights-search-input').fill(tail)
+    await expect(page.getByTestId('insight-item')).toHaveCount(1)
+    await expect(target.locator('.answer-text mark')).toHaveText(tail)
+    await target.locator('.insight-content').focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText(tail)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+type PendingArchiveWindow = typeof globalThis & { releaseArchiveRead?: () => void }
+
+test('ignores a delayed archive read when the reader leaves the list or opens another archive', async () => {
+  const workspace = await createE2eWorkspace('reader-insight-pending-')
+  const fixture = join(workspace.root, '归档切换.txt')
+  await writeFile(fixture, '归档切换\n\n用于检查连续打开归档的测试正文。', 'utf8')
+  const { application, page } = await launchReader({ userData: workspace.userData, importPath: fixture })
+  try {
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-workspace-ready', 'true')
+    const archives = await page.evaluate(async () => {
+      const book = (await window.readerApi.listBooks())[0]
+      const context = { scope: 'book' as const, bookId: book.id, selection: null, passages: [], background: '', coverage: { covered: 0, total: 0 } }
+      for (const label of ['等待读取', '最后选择']) {
+        await window.readerApi.saveInsight({
+          bookId: book.id, selection: null, context, question: label,
+          answer: `${label}的完整归档回答`, model: 'pending-fixture'
+        })
+      }
+      return window.readerApi.listAllInsights()
+    })
+    const [fast, slow] = ['最后选择', '等待读取'].map((question) => archives.find((archive) => archive.question === question)!)
+    await application.evaluate(({ ipcMain }, { archives, slowId }) => {
+      const runtime = globalThis as PendingArchiveWindow
+      ipcMain.removeHandler('insights:read-archives')
+      ipcMain.handle('insights:read-archives', (_event, ids: string[]) => {
+        const selected = archives.filter((archive) => ids.includes(archive.id))
+        if (!ids.includes(slowId)) return selected
+        return new Promise<InsightArchiveRecord[]>((resolveRead) => {
+          runtime.releaseArchiveRead = () => {
+            delete runtime.releaseArchiveRead
+            resolveRead(selected)
+          }
+        })
+      })
+    }, { archives, slowId: slow.id })
+    await page.reload()
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-session-tabs-state', 'ready')
+
+    const slowCard = page.locator(`[data-insight-id="${slow.id}"] .insight-content`)
+    const startSlowRead = async (): Promise<void> => {
+      await page.getByTestId('nav-archives').click()
+      await slowCard.click()
+      await expect(slowCard).toHaveAttribute('aria-busy', 'true')
+      await expect.poll(() => application.evaluate(() => Boolean((globalThis as PendingArchiveWindow).releaseArchiveRead))).toBe(true)
+    }
+    const releaseSlowRead = async (): Promise<void> => {
+      await application.evaluate(() => (globalThis as PendingArchiveWindow).releaseArchiveRead?.())
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    }
+
+    await startSlowRead()
+    await page.getByTestId('nav-library').click()
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-page', 'library')
+    await releaseSlowRead()
+    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-page', 'library')
+
+    await startSlowRead()
+    await page.locator(`[data-insight-id="${fast.id}"] .insight-content`).click()
+    await expect(page.getByTestId('answer-current')).toContainText(fast.answer)
+    await releaseSlowRead()
+    await expect(page.getByTestId('answer-current')).toContainText(fast.answer)
+    await expect(page.locator('.assistant-session-tab-select[data-tab-kind="archive"]')).toHaveCount(1)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
 })

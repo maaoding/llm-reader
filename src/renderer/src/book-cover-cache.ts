@@ -1,4 +1,5 @@
 import type { BookCoverPayload } from '@shared/contracts'
+import { observeNearby } from './viewport-observer'
 
 interface CoverCacheEntry {
   promise: Promise<string | null>
@@ -7,13 +8,6 @@ interface CoverCacheEntry {
 }
 
 type CoverLoader = (bookId: string) => Promise<BookCoverPayload | null>
-
-interface CoverObserverGroup {
-  observer: IntersectionObserver
-  callbacks: Map<Element, () => void>
-}
-
-const coverObserverGroups = new WeakMap<Element, CoverObserverGroup>()
 
 function defaultCreateUrl(cover: BookCoverPayload): string {
   return URL.createObjectURL(new Blob([cover.bytes as BlobPart], { type: cover.mimeType }))
@@ -76,43 +70,5 @@ export class BookCoverCache {
 }
 
 export function observeBookCoverVisibility(element: Element, onVisible: () => void): () => void {
-  const root = element.closest('.library-list, .workbench-book-picker')
-  if (!root || typeof IntersectionObserver === 'undefined') {
-    onVisible()
-    return () => undefined
-  }
-
-  let group = coverObserverGroups.get(root)
-  if (!group) {
-    const callbacks = new Map<Element, () => void>()
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue
-        const callback = callbacks.get(entry.target)
-        if (!callback) continue
-        callbacks.delete(entry.target)
-        observer.unobserve(entry.target)
-        callback()
-      }
-      if (callbacks.size === 0) {
-        observer.disconnect()
-        coverObserverGroups.delete(root)
-      }
-    }, { root, rootMargin: '200px 0px' })
-    group = { observer, callbacks }
-    coverObserverGroups.set(root, group)
-  }
-
-  group.callbacks.set(element, onVisible)
-  group.observer.observe(element)
-  return () => {
-    const current = coverObserverGroups.get(root)
-    if (!current) return
-    current.callbacks.delete(element)
-    current.observer.unobserve(element)
-    if (current.callbacks.size === 0) {
-      current.observer.disconnect()
-      coverObserverGroups.delete(root)
-    }
-  }
+  return observeNearby(element, element.closest('.library-list, .workbench-book-picker'), onVisible)
 }

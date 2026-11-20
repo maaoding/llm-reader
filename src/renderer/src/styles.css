@@ -240,8 +240,19 @@
 .library-resume small { flex: 0 0 auto; color: var(--ui-muted); font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); }
 .library-resume .secondary-button { flex: 0 0 auto; }
 .workspace-shell[data-page="library"] .sidebar-content { padding: 0; overflow-y: auto; }
-.workspace-shell[data-page="library"] .library-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 16px; padding: 2px 0 24px; }
-.workspace-shell[data-page="library"] .library-list > :is(.empty-state, .sidebar-loading) { grid-column: 1 / -1; }
+.workspace-shell[data-page="library"] .library-list { position: relative; display: flex; flex-direction: column; gap: 16px; padding: 2px 0 24px; }
+.library-book-grid {
+  --library-card-width: calc((100% - (var(--library-columns) - 1) * var(--library-grid-gap)) / var(--library-columns));
+  position: relative;
+  flex: 0 0 auto;
+  overflow-anchor: none;
+}
+.workspace-shell[data-page="library"] .library-book-grid .book-item {
+  position: absolute;
+  inset-inline-start: calc(var(--library-column) * (var(--library-card-width) + var(--library-grid-gap)));
+  width: var(--library-card-width);
+  transition-property: background-color, border-color;
+}
 .workspace-shell[data-page="library"] .book-item { display: flex; min-width: 0; min-height: 110px; padding: 12px; margin: 0; gap: 8px; border: 1px solid var(--ui-line); border-radius: var(--radius-lg); background: var(--ui-surface); }
 .workspace-shell[data-page="library"] .book-item.is-active { border-color: var(--ui-accent); }
 .workspace-shell[data-page="library"] .book-item-open { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; }
@@ -254,6 +265,7 @@
 .workspace-shell[data-page="library"] .book-meta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-shell[data-page="library"] .book-meta-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .workspace-shell[data-page="library"] .book-meta-foot .format-chip { flex: 0 0 auto; font-size: 11px; }
+.workspace-shell[data-page="library"] .book-progress-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-shell .book-meta small, .workspace-shell .book-progress-text { font-size: max(12px, calc(var(--ui-small-size) * var(--interface-scale))); color: var(--ui-muted); }
 .workspace-shell .book-item-info { position: static; opacity: 1; align-self: center; width: 36px; height: 36px; flex: 0 0 36px; }
 .workspace-shell[data-page="reading"][data-left-open="true"] > .left-sidebar { display: flex; position: absolute; inset: 0 auto 0 var(--reader-rail-width); width: 280px; border-right: 1px solid var(--ui-line); box-shadow: var(--ui-shadow-md); }
@@ -406,7 +418,6 @@
   .workspace-topbar { gap: 14px; padding-left: 16px; }
   .workspace-bookbar { gap: 12px; padding: 8px 16px; }
   .workspace-bookbar nav button { padding: 6px 8px; }
-  .workspace-shell[data-page="library"] .library-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .notes-layout { grid-template-columns: 190px minmax(0, 1fr); gap: 16px; }
   .notes-view { padding: 20px 24px; }
   .workspace-reading-position { max-width: min(220px, 25vw); }
@@ -2902,13 +2913,27 @@ button.citation-valid:hover {
   border-radius: 3px;
 }
 
-.insight-content .answer-text {
+.insight-content[aria-busy="true"] {
+  cursor: progress;
+}
+
+.insight-answer-preview {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.insight-answer-preview :is(.answer-text, .insight-answer-placeholder) {
   margin: 5px 0 8px;
   max-height: calc(1.55em * 3);
   overflow: hidden;
   color: var(--muted);
   font-size: var(--assistant-content-size);
   line-height: 1.55;
+}
+
+.insight-answer-placeholder {
+  height: calc(1.55em * 3);
 }
 
 /* 仅当回答被三行截断时，末行渐隐提示“还有更多”；短回答不渐隐 */

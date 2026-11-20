@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { SectionNote } from '@shared/book-context'
 import { characters } from '@shared/book-context'
 import { AppDatabase } from './database'
-import { DOCUMENT_STRUCTURE_VERSION, MAX_DOCUMENT_CACHE_BYTES, validateDocument } from '@shared/document-structure'
+import { DOCUMENT_STRUCTURE_VERSION, MAX_DOCUMENT_CACHE_BYTES, documentUnitBlockPrefix, validateDocument } from '@shared/document-structure'
 import type { BookNotesIndex, BookChapterNotesInput, BookChapterNotesPage, BookNotePoint } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { AppError } from './errors'
@@ -23,6 +23,13 @@ export interface AnalysisRecord {
 }
 
 export interface StoredSection { section: DocumentSection; note: SectionNote | null }
+interface SectionMatch {
+  chapterIds: string[]
+  chapterTitle?: string
+  blockIds: string[]
+  anchors: string[]
+}
+
 export interface DocumentRecord {
   book_id: string; job_id: string; fingerprint: string; embedding_identity: string; version: number
   status: BookDocumentState['status']; characters: number; completed: number; total: number
@@ -102,11 +109,11 @@ export class BookContextStore implements BookRetriever {
     return row?.document_json ? JSON.parse(String(row.document_json)) as NormalizedDocument : null
   }
 
-  chapterDirectory(bookId: string): Array<{ id: string; title: string }> {
+  chapterDirectory(bookId: string): Array<{ id: string; title: string; parentId?: string | null }> {
     // Planning needs only headings; keep the cached original text inside SQLite.
     const row = this.db.prepare("SELECT json_extract(document_json, '$.nodes') AS nodes FROM book_documents WHERE book_id = ?").get(bookId)
     if (row?.nodes) return (JSON.parse(String(row.nodes)) as NormalizedDocument['nodes'])
-      .filter((node) => node.kind === 'section').map((node) => ({ id: node.id, title: node.title }))
+      .filter((node) => node.kind === 'section').map((node) => ({ id: node.id, title: node.title, parentId: node.parentId }))
     const rows = this.db.prepare('SELECT chapter_id, chapter_title FROM book_sections WHERE book_id = ? ORDER BY ordinal').all(bookId)
     // Legacy chapters keep their first position and the last stored title, as before.
     return [...new Map(rows.map((row) => [String(row.chapter_id), { id: String(row.chapter_id), title: String(row.chapter_title) }])).values()]
@@ -159,18 +166,18 @@ export class BookContextStore implements BookRetriever {
     const record = this.record(bookId)
     const document = this.documentState(bookId)
     if (!record) return { bookId, jobId: '', status: 'empty', profileId: '', model: '', sections: document.completed, completedSections: 0, characters: document.characters, document }
-    const counts = this.db.prepare('SELECT count(*) AS total, count(note_json) AS done FROM book_sections WHERE book_id = ?').get(bookId)!
+    const { total, covered } = this.coverage(bookId)
     const chapters = this.db.prepare(`SELECT count(DISTINCT chapter_id) AS total,
       count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM book_summaries n WHERE n.book_id = s.book_id AND n.node_id = 'chapter-' || s.chapter_id || '-final') THEN chapter_id END) AS done
       FROM book_sections s WHERE book_id = ?`).get(bookId)!
-    const inferred: BookAnalysisProgress = Number(counts.done) < Number(counts.total)
-      ? { stage: 'sections', completed: Number(counts.done), total: Number(counts.total) }
+    const inferred: BookAnalysisProgress = covered < total
+      ? { stage: 'sections', completed: covered, total }
       : Number(chapters.done) < Number(chapters.total)
         ? { stage: 'chapters', completed: Number(chapters.done), total: Number(chapters.total) }
         : { stage: 'overview', completed: record.status === 'ready' ? 1 : 0, total: 1 }
     const failures = this.db.prepare('SELECT failure_json FROM book_analysis_failures WHERE book_id = ? ORDER BY id DESC LIMIT 10').all(bookId)
       .map((row) => JSON.parse(String(row.failure_json)) as BookAnalysisFailure)
-    return { bookId, jobId: record.job_id, status: record.status, profileId: record.profile_id, model: record.model, sections: Number(counts.total), completedSections: Number(counts.done), characters: document.characters, document,
+    return { bookId, jobId: record.job_id, status: record.status, profileId: record.profile_id, model: record.model, sections: total, completedSections: covered, characters: document.characters, document,
       ...(record.extraction_done ? { progress: record.progress_json ? JSON.parse(record.progress_json) as BookAnalysisProgress : inferred } : {}),
       ...(failures.length ? { failures } : {}),
       ...(record.message ? { message: record.message } : {}), ...(record.usage_json ? { usage: JSON.parse(record.usage_json) as BookAnalysisState['usage'] } : {}) }
@@ -233,6 +240,37 @@ export class BookContextStore implements BookRetriever {
   sections(bookId: string): StoredSection[] {
     const rows = this.db.prepare('SELECT content_json, note_json FROM book_sections WHERE book_id = ? ORDER BY ordinal').all(bookId)
     return rows.map((row) => ({ section: JSON.parse(String(row.content_json)) as DocumentSection, note: row.note_json ? JSON.parse(String(row.note_json)) as SectionNote : null }))
+  }
+
+  coverage(bookId: string): { total: number; covered: number } {
+    const row = this.db.prepare('SELECT count(*) AS total, count(note_json) AS covered FROM book_sections WHERE book_id = ?').get(bookId)!
+    return { total: Number(row.total), covered: Number(row.covered) }
+  }
+
+  matchingNotes(bookId: string, match: SectionMatch): Array<{ chapterId: string; chapterTitle: string; note: SectionNote | null }> {
+    const rows = this.db.prepare(`SELECT chapter_id, chapter_title, note_json FROM book_sections
+      WHERE book_id = :bookId AND (
+        chapter_id IN (SELECT value FROM json_each(:chapters)) OR chapter_title = :title
+        OR section_id IN (SELECT section_id FROM book_blocks WHERE book_id = :bookId AND block_id IN (SELECT value FROM json_each(:blocks)))
+        OR (:hasAnchors AND section_id IN (
+          SELECT section_id FROM book_blocks WHERE book_id = :bookId AND anchor IN (SELECT value FROM json_each(:anchors))
+        ))
+      ) ORDER BY ordinal`).all({
+      bookId, chapters: JSON.stringify(match.chapterIds), title: match.chapterTitle ?? null, blocks: JSON.stringify(match.blockIds),
+      hasAnchors: Number(match.anchors.length > 0), anchors: JSON.stringify(match.anchors)
+    })
+    return rows.map((row) => ({ chapterId: String(row.chapter_id), chapterTitle: String(row.chapter_title),
+      note: row.note_json ? JSON.parse(String(row.note_json)) as SectionNote : null }))
+  }
+
+  firstChapterSources(bookId: string): Map<string, string[]> {
+    // SQLite returns the other columns from the row with min(ordinal).
+    // Keep a missing first note instead of substituting a later one.
+    const rows = this.db.prepare(`SELECT chapter_id, min(ordinal), coalesce(
+        json_extract(note_json, '$.claims[0].sourceIds'), json_extract(note_json, '$.concepts[0].sourceIds')
+      ) AS source_ids FROM book_sections WHERE book_id = ? GROUP BY chapter_id`).all(bookId)
+    return new Map(rows.flatMap((row) => row.source_ids
+      ? [[String(row.chapter_id), JSON.parse(String(row.source_ids)) as string[]]] : []))
   }
 
   private notesRevision(bookId: string): string {
@@ -329,42 +367,75 @@ export class BookContextStore implements BookRetriever {
   }
 
   passages(bookId: string, blockIds: string[]): Passage[] {
-    const statement = this.db.prepare('SELECT * FROM book_blocks WHERE book_id = ? AND block_id = ? AND searchable = 1')
-    return blockIds.slice(0, MAX_PASSAGE_LOOKUP).flatMap((id) => { const row = statement.get(bookId, id); return row ? [mapPassage(row)] : [] })
+    const ids = blockIds.slice(0, MAX_PASSAGE_LOOKUP)
+    const byId = new Map(this.passagesInReadingOrder(bookId, ids).map((passage) => [passage.blockId, passage]))
+    return ids.flatMap((id) => byId.get(id) ?? [])
+  }
+
+  passagesInReadingOrder(bookId: string, blockIds: string[]): Passage[] {
+    if (!blockIds.length) return []
+    return this.db.prepare(`SELECT * FROM book_blocks WHERE book_id = ? AND searchable = 1
+      AND block_id IN (SELECT value FROM json_each(?)) ORDER BY ordinal, id`).all(bookId, JSON.stringify(blockIds)).map(mapPassage)
+  }
+
+  passageAt(bookId: string, anchor: string, text: string): Passage | undefined {
+    const row = this.db.prepare(`SELECT * FROM book_blocks WHERE book_id = ? AND anchor = ? AND text = ? AND searchable = 1
+      ORDER BY ordinal, id LIMIT 1`).get(bookId, anchor, text)
+    return row && mapPassage(row)
   }
 
   originals(bookId: string): Passage[] {
     return this.db.prepare('SELECT * FROM book_blocks WHERE book_id = ? AND searchable = 1 ORDER BY ordinal').all(bookId).map(mapPassage)
   }
 
-  related(bookId: string, hits: Passage[], preparedDocument?: NormalizedDocument, preparedOriginals?: Passage[]): Passage[] {
-    if (!hits.length) return []
-    const document = preparedDocument ?? this.structure(bookId)
-    if (!document) return []
-    const units = new Map(document.units.map((unit) => [unit.id, unit]))
-    const originals = preparedOriginals ?? this.originals(bookId)
-    const positions = new Map<Passage['blockId'], number>()
-    const byUnit = new Map<string, number[]>()
-    for (const [index, passage] of originals.entries()) {
-      if (!positions.has(passage.blockId)) positions.set(passage.blockId, index)
-      const unitId = passage.unitId ?? ''
-      const group = byUnit.get(unitId) ?? []
-      group.push(index); byUnit.set(unitId, group)
-    }
+  private adjacentPassages(bookId: string, hit: Passage): Passage[] {
+    const position = this.db.prepare('SELECT ordinal, id FROM book_blocks WHERE book_id = ? AND block_id = ? AND searchable = 1')
+      .get(bookId, hit.blockId ?? null)
+    const rows = position ? [
+      this.db.prepare(`SELECT * FROM book_blocks WHERE book_id = ? AND searchable = 1 AND (ordinal, id) < (?, ?)
+        ORDER BY ordinal DESC, id DESC LIMIT 1`).get(bookId, position.ordinal, position.id),
+      this.db.prepare(`SELECT * FROM book_blocks WHERE book_id = ? AND searchable = 1 AND (ordinal, id) > (?, ?)
+        ORDER BY ordinal, id LIMIT 1`).get(bookId, position.ordinal, position.id)
+    ] : [this.db.prepare('SELECT * FROM book_blocks WHERE book_id = ? AND searchable = 1 ORDER BY ordinal, id LIMIT 1').get(bookId)]
+    return rows.flatMap((row) => row ? [mapPassage(row)] : []).filter((passage) => passage.unitId === hit.unitId)
+  }
+
+  private linkedPassages(bookId: string, ids: string[], seen: Set<Passage['blockId']>, limit: number): Passage[] {
+    if (!ids.length) return []
+    // Structured blocks use a unit ID plus a numeric suffix. Use the existing
+    // (book_id, block_id) index and verify the unit ID for overlapping prefixes.
+    const ranges = [...new Set(ids)].map((id) => {
+      const prefix = documentUnitBlockPrefix(id)
+      return { id, start: prefix + '0', end: prefix + ':' }
+    })
+    return this.db.prepare(`SELECT b.* FROM json_each(?) AS units CROSS JOIN book_blocks b
+      WHERE b.book_id = ? AND b.searchable = 1
+        AND b.block_id >= json_extract(units.value, '$.start') AND b.block_id < json_extract(units.value, '$.end')
+        AND json_extract(b.metadata_json, '$.unitId') = json_extract(units.value, '$.id')
+        AND b.block_id NOT IN (SELECT value FROM json_each(?) WHERE value IS NOT NULL)
+      ORDER BY b.ordinal, b.id LIMIT ?`).all(JSON.stringify(ranges), bookId, JSON.stringify([...seen]), limit).map(mapPassage)
+  }
+
+  related(bookId: string, hits: Passage[], limit = 12): Passage[] {
+    const unitIds = [...new Set(hits.flatMap((hit) => hit.unitId === undefined ? [] : [hit.unitId]))]
+    if (!unitIds.length || limit <= 0) return []
+    const rows = this.db.prepare(`SELECT json_extract(unit.value, '$.id') AS id, json_extract(unit.value, '$.relatedIds') AS links
+      FROM book_documents d, json_each(d.document_json, '$.units') AS unit
+      WHERE d.book_id = ? AND json_extract(unit.value, '$.id') IN (SELECT value FROM json_each(?))`)
+      .all(bookId, JSON.stringify(unitIds))
+    const byUnit = new Map(rows.map((row) => [String(row.id), JSON.parse(String(row.links ?? '[]')) as string[]]))
     const seen = new Set(hits.map((hit) => hit.blockId))
     const result: Passage[] = []
     for (const hit of hits) {
-      const unit = units.get(hit.unitId ?? '')
-      if (!unit) continue
-      const index = positions.get(hit.blockId) ?? -1
-      const adjacent = [index - 1, index + 1].filter((position) => originals[position]?.unitId === unit.id)
-      // Relations may list IDs in any order; evidence must retain the original reading order.
-      const linked = [...new Set(unit.relatedIds)].flatMap((id) => byUnit.get(id) ?? []).sort((a, b) => a - b)
-      for (const position of [...linked, ...adjacent]) {
-        const item = originals[position]
-        if (seen.has(item.blockId)) continue
-        seen.add(item.blockId); result.push({ ...item, evidenceRole: 'extension' })
-        if (result.length === 12) return result
+      const links = byUnit.get(hit.unitId ?? '')
+      if (!links) continue
+      const linked = this.linkedPassages(bookId, links, seen, limit - result.length)
+      const candidates = linked.length === limit - result.length ? linked : [...linked, ...this.adjacentPassages(bookId, hit)]
+      for (const passage of candidates) {
+        if (seen.has(passage.blockId)) continue
+        seen.add(passage.blockId)
+        result.push({ ...passage, evidenceRole: 'extension' })
+        if (result.length === limit) return result
       }
     }
     return result

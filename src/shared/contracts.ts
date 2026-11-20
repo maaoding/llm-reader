@@ -8,6 +8,8 @@ export interface AppCloseResponse {
 
 export const IPC_CHANNELS = {
   workbenchesList: 'workbenches:list',
+  workbenchesListSummaries: 'workbenches:list-summaries',
+  workbenchesGet: 'workbenches:get',
   workbenchesCreate: 'workbenches:create',
   workbenchesSave: 'workbenches:save',
   workbenchesDelete: 'workbenches:delete',
@@ -45,6 +47,8 @@ export const IPC_CHANNELS = {
   highlightsDelete: 'highlights:delete',
   insightsList: 'insights:list',
   insightsListAll: 'insights:list-all',
+  insightsListPreviews: 'insights:list-previews',
+  insightsReadArchives: 'insights:read-archives',
   insightsSave: 'insights:save',
   insightsDelete: 'insights:delete',
   insightsUpdateHistory: 'insights:update-history',
@@ -88,6 +92,7 @@ export const IPC_CHANNELS = {
   analysisCancel: 'analysis:cancel',
   analysisFail: 'analysis:fail',
   analysisEvent: 'analysis:event',
+  analysisSettingsChanged: 'analysis:settings-changed',
   llmStart: 'llm:start',
   llmCancel: 'llm:cancel',
   llmEvent: 'llm:event',
@@ -705,6 +710,9 @@ export interface InsightArchiveRecord extends SavedInsight {
   book: InsightBookRef
 }
 
+export type InsightArchivePreview = Pick<InsightArchiveRecord,
+  'id' | 'bookId' | 'book' | 'selection' | 'context' | 'question' | 'answer' | 'createdAt'>
+
 export type InsightExportScope =
   | { kind: 'all' }
   | { kind: 'book'; bookId: string }
@@ -785,6 +793,7 @@ export interface BookSessionSummary {
 }
 
 export const MAX_WORKBENCH_BOOKS = 5
+export const MAX_WORKBENCH_TURNS = 200
 export interface WorkbenchTurn {
   id: string
   bookIds: string[]
@@ -812,7 +821,12 @@ export interface WorkbenchRecord extends WorkbenchInput {
   updatedAt: string
 }
 
+export interface WorkbenchSummary extends Pick<WorkbenchRecord, 'id' | 'name' | 'bookIds'> {
+  turnCount: number
+}
+
 export const RECENT_BOOK_SESSION_LIMIT = 20
+export const MAX_SESSION_TABS = 20
 
 /** 打开的会话标签：归档标签必须带 insightId，草稿只对归档标签生效。 */
 export interface SessionTabRecord {
@@ -847,6 +861,8 @@ export interface SaveHighlightInput {
 
 export interface ReaderApi {
   listWorkbenches(): Promise<WorkbenchRecord[]>
+  listWorkbenchSummaries(): Promise<WorkbenchSummary[]>
+  getWorkbench(id: string): Promise<WorkbenchRecord | null>
   createWorkbench(input: { name: string; bookIds: string[] }): Promise<WorkbenchRecord>
   saveWorkbench(input: WorkbenchInput): Promise<WorkbenchRecord>
   deleteWorkbench(id: string): Promise<boolean>
@@ -876,6 +892,8 @@ export interface ReaderApi {
   deleteHighlight(id: string): Promise<boolean>
   listInsights(bookId: string): Promise<SavedInsight[]>
   listAllInsights(): Promise<InsightArchiveRecord[]>
+  listInsightPreviews(): Promise<InsightArchivePreview[]>
+  readInsightArchives(insightIds: string[]): Promise<InsightArchiveRecord[]>
   exportInsights(scope: InsightExportScope): Promise<InsightExportResult>
   saveInsight(input: SaveInsightInput): Promise<SavedInsight>
   deleteInsight(id: string): Promise<boolean>
@@ -912,6 +930,7 @@ export interface ReaderApi {
   startBookAnalysis(input: StartBookAnalysisInput): Promise<BookAnalysisState>
   cancelBookAnalysis(bookId: string): Promise<void>
   onBookAnalysisEvent(listener: (state: BookAnalysisState) => void): () => void
+  onBookAnalysisSettingsChanged(listener: () => void): () => void
   startLlm(request: LlmRequest): Promise<void>
   cancelLlm(requestId: string): Promise<void>
   /** Opens a recorded web source in the system browser; the main process re-checks the URL. */

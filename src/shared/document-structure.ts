@@ -4,6 +4,10 @@ import { chapterSections, characters, MAX_BLOCK_CHARACTERS, MAX_BOOK_CHARACTERS,
 export const DOCUMENT_STRUCTURE_VERSION = 2
 export const MAX_DOCUMENT_CACHE_BYTES = 96_000_000
 
+export function documentUnitBlockPrefix(unitId: string): string {
+  return `${unitId}-b`
+}
+
 export function headingPath(nodes: DocumentNode[] | Map<string, DocumentNode>, id: string): string[] {
   const byId = Array.isArray(nodes) ? new Map(nodes.map((node) => [node.id, node])) : nodes
   const result: string[] = [], visited = new Set<string>()
@@ -145,7 +149,7 @@ function tableBlocks(unit: DocumentUnit, maximumCharacters: number): DocumentBlo
       const text = (body.text ? repeated : '') + part.text
       emittedCharacters += characters(text)
       if (emittedCharacters > maximumCharacters) throw new Error('表格展开超过处理上限。')
-      result.push({ id: unit.id + '-b' + result.length, text,
+      result.push({ id: documentUnitBlockPrefix(unit.id) + result.length, text,
         anchor: sources[0].anchor, sources, kind: 'table', nodeId: unit.nodeId, unitId: unit.id,
         tableSlice: { rows: selectedRows.filter((row) => cells.some((cell) => cell.rows?.includes(row))), cells }, searchable: unit.searchable })
     }
@@ -189,7 +193,7 @@ export function documentSections(document: NormalizedDocument): DocumentSection[
     if (!path) { path = headingPath(nodes, unit.nodeId); paths.set(unit.nodeId, path) }
     const parts = unit.table ? tableBlocks(unit, remainingCharacters) : paragraphSlices(unit.text).map((part, index): DocumentBlock => {
       const sources = sliceSources(unit, part.start, part.end)
-      return { id: `${unit.id}-b${index}`, kind: unit.kind, text: part.text, anchor: sources[0]?.anchor ?? unit.sources[0].anchor,
+      return { id: documentUnitBlockPrefix(unit.id) + index, kind: unit.kind, text: part.text, anchor: sources[0]?.anchor ?? unit.sources[0].anchor,
         sources, unitId: unit.id, nodeId: unit.nodeId, unitRange: { start: part.start, end: part.end }, searchable: unit.searchable }
     })
     remainingCharacters -= parts.reduce((size, part) => size + characters(part.text), 0)

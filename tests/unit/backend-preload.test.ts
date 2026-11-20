@@ -174,15 +174,22 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.invoke).toHaveBeenCalledOnce()
     expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.insightsUpdateHistory, { bookId, id, history })
   })
-  it('exposes global insight listing and markdown export through their dedicated IPC channels', async () => {
+  it('exposes archived insight reads and markdown export through their dedicated IPC channels', async () => {
+    const insightId = '45b45c27-b51d-4f49-8df7-480918cf2a0b'
+    electronMocks.invoke.mockResolvedValueOnce([])
+    electronMocks.invoke.mockResolvedValueOnce([])
     electronMocks.invoke.mockResolvedValueOnce([])
     electronMocks.invoke.mockResolvedValueOnce({ canceled: false, fileName: '归档.md' })
 
     await expect(readerApi.listAllInsights()).resolves.toEqual([])
+    await expect(readerApi.listInsightPreviews()).resolves.toEqual([])
+    await expect(readerApi.readInsightArchives([insightId])).resolves.toEqual([])
     await expect(readerApi.exportInsights({ kind: 'all' })).resolves.toEqual({ canceled: false, fileName: '归档.md' })
 
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.insightsListAll)
-    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.insightsExport, { kind: 'all' })
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.insightsListPreviews)
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.insightsReadArchives, [insightId])
+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(4, IPC_CHANNELS.insightsExport, { kind: 'all' })
   })
   it('exposes insight deletion through its dedicated IPC channel', async () => {
     const id = '45b45c27-b51d-4f49-8df7-480918cf2a0b'

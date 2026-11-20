@@ -44,6 +44,7 @@ import {
   insightExportScopeSchema,
   insightHistorySchema,
   insightIdSchema,
+  insightArchiveIdsSchema,
   insightSchema,
   llmRequestSchema,
   metadataSchema,
@@ -214,6 +215,12 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
   handle(IPC_CHANNELS.insightsListAll, dependencies, () =>
     dependencies.library.listAllInsights()
   )
+  handle(IPC_CHANNELS.insightsListPreviews, dependencies, () =>
+    dependencies.library.listInsightPreviews()
+  )
+  handle(IPC_CHANNELS.insightsReadArchives, dependencies, (_event, value) =>
+    dependencies.library.readInsightArchives(parse(insightArchiveIdsSchema, value))
+  )
   handle(IPC_CHANNELS.insightsExport, dependencies, async (_event, value) => {
     const scope = parse(insightExportScopeSchema, value)
     const result = await dialog.showSaveDialog(dependencies.window, {
@@ -238,6 +245,8 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     dependencies.library.getBookSession(parse(bookIdSchema, value))
   )
   handle(IPC_CHANNELS.workbenchesList, dependencies, () => dependencies.library.listWorkbenches())
+  handle(IPC_CHANNELS.workbenchesListSummaries, dependencies, () => dependencies.library.listWorkbenchSummaries())
+  handle(IPC_CHANNELS.workbenchesGet, dependencies, (_event, value) => dependencies.library.getWorkbench(parse(bookIdSchema, value)))
   handle(IPC_CHANNELS.workbenchesCreate, dependencies, (_event, value) => dependencies.library.createWorkbench(parse(createWorkbenchSchema, value)))
   handle(IPC_CHANNELS.workbenchesSave, dependencies, (_event, value) => dependencies.library.saveWorkbench(parse(workbenchSchema, value)))
   handle(IPC_CHANNELS.workbenchesDelete, dependencies, (_event, value) => {
@@ -298,13 +307,15 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     handle(IPC_CHANNELS.knowledgeSave, dependencies, (_event, value) => {
       const previousRevision = knowledge.embeddingRevision()
       const previousDocumentRevision = knowledge.documentRevision()
-      const previousDocumentEnabled = knowledge.get().document.enabled
-      const previousEnabled = knowledge.get().embedding.enabled
+      const previous = knowledge.get()
       const saved = knowledge.save(parse(knowledgeSettingsSchema, value))
-      const embeddingChanged = previousRevision !== knowledge.embeddingRevision() || previousEnabled !== saved.embedding.enabled
+      const embeddingChanged = previousRevision !== knowledge.embeddingRevision() || previous.embedding.enabled !== saved.embedding.enabled
+      const documentRevisionChanged = previousDocumentRevision !== knowledge.documentRevision()
       if (embeddingChanged) dependencies.semantic?.dispose()
-      if (previousDocumentRevision !== knowledge.documentRevision() || previousDocumentEnabled && !saved.document.enabled) dependencies.documents?.cancelPreview()
-      if (embeddingChanged || previousDocumentRevision !== knowledge.documentRevision() || previousDocumentEnabled !== saved.document.enabled) dependencies.analysis?.knowledgeChanged()
+      if (documentRevisionChanged || previous.document.enabled && !saved.document.enabled) dependencies.documents?.cancelPreview()
+      if (embeddingChanged || documentRevisionChanged || previous.document.enabled !== saved.document.enabled) {
+        dependencies.analysis?.knowledgeChanged(saved.document)
+      }
       return saved
     })
     handle(IPC_CHANNELS.knowledgeTest, dependencies, async (_event, value) => {
@@ -402,6 +413,7 @@ export function unregisterIpcHandlers(): void {
       (channel) =>
         channel !== IPC_CHANNELS.llmEvent &&
         channel !== IPC_CHANNELS.analysisEvent &&
+        channel !== IPC_CHANNELS.analysisSettingsChanged &&
         channel !== IPC_CHANNELS.appBeforeClose &&
         channel !== IPC_CHANNELS.appCloseCancelled &&
         channel !== IPC_CHANNELS.appUpdateEvent &&

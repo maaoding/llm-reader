@@ -23,7 +23,7 @@ export function rerankCandidates(fused: Passage[], notes: Passage[], chapters: s
   let remaining = Math.max(0, maximum - reserved.size)
   return all.filter((item) => reserved.has(evidenceKey(item)) || remaining-- > 0)
 }
-export function nearbyEvidence(selection: SelectionContext | null, originals: Passage[]): Passage[] {
+export function nearbyEvidence(selection: SelectionContext | null, findOriginal: (item: Passage) => Passage | undefined): Passage[] {
   if (!selection) return []
   const local = selection.passages
   const index = Math.max(0, local.findIndex((item) => item.anchor === selection.anchor || item.text.includes(selection.quote)))
@@ -32,7 +32,7 @@ export function nearbyEvidence(selection: SelectionContext | null, originals: Pa
     for (const position of [index - distance, index + distance]) {
       const item = local[position]
       if (!item || result.length === 2 || (item.anchor === selection.anchor && item.text === selection.quote)) continue
-      const original = originals.find((block) => block.anchor === item.anchor && block.text === item.text)
+      const original = findOriginal(item)
       result.push({ ...(original ?? item), evidenceRole: 'nearby' })
     }
   }

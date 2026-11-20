@@ -2,14 +2,14 @@ import { expect, test, type ElectronApplication } from '@playwright/test'
 import type { BaseWindow, OpenDialogOptions } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { IPC_CHANNELS, type HighlightRecord, type InsightArchiveRecord } from '../../src/shared/contracts'
+import { IPC_CHANNELS, type HighlightRecord, type InsightArchivePreview } from '../../src/shared/contracts'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
 import { enterReading, showLibrary } from './support/workspace'
 
 interface ReadFault {
   blocked: boolean
   calls: number
-  records: HighlightRecord[] | InsightArchiveRecord[]
+  records: HighlightRecord[] | InsightArchivePreview[]
 }
 
 type FaultProcess = typeof globalThis & { __listReadFaults?: Record<string, ReadFault> }
@@ -66,10 +66,10 @@ test('keeps an archive read error visible and retries without claiming saved ans
         context: { scope: 'book', bookId: book.id, selection: null, passages: [], background: '', coverage: { covered: 0, total: 0 } },
         question: '读取出错时，归档是否仍然保留？', answer: '归档仍在本机，重试读取后可以恢复。', model: 'local-fixture'
       })
-      return window.readerApi.listAllInsights()
+      return window.readerApi.listInsightPreviews()
     })
     expect(saved).toHaveLength(1)
-    await failListRead(application, IPC_CHANNELS.insightsListAll, saved)
+    await failListRead(application, IPC_CHANNELS.insightsListPreviews, saved)
     await page.reload()
     await expect(page.locator('.workspace-shell')).toHaveAttribute('data-workspace-ready', 'true')
     await page.getByTestId('nav-archives').click()
@@ -81,13 +81,13 @@ test('keeps an archive read error visible and retries without claiming saved ans
     // The previous toast vanished after 3.2 seconds; the actionable error must remain.
     await page.waitForTimeout(3_400)
     await expect(error).toBeVisible()
-    const beforeRetry = await listReadCalls(application, IPC_CHANNELS.insightsListAll)
+    const beforeRetry = await listReadCalls(application, IPC_CHANNELS.insightsListPreviews)
     await page.getByTestId('insights-retry').click()
-    await expect.poll(() => listReadCalls(application!, IPC_CHANNELS.insightsListAll)).toBeGreaterThan(beforeRetry)
+    await expect.poll(() => listReadCalls(application!, IPC_CHANNELS.insightsListPreviews)).toBeGreaterThan(beforeRetry)
     await expect(error).toBeVisible()
     await expect(page.getByTestId('insights-view').getByText('还没有归档的回答', { exact: true })).toHaveCount(0)
 
-    await allowListRead(application, IPC_CHANNELS.insightsListAll)
+    await allowListRead(application, IPC_CHANNELS.insightsListPreviews)
     await page.getByTestId('insights-retry').click()
     await expect(error).toHaveCount(0)
     await expect(page.getByTestId('insight-item')).toHaveCount(1)

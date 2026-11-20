@@ -26,7 +26,7 @@ function setup(units: Array<{ id: string; text: string; relatedIds?: string[]; s
 
 describe('related source evidence', () => {
   it('preserves source order before adjacent blocks, excludes direct hits and ignores nonsearchable units', () => {
-    const { store, bookId, document, originals } = setup([
+    const { store, bookId, originals } = setup([
       { id: 'body', text: '正文'.repeat(1900), relatedIds: ['later-note', 'hidden', 'early-note', 'later-note'] },
       { id: 'early-note', text: '较早的注释。', relatedIds: ['body'] },
       { id: 'hidden', text: '不可检索内容。', searchable: false },
@@ -34,7 +34,7 @@ describe('related source evidence', () => {
     ])
     const hits = [originals.find((passage) => passage.blockId === 'body-b1')!, originals.find((passage) => passage.blockId === 'later-note-b0')!]
     const originalSnapshot = structuredClone(originals)
-    const result = store.related(bookId, hits, document, originals)
+    const result = store.related(bookId, hits)
     expect(result.map((passage) => passage.blockId)).toEqual(['early-note-b0', 'later-note-b1', 'body-b0', 'body-b2'])
     expect(result.every((passage) => passage.evidenceRole === 'extension')).toBe(true)
     expect(originals).toEqual(originalSnapshot)
@@ -50,10 +50,14 @@ describe('related source evidence', () => {
     expect(result.map((passage) => passage.blockId)).toEqual(notes.filter((note) => note.id !== 'note-1').slice(0, 12).map((note) => `${note.id}-b0`))
   })
 
-  it('reuses a caller-supplied source snapshot without reading the document or originals again', () => {
-    const { store, bookId, document, originals } = setup([{ id: 'body', text: '正文', relatedIds: ['note'] }, { id: 'note', text: '关联注释' }])
+  it('reads only the matching unit even when another unit starts with the same block prefix', () => {
+    const { store, bookId, originals } = setup([
+      { id: 'body', text: '正文', relatedIds: ['note'] },
+      { id: 'note-b0-extra', text: '无关注释' },
+      { id: 'note', text: '关联注释' }
+    ])
     const readStructure = vi.spyOn(store, 'structure'), readOriginals = vi.spyOn(store, 'originals')
-    expect(store.related(bookId, [originals[0]], document, originals).map((passage) => passage.text)).toEqual(['关联注释'])
+    expect(store.related(bookId, [originals[0]], 1).map((passage) => passage.text)).toEqual(['关联注释'])
     expect(readStructure).not.toHaveBeenCalled()
     expect(readOriginals).not.toHaveBeenCalled()
   })

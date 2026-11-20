@@ -225,7 +225,7 @@ test('cancels after the active item, keeps partial results, and marks remaining 
   }
 })
 
-test('renders and scrolls a 300-book library and opens its last visible entry', async () => {
+test('scrolls, filters and opens a 300-book library with a bounded number of cards', async () => {
   test.setTimeout(120_000)
   const workspace = await createE2eWorkspace('llm-reader-300-e2e-')
   let application: ElectronApplication | undefined
@@ -243,17 +243,44 @@ test('renders and scrolls a 300-book library and opens its last visible entry', 
     await page.getByTestId('import-book').click()
     await expect(page.getByTestId('book-import-summary')).toContainText('已导入 300 本', { timeout: 120_000 })
     await page.getByTestId('book-import-close').click()
-    const items = page.getByTestId('book-item')
-    await expect(items).toHaveCount(300)
-
     const library = page.getByTestId('library-list')
+    const bookAt = (position: number) => library.locator(`[aria-posinset="${position}"]`)
+    await expect(bookAt(1)).toHaveAttribute('aria-setsize', '300')
+    await expect.poll(() => library.getByTestId('book-item').count()).toBeLessThan(80)
+    const middle = bookAt(150).getByTestId('book-item')
+    await expect(middle).toHaveCount(0)
     await library.evaluate((element) => {
-      element.scrollTop = element.scrollHeight
-      element.dispatchEvent(new Event('scroll'))
+      element.scrollTop = (element.scrollHeight - element.clientHeight) / 2
     })
-    const last = items.last()
-    await last.scrollIntoViewIfNeeded()
-    await expect(last).toBeVisible()
+    await expect(middle).toBeInViewport()
+    await middle.focus()
+
+    const scrollToEnd = () => library.evaluate((element) => { element.scrollTop = element.scrollHeight })
+    const last = bookAt(300).getByTestId('book-item')
+    await scrollToEnd()
+    await expect(last).toBeInViewport()
+    await expect(middle).toBeFocused()
+    await page.keyboard.press('Tab')
+    const middleInfo = bookAt(150).getByTestId('book-info')
+    await expect(middleInfo).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('book-details-modal')).toBeVisible()
+    await page.getByTestId('book-details-close').click()
+    await expect(middleInfo).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(bookAt(151).getByTestId('book-item')).toBeFocused()
+
+    await resizeWorkspace(application, page, 940, 650)
+    await scrollToEnd()
+    await expect(last).toBeInViewport()
+    const search = page.getByTestId('library-search')
+    await search.fill('SCALE-BOOK-07')
+    await expect(bookAt(1)).toHaveAttribute('aria-setsize', '10')
+    await expect(bookAt(1)).toBeInViewport()
+    await search.clear()
+    await expect(bookAt(1)).toHaveAttribute('aria-setsize', '300')
+    await scrollToEnd()
+    await expect(last).toBeInViewport()
     await last.click()
     await expect(page.locator('.workspace-book-title h1')).toContainText('规模化书库正文')
     await expect(page.getByTestId('reader-host')).toContainText('规模化书库正文')

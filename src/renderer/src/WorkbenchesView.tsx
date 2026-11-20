@@ -1,6 +1,6 @@
 import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, Download, Library, LoaderCircle, PenLine, Plus, RefreshCw, Search, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { MAX_WORKBENCH_BOOKS, type BookAnalysisState, type BookRecord, type PersonaSelection, type PersonaSettings, type ProviderSettings, type WorkbenchRecord } from '@shared/contracts'
+import { MAX_WORKBENCH_BOOKS, MAX_WORKBENCH_TURNS, type BookAnalysisState, type BookRecord, type PersonaSelection, type PersonaSettings, type ProviderSettings, type WorkbenchRecord } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { providerIsConfigured } from '@shared/request-settings'
 import { AnswerText } from './AnswerText'
@@ -63,7 +63,7 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
     .slice(0, 100)
   const ready = (ids: string[]) => ids.length > 0 && ids.every((id) => books.some((book) => book.id === id) && states[id]?.document?.status === 'ready')
   const configured = providerIsConfigured(provider)
-  const blocked = !configured ? copy('workbench.modelNeeded') : !scopeIds.length ? copy('workbench.noBooks') : !ready(scopeIds) ? copy('workbench.unready') : record.turns.length >= 200 && !editing ? copy('workbench.limit') : ''
+  const blocked = !configured ? copy('workbench.modelNeeded') : !scopeIds.length ? copy('workbench.noBooks') : !ready(scopeIds) ? copy('workbench.unready') : record.turns.length >= MAX_WORKBENCH_TURNS && !editing ? copy('workbench.limit') : ''
   const change = (patch: Partial<WorkbenchRecord>) => controller.update(record.id, (current) => ({ ...current, ...patch }))
   const run = async (action: () => Promise<unknown>) => {
     setError(''); setPending(true)
@@ -169,23 +169,29 @@ function WorkbenchConversation({ record, controller, books, coverCache, states, 
   </div>
 }
 
-export default function WorkbenchesView(props: WorkbenchProps & { refresh: (id: string) => Promise<void> }) {
-  const { controller, books, refresh } = props
+export default function WorkbenchesView(props: WorkbenchProps & { refresh: (id: string) => Promise<void>; settingsVersion: number }) {
+  const { controller, books, refresh, settingsVersion } = props
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const ids = [...new Set([...(controller.active?.bookIds ?? []), ...(controller.active?.turns.at(-1)?.bookIds ?? [])])].filter((id) => books.some((book) => book.id === id)).join(',')
-  useEffect(() => { if (ids) void Promise.all(ids.split(',').map((id) => refresh(id))) }, [ids, refresh])
-  if (controller.active && !controller.loading && !controller.loadError) return <WorkbenchConversation {...props} record={controller.active} key={controller.active.id} />
+  useEffect(() => { if (ids) void Promise.all(ids.split(',').map((id) => refresh(id))) }, [ids, refresh, settingsVersion])
+  if (controller.active) return <WorkbenchConversation {...props} record={controller.active} key={controller.active.id} />
+  const loadedRecords = new Map(controller.records.map((record) => [record.id, record]))
+  const bookTitles = new Map(books.map((book) => [book.id, book.title]))
   return <>
     <header className="archives-header" data-testid="workbench-list-header">
       <h2 className="visually-hidden" id="assistant-dialog-title">{copy('workbench.title')}</h2>
-      <div className="workbench-list-heading"><button className="primary-button" type="button" data-testid="workbench-new" disabled={controller.loading || Boolean(controller.loadError)} onClick={() => { setCreating(true); setName(''); setError('') }}><Plus size={16} />{copy('workbench.new')}</button></div>
+      <div className="workbench-list-heading">
+        {controller.selectedId
+          ? <button className="icon-button" type="button" onClick={() => controller.activate(null)} aria-label={copy('workbench.back')} title={copy('workbench.back')}><ArrowLeft size={16} /></button>
+          : <button className="primary-button" type="button" data-testid="workbench-new" disabled={controller.loading || Boolean(controller.loadError)} onClick={() => { setCreating(true); setName(''); setError('') }}><Plus size={16} />{copy('workbench.new')}</button>}
+      </div>
       <ArchiveViewSwitch value="workbenches" onChange={props.onArchiveViewChange} />
     </header>
     {controller.loading ? <div className="workbench-empty" role="status"><LoaderCircle className="spin" />{copy('insights.loading')}</div>
-      : controller.loadError ? <div className="workbench-empty" role="alert">{controller.loadError}<button className="secondary-button" type="button" onClick={() => void controller.load()}>{copy('common.retry')}</button></div>
+      : controller.loadError ? <div className="workbench-empty" role="alert">{controller.loadError}<button className="secondary-button" type="button" onClick={controller.retryLoad}>{copy('common.retry')}</button></div>
       : <div className="workbench-list" data-testid="workbench-list">
         <p className="workbench-list-hint">{copy('workbench.hint')}</p>
         {creating && <form className="workbench-create" onSubmit={async (event) => {
@@ -200,11 +206,15 @@ export default function WorkbenchesView(props: WorkbenchProps & { refresh: (id: 
           <button className="text-button" type="button" disabled={pending} onClick={() => setCreating(false)}>{copy('common.back')}</button>
           {error && <p role="alert">{error}</p>}
         </form>}
-        {!controller.records.length && !creating && <div className="empty-state workbench-empty"><div className="empty-icon"><Library size={24} /></div><strong>{copy('workbench.empty')}</strong></div>}
-        <div className="workbench-cards">{controller.records.map((record) => <button className="workbench-card" type="button" key={record.id} onClick={() => controller.activate(record.id)}>
-          <span className="workbench-card-icon"><Library size={20} /></span><strong>{record.name}</strong><span>{record.bookIds.map((id) => books.find((book) => book.id === id)?.title ?? copy('workbench.deletedBook')).join(' · ') || copy('workbench.noBooks')}</span>
-          <small>{copy('assistant.recentSessionTurns', { count: record.turns.length })}{workbenchBusy(record) ? ` · ${copy('workbench.generating')}` : ''}</small>
-        </button>)}</div>
+        {!controller.summaries.length && !creating && <div className="empty-state workbench-empty"><div className="empty-icon"><Library size={24} /></div><strong>{copy('workbench.empty')}</strong></div>}
+        <div className="workbench-cards">{controller.summaries.map((summary) => {
+          const record = loadedRecords.get(summary.id)
+          const titles = (record?.bookIds ?? summary.bookIds).flatMap((id) => bookTitles.get(id) ?? [])
+          return <button className="workbench-card" type="button" key={summary.id} onClick={() => controller.activate(summary.id)}>
+            <span className="workbench-card-icon"><Library size={20} /></span><strong>{record?.name ?? summary.name}</strong><span>{titles.join(' · ') || copy('workbench.noBooks')}</span>
+            <small>{copy('assistant.recentSessionTurns', { count: record?.turns.length ?? summary.turnCount })}{record && workbenchBusy(record) ? ` · ${copy('workbench.generating')}` : ''}</small>
+          </button>
+        })}</div>
       </div>}
   </>
 }

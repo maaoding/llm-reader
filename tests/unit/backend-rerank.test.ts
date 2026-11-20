@@ -235,7 +235,7 @@ describe('retrieval, protected evidence and retry integration', () => {
     const selection = { bookId: state.bookId, quote: '选区😀'.repeat(450), chapterTitle: '重复标题', anchor: 'txt:300000:301800', passages: [passages[0], { ...passages[1], anchor: 'txt:300000:301800' }, passages[2]] }
     const request: LlmRequest = { ...state.request, scope: 'selection', selection, history: [{ role: 'assistant', content: '旧回答[P99]'.repeat(1500) }] }
     const source = await state.service.context(request, state.credentials, signal())
-    expect(nearbyEvidence(selection, []).length).toBe(2)
+    expect(nearbyEvidence(selection, () => undefined).length).toBe(2)
     for (const budget of [6000, 3000]) {
       const { context, history } = boundContext(request, source, budget)
       expect(context.passages[0].text).toBe(selection.quote)

@@ -11,8 +11,10 @@ import type {
   BookSessionTurn,
   BookSourceFormat,
   HighlightRecord,
+  InsightArchivePreview,
   InsightArchiveRecord,
   InsightBookRef,
+  InsightExportScope,
   SavedInsight,
   SaveHighlightInput,
   ProviderCompatibility,
@@ -24,7 +26,7 @@ import type {
   SessionTabsState,
   UpdateInsightHistoryInput
 } from '@shared/contracts'
-import type { WorkbenchInput, WorkbenchRecord } from '@shared/contracts'
+import type { WorkbenchInput, WorkbenchRecord, WorkbenchSummary } from '@shared/contracts'
 
 interface BookRow {
   id: string
@@ -41,26 +43,31 @@ interface BookRow {
   progress: number
 }
 
-interface InsightRow {
+interface InsightContentRow {
   id: string
-  conversation_id: string
   book_id: string
   selection_json: string
   question: string
   answer: string
-  model: string
   created_at: string
-  history_json: string
   context_json: string | null
+}
+
+interface InsightRow extends InsightContentRow {
+  conversation_id: string
+  model: string
+  history_json: string
   persona_json?: string | null
   web_search?: string | null
 }
 
-interface InsightArchiveRow extends InsightRow {
+interface InsightPreviewRow extends InsightContentRow {
   book_title: string
   book_author: string | null
   book_format: BookFormat
 }
+
+type InsightArchiveRow = InsightRow & InsightPreviewRow
 
 interface BookSessionRow {
   book_id: string
@@ -564,6 +571,33 @@ function parseInsightHistory(value: string | null | undefined): ArchivedChatMess
   }
 }
 
+function mapInsightContent(row: InsightContentRow): Omit<InsightArchivePreview, 'book'> {
+  return {
+    id: row.id,
+    bookId: row.book_id,
+    selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
+    context: row.context_json ? JSON.parse(row.context_json) as SavedInsight['context'] : undefined,
+    question: row.question,
+    answer: row.answer,
+    createdAt: row.created_at
+  }
+}
+
+function mapInsightBook(row: InsightPreviewRow): InsightBookRef {
+  return { id: row.book_id, title: row.book_title, author: row.book_author, format: row.book_format }
+}
+
+function mapInsight(row: InsightRow): SavedInsight {
+  return {
+    ...mapInsightContent(row),
+    conversationId: row.conversation_id,
+    model: row.model,
+    history: parseInsightHistory(row.history_json),
+    ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {}),
+    ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
+  }
+}
+
 function insightHistory(question: string, answer: string, model: string, persona?: PersonaSelection | null): ArchivedChatMessage[] {
   return [
     { role: 'user', content: question },
@@ -780,55 +814,62 @@ export class AppDatabase {
       .prepare('SELECT * FROM insights WHERE book_id = ? ORDER BY created_at DESC')
       .all(bookId) as unknown as InsightRow[]
 
-    return rows.map((row) => ({
-      id: row.id,
-      conversationId: row.conversation_id,
-      bookId: row.book_id,
-      selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
-      context: row.context_json ? JSON.parse(row.context_json) as SavedInsight['context'] : undefined,
-      question: row.question,
-      answer: row.answer,
-      model: row.model,
-      createdAt: row.created_at,
-      history: parseInsightHistory(row.history_json),
-      ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {}),
-      ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
-    }))
+    return rows.map(mapInsight)
   }
 
-  listAllInsights(): InsightArchiveRecord[] {
+  listInsightPreviews(): InsightArchivePreview[] {
+    const rows = this.connection
+      .prepare(
+        `SELECT insights.id, insights.book_id, insights.selection_json, insights.context_json,
+                insights.question, insights.answer, insights.created_at,
+                books.title AS book_title, books.author AS book_author, books.format AS book_format
+         FROM insights
+         JOIN books ON books.id = insights.book_id
+         ORDER BY insights.created_at DESC`
+      )
+      .all() as unknown as InsightPreviewRow[]
+
+    return rows.map((row) => ({ ...mapInsightContent(row), book: mapInsightBook(row) }))
+  }
+
+  listAllInsights(scope: InsightExportScope = { kind: 'all' }): InsightArchiveRecord[] {
+    if (scope.kind === 'book') return this.queryInsightArchives('WHERE insights.book_id = ?', [scope.bookId])
+    if (scope.kind === 'insight') return this.queryInsightArchives('WHERE insights.id = ?', [scope.insightId])
+    return this.queryInsightArchives()
+  }
+
+  readInsightArchives(insightIds: readonly string[]): InsightArchiveRecord[] {
+    if (insightIds.length === 0) return []
+    return this.queryInsightArchives(`WHERE insights.id IN (${insightIds.map(() => '?').join(', ')})`, insightIds)
+  }
+
+  getInsightExportBookTitle(scope: Exclude<InsightExportScope, { kind: 'book' }>): string | undefined {
+    if (scope.kind === 'insight') {
+      const row = this.connection.prepare(
+        'SELECT books.title FROM insights JOIN books ON books.id = insights.book_id WHERE insights.id = ?'
+      ).get(scope.insightId) as { title: string } | undefined
+      return row?.title
+    }
+
+    // Only a single participating book determines the name of a full export.
+    const books = this.connection.prepare(
+      'SELECT title FROM books WHERE EXISTS (SELECT 1 FROM insights WHERE book_id = books.id) LIMIT 2'
+    ).all() as Array<{ title: string }>
+    return books.length === 1 ? books[0].title : undefined
+  }
+
+  private queryInsightArchives(where = '', parameters: readonly string[] = []): InsightArchiveRecord[] {
     const rows = this.connection
       .prepare(
         `SELECT insights.*, books.title AS book_title, books.author AS book_author, books.format AS book_format
          FROM insights
          JOIN books ON books.id = insights.book_id
+         ${where}
          ORDER BY insights.created_at DESC`
       )
-      .all() as unknown as InsightArchiveRow[]
+      .all(...parameters) as unknown as InsightArchiveRow[]
 
-    return rows.map((row) => {
-      const book: InsightBookRef = {
-        id: row.book_id,
-        title: row.book_title,
-        author: row.book_author,
-        format: row.book_format
-      }
-      return {
-        id: row.id,
-        conversationId: row.conversation_id,
-        bookId: row.book_id,
-        book,
-        selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
-        context: row.context_json ? JSON.parse(row.context_json) as SavedInsight['context'] : undefined,
-        question: row.question,
-        answer: row.answer,
-        model: row.model,
-        createdAt: row.created_at,
-        history: parseInsightHistory(row.history_json),
-        ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {}),
-        ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
-      }
-    })
+    return rows.map((row) => ({ ...mapInsight(row), book: mapInsightBook(row) }))
   }
 
   insertInsight(id: string, input: SaveInsightInput, createdAt: string): SavedInsight {
@@ -867,21 +908,7 @@ export class AppDatabase {
     const row = this.connection
       .prepare('SELECT * FROM insights WHERE id = ?')
       .get(id) as unknown as InsightRow | undefined
-    if (!row) return null
-    return {
-      id: row.id,
-      conversationId: row.conversation_id,
-      bookId: row.book_id,
-      selection: JSON.parse(row.selection_json) as SavedInsight['selection'],
-      context: row.context_json ? JSON.parse(row.context_json) as SavedInsight['context'] : undefined,
-      question: row.question,
-      answer: row.answer,
-      model: row.model,
-      createdAt: row.created_at,
-      history: parseInsightHistory(row.history_json),
-      ...(row.web_search ? { webSearch: row.web_search === 'auto' ? 'auto' as const : 'off' as const } : {}),
-      ...(row.persona_json ? { persona: parsePersona(row.persona_json) } : {})
-    }
+    return row ? mapInsight(row) : null
   }
 
   deleteInsight(id: string): boolean {
@@ -899,6 +926,17 @@ export class AppDatabase {
   listWorkbenches(): WorkbenchRecord[] {
     return this.connection.prepare('SELECT id FROM workbenches ORDER BY updated_at DESC, id').all()
       .map((row) => this.getWorkbench(String(row.id))!)
+  }
+
+  listWorkbenchSummaries(): WorkbenchSummary[] {
+    return this.connection.prepare(`SELECT w.id, w.name,
+      CASE WHEN json_valid(w.turns_json) THEN json_array_length(w.turns_json) ELSE 0 END AS turn_count,
+      (SELECT json_group_array(wb.book_id ORDER BY wb.position)
+        FROM workbench_books wb WHERE wb.workbench_id = w.id) AS book_ids
+      FROM workbenches w ORDER BY w.updated_at DESC, w.id`).all().map((row) => ({
+      id: String(row.id), name: String(row.name), turnCount: Number(row.turn_count),
+      bookIds: JSON.parse(String(row.book_ids)) as string[]
+    }))
   }
 
   getWorkbench(id: string): WorkbenchRecord | null {
@@ -923,7 +961,7 @@ export class AppDatabase {
   }
 
   saveWorkbench(input: WorkbenchInput): WorkbenchRecord | null {
-    if (!this.getWorkbench(input.id)) return null
+    if (!this.connection.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(input.id)) return null
     this.connection.exec('BEGIN')
     try {
       this.connection.prepare('UPDATE workbenches SET name = ?, draft = ?, turns_json = ?, persona_json = ?, web_search = ?, updated_at = ? WHERE id = ?')

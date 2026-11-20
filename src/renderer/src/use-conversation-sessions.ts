@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import type { BookRecord, PersonaSelection, PersonaSettings, ReaderApi, SavedInsight, SaveBookSessionInput, SessionTabsState } from '@shared/contracts'
+import { MAX_SESSION_TABS, type BookRecord, type PersonaSelection, type PersonaSettings, type ReaderApi, type SaveBookSessionInput, type SessionTabsState } from '@shared/contracts'
 import { defaultPersona } from './assistant-personas'
 import { createArchiveTab, createLiveTab, historyFromTurns, sessionPayload, type ConversationTab, type ConversationTurn } from './conversation-session'
 import { PendingSaves } from './pending-saves'
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
-const MAX_SESSION_TABS = 20
 
 interface SessionOptions {
   books: BookRecord[]
@@ -19,7 +18,6 @@ interface SessionOptions {
   deletingBooksRef: RefObject<Set<string>>
   deletingInsightsRef: RefObject<Set<string>>
   onRestoreError: () => void
-  onArchiveSaved: (insight: SavedInsight) => void
 }
 
 /** Owns the in-memory conversations and their restoration/write ordering.
@@ -27,7 +25,7 @@ interface SessionOptions {
  * save queues when deleting, without duplicating the persistence rules. */
 export function useConversationSessions({
   books, activeBookId, activeBookRef, libraryReady, workspaceReady, personaSettings,
-  webSearchEnabled, closingRef, deletingBooksRef, deletingInsightsRef, onRestoreError, onArchiveSaved
+  webSearchEnabled, closingRef, deletingBooksRef, deletingInsightsRef, onRestoreError
 }: SessionOptions) {
   const [sessionTabsRestoreState, setSessionTabsRestoreState] = useState<LoadState>('idle')
   const [sessionTabsRestoreError, setSessionTabsRestoreError] = useState(false)
@@ -164,7 +162,7 @@ export function useConversationSessions({
     () => setSaveRevision((version) => version + 1)
   ))
   const [archiveSaves] = useState(() => new PendingSaves<Parameters<ReaderApi['updateInsightHistory']>[0]>(
-    async (_key, payload) => onArchiveSaved(await window.readerApi.updateInsightHistory(payload)),
+    (_key, payload) => window.readerApi.updateInsightHistory(payload),
     () => setSaveRevision((version) => version + 1)
   ))
   const sessionTransitionsRef = useRef(new Set<string>())
@@ -254,9 +252,13 @@ export function useConversationSessions({
       try {
         const state = await window.readerApi.listSessionTabs()
         if (cancelled || closingRef.current) return
-        // An unavailable archive list cannot establish that saved archive tabs were deleted.
-        const allInsights = state.tabs.some((tab) => tab.kind === 'archive') ? await window.readerApi.listAllInsights() : []
+        // An unsuccessful read cannot establish that the saved archives were deleted.
+        const archiveIds = Array.from(new Set(state.tabs.flatMap(
+          (tab) => tab.kind === 'archive' && tab.insightId ? [tab.insightId] : []
+        )))
+        const archives = archiveIds.length > 0 ? await window.readerApi.readInsightArchives(archiveIds) : []
         if (cancelled || closingRef.current) return
+        const archivesById = new Map(archives.map((insight) => [insight.id, insight]))
         const restored = state.tabs.flatMap((record, index) => {
           const tabId = record.kind === 'live' ? `live-${record.bookId}` : `archive-${record.insightId}`
           if (closedSessionTabsDuringRestoreRef.current.has(tabId)) return []
@@ -266,8 +268,8 @@ export function useConversationSessions({
             const existing = conversationTabsRef.current.find((tab) => tab.kind === 'live' && tab.bookId === book.id)
             return [{ index, tab: existing ?? createLiveTab(book, defaultPersona(personaSettings), record.webSearch ?? 'off') }]
           }
-          const insight = allInsights.find((candidate) => candidate.id === record.insightId)
-          if (!insight) return []
+          const insight = record.insightId ? archivesById.get(record.insightId) : undefined
+          if (!insight || insight.bookId !== record.bookId) return []
           const existing = conversationTabsRef.current.find((tab) => tab.kind === 'archive' && tab.insightId === insight.id)
           return [{ index, tab: existing
             ? { ...existing, draft: editedArchiveDraftsRef.current.has(existing.id) ? existing.draft : record.draft }

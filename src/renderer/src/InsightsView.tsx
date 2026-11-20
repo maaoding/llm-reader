@@ -1,26 +1,61 @@
 import { AlertCircle, Bookmark, Download, LoaderCircle, RefreshCw, Search, SearchX, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope } from '@shared/contracts'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { isPdfImageRegion, type InsightArchivePreview, type InsightExportScope } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { MarkedText } from './MarkedText'
 import { normalizeNeedle } from './highlight'
 import { AnswerText } from './AnswerText'
 import { WebSources } from './WebSources'
+import { observeNearby } from './viewport-observer'
 
 type InsightScope = 'all' | 'book'
 
+const archiveDateFormat = new Intl.DateTimeFormat('zh-CN', {
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit'
+})
+
 function formatDate(iso: string): string {
   try {
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(iso))
+    return archiveDateFormat.format(new Date(iso))
   } catch {
     return ''
   }
 }
+
+const InsightAnswerPreview = memo(function InsightAnswerPreview({
+  insight, needle
+}: { insight: InsightArchivePreview; needle: string }): ReactNode {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const [nearby, setNearby] = useState(false)
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    return observeNearby(host, host.closest('.insights-view'), () => setNearby(true))
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!nearby) return
+    const answer = hostRef.current?.querySelector<HTMLElement>('.answer-text')
+    if (!answer) return
+    const update = (): void => {
+      answer.classList.toggle('is-clamped', answer.scrollHeight > answer.clientHeight + 1)
+    }
+    update()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(answer)
+    return () => observer?.disconnect()
+  }, [nearby, insight, needle])
+
+  return <div className="insight-answer-preview" ref={hostRef}>
+    {nearby
+      ? <AnswerText text={insight.answer} selection={insight.selection} context={insight.context} readOnly highlight={needle} />
+      : <div className="insight-answer-placeholder" aria-hidden="true" />}
+  </div>
+})
 
 function EmptyState({ icon, title, detail }: { icon: ReactNode; title: string; detail: string }): ReactNode {
   return (
@@ -48,14 +83,14 @@ export default function InsightsView({
   onExportInsights
 }: {
   viewSwitch?: ReactNode
-  insights: InsightArchiveRecord[]
+  insights: InsightArchivePreview[]
   loading: boolean
   error: string
   onRetry: () => void
   activeBookId: string | null
   pendingDeleteInsightId: string | null
   exporting: boolean
-  onOpenInsight: (insight: InsightArchiveRecord) => void
+  onOpenInsight: (insight: InsightArchivePreview, signal: AbortSignal) => Promise<void>
   onRequestDeleteInsight: (insightId: string) => void
   onDeleteInsight: (insightId: string) => void
   onCancelDeleteInsight: () => void
@@ -63,8 +98,29 @@ export default function InsightsView({
 }): ReactNode {
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<InsightScope>('all')
+  const openRequestRef = useRef<{ id: string; controller: AbortController; trigger: HTMLElement } | null>(null)
   const needle = normalizeNeedle(query)
-  const listRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => () => openRequestRef.current?.controller.abort(), [])
+
+  const cancelOpening = (): void => {
+    openRequestRef.current?.controller.abort()
+    openRequestRef.current?.trigger.removeAttribute('aria-busy')
+    openRequestRef.current = null
+  }
+
+  const open = (insight: InsightArchivePreview, trigger: HTMLElement): void => {
+    if (openRequestRef.current?.id === insight.id) return
+    cancelOpening()
+    const request = { id: insight.id, controller: new AbortController(), trigger }
+    openRequestRef.current = request
+    trigger.setAttribute('aria-busy', 'true')
+    void onOpenInsight(insight, request.controller.signal).finally(() => {
+      if (openRequestRef.current !== request) return
+      openRequestRef.current = null
+      trigger.removeAttribute('aria-busy')
+    })
+  }
 
   const scopeRecords = useMemo(
     () => (scope === 'all' || !activeBookId ? insights : insights.filter((insight) => insight.bookId === activeBookId)),
@@ -81,20 +137,6 @@ export default function InsightsView({
       insight.answer
     ].some((value) => value.toLocaleLowerCase('zh-CN').includes(needle)))
   }, [needle, scopeRecords])
-
-  useEffect(() => {
-    const list = listRef.current
-    if (!list) return undefined
-    const update = (): void => {
-      for (const answer of list.querySelectorAll<HTMLElement>('.insight-content .answer-text')) {
-        answer.classList.toggle('is-clamped', answer.scrollHeight > answer.clientHeight + 1)
-      }
-    }
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(list)
-    return () => observer.disconnect()
-  }, [visibleRecords, needle, loading])
 
   const exportScope = (): InsightExportScope | null => {
     if (scope === 'all') return { kind: 'all' }
@@ -114,7 +156,10 @@ export default function InsightsView({
               data-testid="insights-search-input"
               type="search"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                cancelOpening()
+                setQuery(event.target.value)
+              }}
               placeholder={copy('insights.searchPlaceholder')}
               aria-label={copy('insights.searchAria')}
             />
@@ -126,7 +171,10 @@ export default function InsightsView({
                 type="button"
                 className={scope === 'all' ? 'is-active' : ''}
                 aria-pressed={scope === 'all'}
-                onClick={() => setScope('all')}
+                onClick={() => {
+                  cancelOpening()
+                  setScope('all')
+                }}
               >
                 {copy('insights.scopeAll')}
               </button>
@@ -136,7 +184,10 @@ export default function InsightsView({
                 className={scope === 'book' ? 'is-active' : ''}
                 aria-pressed={scope === 'book'}
                 disabled={!activeBookId}
-                onClick={() => setScope('book')}
+                onClick={() => {
+                  cancelOpening()
+                  setScope('book')
+                }}
               >
                 {copy('insights.scopeBook')}
               </button>
@@ -177,7 +228,7 @@ export default function InsightsView({
         )}
 
         {!loading && visibleRecords.length > 0 && (
-          <div className="insight-list" ref={listRef}>
+          <div className="insight-list">
             {visibleRecords.map((insight) => {
               return (
                 <article
@@ -191,11 +242,11 @@ export default function InsightsView({
                     className="insight-content"
                     role="button"
                     tabIndex={0}
-                    onClick={(event) => { if (!(event.target as HTMLElement).closest('button, details')) onOpenInsight(insight) }}
+                    onClick={(event) => { if (!(event.target as HTMLElement).closest('button, details')) open(insight, event.currentTarget) }}
                     onKeyDown={(event) => {
                       if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
                         event.preventDefault()
-                        onOpenInsight(insight)
+                        open(insight, event.currentTarget)
                       }
                     }}
                   >
@@ -205,7 +256,7 @@ export default function InsightsView({
                     </span>
                     <span className="insight-quote">{isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection ? <>“<MarkedText value={insight.selection.quote} needle={needle} />”</> : copy('analysis.bookSource')}</span>
                     <strong className="insight-question"><MarkedText value={insight.question} needle={needle} /></strong>
-                    <AnswerText text={insight.answer} selection={insight.selection} context={insight.context} readOnly highlight={needle} />
+                    <InsightAnswerPreview insight={insight} needle={needle} />
                     {insight.context?.webSearch && <WebSources context={insight.context} />}
                   </div>
                 <footer>
@@ -213,7 +264,10 @@ export default function InsightsView({
                   {pendingDeleteInsightId === insight.id ? (
                     <span className="insight-delete-confirmation">
                       <span>{copy('insights.removeQuestion')}</span>
-                      <button data-testid="insight-delete-confirm" type="button" onClick={() => onDeleteInsight(insight.id)}>{copy('common.confirm')}</button>
+                      <button data-testid="insight-delete-confirm" type="button" onClick={() => {
+                        if (openRequestRef.current?.id === insight.id) cancelOpening()
+                        onDeleteInsight(insight.id)
+                      }}>{copy('common.confirm')}</button>
                       <button data-testid="insight-delete-cancel" type="button" onClick={onCancelDeleteInsight}>{copy('common.back')}</button>
                     </span>
                   ) : (

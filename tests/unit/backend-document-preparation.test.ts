@@ -98,8 +98,14 @@ describe('independent preparation, notes and semantic lifecycle', () => {
     const identity = state.service.documents.identity()
     state.service.prepare({ bookId: state.bookId })
     expect(state.service.state(state.bookId).document?.status).toBe('preparing')
+    const onSettingsChanged = vi.fn()
+    const onState = vi.fn()
+    state.service.onSettingsChanged = onSettingsChanged
+    state.service.onState = onState
     state.settings.save({ embedding, document: { ...document, enabled: false }, target: 'document' })
     state.service.knowledgeChanged()
+    expect(onSettingsChanged).toHaveBeenCalledOnce()
+    expect(onState).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ bookId: state.bookId, document: expect.objectContaining({ status: 'paused' }) }))
     expect(state.service.state(state.bookId).document?.status).toBe('paused')
     expect(state.service.state(state.bookId).document?.message).toContain('重新开启后可手动继续')
     expect(state.service.state(state.bookId).documentProcessor).toBe('none')
@@ -147,9 +153,11 @@ describe('independent preparation, notes and semantic lifecycle', () => {
     }
     const readStructure = vi.spyOn(state.store, 'structure')
     const readOriginals = vi.spyOn(state.store, 'originals')
+    const readSections = vi.spyOn(state.store, 'sections')
     const context = await state.service.context(request, credentials, new AbortController().signal)
-    expect(readStructure).toHaveBeenCalledTimes(1)
-    expect(readOriginals).toHaveBeenCalledTimes(1)
+    expect(readStructure).not.toHaveBeenCalled()
+    expect(readOriginals).not.toHaveBeenCalled()
+    expect(readSections).not.toHaveBeenCalled()
     expect(context.passages).toHaveLength(12)
     expect(new Set(context.passages.map((passage) => passage.blockId)).size).toBe(12)
     expect(context.passages.slice(0, ranked.length).map((passage) => passage.blockId)).toEqual([...representatives, best, directNote].map((passage) => passage.blockId))

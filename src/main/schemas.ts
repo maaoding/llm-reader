@@ -1,4 +1,5 @@
 import { copy } from '@shared/copy'
+import { MAX_SESSION_TABS, MAX_WORKBENCH_BOOKS, MAX_WORKBENCH_TURNS } from '@shared/contracts'
 import { z } from 'zod'
 import { requestSettingsFields } from '@shared/request-settings'
 import { searchDomainsSchema } from '@shared/web-search-settings'
@@ -40,6 +41,7 @@ export const bookChapterNotesSchema = z.object({
 }).strict()
 export const bookImportPathsSchema = z.array(z.string().min(1).max(32_768)).min(1).max(300)
 export const insightIdSchema = idSchema
+export const insightArchiveIdsSchema = z.array(insightIdSchema).max(MAX_SESSION_TABS)
 export const highlightIdSchema = idSchema
 export const metadataSchema = z.object({
   bookId: idSchema,
@@ -156,7 +158,7 @@ export const webSearchRecordSchema = z.object({
 export const contextSnapshotSchema = z.object({
   scope: z.enum(['selection', 'book', 'books']),
   bookId: idSchema,
-  books: z.array(z.object({ id: idSchema, title: z.string().max(1_000) }).strict()).min(1).max(5).optional(),
+  books: z.array(z.object({ id: idSchema, title: z.string().max(1_000) }).strict()).min(1).max(MAX_WORKBENCH_BOOKS).optional(),
   selection: selectionSchema.nullable(),
   passages: z.array(passageSchema).max(200),
   background: z.string().max(30_000),
@@ -278,7 +280,7 @@ const sessionTabSchema = z.object({
 
 export const sessionTabsSchema = z.object({
   activeIndex: z.number().int().nullable(),
-  tabs: z.array(sessionTabSchema).max(20)
+  tabs: z.array(sessionTabSchema).max(MAX_SESSION_TABS)
 }).strict().refine((state) => (
   state.tabs.every((tab) => (tab.kind === 'archive') === Boolean(tab.insightId))
   && (state.activeIndex === null || (state.activeIndex >= 0 && state.activeIndex < state.tabs.length))
@@ -362,8 +364,10 @@ const llmRequestBase = {
       )
       .max(30)
   }
+const workbenchBookIds = z.array(idSchema).max(MAX_WORKBENCH_BOOKS).refine((ids) => new Set(ids).size === ids.length)
+
 export const llmRequestSchema = z.union([
-  z.object({ ...llmRequestBase, scope: z.literal('books'), action: z.literal('ask'), bookIds: z.array(idSchema).min(1).max(5).refine((ids) => new Set(ids).size === ids.length) }).strict(),
+  z.object({ ...llmRequestBase, scope: z.literal('books'), action: z.literal('ask'), bookIds: workbenchBookIds.refine((ids) => ids.length > 0) }).strict(),
   z.object({ ...llmRequestBase, scope: z.literal('selection').optional(), selection: textSelectionSchema }),
   z.object({ ...llmRequestBase, scope: z.literal('visual'), selection: pdfImageRegionSchema,
     imageDataUrl: z.string().max(PDF_REGION_IMAGE_MAX_DATA_URL).regex(PDF_REGION_IMAGE_PATTERN) }).strict(),
@@ -374,7 +378,6 @@ export const llmRequestSchema = z.union([
     path: ['question']
   })
 
-const workbenchBookIds = z.array(idSchema).max(5).refine((ids) => new Set(ids).size === ids.length)
 export const createWorkbenchSchema = z.object({ name: z.string().trim().min(1).max(120), bookIds: workbenchBookIds }).strict()
 export const workbenchSchema = createWorkbenchSchema.extend({
   id: z.uuid({ version: 'v4' }),
@@ -394,7 +397,7 @@ export const workbenchSchema = createWorkbenchSchema.extend({
     persona: personaSelectionSchema.nullable().optional(),
     durationMs: z.number().int().nonnegative().max(86_400_000).optional()
   }).strict().refine((turn) => !turn.context || (turn.context.scope === 'books' && turn.context.books?.length === turn.bookIds.length &&
-    turn.context.books.every((book, index) => book.id === turn.bookIds[index])))).max(200)
+    turn.context.books.every((book, index) => book.id === turn.bookIds[index])))).max(MAX_WORKBENCH_TURNS)
 }).strict().refine((value) => new Set(value.turns.map((turn) => turn.id)).size === value.turns.length)
 
 export const requestIdSchema = z.string().min(1).max(128).regex(/^[\w.-]+$/u)

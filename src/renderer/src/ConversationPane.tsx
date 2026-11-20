@@ -1,7 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useRef, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useRef, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { AlertCircle, ArrowLeft, BookOpen, Bookmark, BookmarkCheck, PenLine, RefreshCw, Sparkles } from 'lucide-react'
 import { isPdfImageRegion, type BookAnalysisState, type ReaderSource, type ProviderSettings } from '@shared/contracts'
-import { copy } from '@shared/copy'
+import { copy, getCopyLanguage, type UiLanguage } from '@shared/copy'
 import type { ConversationTab, ConversationTurn } from './conversation-session'
 import { Select } from './Select'
 import { AssistantComposer } from './AssistantComposer'
@@ -53,6 +53,61 @@ export function AssistantScopeControls({ tab, busy, onScope }: { tab: Conversati
     </span>}
   </div>
 }
+
+const ConversationTurnCard = memo(function ConversationTurnCard({
+  turn, fallbackModel, isLatest, searchNeedle, onNavigate, onSave, onRegenerate, onEditQuestion, canRegenerate
+}: {
+  turn: ConversationTurn
+  fallbackModel: string
+  isLatest: boolean
+  language: UiLanguage // Include the copy language in the memoized props.
+  searchNeedle: string
+  onNavigate: (anchor: string, chapterTitle?: string) => void
+  onSave?: (turn: ConversationTurn) => void
+  onRegenerate?: (turnId: string) => void
+  onEditQuestion?: (turnId: string) => void
+  canRegenerate: boolean
+}): ReactNode {
+  const model = turn.model || fallbackModel || copy('assistant.modelUnavailable')
+  const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
+
+  return <article className={`conversation-turn is-${turn.status}`}>
+    <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
+    <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
+      <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={model}>{model}</strong></div>
+      {turn.context && !isPdfImageRegion(turn.context.selection) && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
+        {turn.context.webSearch && <strong>{copy('webSearch.bookSourcesTitle')}</strong>}
+        {turn.context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', turn.context.coverage)}</p>}
+        {turn.context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(turn.context.rerank.status === 'applied' ? 'rerank.applied' : turn.context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
+        <EvidenceSources passages={turn.context.passages} onNavigate={onNavigate} /></details>}
+      {turn.context?.webSearch && <WebSources context={turn.context} />}
+      {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={searchNeedle} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy(turn.webSearchPhase === 'deciding' ? 'webSearch.deciding' : turn.webSearchPhase === 'searching' ? 'webSearch.searching' : 'assistant.thinking')}</span></div> : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
+      {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
+      {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
+      {turn.status === 'error' && onRegenerate && (
+        <div className="answer-retry-actions">
+          <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
+        </div>
+      )}
+      {turn.status === 'completed' && (
+        <footer className="answer-footer">
+          <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />
+          {(onRegenerate || onEditQuestion) && (
+            <span className="answer-retry-actions">
+              {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
+              {onEditQuestion && <button data-testid="answer-edit-question" type="button" onClick={() => onEditQuestion(turn.id)}><PenLine size={13} />{copy('assistant.editQuestion')}</button>}
+            </span>
+          )}
+          {onSave && (
+            <button data-testid={isLatest ? 'answer-save' : undefined} className={`answer-save${turn.saved ? ' is-saved' : ''}`} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
+              {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
+            </button>
+          )}
+        </footer>
+      )}
+    </div>
+  </article>
+})
 
 export function ConversationPane({
   conversationSelection,
@@ -112,6 +167,7 @@ export function ConversationPane({
   const selectedPassageCount = conversationSelection && !isPdfImageRegion(conversationSelection) ? conversationSelection.passages.length : 0
   const assistantScrollRef = useRef<HTMLDivElement | null>(null)
   const assistantFollowRef = useRef(true)
+  const language = getCopyLanguage()
 
   useLayoutEffect(() => {
     const container = assistantScrollRef.current
@@ -154,45 +210,11 @@ export function ConversationPane({
         <div className="conversation-list" aria-live="polite">
           {turns.map((turn, index) => {
             const isLatest = index === turns.length - 1
-            const navigate = (anchor: string): void => onNavigate(anchor, turn.context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ?? (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
-            return (
-              <article className={`conversation-turn is-${turn.status}`} key={turn.id}>
-                <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
-                <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
-                  <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || provider.model || copy('assistant.modelUnavailable')}>{turn.model || provider.model || copy('assistant.modelUnavailable')}</strong></div>
-                  {turn.context && !isPdfImageRegion(turn.context.selection) && <details className="answer-sources"><summary>{copy('analysis.sourceCount', { count: turn.context.passages.length })}</summary>
-                    {turn.context.webSearch && <strong>{copy('webSearch.bookSourcesTitle')}</strong>}
-                    {turn.context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', turn.context.coverage)}</p>}
-                    {turn.context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(turn.context.rerank.status === 'applied' ? 'rerank.applied' : turn.context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
-                    <EvidenceSources passages={turn.context.passages} onNavigate={onNavigate} /></details>}
-                  {turn.context?.webSearch && <WebSources context={turn.context} />}
-                  {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={searchNeedle} /> : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy(turn.webSearchPhase === 'deciding' ? 'webSearch.deciding' : turn.webSearchPhase === 'searching' ? 'webSearch.searching' : 'assistant.thinking')}</span></div> : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
-                  {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
-                  {turn.error && <div className={`turn-error ${turn.answer ? 'is-muted' : ''}`}><AlertCircle size={14} />{turn.error}</div>}
-                  {turn.status === 'error' && isLatest && !activeRequestId && onRegenerate && (
-                    <div className="answer-retry-actions">
-                      <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
-                    </div>
-                  )}
-                  {turn.status === 'completed' && (
-                    <footer className="answer-footer">
-                      <AnswerMetadata usage={turn.usage} durationMs={turn.durationMs} />
-                      {isLatest && !activeRequestId && (onRegenerate || onEditQuestion) && (
-                        <span className="answer-retry-actions">
-                          {onRegenerate && <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>}
-                          {onEditQuestion && <button data-testid="answer-edit-question" type="button" onClick={() => onEditQuestion(turn.id)}><PenLine size={13} />{copy('assistant.editQuestion')}</button>}
-                        </span>
-                      )}
-                      {showSave && onSave && (
-                        <button data-testid={isLatest ? 'answer-save' : undefined} className={`answer-save${turn.saved ? ' is-saved' : ''}`} type="button" onClick={() => onSave(turn)} disabled={turn.saved}>
-                          {turn.saved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}{turn.saved ? copy('assistant.saved') : copy('assistant.save')}
-                        </button>
-                      )}
-                    </footer>
-                  )}
-                </div>
-              </article>
-            )
+            const canEdit = isLatest && !activeRequestId
+            return <ConversationTurnCard key={turn.id} turn={turn} isLatest={isLatest} fallbackModel={provider.model}
+              language={language} searchNeedle={searchNeedle} onNavigate={onNavigate} onSave={showSave ? onSave : undefined}
+              onRegenerate={canEdit ? onRegenerate : undefined} onEditQuestion={canEdit ? onEditQuestion : undefined}
+              canRegenerate={canEdit && canRegenerate} />
           })}
         </div>
       </div>
