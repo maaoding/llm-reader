@@ -1,0 +1,509 @@
+import { isPageProcessor } from '@shared/request-settings'
+import { app, clipboard, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { z, ZodError, type ZodType } from 'zod'
+import { IPC_CHANNELS, type AppCloseResponse, type AppUpdatePhase, type LlmEvent } from '@shared/contracts'
+import { copy, setCopyLanguage } from '@shared/copy'
+import { BookImportCoordinator, MAX_BOOK_IMPORT_BATCH } from './book-import-coordinator'
+import type { BookAnalysisService } from './book-analysis'
+import type { BookExtractionRunner } from './book-extraction-runner'
+import { AppError, toPublicError } from './errors'
+import { listSystemFonts } from './fonts'
+import { LibraryService } from './library-service'
+import { LlmService } from './llm-service'
+import { ProviderService } from './provider-service'
+import type { UpdaterService } from './updater-service'
+import type { KnowledgeSettingsService } from './knowledge-settings'
+import type { KnowledgeHttp } from './knowledge-http'
+import { rerank } from './rerank-service'
+import { searchWeb, WEB_SEARCH_TIMEOUT_MS } from './web-search-service'
+import { embed, type SemanticIndexService } from './semantic-index'
+import type { DocumentProcessingService } from './document-processing'
+import type { AppDatabase } from './database'
+import type { LibraryStorage } from './library-storage'
+import { parseLibraryPreferences } from '@shared/library-preferences'
+import { conversationExportDefaultName, writeConversationMarkdown } from './conversation-export'
+import { highlightExportDefaultName, writeHighlightMarkdown } from './highlight-export'
+import { busyBackup, invalidBackup } from './library-backup-files'
+import {
+  workbenchSchema,
+  createWorkbenchSchema,
+  startBookAnalysisSchema,
+  prepareBookDocumentSchema,
+  knowledgeSettingsSchema,
+  testKnowledgeSettingsSchema,
+  startSemanticIndexSchema,
+  bookIdSchema,
+  bookDocumentSearchSchema,
+  bookPagePreviewSchema,
+  bookOcrPageSchema,
+  clipboardTextSchema,
+  conversationMarkdownCopySchema,
+  conversationMarkdownExportSchema,
+  uiLanguageSchema,
+  bookChapterNotesSchema,
+  bookImportPathsSchema,
+  createProviderProfileSchema,
+  exportHighlightsSchema,
+  highlightIdSchema,
+  highlightSchema,
+  bookSessionSchema,
+  recentBookSessionSchema,
+  deleteBookSessionSchema,
+  sessionTabsSchema,
+  insightExportScopeSchema,
+  insightHistorySchema,
+  insightIdSchema,
+  insightSchema,
+  llmRequestSchema,
+  metadataSchema,
+  progressSchema,
+  providerConfigurationSchema,
+  providerModelListSchema,
+  providerProfileIdSchema,
+  requestIdSchema,
+  webSourceOpenSchema,
+  updateHighlightSchema,
+  updateProviderProfileSchema
+} from './schemas'
+
+interface IpcDependencies {
+  database?: AppDatabase
+  storage?: LibraryStorage
+  restartAfterRestore?: () => void
+  window: BrowserWindow
+  library: LibraryService
+  bookImporter: BookImportCoordinator
+  provider: ProviderService
+  llm: LlmService
+  analysis?: BookAnalysisService
+  extractor?: BookExtractionRunner
+  knowledge?: KnowledgeSettingsService
+  knowledgeHttp?: KnowledgeHttp
+  semantic?: SemanticIndexService
+  documents?: DocumentProcessingService
+  updater?: UpdaterService
+  allowedRendererOrigins: ReadonlySet<string>
+  requestClose: (afterSave?: (cancel: () => void) => boolean) => void
+  respondToClose: (response: AppCloseResponse) => void
+}
+
+let bookImportDialogOpen = false
+const storeUpdatePhase = { status: 'storeManaged' } satisfies AppUpdatePhase
+const activeCalls = new WeakMap<IpcDependencies, Set<symbol>>()
+// Window controls and font enumeration do not access the library. A slow
+// Windows font scan must not prevent a backup or be blocked by maintenance.
+const storageExempt = new Set<string>([IPC_CHANNELS.windowMinimize, IPC_CHANNELS.windowToggleMaximize,
+  IPC_CHANNELS.windowIsMaximized, IPC_CHANNELS.windowClose, IPC_CHANNELS.appCloseReady, IPC_CHANNELS.fontsList])
+
+function trustedSender(event: IpcMainInvokeEvent, dependencies: IpcDependencies): boolean {
+  if (event.sender.id !== dependencies.window.webContents.id) return false
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) return false
+  try {
+    const url = new URL(event.senderFrame.url)
+    return (
+      (url.protocol === 'llm-reader:' && url.hostname === 'app') ||
+      dependencies.allowedRendererOrigins.has(url.origin)
+    )
+  } catch {
+    return false
+  }
+}
+
+function parse<T>(schema: ZodType<T>, value: unknown): T {
+  return schema.parse(value)
+}
+
+function parseBatchPaths(value: unknown): string[] {
+  if (Array.isArray(value) && value.length > MAX_BOOK_IMPORT_BATCH) {
+    throw new AppError('IMPORT_BATCH_TOO_LARGE', copy('error.importBatchTooLarge'))
+  }
+  return parse(bookImportPathsSchema, value)
+}
+
+export function safeIpcError(error: unknown): Error {
+  if (error instanceof ZodError) {
+    return new Error(`[INVALID_INPUT] ${copy('error.invalidInput')}`)
+  }
+  const safe = toPublicError(error)
+  return new Error(`[${safe.code}] ${safe.message}`)
+}
+
+function handle(
+  channel: string,
+  dependencies: IpcDependencies,
+  callback: (event: IpcMainInvokeEvent, ...values: unknown[]) => unknown
+): void {
+  ipcMain.removeHandler(channel)
+  ipcMain.handle(channel, async (event, ...values) => {
+    if (!trustedSender(event, dependencies)) {
+      throw new Error(`[UNTRUSTED_SENDER] ${copy('error.untrustedSender')}`)
+    }
+    try {
+      const usesLibrary = !storageExempt.has(channel)
+      if (dependencies.storage?.locked && usesLibrary) throw busyBackup()
+      const active = activeCalls.get(dependencies) ?? new Set<symbol>()
+      activeCalls.set(dependencies, active)
+      const call = Symbol(channel)
+      if (usesLibrary) active.add(call)
+      try { return await callback(event, ...values) } finally { active.delete(call) }
+    } catch (error) {
+      throw safeIpcError(error)
+    }
+  })
+}
+
+export function registerIpcHandlers(dependencies: IpcDependencies): void {
+  const storageBusy = (): boolean => Boolean(
+    (activeCalls.get(dependencies)?.size ?? 0) > 1 || dependencies.bookImporter.isBusy() ||
+    dependencies.llm.isBusy || dependencies.analysis?.isBusy || dependencies.semantic?.isBusy || dependencies.documents?.isBusy
+  )
+  const storage = () => {
+    if (!dependencies.storage || !dependencies.database) throw invalidBackup()
+    return { service: dependencies.storage, database: dependencies.database }
+  }
+  const preferences = (value: unknown) => {
+    try { return parseLibraryPreferences(value) }
+    catch { throw new AppError('INVALID_INPUT', copy('error.invalidInput')) }
+  }
+  handle(IPC_CHANNELS.backupCreate, dependencies, async (_event, value) => {
+    const input = preferences(value)
+    const { service, database } = storage()
+    return service.exclusive(storageBusy, async () => {
+      const chosen = await dialog.showOpenDialog(dependencies.window, { title: copy('backup.chooseDestination'), properties: ['openDirectory', 'createDirectory'] })
+      if (chosen.canceled || !chosen.filePaths[0]) return null
+      return service.create(database, chosen.filePaths[0], input, app.getVersion())
+    })
+  })
+  handle(IPC_CHANNELS.backupPreview, dependencies, async () => {
+    const { service } = storage()
+    return service.exclusive(storageBusy, async () => {
+      const chosen = await dialog.showOpenDialog(dependencies.window, { title: copy('backup.chooseSource'), properties: ['openDirectory'] })
+      return chosen.canceled || !chosen.filePaths[0] ? null : service.inspect(chosen.filePaths[0])
+    })
+  })
+  handle(IPC_CHANNELS.backupRestore, dependencies, async (_event, value) => {
+    const input = parse(z.object({ token: z.uuid(), preferences: z.unknown() }).strict(), value)
+    const values = preferences(input.preferences)
+    const { service } = storage()
+    if (!dependencies.restartAfterRestore) throw invalidBackup()
+    await service.exclusive(storageBusy, () => service.restore(input.token, values))
+    // Keep writes blocked while the IPC reply reaches the renderer and Electron restarts.
+    service.locked = true
+    dependencies.restartAfterRestore()
+  })
+  handle(IPC_CHANNELS.backupPreferences, dependencies, () => dependencies.storage?.pendingPreferences ?? null)
+  handle(IPC_CHANNELS.backupPreferencesApplied, dependencies, (_event, value) => storage().service.acknowledgePreferences(parse(z.uuid(), value)))
+  handle(IPC_CHANNELS.webSourceOpen, dependencies, async (_event, value) => {
+    const input = parse(webSourceOpenSchema, value)
+    if (!dependencies.library.hasRecordedWebSource(input.bookId, input.url)) throw new AppError('INVALID_INPUT', copy('webSearch.openDenied'))
+    await shell.openExternal(input.url)
+    return true
+  })
+  handle(IPC_CHANNELS.clipboardWriteText, dependencies, (_event, value) => clipboard.writeText(parse(clipboardTextSchema, value)))
+  handle(IPC_CHANNELS.conversationMarkdownCopy, dependencies, (_event, value) =>
+    clipboard.writeText(parse(conversationMarkdownCopySchema, value)))
+  handle(IPC_CHANNELS.conversationMarkdownExport, dependencies, async (_event, value) => {
+    const input = parse(conversationMarkdownExportSchema, value)
+    const result = await dialog.showSaveDialog(dependencies.window, {
+      title: copy('conversationMarkdown.save'), defaultPath: conversationExportDefaultName(input.title),
+      filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    return { canceled: false, fileName: await writeConversationMarkdown(result.filePath, input.markdown) }
+  })
+  handle(IPC_CHANNELS.appInfo, dependencies, () => ({ version: app.getVersion() }))
+  handle(IPC_CHANNELS.appReportAiContent, dependencies, async (_event, ...values) => {
+    parse(z.tuple([]), values)
+    await shell.openExternal('https://github.com/maaoding/llm-reader/issues/new')
+  })
+  handle(IPC_CHANNELS.uiLanguageSet, dependencies, (_event, value) => {
+    setCopyLanguage(parse(uiLanguageSchema, value))
+    return null
+  })
+  handle(IPC_CHANNELS.appUpdatePhase, dependencies, () => dependencies.updater?.getPhase() ?? storeUpdatePhase)
+  handle(IPC_CHANNELS.appUpdateCheck, dependencies, () => dependencies.updater?.check('manual') ?? storeUpdatePhase)
+  handle(IPC_CHANNELS.appUpdateDownload, dependencies, () => dependencies.updater?.download() ?? storeUpdatePhase)
+  handle(IPC_CHANNELS.appUpdateInstall, dependencies, () => {
+    const updater = dependencies.updater
+    if (updater?.getPhase().status === 'downloaded') {
+      dependencies.requestClose((cancel) => updater.install(cancel))
+    }
+  })
+  handle(IPC_CHANNELS.booksList, dependencies, () => dependencies.library.listBooks())
+  handle(IPC_CHANNELS.booksImport, dependencies, async () => {
+    if (bookImportDialogOpen || dependencies.bookImporter.isBusy()) {
+      throw new AppError('IMPORT_BUSY', copy('error.importBusy'))
+    }
+    bookImportDialogOpen = true
+    try {
+      const result = await dialog.showOpenDialog(dependencies.window, {
+        title: copy('dialog.importTitle'),
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: copy('dialog.importFilter'), extensions: ['epub', 'txt', 'pdf', 'mobi', 'azw3'] }]
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      return dependencies.bookImporter.importPaths(parseBatchPaths(result.filePaths))
+    } finally {
+      bookImportDialogOpen = false
+    }
+  })
+  handle(IPC_CHANNELS.booksImportDropped, dependencies, (_event, value) => {
+    if (bookImportDialogOpen) throw new AppError('IMPORT_BUSY', copy('error.importBusy'))
+    return dependencies.bookImporter.importPaths(parseBatchPaths(value))
+  })
+  handle(IPC_CHANNELS.booksImportCancel, dependencies, () => {
+    dependencies.bookImporter.cancel()
+  })
+  handle(IPC_CHANNELS.booksRead, dependencies, (_event, value) =>
+    dependencies.library.readBook(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.booksDelete, dependencies, (_event, value) => {
+    const bookId = parse(bookIdSchema, value)
+    dependencies.analysis?.cancel(bookId)
+    dependencies.analysis?.cancelPreparation(bookId)
+    dependencies.semantic?.cancel(bookId)
+    dependencies.llm.cancelBook(bookId)
+    dependencies.documents?.cancelBookPreview(bookId)
+    return dependencies.library.deleteBook(bookId)
+  })
+  handle(IPC_CHANNELS.booksCover, dependencies, (_event, value) =>
+    dependencies.library.getBookCover(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.booksDetails, dependencies, (_event, value) =>
+    dependencies.library.getBookDetails(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.booksUpdateMetadata, dependencies, (_event, ...values) => {
+    const input = parse(metadataSchema, { bookId: values[0], title: values[1], author: values[2] })
+    return dependencies.library.updateBookMetadata(input.bookId, input.title, input.author)
+  })
+  handle(IPC_CHANNELS.booksUpdateProgress, dependencies, (_event, ...values) => {
+    const input = parse(progressSchema, { bookId: values[0], locator: values[1], progress: values[2] })
+    dependencies.library.updateBookProgress(input.bookId, input.locator, input.progress)
+  })
+  handle(IPC_CHANNELS.highlightsList, dependencies, (_event, value) =>
+    dependencies.library.listHighlights(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.highlightsSave, dependencies, (_event, value) =>
+    dependencies.library.saveHighlight(parse(highlightSchema, value))
+  )
+  handle(IPC_CHANNELS.highlightsUpdate, dependencies, (_event, value) =>
+    dependencies.library.updateHighlight(parse(updateHighlightSchema, value))
+  )
+  handle(IPC_CHANNELS.highlightsDelete, dependencies, (_event, value) =>
+    dependencies.library.deleteHighlight(parse(highlightIdSchema, value))
+  )
+  handle(IPC_CHANNELS.highlightsExport, dependencies, async (_event, value) => {
+    const input = parse(exportHighlightsSchema, value)
+    const snapshot = dependencies.library.prepareHighlightExport(input)
+    const result = await dialog.showSaveDialog(dependencies.window, {
+      title: copy('highlights.exportSelected'),
+      defaultPath: highlightExportDefaultName(snapshot.title),
+      filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    return { canceled: false, fileName: await writeHighlightMarkdown(result.filePath, snapshot.markdown) }
+  })
+  handle(IPC_CHANNELS.insightsList, dependencies, (_event, value) =>
+    dependencies.library.listInsights(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.insightsListAll, dependencies, () =>
+    dependencies.library.listAllInsights()
+  )
+  handle(IPC_CHANNELS.insightsExport, dependencies, async (_event, value) => {
+    const scope = parse(insightExportScopeSchema, value)
+    const result = await dialog.showSaveDialog(dependencies.window, {
+      title: copy('dialog.exportTitle'),
+      defaultPath: dependencies.library.insightExportDefaultName(scope),
+      filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    const fileName = await dependencies.library.exportInsights(scope, result.filePath)
+    return { canceled: false, fileName }
+  })
+  handle(IPC_CHANNELS.insightsSave, dependencies, (_event, value) =>
+    dependencies.library.saveInsight(parse(insightSchema, value))
+  )
+  handle(IPC_CHANNELS.insightsDelete, dependencies, (_event, value) =>
+    dependencies.library.deleteInsight(parse(insightIdSchema, value))
+  )
+  handle(IPC_CHANNELS.insightsUpdateHistory, dependencies, (_event, value) =>
+    dependencies.library.updateInsightHistory(parse(insightHistorySchema, value))
+  )
+  handle(IPC_CHANNELS.sessionsGet, dependencies, (_event, value) =>
+    dependencies.library.getBookSession(parse(bookIdSchema, value))
+  )
+  handle(IPC_CHANNELS.workbenchesList, dependencies, () => dependencies.library.listWorkbenches())
+  handle(IPC_CHANNELS.workbenchesCreate, dependencies, (_event, value) => dependencies.library.createWorkbench(parse(createWorkbenchSchema, value)))
+  handle(IPC_CHANNELS.workbenchesSave, dependencies, (_event, value) => dependencies.library.saveWorkbench(parse(workbenchSchema, value)))
+  handle(IPC_CHANNELS.workbenchesDelete, dependencies, (_event, value) => {
+    const id = parse(bookIdSchema, value)
+    dependencies.llm.cancelConversation(id)
+    return dependencies.library.deleteWorkbench(id)
+  })
+  handle(IPC_CHANNELS.workbenchesExport, dependencies, async (_event, value) => {
+    const id = parse(bookIdSchema, value)
+    const result = await dialog.showSaveDialog(dependencies.window, {
+      title: copy('dialog.exportTitle'), defaultPath: 'workbench.md',
+      filters: [{ name: copy('dialog.exportFilter'), extensions: ['md'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    return { canceled: false, fileName: await dependencies.library.exportWorkbench(id, result.filePath) }
+  })
+  handle(IPC_CHANNELS.sessionsRecent, dependencies, (_event, value) => dependencies.library.listRecentBookSessions(parse(bookIdSchema, value)))
+  handle(IPC_CHANNELS.sessionsReadRecent, dependencies, (_event, value) => dependencies.library.getRecentBookSession(parse(recentBookSessionSchema, value)))
+  handle(IPC_CHANNELS.sessionsSave, dependencies, (_event, value) =>
+    dependencies.library.saveBookSession(parse(bookSessionSchema, value))
+  )
+  handle(IPC_CHANNELS.sessionsDelete, dependencies, (_event, value) => {
+    const input = parse(deleteBookSessionSchema, value)
+    return dependencies.library.deleteBookSession(input.bookId, input.conversationId)
+  })
+  handle(IPC_CHANNELS.sessionTabsList, dependencies, () => dependencies.library.listSessionTabs())
+  handle(IPC_CHANNELS.sessionTabsSave, dependencies, (_event, value) =>
+    dependencies.library.saveSessionTabs(parse(sessionTabsSchema, value))
+  )
+  handle(IPC_CHANNELS.providerOverview, dependencies, () => dependencies.provider.getOverview())
+  handle(IPC_CHANNELS.providerCreate, dependencies, (_event, value) =>
+    dependencies.provider.createProfile(parse(createProviderProfileSchema, value))
+  )
+  handle(IPC_CHANNELS.providerUpdate, dependencies, (_event, value) => {
+    const input = parse(updateProviderProfileSchema, value)
+    dependencies.analysis?.profileChanged(input.id)
+    return dependencies.provider.updateProfile(input)
+  })
+  handle(IPC_CHANNELS.providerActivate, dependencies, (_event, value) =>
+    dependencies.provider.activateProfile(parse(providerProfileIdSchema, value))
+  )
+  handle(IPC_CHANNELS.providerDelete, dependencies, (_event, value) => {
+    const id = parse(providerProfileIdSchema, value)
+    dependencies.analysis?.profileChanged(id)
+    return dependencies.provider.deleteProfile(id)
+  })
+  handle(IPC_CHANNELS.providerTest, dependencies, () => dependencies.provider.testConnection())
+  handle(IPC_CHANNELS.providerTestConfiguration, dependencies, (_event, value) =>
+    dependencies.provider.testConfiguration(parse(providerConfigurationSchema, value))
+  )
+  handle(IPC_CHANNELS.providerModels, dependencies, (_event, value) =>
+    dependencies.provider.listModels(parse(providerModelListSchema, value))
+  )
+  handle(IPC_CHANNELS.fontsList, dependencies, () => listSystemFonts())
+  if (dependencies.knowledge) {
+    const knowledge = dependencies.knowledge
+    handle(IPC_CHANNELS.knowledgeGet, dependencies, () => knowledge.get())
+    handle(IPC_CHANNELS.knowledgeSave, dependencies, (_event, value) => {
+      const previousRevision = knowledge.embeddingRevision()
+      const previousDocumentRevision = knowledge.documentRevision()
+      const previousDocumentEnabled = knowledge.get().document.enabled
+      const previousEnabled = knowledge.get().embedding.enabled
+      const saved = knowledge.save(parse(knowledgeSettingsSchema, value))
+      const embeddingChanged = previousRevision !== knowledge.embeddingRevision() || previousEnabled !== saved.embedding.enabled
+      if (embeddingChanged) dependencies.semantic?.dispose()
+      if (previousDocumentRevision !== knowledge.documentRevision() || previousDocumentEnabled && !saved.document.enabled) dependencies.documents?.cancelPreview()
+      if (embeddingChanged || previousDocumentRevision !== knowledge.documentRevision() || previousDocumentEnabled !== saved.document.enabled) dependencies.analysis?.knowledgeChanged()
+      return saved
+    })
+    handle(IPC_CHANNELS.knowledgeTest, dependencies, async (_event, value) => {
+      const input = parse(testKnowledgeSettingsSchema, value)
+      const vision = input.target === 'document' && isPageProcessor(input.document.processor)
+      const timeoutMs = input.target === 'embedding' ? input.embedding.timeoutMs :
+        input.target === 'rerank' ? input.rerank.timeoutMs : input.target === 'webSearch' ? input.webSearch.timeoutMs : input.document.timeoutMs
+      const signal = AbortSignal.timeout(timeoutMs ?? (input.target === 'webSearch' ? WEB_SEARCH_TIMEOUT_MS : vision ? 90_000 : 20_000))
+      if (input.target === 'embedding') await embed(dependencies.knowledgeHttp!, knowledge.embedding(input.embedding), ['这是用于检查语义检索接口的固定测试文本。'], signal)
+      else if (input.target === 'rerank') await rerank(dependencies.knowledgeHttp!, knowledge.rerank(input.rerank), '雨天出门应该带什么？', [
+        { id: 'test-a', text: '下雨时出门可以带雨伞。', chapterTitle: '固定测试文本', anchor: 'test:0' },
+        { id: 'test-b', text: '晴天可以观察蓝色的天空。', chapterTitle: '固定测试文本', anchor: 'test:1' }
+      ], signal)
+      else if (input.target === 'webSearch') await searchWeb(dependencies.knowledgeHttp!, knowledge.webSearch(input.webSearch), 'web search API', signal)
+      else await dependencies.documents!.test(knowledge.document(input.document), signal)
+      return { ok: true, message: copy(vision ? 'vision.testOk' : input.target === 'embedding' ? 'knowledge.testOk' : input.target === 'rerank' ? 'rerank.testOk' : input.target === 'webSearch' ? 'webSearch.testOk' : 'knowledge.documentTestOk') }
+    })
+    handle(IPC_CHANNELS.semanticStart, dependencies, (_event, value) => {
+      const input = parse(startSemanticIndexSchema, value)
+      dependencies.semantic!.start(input)
+      return dependencies.analysis!.state(input.bookId)
+    })
+    handle(IPC_CHANNELS.semanticCancel, dependencies, (_event, value) => dependencies.semantic!.cancel(parse(bookIdSchema, value)))
+  }
+  if (dependencies.analysis) {
+    const analysis = dependencies.analysis
+    handle(IPC_CHANNELS.analysisGet, dependencies, (_event, value) => analysis.state(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.documentSearch, dependencies, (_event, value) => {
+      const input = parse(bookDocumentSearchSchema, value)
+      return analysis.store.searchDocument(input.bookId, input.query)
+    })
+    handle(IPC_CHANNELS.notesIndex, dependencies, (_event, value) => analysis.store.notesIndex(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.notesChapter, dependencies, (_event, value) => analysis.store.chapterNotes(parse(bookChapterNotesSchema, value)))
+    handle(IPC_CHANNELS.documentPrepare, dependencies, (_event, value) => {
+      const input = parse(prepareBookDocumentSchema, value)
+      dependencies.documents?.cancelPreview()
+      const state = analysis.prepare(input)
+      dependencies.extractor?.start(state)
+      return state
+    })
+    handle(IPC_CHANNELS.documentCancel, dependencies, (_event, value) => analysis.cancelPreparation(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.analysisStart, dependencies, (_event, value) => analysis.start(parse(startBookAnalysisSchema, value)))
+    handle(IPC_CHANNELS.analysisCancel, dependencies, (_event, value) => analysis.cancel(parse(bookIdSchema, value)))
+  }
+  if (dependencies.documents) {
+    handle(IPC_CHANNELS.documentOcrPage, dependencies, (_event, value) => {
+      const input = parse(bookOcrPageSchema, value)
+      return dependencies.documents!.readOcrPage(input.bookId, input.pageNumber)
+    })
+    handle(IPC_CHANNELS.documentPreview, dependencies, (_event, value) => dependencies.documents!.previewPage(parse(bookPagePreviewSchema, value)))
+    handle(IPC_CHANNELS.documentPreviewCancel, dependencies, (_event, value) => dependencies.documents!.cancelPreview(parse(requestIdSchema, value)))
+  }
+  handle(IPC_CHANNELS.llmStart, dependencies, (event, value) => {
+    const request = parse(llmRequestSchema, value)
+    if (request.scope === 'visual' && !dependencies.library.listBooks().some((book) => book.id === request.selection.bookId && book.format === 'pdf')) {
+      throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    }
+    const emit = (llmEvent: LlmEvent): void => {
+      if (llmEvent.type === 'context' && llmEvent.context.webSearch?.sources.length) {
+        for (const bookId of llmEvent.context.books?.map((book) => book.id) ?? [llmEvent.context.bookId]) {
+          dependencies.library.recordWebSources(bookId, llmEvent.context.webSearch.sources.map((source) => source.url))
+        }
+      }
+      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.llmEvent, llmEvent)
+    }
+    dependencies.llm.start(request, emit)
+  })
+  handle(IPC_CHANNELS.llmCancel, dependencies, (_event, value) => {
+    dependencies.llm.cancel(parse(requestIdSchema, value))
+  })
+  handle(IPC_CHANNELS.windowMinimize, dependencies, () => {
+    dependencies.window.minimize()
+  })
+  handle(IPC_CHANNELS.windowToggleMaximize, dependencies, () => {
+    if (dependencies.window.isMaximized()) {
+      dependencies.window.unmaximize()
+    } else {
+      dependencies.window.maximize()
+    }
+  })
+  handle(IPC_CHANNELS.windowClose, dependencies, () => {
+    dependencies.window.close()
+  })
+  handle(IPC_CHANNELS.windowIsMaximized, dependencies, () => dependencies.window.isMaximized())
+  handle(IPC_CHANNELS.appCloseReady, dependencies, (_event, value) => {
+    const response = parse(z.object({ requestId: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER), approved: z.boolean() }).strict(), value)
+    setTimeout(() => dependencies.respondToClose(response), 0)
+  })
+}
+
+export function unregisterIpcHandlers(): void {
+  bookImportDialogOpen = false
+  Object.values(IPC_CHANNELS)
+    .filter(
+      (channel) =>
+        channel !== IPC_CHANNELS.llmEvent &&
+        channel !== IPC_CHANNELS.analysisEvent &&
+        channel !== IPC_CHANNELS.appBeforeClose &&
+        channel !== IPC_CHANNELS.appCloseCancelled &&
+        channel !== IPC_CHANNELS.appUpdateEvent &&
+        channel !== IPC_CHANNELS.booksImportEvent &&
+        channel !== IPC_CHANNELS.windowMaximizedChange
+    )
+    .forEach((channel) => ipcMain.removeHandler(channel))
+}
+
+export { AppError }

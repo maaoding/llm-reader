@@ -1,0 +1,378 @@
+import { showLibrary, enterReading, resizeWorkspace } from './support/workspace'
+import {
+  expect,
+  test,
+  type ElectronApplication,
+  type Locator,
+  type Page
+} from '@playwright/test'
+import { createServer, type Server } from 'node:http'
+import { mkdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader,
+  restartReader
+} from './support/electron-app'
+
+let mockServer: Server
+let endpoint = ''
+let streamRequestCount = 0
+
+const FOLLOW_UP_CHUNKS = [
+  '这是归档会话里的追问回答，应随归档历史一起保留。'
+]
+
+const STREAM_CHUNKS = [
+  '### 解释\n\n这段**关键**内容涉及 `术语`：\n\n',
+  `一段较长的说明用于撑开助手区，确认流式输出时自动跟随底部。${'这是同一段落的内容。'.repeat(60)}\n\n- 要点甲\n- 要点乙\n\n依据 [P1]。\n\n`,
+  '```text\n[P1]\n```\n\n',
+  '最后补充：滚动恢复后仍应停在底部。'
+]
+
+async function selectNodeContents(locator: Locator): Promise<void> {
+  await locator.evaluate((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+}
+
+async function configureAndAsk(page: Page): Promise<string> {
+  await page.getByTestId('book-item').first().waitFor()
+  await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+  await expect(page.getByTestId('reader-host')).toContainText('复杂概念')
+
+  await page.getByTestId('settings-button').click()
+  await page.getByTestId('settings-nav-model').click()
+  await page.getByTestId('provider-profile-name').fill('Markdown 测试')
+  await page.getByTestId('provider-base-url').fill(endpoint)
+  await page.getByTestId('provider-model').fill('markdown-reader')
+  await page.getByTestId('provider-api-key').fill('test-only-key')
+  await page.getByTestId('provider-save').click()
+  await page.getByTestId('provider-activate').click()
+  await page.getByTestId('settings-close').click()
+  await expect(page.getByTestId('settings-modal')).toHaveCount(0)
+
+  await selectNodeContents(page.getByTestId('reader-host').locator('p').first())
+  await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+  await page.getByTestId('action-explain').click()
+  return page.evaluate(() => (JSON.parse(window.localStorage.getItem('llm-reader.assistant-actions')!) as { explain: { prompt: string } }).explain.prompt)
+}
+
+async function openInsightsWorkspace(page: Page): Promise<void> {
+  await page.getByTestId('workspace-tab-conversation').click()
+  await expect(page.getByTestId('assistant-dialog')).toBeVisible()
+  await expect(page.getByTestId('assistant-dialog-tab-insights')).toHaveCount(0)
+  await page.getByTestId('nav-archives').click()
+}
+
+test.beforeEach(() => {
+  streamRequestCount = 0
+})
+
+test.beforeAll(async () => {
+  mockServer = createServer((request, response) => {
+    if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
+      response.writeHead(404).end()
+      return
+    }
+
+    let rawBody = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk) => {
+      rawBody += chunk
+    })
+    request.on('end', () => {
+      const body = JSON.parse(rawBody) as { stream?: boolean }
+      if (!body.stream) {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            id: 'mock-assistant-markdown-test',
+            model: 'mock-assistant-markdown',
+            choices: [{ index: 0, message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }]
+          })
+        )
+        return
+      }
+
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive'
+      })
+      streamRequestCount += 1
+      const chunks = streamRequestCount === 1 ? STREAM_CHUNKS : FOLLOW_UP_CHUNKS
+      chunks.forEach((content, index) => {
+        setTimeout(() => {
+          if (response.writableEnded) return
+          response.write(
+            `data: ${JSON.stringify({ id: 'mock-assistant-markdown-stream', model: 'mock-assistant-markdown', choices: [{ index: 0, delta: { content } }],
+              ...(index === chunks.length - 1 ? { usage: { total_tokens: 10_872 } } : {}) })}\n\n`
+          )
+          if (index === chunks.length - 1) response.end('data: [DONE]\n\n')
+        }, index * 600)
+      })
+    })
+  })
+
+  await new Promise<void>((resolveListen, reject) => {
+    mockServer.once('error', reject)
+    mockServer.listen(0, '127.0.0.1', () => resolveListen())
+  })
+  const address = mockServer.address()
+  if (!address || typeof address === 'string') throw new Error('Mock provider did not expose a TCP port')
+  endpoint = `http://127.0.0.1:${address.port}/v1`
+})
+
+test.afterAll(async () => {
+  await new Promise<void>((resolveClose, reject) => {
+    mockServer.close((error) => (error ? reject(error) : resolveClose()))
+  })
+})
+
+test('renders assistant markdown without breaking citation navigation', async () => {
+  const workspace = await createE2eWorkspace('assistant-markdown-e2e-')
+  const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
+    })
+    application = launched.application
+    const { page } = launched
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-close').click()
+    await expect(page.getByTestId('settings-modal')).toHaveCount(0)
+    const defaultPrompt = await configureAndAsk(page)
+
+    const answer = page.getByTestId('answer-current')
+    await expect(answer.locator('.answer-model')).toHaveText('mock-assistant-markdown')
+    await expect(answer.locator('h3')).toHaveText('解释')
+    await expect(answer.locator('.answer-text strong')).toHaveText('关键')
+    await expect(answer.locator('.answer-code-inline')).toHaveText('术语')
+    await expect(answer.locator('ul li')).toHaveCount(2)
+    await expect(answer.locator('blockquote')).toHaveCount(0)
+    await expect(answer.locator('.answer-code-block')).toHaveText('[P1]')
+    await expect(answer.locator('.answer-code-block .citation-valid')).toHaveCount(0)
+    await expect(answer.locator('.citation-valid')).toHaveCount(1)
+    await expect(answer.locator('.citation-valid')).not.toContainText('P1')
+    await expect(answer).not.toContainText('**')
+    await expect(answer).not.toContainText('```')
+
+    await expect(answer.locator('.answer-footer')).toBeVisible()
+    await expect(answer.locator('.answer-usage')).toContainText('10872')
+    await expect(page.getByTestId('answer-save')).toContainText('归档回答')
+    for (const [width, height] of [[1440, 900], [940, 600]] as const) {
+      await resizeWorkspace(launched.application, page, width, height)
+      const footer = answer.locator('.answer-footer')
+      await footer.scrollIntoViewIfNeeded()
+      expect(await footer.evaluate((element) => {
+        const card = element.closest('.answer-card')?.getBoundingClientRect()
+        if (!card) return false
+        const meta = element.querySelector('.answer-meta')?.getBoundingClientRect()
+        if (!meta || meta.left < card.left - 1 || meta.right > card.right + 1) return false
+        // 用量与生成时间必须同排，且时间贴在整行右端。
+        const usage = element.querySelector('.answer-usage')?.getBoundingClientRect()
+        const duration = element.querySelector('.answer-duration')?.getBoundingClientRect()
+        if (!usage || !duration || Math.abs(usage.top - duration.top) > 1) return false
+        if (Math.abs(meta.right - duration.right) > 1) return false
+        return [...element.querySelectorAll('button')].every((button) => {
+          const bounds = button.getBoundingClientRect()
+          return bounds.left >= card.left - 1 && bounds.right <= card.right + 1 &&
+            button.scrollWidth <= button.clientWidth && button.scrollHeight <= button.clientHeight &&
+            getComputedStyle(button).whiteSpace === 'nowrap'
+        })
+      })).toBe(true)
+      if (visualDirectory) {
+        mkdirSync(visualDirectory, { recursive: true })
+        await footer.screenshot({ path: join(visualDirectory, `answer-footer-${width}.png`), scale: 'css' })
+      }
+      await footer.screenshot({ path: test.info().outputPath(`answer-actions-${width}.png`), scale: 'css' })
+    }
+    await page.getByTestId('answer-save').click()
+    await openInsightsWorkspace(page)
+    await expect(page.getByTestId('nav-archives')).toContainText('问答集')
+
+    const insight = page.getByTestId('insight-item')
+    await expect(insight.locator('.answer-text h3')).toHaveText('解释')
+    await expect(insight.locator('.answer-text strong')).toHaveText('关键')
+    await expect(insight.locator('.answer-text .citation-valid')).toHaveCount(1)
+    await expect(insight.locator('.answer-text .citation-valid')).not.toContainText('P1')
+    await expect(insight.locator('.answer-code-block')).toHaveText('[P1]')
+    await expect(insight.locator('.answer-text')).not.toContainText('**')
+    await page.getByTestId('insight-delete').click()
+    await expect(page.getByTestId('insight-delete-confirm')).toBeVisible()
+    for (const id of ['insight-delete-confirm', 'insight-delete-cancel']) {
+      const button = page.getByTestId(id)
+      await expect.poll(() => button.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap')
+      await expect.poll(() => button.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    }
+    await page.getByTestId('insight-delete-cancel').click()
+    await expect(page.getByTestId('insight-delete-confirm')).toHaveCount(0)
+
+    await insight.locator('.insight-content').click()
+    await expect(page.getByTestId('assistant-dialog')).toBeVisible()
+    await expect(page.getByTestId('nav-archives')).toBeVisible()
+    await expect(page.getByTestId('answer-current')).toBeVisible()
+    await expect(page.getByTestId('answer-current').locator('.answer-model')).toHaveText('mock-assistant-markdown')
+    await expect(page.locator('.question-bubble')).toContainText(defaultPrompt)
+    await expect(page.getByTestId('question-prompt')).not.toHaveAttribute('open')
+    await page.getByTestId('conversation-search-input').fill('原文')
+    await expect(page.getByTestId('question-prompt')).toHaveAttribute('open')
+    await expect(page.getByTestId('question-prompt').locator('mark').first()).toBeVisible()
+    await page.getByTestId('conversation-search-input').fill('')
+    await expect(page.getByTestId('question-prompt')).not.toHaveAttribute('open')
+    await expect(page.getByTestId('answer-current').locator('.answer-save')).toHaveCount(0)
+    await expect(page.locator('.assistant-dialog .question-bubble')).toContainText('已归档的回答')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('keeps streaming answers pinned to the bottom until the reader scrolls away', async () => {
+  const workspace = await createE2eWorkspace('assistant-scroll-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
+    })
+    application = launched.application
+    const { page } = launched
+    await configureAndAsk(page)
+
+    const scroller = page.locator('.assistant-scroll')
+    const nearBottom = (): Promise<boolean> => scroller.evaluate((element) => (
+      element.scrollHeight - element.scrollTop - element.clientHeight < 48
+    ))
+
+    // Chunk 1 is already visible; chunk 2 makes the conversation tall enough to scroll.
+    await expect(page.getByTestId('answer-current')).toContainText('要点乙')
+    await expect.poll(nearBottom).toBe(true)
+
+    // Simulate the reader scrolling up while the stream is still running.
+    await scroller.evaluate((element) => {
+      element.scrollTop = 0
+      element.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.getByTestId('answer-current').locator('.answer-code-block')).toBeVisible()
+    await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(0)
+
+    // Scrolling back to the bottom should resume following.
+    await scroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+      element.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.getByTestId('answer-current')).toContainText('最后补充')
+    await expect.poll(nearBottom).toBe(true)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('regenerates the last answer and rewrites its question in place', async () => {
+  const workspace = await createE2eWorkspace('assistant-regenerate-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
+    })
+    application = launched.application
+    const { page } = launched
+    const defaultPrompt = await configureAndAsk(page)
+    await expect(page.getByTestId('answer-current').locator('.answer-text strong')).toHaveText('关键')
+    await expect(page.locator('.conversation-turn')).toHaveCount(1)
+
+    // 重新生成：替换最后一轮而不追加；第二次请求由 mock 返回另一段回答。
+    await page.getByTestId('answer-regenerate').click()
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+    await expect(page.locator('.conversation-turn')).toHaveCount(1)
+    await expect(page.getByTestId('answer-current')).not.toContainText('要点甲')
+
+    // 编辑问题：该轮被收起、问题回到输入框，重发后仍是一轮。
+    await page.getByTestId('answer-edit-question').click()
+    await expect(page.locator('.conversation-turn')).toHaveCount(0)
+    await expect(page.getByTestId('followup-input')).toHaveValue(defaultPrompt)
+    await page.getByTestId('followup-input').press('Enter')
+    await expect(page.locator('.conversation-turn')).toHaveCount(1)
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('keeps archive follow-up history after reopening and restarting the app', async () => {
+  const workspace = await createE2eWorkspace('assistant-archive-history-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({
+      userData: workspace.userData,
+      importPath: resolve('tests/fixtures/complex-reading.txt')
+    })
+    application = launched.application
+    const { page } = launched
+    await configureAndAsk(page)
+    await expect(page.getByTestId('answer-current').locator('.answer-footer')).toBeVisible()
+    await page.getByTestId('answer-save').click()
+    await openInsightsWorkspace(page)
+
+    await page.getByTestId('insight-item').locator('.insight-content').click()
+    await expect(page.getByTestId('assistant-dialog')).toBeVisible()
+    const followup = page.getByTestId('followup-input')
+    await followup.fill('追问：这个结论有什么边界？')
+    await followup.press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+    await expect(page.locator('.assistant-dialog .question-bubble')).toHaveCount(2)
+
+    await page.getByTestId('workspace-tab-reading').click()
+    await expect(page.getByTestId('assistant-dialog')).toHaveCount(0)
+
+    // Reading and full conversation continue the same archive session.
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+    await expect(page.locator('.question-bubble')).toHaveCount(2)
+    await followup.fill('在阅读页继续追问')
+    await followup.press('Enter')
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+    await expect(page.getByTestId('cancel-request')).toHaveCount(0)
+    await expect(page.locator('.question-bubble')).toHaveCount(3)
+    await openInsightsWorkspace(page)
+    await page.getByTestId('insight-item').locator('.insight-content').click()
+    await expect(page.getByTestId('assistant-dialog')).toBeVisible()
+    await expect(page.locator('.assistant-dialog .question-bubble')).toHaveCount(3)
+    await expect(page.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    const restoredPage = restarted.page
+    await showLibrary(restoredPage); await restoredPage.getByTestId('book-item').first().click(); await enterReading(restoredPage)
+    await expect(restoredPage.getByTestId('reader-host')).toContainText('复杂概念')
+    // 重启恢复上次激活的归档标签（3 轮历史）；实时会话标签仍保留自己的 1 轮。
+    await restoredPage.getByTestId('workspace-tab-conversation').click()
+    await expect(restoredPage.getByTestId('assistant-dialog')).toBeVisible()
+    await expect(restoredPage.locator('.assistant-session-tab.is-active .assistant-session-tab-select')).toHaveAttribute('data-tab-kind', 'archive')
+    await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(3)
+    await restoredPage.getByTestId('assistant-session-tab').filter({ hasText: '当前对话' }).click()
+    await expect(restoredPage.locator('.conversation-turn')).toHaveCount(1)
+    await expect(restoredPage.locator('.conversation-turn').first()).toContainText('要点甲')
+    await restoredPage.getByTestId('nav-archives').click()
+    await restoredPage.getByTestId('insight-item').locator('.insight-content').click()
+    await expect(restoredPage.getByTestId('assistant-dialog')).toBeVisible()
+    await expect(restoredPage.locator('.assistant-dialog .question-bubble')).toHaveCount(3)
+    await expect(restoredPage.getByTestId('answer-current')).toContainText('这是归档会话里的追问回答，应随归档历史一起保留。')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})

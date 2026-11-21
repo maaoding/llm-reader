@@ -1,0 +1,12 @@
+{
+  "name": "@llm-reader/docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev --host 127.0.0.1",
+    "build": "vitepress build"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}

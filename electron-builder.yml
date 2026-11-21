@@ -1,0 +1,48 @@
+appId: com.llmreader.desktop
+productName: LLM Reader
+directories:
+  buildResources: resources
+  output: release
+publish:
+  provider: github
+  owner: maaoding
+  repo: llm-reader
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
+  - from: LICENSE
+    to: LICENSE
+  - from: THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+asar: true
+npmRebuild: false
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: LLM-Reader-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+appx:
+  identityName: 1C124951.LLMReader
+  applicationId: LLMReader
+  publisher: "CN=9EF5245E-A210-44E8-AC98-8F1FC24678DD"
+  publisherDisplayName: "马奥丁"
+  displayName: LLM Reader
+  languages:
+    - zh-CN
+    - en-US
+  backgroundColor: transparent
+  artifactName: LLM-Reader-${version}-store-${arch}.${ext}
+  publish: null

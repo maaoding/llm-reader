@@ -1,0 +1,205 @@
+import { isAbsolute, join } from 'node:path'
+import { app, BrowserWindow, dialog, Menu } from 'electron'
+import electronUpdater from 'electron-updater'
+import { IPC_CHANNELS } from '@shared/contracts'
+import { registerAppScheme, installAppProtocol } from './app-protocol'
+import { BookImportCoordinator } from './book-import-coordinator'
+import { BookAnalysisService } from './book-analysis'
+import { BookContextStore } from './book-context-store'
+import { BookExtractionRunner } from './book-extraction-runner'
+import { AppDatabase } from './database'
+import { ElectronKeyProtector } from './electron-key-protector'
+import { registerIpcHandlers, unregisterIpcHandlers } from './ipc'
+import { LibraryService } from './library-service'
+import { LlmService } from './llm-service'
+import { ProviderService } from './provider-service'
+import { ProfileSecretStore } from './secret-store'
+import { UpdaterService } from './updater-service'
+import { createMainWindow, loadMainWindow } from './window'
+import { KnowledgeSettingsService } from './knowledge-settings'
+import { KnowledgeHttp } from './knowledge-http'
+import { WebSearchService } from './web-search-service'
+import { RerankService } from './rerank-service'
+import { SemanticIndexService } from './semantic-index'
+import { DocumentProcessingService } from './document-processing'
+import { LibraryStorage } from './library-storage'
+import { copy } from '@shared/copy'
+
+registerAppScheme()
+
+const userDataOverride = process.env.LLM_READER_USER_DATA
+if (userDataOverride) {
+  if (!isAbsolute(userDataOverride)) {
+    throw new Error('LLM_READER_USER_DATA must be an absolute path')
+  }
+  app.setPath('userData', userDataOverride)
+} else if (process.windowsStore) {
+  // Keep SQLite and its sidecar files in one profile across Store upgrades.
+  app.setPath('userData', join(app.getPath('appData'), 'LLM Reader Store'))
+}
+
+let database: AppDatabase | undefined
+let storage: LibraryStorage | undefined
+let llm: LlmService | undefined
+let library: LibraryService | undefined
+let provider: ProviderService | undefined
+let updater: UpdaterService | undefined
+let bookImporter: BookImportCoordinator | undefined
+let analysis: BookAnalysisService | undefined
+let extractor: BookExtractionRunner | undefined
+let knowledge: KnowledgeSettingsService | undefined
+let knowledgeHttp: KnowledgeHttp | undefined
+let semantic: SemanticIndexService | undefined
+let documents: DocumentProcessingService | undefined
+
+const autoUpdater = process.windowsStore ? undefined : electronUpdater.autoUpdater
+
+if (autoUpdater && process.env.LLM_READER_UPDATER_DEBUG === '1') {
+  autoUpdater.logger = console
+}
+
+function createE2eImportDelay(): (() => Promise<void>) | undefined {
+  if (app.isPackaged) return undefined
+  const milliseconds = Number(process.env.LLM_READER_E2E_IMPORT_DELAY_MS)
+  if (!Number.isInteger(milliseconds) || milliseconds < 1 || milliseconds > 1_000) return undefined
+  return () => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
+}
+
+async function openWindow(): Promise<void> {
+  if (!library || !provider || !llm) throw new Error('Application services are not initialized')
+  updater?.dispose()
+  updater = undefined
+  bookImporter?.dispose()
+  bookImporter = undefined
+  const created = createMainWindow()
+  created.window.once('closed', () => {
+    llm?.cancelAll()
+    analysis?.dispose()
+    extractor?.cancel()
+    semantic?.dispose()
+    documents?.cancelPreview()
+  })
+  if (analysis) analysis.onState = (state) => {
+    extractor?.observe(state)
+    if (!created.window.isDestroyed()) created.window.webContents.send(IPC_CHANNELS.analysisEvent, state)
+  }
+  bookImporter = new BookImportCoordinator(library, (event) => {
+    if (!created.window.isDestroyed() && !created.window.webContents.isDestroyed()) {
+      created.window.webContents.send(IPC_CHANNELS.booksImportEvent, event)
+    }
+  }, createE2eImportDelay())
+  if (autoUpdater) {
+    updater = new UpdaterService(
+      (phase) => {
+        if (!created.window.isDestroyed() && !created.window.webContents.isDestroyed()) {
+          created.window.webContents.send(IPC_CHANNELS.appUpdateEvent, phase)
+        }
+      },
+      app.isPackaged && process.env.LLM_READER_UPDATER_DISABLED !== '1',
+      autoUpdater
+    )
+  }
+  registerIpcHandlers({
+    database, storage,
+    restartAfterRestore: () => {
+      setTimeout(() => {
+        database?.close()
+        database = undefined
+        if (app.isPackaged || process.env.LLM_READER_E2E_NO_RELAUNCH !== '1') app.relaunch()
+        app.exit(0)
+      }, 150)
+    },
+    window: created.window,
+    library,
+    bookImporter,
+    provider,
+    llm,
+    analysis,
+    extractor,
+    knowledge, knowledgeHttp, semantic, documents,
+    updater,
+    allowedRendererOrigins: created.allowedOrigins,
+    requestClose: created.requestClose,
+    respondToClose: created.respondToClose
+  })
+  await loadMainWindow(created.window)
+  updater?.scheduleStartupCheck()
+}
+
+async function initialize(): Promise<void> {
+  Menu.setApplicationMenu(null)
+  const userData = app.getPath('userData')
+  storage = await LibraryStorage.open(userData)
+  const libraryData = storage.directory
+  database = new AppDatabase(join(libraryData, 'reader.sqlite3'))
+  library = new LibraryService(database, join(libraryData, 'library'))
+  provider = new ProviderService(
+    database,
+    new ElectronKeyProtector(),
+    new ProfileSecretStore(join(libraryData, 'provider-keys'), join(libraryData, 'api-key.bin')),
+    fetch,
+    app.getVersion()
+  )
+  llm = new LlmService(provider, fetch, app.getVersion())
+  analysis = new BookAnalysisService(new BookContextStore(database), provider, llm)
+  knowledge = new KnowledgeSettingsService(database, new ElectronKeyProtector())
+  knowledgeHttp = new KnowledgeHttp(fetch, app.getVersion())
+  analysis.rerank = new RerankService(knowledge, knowledgeHttp)
+  analysis.webSearch = new WebSearchService(knowledge, knowledgeHttp)
+  semantic = new SemanticIndexService(analysis.store, knowledge, knowledgeHttp, () => llm?.isBusy ?? false)
+  documents = new DocumentProcessingService(database, knowledge, knowledgeHttp, 2_000, () => llm?.isBusy ?? false)
+  analysis.semantic = semantic
+  analysis.documents = documents
+  analysis.knowledge = knowledge
+  semantic.onChange = (bookId) => analysis?.emit(bookId)
+  extractor = new BookExtractionRunner(library, analysis)
+  llm.contextProvider = (request, credentials, signal, progress) => analysis!.context(request, credentials, signal, progress)
+
+  await installAppProtocol(join(__dirname, '../renderer'))
+  const e2eImportPath = process.env.LLM_READER_E2E_IMPORT
+  if (e2eImportPath) {
+    if (!isAbsolute(e2eImportPath)) throw new Error('LLM_READER_E2E_IMPORT must be an absolute path')
+    await library.importFromPath(e2eImportPath)
+  }
+  await openWindow()
+  if (storage.rolledBack) void dialog.showMessageBox({ type: 'warning', message: copy('backup.rolledBack') })
+}
+
+// A restore changes the selected store for this user-data directory. A second
+// process must not continue writing the previous store after that switch.
+const ownsLibrary = app.requestSingleInstanceLock()
+if (!ownsLibrary) app.quit()
+else {
+  app.on('second-instance', () => {
+    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed())
+    if (window?.isMinimized()) window.restore()
+    window?.focus()
+  })
+  app.whenReady().then(initialize).catch((error: unknown) => {
+    console.error('LLM Reader startup failed:', error instanceof Error ? error.message : 'unknown error')
+    app.exit(1)
+  })
+}
+
+app.on('activate', () => {
+  if (ownsLibrary && BrowserWindow.getAllWindows().length === 0) void openWindow()
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('will-quit', () => {
+  unregisterIpcHandlers()
+  updater?.dispose()
+  updater = undefined
+  bookImporter?.dispose()
+  bookImporter = undefined
+  llm?.cancelAll()
+  analysis?.dispose()
+  extractor?.dispose()
+  semantic?.dispose()
+  documents?.cancelPreview()
+  database?.close()
+  database = undefined
+})

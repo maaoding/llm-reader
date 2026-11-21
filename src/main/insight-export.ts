@@ -1,0 +1,175 @@
+import { isPdfImageRegion, type InsightArchiveRecord, type InsightExportScope, type Passage, type ContextSnapshot } from '@shared/contracts'
+import { copy } from '@shared/copy'
+import { webSearchStatus } from '@shared/web-search'
+
+function singleLine(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim()
+}
+
+function evidenceLine(passage: Passage): string {
+  const pages = [...new Set(passage.sources?.flatMap((source) => source.page ? [source.page] : []) ?? [])]
+  const source = pages.length ? `（${passage.sources?.some((item) => item.precision === 'table') ? copy('sources.wholeTable') + '；' : ''}${copy('knowledge.pdfPage', { page: pages.join('、') })}）` : ''
+  return `[${passage.id}] ${singleLine(passage.headingPath?.join(' / ') ?? passage.chapterTitle ?? '')}${source}：${singleLine(passage.text)}`
+}
+
+function blockquote(value: string): string {
+  return value
+    .split(/\r?\n/u)
+    .map((line) => `> ${line}`)
+    .join('\n')
+}
+
+function webEvidence(context: ContextSnapshot | undefined): string[] {
+  const record = context?.webSearch
+  if (!record) return []
+  const lines = ['', `**${copy('webSearch.exportTitle')}**`, '', `- ${webSearchStatus(record)}`]
+  if (record.query) lines.push(`- ${copy('webSearch.queryLabel', { query: singleLine(record.query) })}`)
+  if (record.searchedAt) lines.push(`- ${copy('webSearch.searchedAt', { time: record.searchedAt })}`)
+  for (const source of record.sources) {
+    const title = singleLine(source.title).replace(/[\\[\]`*_<>]/gu, '\\$&')
+    const url = source.url.replace(/[<>\s]/gu, (character) => encodeURIComponent(character))
+    lines.push('', `- [${source.id}] [${title}](<${url}>)`, '', blockquote(source.excerpt))
+  }
+  return lines
+}
+
+function formatDateTime(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
+export function exportStamp(now = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    '-',
+    pad(now.getHours()),
+    pad(now.getMinutes())
+  ].join('')
+}
+
+export function sanitizeExportFileName(value: string): string {
+  const sanitized = value
+    .replace(/[<>:"/\\|?*]/gu, '_')
+    .split('')
+    .map((character) => (character.charCodeAt(0) < 32 ? '_' : character))
+    .join('')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 120)
+  return sanitized || copy('export.fileNameAll')
+}
+
+export function ensureMarkdownExtension(path: string): string {
+  return /\.md$/iu.test(path) ? path : `${path}.md`
+}
+
+export function selectInsightExportRecords(
+  records: ReadonlyArray<InsightArchiveRecord>,
+  scope: InsightExportScope
+): InsightArchiveRecord[] {
+  if (scope.kind === 'all') return [...records]
+  if (scope.kind === 'book') return records.filter((record) => record.bookId === scope.bookId)
+  return records.filter((record) => record.id === scope.insightId)
+}
+
+export function buildInsightExportDefaultName(
+  records: ReadonlyArray<InsightArchiveRecord>,
+  fallbackTitle?: string
+): string {
+  const uniqueBooks = new Set(records.map((record) => record.bookId))
+  const title =
+    records.length > 0 && uniqueBooks.size === 1
+      ? copy('export.fileNameBook', { title: records[0].book.title })
+      : fallbackTitle
+        ? copy('export.fileNameBook', { title: fallbackTitle })
+        : copy('export.fileNameAll')
+  return `${sanitizeExportFileName(title)}-${exportStamp()}.md`
+}
+
+export function buildInsightExportMarkdown(records: ReadonlyArray<InsightArchiveRecord>): string {
+  const groups = new Map<string, { book: InsightArchiveRecord['book']; insights: InsightArchiveRecord[] }>()
+  for (const record of records) {
+    const existing = groups.get(record.bookId)
+    if (existing) {
+      existing.insights.push(record)
+    } else {
+      groups.set(record.bookId, { book: record.book, insights: [record] })
+    }
+  }
+
+  const lines: string[] = [
+    `# ${copy('export.title')}`,
+    '',
+    blockquote(copy('export.generatedAt', { datetime: formatDateTime(new Date().toISOString()) })),
+    blockquote(copy('export.summary', { books: groups.size, insights: records.length })),
+    ''
+  ]
+
+  let bookIndex = 0
+  for (const { book, insights } of groups.values()) {
+    bookIndex += 1
+    lines.push(`## ${copy('export.bookHeading', { title: singleLine(book.title) || copy('export.untitledBook') })}`)
+    if (book.author) lines.push(`> ${copy('bookDetails.authorLabel')}：${singleLine(book.author)}`)
+    lines.push('')
+
+    insights.forEach((insight, insightIndex) => {
+      lines.push(`### ${copy('export.entryHeading', { index: `${bookIndex}.${insightIndex + 1}` })}`)
+      lines.push('')
+      lines.push(`- ${copy('export.chapterLabel')}：${singleLine(isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection?.chapterTitle || (insight.selection ? copy('common.currentChapter') : copy('analysis.bookSource')))}`)
+      lines.push(`- ${copy('export.dateLabel')}：${formatDateTime(insight.createdAt)}`)
+      lines.push(`- ${copy('export.modelLabel')}：${singleLine(insight.model)}`)
+      lines.push('')
+      lines.push(`**${copy('export.quoteLabel')}**`)
+      lines.push('')
+      lines.push(blockquote(isPdfImageRegion(insight.selection) ? copy('visual.source', { page: insight.selection.pageNumber }) : insight.selection?.quote || copy('analysis.bookSource')))
+      lines.push('')
+      lines.push(`**${copy('export.questionLabel')}**`)
+      lines.push('')
+      lines.push(insight.question)
+      lines.push('')
+      lines.push(`**${copy('export.answerLabel')}**`)
+      lines.push('')
+      lines.push(insight.answer)
+      if (insight.context) for (const passage of insight.context.passages) lines.push(`\n- ${evidenceLine(passage)}`)
+      lines.push(...webEvidence(insight.context))
+      lines.push('')
+
+      const followups = insight.history.slice(2)
+      if (followups.length > 0) {
+        lines.push(`**${copy('export.followupsLabel')}**`)
+        lines.push('')
+        let turnIndex = 0
+        for (let index = 0; index < followups.length; index += 2) {
+          turnIndex += 1
+          const question = followups[index]
+          const answer = followups[index + 1]
+          if (!question || question.role !== 'user') continue
+          lines.push(`#### ${copy('export.followupLabel', { index: turnIndex })}`)
+          lines.push('')
+          lines.push(`- ${copy('export.userLabel')}：${question.content}`)
+          if (answer?.role === 'assistant') {
+            lines.push(`- ${copy('export.assistantLabel')}：${answer.content}`)
+            if (answer.context) for (const passage of answer.context.passages) lines.push(`  - ${evidenceLine(passage)}`)
+            lines.push(...webEvidence(answer.context))
+          }
+          lines.push('')
+        }
+      }
+
+      lines.push(`> ${copy('export.citationsNote')}`)
+      lines.push('')
+    })
+  }
+
+  return lines.join('\n').trimEnd() + '\n'
+}

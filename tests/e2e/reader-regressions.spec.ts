@@ -1,0 +1,365 @@
+import { showLibrary, enterReading, showContents } from './support/workspace'
+import {
+  expect,
+  test,
+  type ElectronApplication
+} from '@playwright/test'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import JSZip from 'jszip'
+import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
+
+async function writeEpubFixture(path: string, chapters: Array<{ file: string; label: string; head?: string; css?: string }>): Promise<void> {
+  const zip = new JSZip()
+  zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
+  zip.file(
+    'META-INF/container.xml',
+    `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`
+  )
+
+  const manifest = chapters
+    .map((chapter) => `<item id="${chapter.file}" href="${chapter.file}.xhtml" media-type="application/xhtml+xml"/>`)
+    .join('')
+  const spine = chapters.map((chapter) => `<itemref idref="${chapter.file}"/>`).join('')
+  zip.file(
+    'OEBPS/content.opf',
+    `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">urn:uuid:llm-reader-regression</dc:identifier>
+    <dc:title>回归样本</dc:title><dc:language>zh-CN</dc:language>
+  </metadata>
+  <manifest>${manifest}<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest>
+  <spine>${spine}</spine>
+</package>`
+  )
+
+  const navItems = chapters
+    .map((chapter) => `<li><a href="${chapter.file}.xhtml">${chapter.label}</a></li>`)
+    .join('')
+  zip.file(
+    'OEBPS/nav.xhtml',
+    `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+  <body><nav epub:type="toc"><ol>${navItems}</ol></nav></body>
+</html>`
+  )
+
+  for (let index = 0; index < chapters.length; index += 1) {
+    const chapter = chapters[index]
+    const paragraphs = Array.from(
+      { length: 60 },
+      (_, block) => `<p>第 ${index + 1} 章第 ${block + 1} 段。${'连续滚动内容'.repeat(8)}</p>`
+    ).join('')
+    zip.file(
+      `OEBPS/${chapter.file}.xhtml`,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    ${chapter.head ?? ''}
+    <style>${chapter.css ?? 'html, body { margin: 0; padding: 0; } body { padding: 24px 36px 48px; } p { margin: 0 0 16px; }'}</style>
+  </head>
+  <body><h1>${chapter.label}</h1>${paragraphs}</body>
+</html>`
+    )
+  }
+
+  const bytes = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+  await writeFile(path, bytes)
+}
+
+test('renders EPUB chapter assets without base-uri CSP violations', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-epub-base-')
+  const fixture = join(workspace.root, 'chapter-assets.epub')
+  await writeEpubFixture(fixture, ['第一章', '第二章'].map((label, index) => ({
+    file: `c${index + 1}`,
+    label,
+    head: '<link rel="stylesheet" href="assets/chapter.css"/>'
+  })))
+  const zip = await JSZip.loadAsync(await readFile(fixture))
+  const packageXml = await zip.file('OEBPS/content.opf')!.async('string')
+  zip.file('OEBPS/content.opf', packageXml.replace('<manifest>', '<manifest><item id="style" href="assets/chapter.css" media-type="text/css"/><item id="image" href="assets/dot.svg" media-type="image/svg+xml"/>'))
+  zip.file('OEBPS/assets/chapter.css', 'h1 { font-style: italic; }')
+  zip.file('OEBPS/assets/dot.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><rect width="12" height="12"/></svg>')
+  for (const file of ['c1', 'c2']) {
+    const chapterXml = await zip.file(`OEBPS/${file}.xhtml`)!.async('string')
+    zip.file(`OEBPS/${file}.xhtml`, chapterXml.replace('<body>', '<body><img src="assets/dot.svg" alt="书内图片"/>'))
+  }
+  await writeFile(fixture, await zip.generateAsync({ type: 'nodebuffer' }))
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    const violations: string[] = []
+    page.on('console', (message) => {
+      if (message.text().includes('base-uri')) violations.push(message.text())
+    })
+    await showLibrary(page)
+    await page.getByTestId('book-item').first().click()
+    await enterReading(page)
+    await showContents(page)
+    for (const label of ['第一章', '第二章']) {
+      await page.locator('.toc-list button').getByText(label, { exact: true }).click()
+      await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', label)
+      await expect.poll(() => page.getByTestId('reader-host').evaluate((host, title) => {
+        const document = Array.from(host.querySelectorAll('iframe'))
+          .map((frame) => frame.contentDocument)
+          .find((document) => document?.querySelector('h1')?.textContent === title)
+        const heading = document?.querySelector('h1')
+        const image = document?.querySelector('img')
+        return {
+          italic: heading && document?.defaultView?.getComputedStyle(heading).fontStyle === 'italic',
+          imageLoaded: image?.complete && image.naturalWidth > 0
+        }
+      }, label)).toEqual({ italic: true, imageLoaded: true })
+      expect(violations).toEqual([])
+    }
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('keeps the reader width stable while opening and switching workspace pages', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-opening-width-')
+  const fixture = join(workspace.root, 'opening-width.epub')
+  await writeEpubFixture(fixture, [{ file: 'c1', label: '第一章' }])
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    const readerWidth = () => page.getByTestId('reader-host').evaluate((host) => host.getBoundingClientRect().width)
+
+    await showLibrary(page)
+    await expect(page.getByTestId('book-item').first()).toBeVisible()
+    const libraryWidth = await readerWidth()
+    await page.getByTestId('book-item').first().click()
+    await enterReading(page)
+    await expect(page.getByTestId('reader-host').locator('iframe').first()).toBeVisible()
+    const readingWidth = await readerWidth()
+    expect(Math.abs(libraryWidth - readingWidth)).toBeLessThanOrEqual(1)
+
+    const bounds = await page.getByTestId('reader-host').evaluate((host) => {
+      const frame = host.querySelector('iframe')
+      const sidebar = document.querySelector('.right-sidebar')
+      return {
+        hostRight: host.getBoundingClientRect().right,
+        frameRight: frame?.getBoundingClientRect().right ?? Infinity,
+        assistantLeft: sidebar?.getBoundingClientRect().left ?? -Infinity
+      }
+    })
+    expect(bounds.hostRight).toBeLessThanOrEqual(bounds.assistantLeft + 1)
+    expect(bounds.frameRight).toBeLessThanOrEqual(bounds.hostRight + 2)
+    await page.screenshot({ path: test.info().outputPath('reading-width.png'), animations: 'disabled' })
+
+    for (const tab of ['notes', 'conversation', 'reading'] as const) {
+      await page.getByTestId(`workspace-tab-${tab}`).click()
+      expect(Math.abs(await readerWidth() - readingWidth)).toBeLessThanOrEqual(1)
+    }
+    await page.getByTestId('reader-contents-button').click()
+    const drawerWidth = await readerWidth()
+    await page.getByTestId('workspace-tab-notes').click()
+    expect(Math.abs(await readerWidth() - drawerWidth)).toBeLessThanOrEqual(1)
+    await page.getByTestId('workspace-tab-reading').click()
+    expect(Math.abs(await readerWidth() - drawerWidth)).toBeLessThanOrEqual(1)
+    await showLibrary(page)
+    expect(Math.abs(await readerWidth() - drawerWidth)).toBeLessThanOrEqual(1)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('expands reflowable chapters whose CSS constrains html and body height', async () => {
+  test.setTimeout(90_000)
+  const workspace = await createE2eWorkspace('llm-reader-chapter-height-')
+  const fixture = join(workspace.root, 'constrained-height.epub')
+  await writeEpubFixture(fixture, [
+    { file: 'c1', label: '第一章', css: 'html, body { margin: 0; height: 100%; } body { columns: 2; column-gap: 20px; } p { margin: 0 0 16px; }' },
+    { file: 'c2', label: '第二章', css: 'html, body { margin: 0; height: 100%; } body { columns: 2; column-gap: 20px; } p { margin: 0 0 16px; }' }
+  ])
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+    const frame = page.getByTestId('reader-host').locator('iframe').first()
+    await expect(frame).toBeVisible()
+
+    // 连续滚动会同时保留可见与隐藏的章节 iframe；隐藏视图高度为折叠值，
+    // 因此轮询与断言都必须取当前可见的那一个。
+    const measureFrame = () => page.getByTestId('reader-host').evaluate((host) => {
+      const frames = Array.from(host.querySelectorAll<HTMLIFrameElement>('iframe'))
+      const frameElement = frames.find((candidate) => candidate.style.visibility !== 'hidden') ?? frames[0]
+      const document = frameElement?.contentDocument
+      if (!frameElement || !document) return null
+      return {
+        documentHeight: document.documentElement.scrollHeight,
+        frameHeight: frameElement.getBoundingClientRect().height,
+        documentWidth: document.documentElement.scrollWidth,
+        frameWidth: frameElement.getBoundingClientRect().width
+      }
+    })
+
+    // 章节内容先擑开，iframe 高度在下一个 epub.js 周期才同步；直接轮询断言的高度本身，避免竞态。
+    await expect.poll(async () => (await measureFrame())?.frameHeight ?? 0).toBeGreaterThan(2_000)
+
+    const dimensions = await measureFrame()
+    expect(dimensions?.documentHeight).toBeGreaterThan(2_000)
+    expect(dimensions?.documentWidth).toBeLessThanOrEqual((dimensions?.frameWidth ?? 0) + 2)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('highlights only the TOC entry whose href matches the current chapter', async () => {
+  test.setTimeout(90_000)
+  const workspace = await createE2eWorkspace('llm-reader-duplicate-toc-')
+  const fixture = join(workspace.root, 'duplicate-toc.epub')
+  await writeEpubFixture(fixture, [
+    { file: 'c1', label: '相同章节' },
+    { file: 'c2', label: '相同章节' },
+    { file: 'c3', label: '相同章节' }
+  ])
+  let application: ElectronApplication | undefined
+
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+
+    const tocItems = page.getByTestId('toc-item')
+    const currentTocItems = page.locator('[data-testid="toc-item"][data-current="true"]')
+    await expect(tocItems).toHaveCount(3)
+    await expect(tocItems.first()).toHaveAttribute('data-current', 'true')
+    await expect(currentTocItems).toHaveCount(1)
+
+    await showContents(page)
+    await tocItems.nth(1).click()
+    await expect(tocItems.nth(1)).toHaveAttribute('data-current', 'true')
+    await expect(currentTocItems).toHaveCount(1)
+
+    await page.waitForTimeout(400)
+    for (let step = 0; step < 24; step += 1) {
+      await page
+        .getByTestId('reader-host')
+        .locator(':scope > .epub-container')
+        .evaluate((scroller) => {
+          scroller.scrollBy(0, scroller.clientHeight * 0.7)
+        })
+      await page.waitForTimeout(260)
+      if (await tocItems.nth(2).getAttribute('data-current') === 'true') break
+    }
+
+    await expect(tocItems.nth(2)).toHaveAttribute('data-current', 'true')
+    await expect(currentTocItems).toHaveCount(1)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('scales fixed-layout pages instead of clipping them below the viewport', async () => {
+  test.setTimeout(90_000)
+  const workspace = await createE2eWorkspace('llm-reader-fixed-layout-')
+  const fixture = join(workspace.root, 'fixed-layout.epub')
+  const zip = new JSZip()
+  zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
+  zip.file(
+    'META-INF/container.xml',
+    `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`
+  )
+  zip.file(
+    'OEBPS/content.opf',
+    `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0" prefix="rendition: http://www.idpf.org/vocab/rendition/#">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">urn:uuid:llm-reader-fixed-layout</dc:identifier>
+    <dc:title>固定版式回归样本</dc:title><dc:language>zh-CN</dc:language>
+    <meta property="rendition:layout">pre-paginated</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/><itemref idref="c2"/></spine>
+</package>`
+  )
+  zip.file(
+    'OEBPS/nav.xhtml',
+    `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+  <body><nav epub:type="toc"><ol><li><a href="c1.xhtml">第一页</a></li><li><a href="c2.xhtml">第二页</a></li></ol></nav></body>
+</html>`
+  )
+  for (const [index, file] of ['c1', 'c2'].entries()) {
+    const paragraphs = Array.from(
+      { length: 40 },
+      (_, block) => `<p>固定版式第 ${index + 1} 页第 ${block + 1} 段。</p>`
+    ).join('')
+    zip.file(
+      `OEBPS/${file}.xhtml`,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta name="viewport" content="width=800,height=1200"/>
+    <style>html, body { margin: 0; width: 800px; height: 1200px; overflow: hidden; }</style>
+  </head>
+  <body><h1>第 ${index + 1} 页</h1>${paragraphs}</body>
+</html>`
+    )
+  }
+  await writeFile(fixture, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    await showLibrary(page); await expect(page.getByTestId('book-item').first()).toBeVisible()
+    await showLibrary(page); await page.getByTestId('book-item').first().click(); await enterReading(page)
+    const frame = page.getByTestId('reader-host').locator('iframe').first()
+    await expect(frame).toBeVisible()
+
+    await expect
+      .poll(() =>
+        frame.evaluate((element) => {
+          const frameElement = element as HTMLIFrameElement
+          const body = frameElement.contentDocument?.body
+          if (!body) return 'none'
+          return getComputedStyle(body).transform
+        })
+      )
+      .not.toBe('none')
+
+    const clipped = await frame.evaluate((element) => {
+      const frameElement = element as HTMLIFrameElement
+      const document = frameElement.contentDocument
+      if (!document?.body) return true
+      return document.body.getBoundingClientRect().bottom > document.documentElement.clientHeight + 1
+    })
+    expect(clipped).toBe(false)
+
+    const tocItems = page.getByTestId('toc-item')
+    const currentTocItems = page.locator('[data-testid="toc-item"][data-current="true"]')
+    await showContents(page)
+    await tocItems.nth(1).click()
+    await expect(tocItems.nth(1)).toHaveAttribute('data-current', 'true')
+    await expect(currentTocItems).toHaveCount(1)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})

@@ -1,0 +1,494 @@
+import { copy } from '@shared/copy'
+import { z } from 'zod'
+import { requestSettingsFields } from '@shared/request-settings'
+import { searchDomainsSchema } from '@shared/web-search-settings'
+import { normalizeReaderSearchQuery } from '@shared/reader-search'
+import { validateDocument } from '@shared/document-structure'
+import { OCR_IMAGE_PATTERN, OCR_MAX_IMAGE_DATA_URL, OCR_MAX_PAGE_CHARACTERS, OCR_MAX_PAGES } from '@shared/vision-ocr'
+import { validPdfImageRegion, PDF_REGION_IMAGE_MAX_DATA_URL, PDF_REGION_IMAGE_PATTERN } from '@shared/pdf-image-region'
+import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH, HIGHLIGHT_EXPORT_MAX_COUNT } from '@shared/contracts'
+import { normalizeHighlightTags, validHighlightNote, validHighlightTags } from '@shared/highlight-tags'
+
+const shortText = (maximum: number) => z.string().trim().min(1).max(maximum)
+const idSchema = z.string().uuid()
+const personaSelectionSchema = z.object({
+  presetId: z.string().min(1).max(128).regex(/^[\w-]+$/u).nullable(),
+  name: shortText(60),
+  prompt: shortText(3_000)
+}).strict()
+
+export const clipboardTextSchema = z.string().max(OCR_MAX_PAGE_CHARACTERS)
+export const conversationMarkdownCopySchema = z.string().min(1).max(CONVERSATION_COPY_MAX_LENGTH).refine((value) => !value.includes('\0'))
+export const conversationMarkdownExportSchema = z.object({
+  markdown: z.string().min(1).max(CONVERSATION_EXPORT_MAX_LENGTH),
+  title: z.string().min(1).max(CONVERSATION_EXPORT_MAX_LENGTH)
+}).strict()
+export const uiLanguageSchema = z.enum(['zh', 'en'])
+export const bookOcrPageSchema = z.object({ bookId: idSchema, pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES) }).strict()
+export const bookIdSchema = idSchema
+export const recentBookSessionSchema = z.object({ bookId: idSchema, conversationId: z.uuid({ version: 'v4' }) }).strict()
+export const deleteBookSessionSchema = z.union([bookIdSchema.transform((bookId) => ({ bookId, conversationId: undefined })), recentBookSessionSchema])
+export const bookDocumentSearchSchema = z.object({
+  bookId: idSchema,
+  query: z.string().max(200).trim().refine((value) => normalizeReaderSearchQuery(value) !== null)
+}).strict()
+export const bookPagePreviewSchema = z.object({
+  bookId: idSchema,
+  requestId: idSchema,
+  pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES),
+  pageCount: z.number().int().min(1).max(OCR_MAX_PAGES),
+  imageDataUrl: z.string().max(OCR_MAX_IMAGE_DATA_URL).regex(OCR_IMAGE_PATTERN),
+  force: z.boolean().optional()
+}).strict().refine((value) => value.pageNumber <= value.pageCount)
+export const bookChapterNotesSchema = z.object({
+  bookId: idSchema,
+  chapterId: z.string().min(1).max(128),
+  cursor: z.string().min(1).max(4096).regex(/^[\w-]+$/u).optional()
+}).strict()
+export const bookImportPathsSchema = z.array(z.string().min(1).max(32_768)).min(1).max(300)
+export const insightIdSchema = idSchema
+export const highlightIdSchema = idSchema
+export const metadataSchema = z.object({
+  bookId: idSchema,
+  title: shortText(500),
+  author: z.string().trim().max(500).nullable()
+})
+export const progressSchema = z.object({
+  bookId: idSchema,
+  locator: shortText(16_384),
+  progress: z.number().finite().min(0).max(1)
+})
+
+export const highlightSchema = z.object({
+  bookId: idSchema,
+  quote: z.string().min(1).max(20_000),
+  anchor: shortText(16_384),
+  chapterTitle: z.string().trim().max(1_000)
+})
+
+export const updateHighlightSchema = z.object({
+  bookId: idSchema,
+  highlightId: highlightIdSchema,
+  note: z.string().refine(validHighlightNote),
+  tags: z.array(z.string().max(10_000)).max(256).transform(normalizeHighlightTags).refine(validHighlightTags)
+}).strict()
+
+export const exportHighlightsSchema = z.object({
+  bookId: idSchema,
+  highlightIds: z.array(highlightIdSchema).min(1).max(HIGHLIGHT_EXPORT_MAX_COUNT)
+    .refine((ids) => new Set(ids).size === ids.length)
+}).strict()
+
+const structureId = z.string().min(1).max(128).regex(/^[\w.:/-]+$/u)
+export const sourceRangeSchema = z.object({
+  anchor: shortText(16_384), page: z.number().int().min(1).max(600).optional(),
+  bbox: z.object({ left: z.number().finite().nonnegative(), top: z.number().finite().nonnegative(), right: z.number().finite().nonnegative(), bottom: z.number().finite().nonnegative(),
+    origin: z.enum(['TOPLEFT', 'BOTTOMLEFT']), width: z.number().finite().positive().optional(), height: z.number().finite().positive().optional() }).optional(),
+  start: z.number().int().nonnegative().optional(), end: z.number().int().nonnegative().optional(),
+  textStart: z.number().int().nonnegative().optional(), textEnd: z.number().int().nonnegative().optional(),
+  precision: z.enum(['text', 'block', 'table'])
+}).refine((source) => (source.start === undefined || source.end === undefined || source.start <= source.end) &&
+  (source.textStart === undefined || source.textEnd === undefined || source.textStart <= source.textEnd), copy('validation.sourceRange'))
+const tableSliceSchema = z.object({ rows: z.array(z.number().int().nonnegative()).max(100_000),
+  cells: z.array(z.object({ id: structureId, start: z.number().int().nonnegative(), end: z.number().int().nonnegative(),
+    textStart: z.number().int().nonnegative(), textEnd: z.number().int().nonnegative(), header: z.boolean(), rows: z.array(z.number().int().nonnegative()).max(100_000).optional() })).max(100_000) })
+const unitKindSchema = z.enum(['heading', 'paragraph', 'list', 'note', 'table', 'caption', 'formula', 'header', 'footer', 'unknown'])
+export const normalizedDocumentSchema = z.object({
+  version: z.literal(2), pageCount: z.number().int().min(1).max(600).optional(),
+  nodes: z.array(z.object({ id: structureId, parentId: structureId.nullable(), title: z.string().max(1_000), level: z.number().int().min(0).max(64),
+    order: z.number().int().nonnegative(), anchor: shortText(16_384), kind: z.enum(['section', 'group']) })).max(100_000),
+  units: z.array(z.object({ id: structureId, nodeId: structureId, order: z.number().int().nonnegative(), kind: unitKindSchema,
+    text: z.string().max(80_000_000), sources: z.array(sourceRangeSchema).min(1).max(10_000), relatedIds: z.array(structureId).max(100_000), searchable: z.boolean(),
+    table: z.object({ rows: z.number().int().min(1).max(100_000), columns: z.number().int().min(1).max(100_000),
+      captionIds: z.array(structureId).max(100_000), noteIds: z.array(structureId).max(100_000),
+      cells: z.array(z.object({ id: structureId, row: z.number().int().nonnegative(), column: z.number().int().nonnegative(),
+        rowSpan: z.number().int().min(1).max(100_000), columnSpan: z.number().int().min(1).max(100_000), header: z.boolean(), rowHeader: z.boolean().optional(),
+        text: z.string().max(80_000_000), sources: z.array(sourceRangeSchema).max(600).optional() })).max(100_000) }).optional()
+  })).max(100_000),
+  diagnostics: z.array(z.object({ code: z.enum(['missing-body', 'unknown-structure', 'unlinked-note', 'table-degraded', 'suspected-duplicate']),
+    page: z.number().int().min(1).max(600).optional(), unitId: structureId.optional() })).max(100_000)
+}).superRefine((value, context) => {
+  try { validateDocument(value) } catch { context.addIssue({ code: 'custom', message: copy('validation.documentSource') }) }
+})
+
+const passageSchema = z.object({
+  bookId: idSchema.optional(),
+  bookTitle: z.string().max(1_000).optional(),
+  id: z.string().trim().min(1).max(128).regex(/^[\w.:/-]+$/u),
+  text: z.string().min(1).max(100_000),
+  anchor: shortText(16_384),
+  chapterTitle: z.string().max(1_000).optional(),
+  blockId: z.string().max(128).optional(),
+  chapterId: z.string().max(128).optional(),
+  evidenceRole: z.enum(['nearby', 'chapter', 'extension']).optional(),
+  nodeId: structureId.optional(), unitId: structureId.optional(), headingPath: z.array(z.string().max(1_000)).max(64).optional(),
+  sources: z.array(sourceRangeSchema).max(10_000).optional(),
+  unitRange: z.object({ start: z.number().int().nonnegative(), end: z.number().int().nonnegative() }).optional(),
+  tableSlice: tableSliceSchema.optional()
+})
+
+const textSelectionSchema = z
+  .object({
+    bookId: idSchema,
+    quote: z.string().min(1).max(20_000),
+    anchor: shortText(16_384),
+    chapterTitle: z.string().trim().max(1_000),
+    passages: z.array(passageSchema).min(1).max(200)
+  })
+  .superRefine((selection, context) => {
+    const ids = new Set(selection.passages.map((passage) => passage.id))
+    if (ids.size !== selection.passages.length) {
+      context.addIssue({ code: 'custom', message: copy('validation.passageId'), path: ['passages'] })
+    }
+    const totalCharacters = selection.passages.reduce((sum, passage) => sum + passage.text.length, 0)
+    if (totalCharacters > 1_000_000) {
+      context.addIssue({ code: 'custom', message: copy('validation.contextLimit'), path: ['passages'] })
+    }
+  })
+
+const pdfImageRegionSchema = z.object({
+  kind: z.literal('pdf-image-region'), bookId: idSchema, anchor: z.string().max(128),
+  pageNumber: z.number().int().min(1).max(600),
+  left: z.number().min(0).max(1), top: z.number().min(0).max(1),
+  right: z.number().min(0).max(1), bottom: z.number().min(0).max(1)
+}).strict().refine(validPdfImageRegion, copy('error.invalidInput'))
+
+export const selectionSchema = z.union([textSelectionSchema, pdfImageRegionSchema])
+
+export const webSearchRecordSchema = z.object({
+  status: z.enum(['searched', 'skipped', 'failed', 'empty']),
+  query: z.string().max(400).optional(),
+  searchedAt: z.string().max(40).optional(),
+  elapsedMs: z.number().int().nonnegative().max(3_600_000).optional(),
+  reason: z.enum(['searched', 'not-needed', 'planning-failed', 'budget', 'configuration', 'timeout',
+    'rate-limit', 'authentication', 'server', 'http', 'redirect', 'too-large', 'invalid-response', 'network']),
+  sources: z.array(z.object({
+    id: z.string().regex(/^W\d+$/u),
+    title: z.string().max(500),
+    url: z.string().max(2_048),
+    excerpt: z.string().max(5_000)
+  }).strict()).max(5)
+}).strict().refine((record) => (record.status === 'searched' || record.sources.length === 0) &&
+  new Set(record.sources.map((source) => source.id)).size === record.sources.length &&
+  record.sources.every((source) => webSourceUrlSchema.safeParse(source.url).success) &&
+  record.sources.reduce((sum, source) => sum + Array.from(source.excerpt).length, 0) <= 5_000, copy('error.invalidInput'))
+
+export const contextSnapshotSchema = z.object({
+  scope: z.enum(['selection', 'book', 'books']),
+  bookId: idSchema,
+  books: z.array(z.object({ id: idSchema, title: z.string().max(1_000) }).strict()).min(1).max(5).optional(),
+  selection: selectionSchema.nullable(),
+  passages: z.array(passageSchema).max(200),
+  background: z.string().max(30_000),
+  coverage: z.object({ covered: z.number().int().min(0).max(50_000), total: z.number().int().min(0).max(50_000) }),
+  historySummary: z.object({ includedMessages: z.number().int().min(0).max(30), truncated: z.boolean() }).strict().optional(),
+  rerank: z.object({
+    status: z.enum(['applied', 'skipped', 'fallback']), model: z.string().max(256),
+    candidateCount: z.number().int().min(0).max(60), elapsedMs: z.number().int().nonnegative().max(90_000),
+    reason: z.enum(['ranked', 'disabled', 'not-ready', 'insufficient-candidates', 'configuration', 'timeout',
+      'rate-limit', 'authentication', 'server', 'http', 'redirect', 'too-large', 'invalid-response', 'network'])
+  }).strict().optional(),
+  webSearch: webSearchRecordSchema.optional(),
+  planningUsage: z.object({
+    promptTokens: z.number().int().nonnegative().optional(),
+    completionTokens: z.number().int().nonnegative().optional(),
+    totalTokens: z.number().int().nonnegative().optional()
+  }).optional()
+}).superRefine((snapshot, context) => {
+  if (snapshot.scope === 'books' && (!snapshot.books || new Set(snapshot.books.map((book) => book.id)).size !== snapshot.books.length ||
+      snapshot.bookId !== snapshot.books[0]?.id || snapshot.passages.some((passage) => !snapshot.books?.some((book) => book.id === passage.bookId)))) {
+    context.addIssue({ code: 'custom', message: copy('validation.contextSource') })
+  }
+  if ((snapshot.scope === 'selection') !== Boolean(snapshot.selection) || (snapshot.selection && snapshot.selection.bookId !== snapshot.bookId)) {
+    context.addIssue({ code: 'custom', message: copy('validation.contextMismatch') })
+  }
+  if (new Set(snapshot.passages.map((item) => item.id)).size !== snapshot.passages.length ||
+      snapshot.passages.reduce((sum, item) => sum + item.text.length, 0) > 100_000 || snapshot.coverage.covered > snapshot.coverage.total) {
+    context.addIssue({ code: 'custom', message: copy('validation.contextSource') })
+  }
+})
+
+export const insightSchema = z
+  .object({
+    bookId: idSchema,
+    conversationId: z.uuid({ version: 'v4' }).optional(),
+    selection: selectionSchema.nullable(),
+    context: contextSnapshotSchema.optional(),
+    question: z.string().max(20_000),
+    answer: z.string().min(1).max(2_000_000),
+    model: shortText(256),
+    persona: personaSelectionSchema.nullable().optional(),
+    webSearch: z.enum(['off', 'auto']).optional()
+  })
+    .refine((insight) => (insight.selection ? insight.bookId === insight.selection.bookId : insight.context?.scope === 'book') &&
+      (!insight.context || (insight.context.scope !== 'books' && insight.context.bookId === insight.bookId)), {
+    message: copy('validation.archiveSelection'),
+    path: ['selection', 'bookId']
+  })
+
+export const archivedMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string().min(1).max(2_000_000),
+  model: shortText(256).optional(),
+  context: contextSnapshotSchema.optional(),
+  persona: personaSelectionSchema.nullable().optional()
+})
+
+export const insightHistorySchema = z.object({
+  bookId: idSchema,
+  id: idSchema,
+  history: z.array(archivedMessageSchema).min(2).max(200),
+  persona: personaSelectionSchema.nullable().optional(),
+  webSearch: z.enum(['off', 'auto']).optional()
+}).refine((input) => input.history.every((message) => !message.context || (message.context.scope !== 'books' && message.context.bookId === input.bookId)), {
+  message: copy('validation.archiveHistory'), path: ['history']
+})
+
+export const insightExportScopeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('all') }),
+  z.object({ kind: z.literal('book'), bookId: idSchema }),
+  z.object({ kind: z.literal('insight'), insightId: idSchema })
+])
+
+// 每个会话的轮次上限与渲染层一致。
+const sessionTurnSchema = z.object({
+  id: idSchema,
+  action: z.enum(['explain', 'context', 'ask']),
+  actionLabel: shortText(200),
+  question: z.string().max(2_000),
+  answer: z.string().max(20_000),
+  model: z.string().max(200),
+  status: z.enum(['completed', 'error']),
+  saved: z.boolean().optional(),
+  error: z.string().max(2_000).optional(),
+  usage: z.object({
+    promptTokens: z.number().int().nonnegative().optional(),
+    completionTokens: z.number().int().nonnegative().optional(),
+    totalTokens: z.number().int().nonnegative().optional()
+  }).strict().optional(),
+  selection: selectionSchema.nullable().optional(),
+  context: contextSnapshotSchema.nullable().optional(),
+  persona: personaSelectionSchema.nullable().optional(),
+  durationMs: z.number().int().nonnegative().max(86_400_000).optional()
+}).strict()
+
+export const bookSessionSchema = z.object({
+  bookId: idSchema,
+  conversationId: z.uuid({ version: 'v4' }),
+  scope: z.enum(['selection', 'book']),
+  selection: selectionSchema.nullable(),
+  draft: z.string().max(2_000),
+  turns: z.array(sessionTurnSchema).max(20),
+  persona: personaSelectionSchema.nullable().optional(),
+  webSearch: z.enum(['off', 'auto']).optional()
+}).strict().refine((session) => (
+  (session.scope === 'selection') === Boolean(session.selection)
+  && (!session.selection || session.selection.bookId === session.bookId)
+  && session.turns.every((turn) => !turn.context || (turn.context.scope !== 'books' && turn.context.bookId === session.bookId))
+), { message: copy('validation.archiveSelection'), path: ['selection', 'bookId'] })
+
+// 打开的会话标签列表：归档标签必须带 insightId，激活下标必须落在列表范围内。
+const sessionTabSchema = z.object({
+  kind: z.enum(['live', 'archive']),
+  bookId: idSchema,
+  insightId: idSchema.nullable(),
+  draft: z.string().max(2_000),
+  webSearch: z.enum(['off', 'auto']).optional()
+}).strict()
+
+export const sessionTabsSchema = z.object({
+  activeIndex: z.number().int().nullable(),
+  tabs: z.array(sessionTabSchema).max(20)
+}).strict().refine((state) => (
+  state.tabs.every((tab) => (tab.kind === 'archive') === Boolean(tab.insightId))
+  && (state.activeIndex === null || (state.activeIndex >= 0 && state.activeIndex < state.tabs.length))
+), { message: copy('validation.archiveSelection'), path: ['tabs'] })
+
+const providerBaseUrlSchema = z
+    .string()
+    .trim()
+    .min(1)
+    .max(2_048)
+    .refine((value) => {
+      try {
+        const url = new URL(value)
+        const hostname = url.hostname.toLowerCase()
+        const localHttp = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)
+        return (
+          ['http:', 'https:'].includes(url.protocol) &&
+          (url.protocol === 'https:' || localHttp) &&
+          !url.username &&
+          !url.password
+        )
+      } catch {
+        return false
+      }
+    }, copy('validation.httpUrl'))
+
+export const providerProfileIdSchema = z.string().trim().min(1).max(128).regex(/^[\w-]+$/u)
+
+const providerProfileFields = {
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
+  compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
+  name: z.string().trim().min(1).max(60),
+  baseUrl: providerBaseUrlSchema,
+  model: shortText(256),
+  apiKey: z.string().trim().min(1).max(10_000).optional()
+}
+
+export const createProviderProfileSchema = z.object(providerProfileFields)
+
+export const updateProviderProfileSchema = z.object({
+  id: providerProfileIdSchema,
+  ...providerProfileFields
+})
+
+export const providerConfigurationSchema = z.object({
+  testMode: z.enum(['text', 'stream']).optional(),
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
+  compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
+  profileId: providerProfileIdSchema.optional(),
+  baseUrl: providerBaseUrlSchema,
+  model: shortText(256),
+  apiKey: z.string().trim().min(1).max(10_000).optional()
+})
+
+export const providerModelListSchema = z.object({
+  ...requestSettingsFields,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
+  compatibility: z.enum(['auto', 'opencode-go']).default('auto'),
+  profileId: providerProfileIdSchema.optional(),
+  baseUrl: providerBaseUrlSchema,
+  apiKey: z.string().trim().min(1).max(10_000).optional()
+})
+
+const llmRequestBase = {
+    conversationId: z.uuid({ version: 'v4' }),
+    requestId: z.string().min(1).max(128).regex(/^[\w.-]+$/u),
+    action: z.enum(['explain', 'context', 'ask']),
+    question: z.string().max(20_000),
+    persona: z.string().trim().min(1).max(3_000).optional(),
+    webSearch: z.enum(['off', 'auto']).optional(),
+    historyCandidateMessages: z.number().int().nonnegative().max(1_000_000).optional(),
+    historyCandidateTruncated: z.boolean().optional(),
+    history: z
+      .array(
+        z.object({
+          role: z.enum(['user', 'assistant']),
+          content: z.string().min(1).max(20_000)
+        })
+      )
+      .max(30)
+  }
+export const llmRequestSchema = z.union([
+  z.object({ ...llmRequestBase, scope: z.literal('books'), action: z.literal('ask'), bookIds: z.array(idSchema).min(1).max(5).refine((ids) => new Set(ids).size === ids.length) }).strict(),
+  z.object({ ...llmRequestBase, scope: z.literal('selection').optional(), selection: textSelectionSchema }),
+  z.object({ ...llmRequestBase, scope: z.literal('visual'), selection: pdfImageRegionSchema,
+    imageDataUrl: z.string().max(PDF_REGION_IMAGE_MAX_DATA_URL).regex(PDF_REGION_IMAGE_PATTERN) }).strict(),
+  z.object({ ...llmRequestBase, scope: z.literal('book'), bookId: idSchema })
+])
+  .refine((request) => request.action !== 'ask' || request.question.trim().length > 0, {
+    message: copy('validation.question'),
+    path: ['question']
+  })
+
+const workbenchBookIds = z.array(idSchema).max(5).refine((ids) => new Set(ids).size === ids.length)
+export const createWorkbenchSchema = z.object({ name: z.string().trim().min(1).max(120), bookIds: workbenchBookIds }).strict()
+export const workbenchSchema = createWorkbenchSchema.extend({
+  id: z.uuid({ version: 'v4' }),
+  draft: z.string().max(2_000),
+  webSearch: z.enum(['off', 'auto']),
+  persona: personaSelectionSchema.nullable(),
+  turns: z.array(z.object({
+    id: z.uuid({ version: 'v4' }),
+    bookIds: workbenchBookIds.refine((ids) => ids.length > 0),
+    question: z.string().trim().min(1).max(2_000),
+    answer: z.string().max(2_000_000),
+    model: z.string().max(256),
+    status: z.enum(['queued', 'streaming', 'completed', 'error']),
+    error: z.string().max(2_000).optional(),
+    context: contextSnapshotSchema.optional(),
+    usage: z.object({ promptTokens: z.number().nonnegative().optional(), completionTokens: z.number().nonnegative().optional(), totalTokens: z.number().nonnegative().optional() }).strict().optional(),
+    persona: personaSelectionSchema.nullable().optional(),
+    durationMs: z.number().int().nonnegative().max(86_400_000).optional()
+  }).strict().refine((turn) => !turn.context || (turn.context.scope === 'books' && turn.context.books?.length === turn.bookIds.length &&
+    turn.context.books.every((book, index) => book.id === turn.bookIds[index])))).max(200)
+}).strict().refine((value) => new Set(value.turns.map((turn) => turn.id)).size === value.turns.length)
+
+export const requestIdSchema = z.string().min(1).max(128).regex(/^[\w.-]+$/u)
+
+/** Only plain HTTP(S) addresses can be opened externally; the main process also re-checks recorded sources. */
+export const webSourceUrlSchema = z.string().trim().min(1).max(2_048).refine((value) => {
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+  } catch {
+    return false
+  }
+}, copy('error.invalidInput'))
+
+export const webSourceOpenSchema = z.object({ bookId: idSchema, url: webSourceUrlSchema }).strict()
+
+const knowledgeUrl = z.union([z.literal(''), providerBaseUrlSchema]).refine((value) => {
+  if (!value) return true
+  try {
+    const url = new URL(value)
+    return !url.search && !url.hash
+  } catch {
+    return false
+  }
+}, copy('validation.endpoint'))
+const knowledgeKey = z.string().trim().min(1).max(10_000).regex(/^[^\r\n]+$/u).nullable().optional()
+const rerankSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
+  .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.rerank'))
+const embeddingSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl, model: z.string().trim().max(256), apiKey: knowledgeKey }).strict()
+  .refine((value) => !value.enabled || Boolean(value.baseUrl && value.model), copy('validation.embedding'))
+const documentSettingsSchema = z.object({ ...requestSettingsFields, protocol: z.enum(['openai', 'anthropic']).optional(), enabled: z.boolean().optional(), processor: z.enum(['none', 'mineru-local', 'mineru-cloud', 'docling', 'vision', 'mistral-ocr', 'unstructured']), baseUrl: knowledgeUrl,
+    model: z.string().trim().max(256).optional(), compatibility: z.enum(['auto', 'opencode-go']).optional(),
+    ocr: z.boolean(), language: z.enum(['ch', 'en']), apiKey: knowledgeKey }).strict()
+    .refine((value) => !(value.enabled ?? value.processor !== 'none') || value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl'))
+    .refine((value) => !(value.enabled ?? value.processor !== 'none') || !['vision', 'mistral-ocr'].includes(value.processor) || Boolean(value.model), copy('vision.configRequired'))
+const webSearchSettingsSchema = z.object({ ...requestSettingsFields, enabled: z.boolean(), baseUrl: knowledgeUrl.refine((value) => !value || new URL(value).protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(new URL(value).hostname), copy('webSearch.required')), apiKey: knowledgeKey,
+  provider: z.enum(['tavily', 'brave', 'exa']).optional(), maxResults: z.number().int().min(1).max(5).optional(),
+  includeDomains: searchDomainsSchema.optional(), excludeDomains: searchDomainsSchema.optional() }).strict()
+  .refine((value) => !value.enabled || Boolean(value.baseUrl), copy('webSearch.required'))
+export const knowledgeSettingsSchema = z.object({
+  target: z.enum(['embedding', 'rerank', 'document', 'webSearch']).optional(),
+  rerank: rerankSettingsSchema.optional(),
+  embedding: embeddingSettingsSchema,
+  document: documentSettingsSchema,
+  webSearch: webSearchSettingsSchema.optional()
+}).strict()
+  .refine((value) => value.target !== 'rerank' || Boolean(value.rerank), copy('validation.rerank'))
+  .refine((value) => value.target !== 'webSearch' || Boolean(value.webSearch), copy('webSearch.required'))
+// Accept old clients' extra fields, but pass only the tested service to the handler.
+export const testKnowledgeSettingsSchema = z.discriminatedUnion('target', [
+  z.object({ target: z.literal('embedding'), embedding: embeddingSettingsSchema }),
+  z.object({ target: z.literal('rerank'), rerank: rerankSettingsSchema.refine((value) => Boolean(value.baseUrl && value.model), copy('validation.rerank')) }),
+  z.object({ target: z.literal('document'), document: documentSettingsSchema.refine((value) => value.processor !== 'none' && Boolean(value.baseUrl), copy('validation.documentUrl')) }),
+  z.object({ target: z.literal('webSearch'), webSearch: webSearchSettingsSchema.refine((value) => Boolean(value.baseUrl), copy('webSearch.required')) })
+])
+export const startSemanticIndexSchema = z.object({ bookId: idSchema, rebuild: z.boolean().optional() }).strict()
+export const prepareBookDocumentSchema = startSemanticIndexSchema
+
+export const startBookAnalysisSchema = z.object({ bookId: idSchema, profileId: providerProfileIdSchema, rebuild: z.boolean().optional() })
+export const bookExtractionSchema = z.object({ bookId: idSchema, jobId: idSchema })
+export const pdfExtractionSchema = bookExtractionSchema.extend({ pageCount: z.number().int().min(1).max(600) }).strict()
+export const pdfOcrPageSchema = bookExtractionSchema.extend({ pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES),
+  imageDataUrl: z.string().max(OCR_MAX_IMAGE_DATA_URL).regex(OCR_IMAGE_PATTERN).nullable()
+}).strict()
+export const documentSectionSchema = z.object({
+  id: shortText(128).regex(/^[\w.-]+$/u),
+  chapterId: shortText(128).regex(/^[\w.-]+$/u),
+  chapterTitle: z.string().max(1_000),
+  order: z.number().int().min(0).max(9_999),
+  blocks: z.array(passageSchema.extend({ kind: unitKindSchema, searchable: z.boolean().optional() })).min(1).max(48)
+}).superRefine((section, context) => {
+  if (section.blocks.some((block) => Array.from(block.text).length > 1_800) ||
+      section.blocks.reduce((sum, block) => sum + Array.from(block.text).length, 0) > 6_000) {
+    context.addIssue({ code: 'custom', message: copy('validation.sectionLimit') })
+  }
+})
+export const bookExtractionBatchSchema = bookExtractionSchema.extend({ sections: z.array(documentSectionSchema).min(1).max(8), document: normalizedDocumentSchema.optional() })

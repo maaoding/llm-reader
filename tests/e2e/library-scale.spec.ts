@@ -1,0 +1,353 @@
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { BaseWindow, OpenDialogOptions } from 'electron'
+import {
+  cleanupE2eWorkspace,
+  createE2eWorkspace,
+  launchReader
+} from './support/electron-app'
+import { resizeWorkspace } from './support/workspace'
+
+async function stubImportDialog(application: ElectronApplication, paths: string[]): Promise<void> {
+  await application.evaluate(({ dialog }, selectedPaths) => {
+    dialog.showOpenDialog = (async (_window: BaseWindow, options: OpenDialogOptions) => {
+      const hasMultiSelection = options.properties?.includes('multiSelections') ?? false
+      if (!hasMultiSelection) throw new Error('Expected multiSelections')
+      return { canceled: false, filePaths: selectedPaths, bookmarks: [] }
+    }) as unknown as typeof dialog.showOpenDialog
+  }, paths)
+}
+
+async function createFileDropSource(page: Page, path: string): Promise<void> {
+  await page.evaluate(() => {
+    const previous = document.querySelector('[data-testid="e2e-file-source"]')
+    previous?.remove()
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.dataset.testid = 'e2e-file-source'
+    input.style.position = 'fixed'
+    input.style.left = '-10000px'
+    document.body.append(input)
+  })
+  await page.getByTestId('e2e-file-source').setInputFiles(path)
+}
+
+async function dispatchFileDrag(page: Page, type: 'dragenter' | 'dragleave' | 'drop'): Promise<void> {
+  await page.evaluate((eventType) => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="e2e-file-source"]')
+    if (!input?.files?.length) throw new Error('Missing disk-backed test file')
+    const transfer = new DataTransfer()
+    for (const file of input.files) transfer.items.add(file)
+    window.dispatchEvent(new DragEvent(eventType, {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: transfer
+    }))
+  }, type)
+}
+
+async function applyVisualAppearance(
+  application: ElectronApplication,
+  page: Page,
+  width: number,
+  height: number,
+  theme: 'light' | 'dark',
+  scale: '100' | '125'
+): Promise<void> {
+  await application.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size.width, size.height), { width, height })
+  await page.evaluate(({ nextTheme, nextScale }) => {
+    document.documentElement.dataset.theme = nextTheme
+    document.documentElement.dataset.themePreference = nextTheme
+    document.documentElement.style.colorScheme = nextTheme
+    const shell = document.querySelector<HTMLElement>('[data-testid="app-shell"]')
+    if (shell) {
+      shell.dataset.theme = nextTheme
+      shell.dataset.themePreference = nextTheme
+      shell.dataset.interfaceScale = nextScale
+    }
+  }, { nextTheme: theme, nextScale: scale })
+  await page.waitForTimeout(200)
+}
+
+test('keeps single-file import opening behavior and summarizes a mixed multi-file batch', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-batch-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const singlePath = join(workspace.root, 'single-reading.txt')
+    const firstPath = join(workspace.root, 'first-batch.txt')
+    const duplicatePath = join(workspace.root, 'duplicate-batch.txt')
+    const brokenPaths = Array.from({ length: 18 }, (_, index) => join(workspace.root, `broken-batch-${index + 1}.epub`))
+    await Promise.all([
+      writeFile(singlePath, '单本导入后应自动打开这段正文。', 'utf8'),
+      writeFile(firstPath, '批量导入中的唯一正文。', 'utf8'),
+      writeFile(duplicatePath, '批量导入中的唯一正文。', 'utf8'),
+      ...brokenPaths.map((path) => writeFile(path, 'not-an-epub', 'utf8'))
+    ])
+
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1536, 864))
+
+    await stubImportDialog(application, [singlePath])
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('reader-host')).toContainText('单本导入后应自动打开这段正文。')
+    await expect(page.getByTestId('book-import-dialog')).toHaveCount(0)
+
+    await page.getByTestId('nav-library').click()
+    await stubImportDialog(application, [firstPath, duplicatePath, ...brokenPaths])
+    await page.getByTestId('import-book').click()
+
+    const dialog = page.getByTestId('book-import-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 1 本 · 重复 1 本 · 失败 18 本 · 跳过 0 本')
+    await expect(page.getByTestId('book-import-failure')).toHaveCount(18)
+    await expect(page.getByTestId('book-import-failure').first()).toContainText('broken-batch-1.epub')
+    await expect(dialog).not.toContainText(workspace.root)
+    await expect(page.getByTestId('nav-library')).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByTestId('reader-host')).toContainText('单本导入后应自动打开这段正文。')
+    await expect(page.getByTestId('book-item')).toHaveCount(2)
+
+    const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+    if (visualDirectory) {
+      await mkdir(visualDirectory, { recursive: true })
+      await page.screenshot({ path: join(visualDirectory, 'book-import-summary-light-1536x864-100.png') })
+      await applyVisualAppearance(application, page, 940, 600, 'dark', '125')
+      await page.screenshot({ path: join(visualDirectory, 'book-import-summary-dark-940x600-125.png') })
+    }
+
+    await page.getByTestId('book-import-close').click()
+    await expect(page.getByTestId('book-import-dialog')).toHaveCount(0)
+    await expect(page.getByTestId('import-book')).toBeFocused()
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('shows the whole-window drop target, hides it on leave, and imports a real dropped file', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-drop-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const fixture = join(workspace.root, 'dropped-reading.txt')
+    await writeFile(fixture, '真实文件拖入后可直接阅读。', 'utf8')
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    const initialUrl = page.url()
+    await expect(page.getByTestId('app-shell')).toBeVisible()
+    const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+    if (visualDirectory) {
+      await mkdir(visualDirectory, { recursive: true })
+      await applyVisualAppearance(application, page, 1536, 864, 'light', '100')
+    }
+    await createFileDropSource(page, fixture)
+
+    await dispatchFileDrag(page, 'dragenter')
+    await expect(page.getByTestId('book-drop-overlay')).toContainText('释放以导入书籍')
+    if (visualDirectory) {
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: join(visualDirectory, 'book-drop-overlay-light-1536x864-100.png') })
+    }
+    await dispatchFileDrag(page, 'dragleave')
+    await expect(page.getByTestId('book-drop-overlay')).toHaveCount(0)
+
+    if (visualDirectory) {
+      await applyVisualAppearance(application, page, 940, 600, 'dark', '125')
+      await dispatchFileDrag(page, 'dragenter')
+      await expect(page.getByTestId('book-drop-overlay')).toBeVisible()
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: join(visualDirectory, 'book-drop-overlay-dark-940x600-125.png') })
+      await dispatchFileDrag(page, 'dragleave')
+    }
+
+    await dispatchFileDrag(page, 'dragenter')
+    await dispatchFileDrag(page, 'drop')
+    await expect(page.getByTestId('reader-host')).toContainText('真实文件拖入后可直接阅读。')
+    await page.getByTestId('nav-library').click()
+    await expect(page.getByTestId('book-item')).toHaveCount(1)
+    expect(page.url()).toBe(initialUrl)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('cancels after the active item, keeps partial results, and marks remaining files skipped', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-cancel-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const slowPath = join(workspace.root, 'current-large.txt')
+    await writeFile(slowPath, '取消请求到达时，当前条目仍应完成。', 'utf8')
+    const remainingPaths = Array.from({ length: 80 }, (_, index) => join(workspace.root, `remaining-${index}.txt`))
+    await Promise.all(remainingPaths.map((path, index) => writeFile(path, `未处理条目 ${index}`, 'utf8')))
+
+    const launched = await launchReader({
+      userData: workspace.userData,
+      env: { LLM_READER_E2E_IMPORT_DELAY_MS: '75' }
+    })
+    application = launched.application
+    const { page } = launched
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 600))
+    await stubImportDialog(application, [slowPath, ...remainingPaths])
+    await page.getByTestId('import-book').click()
+
+    const dialog = page.getByTestId('book-import-dialog')
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeVisible()
+    await createFileDropSource(page, remainingPaths[0])
+    await dispatchFileDrag(page, 'dragenter')
+    await expect(page.getByTestId('book-drop-overlay')).toContainText('正在导入书籍')
+    await dispatchFileDrag(page, 'dragleave')
+    await expect(page.getByTestId('book-drop-overlay')).toHaveCount(0)
+
+    const visualDirectory = process.env.LLM_READER_VISUAL_DIR
+    if (visualDirectory) {
+      await mkdir(visualDirectory, { recursive: true })
+      await applyVisualAppearance(application, page, 1536, 864, 'light', '100')
+      await page.screenshot({ path: join(visualDirectory, 'book-import-progress-light-1536x864-100.png') })
+      await applyVisualAppearance(application, page, 940, 600, 'dark', '125')
+      await page.screenshot({ path: join(visualDirectory, 'book-import-progress-dark-940x600-125.png') })
+    }
+
+    await page.getByTestId('book-import-cancel').click()
+    await expect(page.getByTestId('book-import-summary')).toBeVisible()
+    await expect(page.getByTestId('book-import-summary')).toContainText('导入已停止。')
+    const summary = (await page.getByTestId('book-import-summary').textContent()) ?? ''
+    const skipped = Number(summary.match(/跳过 (\d+) 本/u)?.[1] ?? '0')
+    expect(skipped).toBeGreaterThan(0)
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('renders and scrolls a 300-book library and opens its last visible entry', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-300-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const fixtureDirectory = join(workspace.root, 'books')
+    await mkdir(fixtureDirectory, { recursive: true })
+    const paths = Array.from({ length: 300 }, (_, index) => join(fixtureDirectory, `scale-book-${String(index + 1).padStart(3, '0')}.txt`))
+    await Promise.all(paths.map((path, index) => writeFile(path, `规模化书库正文 ${index + 1}`, 'utf8')))
+
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    await stubImportDialog(application, paths)
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 300 本', { timeout: 120_000 })
+    await page.getByTestId('book-import-close').click()
+    const items = page.getByTestId('book-item')
+    await expect(items).toHaveCount(300)
+
+    const library = page.getByTestId('library-list')
+    await library.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+      element.dispatchEvent(new Event('scroll'))
+    })
+    const last = items.last()
+    await last.scrollIntoViewIfNeeded()
+    await expect(last).toBeVisible()
+    await last.click()
+    await expect(page.locator('.workspace-book-title h1')).toContainText('规模化书库正文')
+    await expect(page.getByTestId('reader-host')).toContainText('规模化书库正文')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('keeps two global destinations and resumes the most recently opened book from the library bar', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-resume-e2e-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const firstPath = join(workspace.root, '先读的书.txt')
+    const secondPath = join(workspace.root, '后读的书.txt')
+    await Promise.all([
+      writeFile(firstPath, '先读的书\n\n先读的书的正文。', 'utf8'),
+      writeFile(secondPath, '后读的书\n\n后读的书的正文。', 'utf8')
+    ])
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    await stubImportDialog(application, [firstPath, secondPath])
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 2 本')
+    await page.getByTestId('book-import-close').click()
+    await expect(page.getByTestId('book-item')).toHaveCount(2)
+
+    // 主导航只保留两个全局目的地，不再由顶栏承担“返回当前书籍”。
+    await expect(page.locator('.workspace-topbar nav button')).toHaveCount(2)
+
+    // 只有导入记录、从未打开过的书库不提供继续阅读。
+    await expect(page.getByTestId('library-resume')).toHaveCount(0)
+
+    await page.getByTestId('book-item').filter({ hasText: '先读的书' }).click()
+    await expect(page.locator('.workspace-book-title h1')).toHaveText('先读的书')
+    await page.getByTestId('nav-library').click()
+    // 书库卡片直接显示书籍格式
+    await expect(page.getByTestId('book-item').filter({ hasText: '先读的书' }).getByTestId('book-format')).toHaveText('TXT')
+    const resume = page.getByTestId('library-resume')
+    await expect(resume).toContainText('继续阅读《先读的书》')
+    await expect(resume).toContainText(/已读 \d+%/u)
+
+    await page.getByTestId('book-item').filter({ hasText: '后读的书' }).click()
+    await expect(page.locator('.workspace-book-title h1')).toHaveText('后读的书')
+    await page.getByTestId('nav-library').click()
+    await expect(resume).toContainText('继续阅读《后读的书》')
+
+    // 继续阅读直接回到阅读页并恢复本书内容，不再中转概览页。
+    await page.getByTestId('library-resume-open').click()
+    await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
+    await expect(page.locator('.workspace-book-title h1')).toHaveText('后读的书')
+    await expect(page.getByTestId('reader-host')).toContainText('后读的书的正文。')
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
+test('uses three compact library columns at 1180px and two at 940px', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-library-grid-')
+  let application: ElectronApplication | undefined
+
+  try {
+    const fixtureDirectory = join(workspace.root, 'grid-books')
+    await mkdir(fixtureDirectory, { recursive: true })
+    const paths = Array.from({ length: 6 }, (_, index) => join(fixtureDirectory, `${index === 0 ? '一本书名很长很长用于验证最多显示两行而不会撑宽卡片-' : 'grid-book-'}${index + 1}.txt`))
+    await Promise.all(paths.map((path, index) => writeFile(path, `紧凑书库卡片 ${index + 1}`, 'utf8')))
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    const { page } = launched
+    await stubImportDialog(application, paths)
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 6 本')
+    await page.getByTestId('book-import-close').click()
+
+    const rowPattern = async () => page.locator('.book-item').evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().top)))
+    await resizeWorkspace(application, page, 1180, 760)
+    const wideRows = await rowPattern()
+    expect(new Set(wideRows.slice(0, 3)).size).toBe(1)
+    expect(wideRows[3]).toBeGreaterThan(wideRows[0])
+    await page.screenshot({ path: test.info().outputPath('library-1180-light.png'), animations: 'disabled' })
+
+    await resizeWorkspace(application, page, 940, 600)
+    const compactRows = await rowPattern()
+    expect(new Set(compactRows.slice(0, 2)).size).toBe(1)
+    expect(compactRows[2]).toBeGreaterThan(compactRows[0])
+    await expect(page.locator('.book-meta strong').first()).toHaveCSS('-webkit-line-clamp', '2')
+    // 标题一行与两行的卡片高度必须一致，网格行高才能统一。
+    const cardHeights = async (): Promise<number[]> => page.locator('.book-item').evaluateAll((cards) => [...new Set(cards.map((card) => Math.round(card.getBoundingClientRect().height)))])
+    expect(await cardHeights()).toHaveLength(1)
+    await expect(page.getByTestId('book-info').first()).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: test.info().outputPath('library-940-light.png'), animations: 'disabled' })
+  } finally {
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
