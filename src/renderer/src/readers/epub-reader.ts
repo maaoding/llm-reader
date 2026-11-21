@@ -464,9 +464,12 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.reflowable = metadata.layout !== 'pre-paginated'
     this.host.dataset.epubLayout = this.reflowable ? 'reflowable' : 'fixed'
 
+    const initialSize = { width: this.host.clientWidth, height: this.host.clientHeight }
     const rendition = book.renderTo(this.host, {
-      width: '100%',
-      height: '100%',
+      // Numeric dimensions keep epub.js from resizing independently of the host
+      // observer, which serializes viewport changes with chapter navigation.
+      ...initialSize,
+      resizeOnOrientationChange: false,
       manager: this.reflowable ? 'continuous' : 'default',
       flow: this.reflowable ? 'scrolled-doc' : 'paginated',
       spread: 'none',
@@ -487,6 +490,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       stabilizeContinuousManager(rendition)
     }
     this.bindRendererScrollInput(rendition)
+    this.observeHostSize(rendition, initialSize)
 
     this.programmaticScroll = true
     this.relocationReason = 'restore'
@@ -820,13 +824,12 @@ export class EpubReaderAdapter implements ReaderAdapter {
     const manager = (rendition as { manager?: { container?: HTMLElement } } | null)?.manager
     const container = this.host.querySelector<HTMLElement>(':scope > .epub-container') ?? manager?.container
     if (container) this.attachContainerScrollInput(container)
-    this.observeHostSize(rendition)
   }
 
-  private observeHostSize(rendition: Rendition): void {
+  private observeHostSize(rendition: Rendition, initialSize: { width: number; height: number }): void {
     const view = this.host.ownerDocument.defaultView
     if (!view?.ResizeObserver) return
-    let width = this.host.clientWidth, height = this.host.clientHeight
+    let { width, height } = initialSize
     const resize = async (): Promise<void> => {
       if (this.rendition !== rendition) return
       const nextWidth = this.host.clientWidth, nextHeight = this.host.clientHeight

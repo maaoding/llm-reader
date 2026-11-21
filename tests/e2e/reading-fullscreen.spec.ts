@@ -257,63 +257,76 @@ test('shows a retry when the automatic assistant window cannot open', async () =
   }
 })
 
-citationTest('keeps the EPUB chapter through fullscreen and sends F11 from its reading frame', async ({ citationEndpoint }) => {
-  const workspace = await createE2eWorkspace('llm-reader-epub-fullscreen-')
-  const bookPath = join(workspace.root, 'fullscreen.epub')
-  let application: ElectronApplication | undefined
-  try {
-    await createSearchLinksEpubFixture(bookPath, 60)
-    const launched = await launchReader({ userData: workspace.userData, importPath: bookPath })
-    application = launched.application
-    const { page } = launched
-    await activateCitationProvider(page, citationEndpoint)
-    await page.getByTestId('book-item').click()
-    await page.frameLocator('.epub-view iframe').first().getByRole('link', { name: '前往第二章' }).click()
-    const chapter = page.frameLocator('.epub-view iframe[srcdoc*="第二章包含小写"]')
-    const paragraph = chapter.locator('#destination')
-    await expect(paragraph).toBeInViewport()
-    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
-    await paragraph.evaluate((element: HTMLElement) => {
-      element.tabIndex = -1
-      element.focus({ preventScroll: true })
-    })
-    await expect(paragraph).toBeFocused()
-    const opening = application.waitForEvent('window')
-    await pressNativeF11(application)
-    const popup = await opening
-    await waitForVisibleAssistant(application)
-    const scrollArea = page.locator('.epub-container')
-    const chapterBody = chapter.locator('p').nth(2)
-    await expect(scrollArea).toBeFocused()
-    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
-    await expect(paragraph).toBeInViewport()
-    const readScrollTop = () => scrollArea.evaluate((element) => element.scrollTop)
-    const chapterStart = await readScrollTop()
-    await page.keyboard.press('ArrowDown')
-    await expect.poll(readScrollTop).toBeGreaterThan(chapterStart)
-    await expect(chapterBody).toBeInViewport()
-    await chapterBody.evaluate((element) => {
-      const owner = element.ownerDocument
-      const text = element.firstChild!
-      const range = owner.createRange()
-      range.setStart(text, 0)
-      range.setEnd(text, text.textContent!.length)
-      owner.getSelection()?.removeAllRanges()
-      owner.getSelection()?.addRange(range)
-      element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-    })
-    await expect(page.getByTestId('selection-toolbar')).toBeVisible()
-    await page.getByTestId('action-explain').click()
-    await popup.getByTestId('citation-valid').click()
-    await expect(page.locator('.llm-reader-temporary-highlight').first()).toBeAttached()
-    await page.getByTestId(fullscreenButton).click()
-    await expect(page.getByTestId('app-shell')).toHaveAttribute('data-reading-fullscreen', 'false')
-    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
-    await expect(chapterBody).toBeInViewport()
-  } finally {
-    await cleanupE2eWorkspace(application, workspace.root)
-  }
-})
+for (const [width, height, theme, scale] of [[1180, 800, 'light', 100], [940, 600, 'dark', 125]] as const) {
+  citationTest(`keeps the EPUB chapter through fullscreen and jumps to the citation at ${width}x${height} ${theme}/${scale}`, async ({ citationEndpoint }) => {
+    const workspace = await createE2eWorkspace('llm-reader-epub-fullscreen-')
+    const bookPath = join(workspace.root, 'fullscreen.epub')
+    let application: ElectronApplication | undefined
+    try {
+      await createSearchLinksEpubFixture(bookPath, 120)
+      const launched = await launchReader({ userData: workspace.userData, importPath: bookPath })
+      application = launched.application
+      const { page } = launched
+      await activateCitationProvider(page, citationEndpoint)
+      await resizeWorkspace(application, page, width, height)
+      await page.getByTestId('settings-button').click()
+      await page.getByTestId(`theme-${theme}`).click()
+      await page.getByTestId(`scale-${scale}`).click()
+      await page.getByTestId(`ui-language-${theme === 'dark' ? 'en' : 'zh'}`).click()
+      await page.getByTestId('settings-close').click()
+      await page.getByTestId('book-item').click()
+      await page.frameLocator('.epub-view iframe').first().getByRole('link', { name: '前往第二章' }).click()
+      const chapter = page.frameLocator('.epub-view iframe[srcdoc*="第二章包含小写"]')
+      const paragraph = chapter.locator('#destination')
+      await expect(paragraph).toBeInViewport()
+      await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
+      await paragraph.evaluate((element: HTMLElement) => {
+        element.tabIndex = -1
+        element.focus({ preventScroll: true })
+      })
+      await expect(paragraph).toBeFocused()
+      const opening = application.waitForEvent('window')
+      await pressNativeF11(application)
+      const popup = await opening
+      await waitForVisibleAssistant(application)
+      const scrollArea = page.locator('.epub-container')
+      const chapterBody = chapter.locator('p').nth(2)
+      await expect(scrollArea).toBeFocused()
+      await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
+      await expect(paragraph).toBeInViewport()
+      const readScrollTop = () => scrollArea.evaluate((element) => element.scrollTop)
+      const chapterStart = await readScrollTop()
+      await page.keyboard.press('ArrowDown')
+      await expect.poll(readScrollTop).toBeGreaterThan(chapterStart)
+      await expect(chapterBody).toBeInViewport()
+      await chapterBody.evaluate((element) => {
+        const owner = element.ownerDocument
+        const text = element.firstChild!
+        const range = owner.createRange()
+        range.setStart(text, 0)
+        range.setEnd(text, text.textContent!.length)
+        owner.getSelection()?.removeAllRanges()
+        owner.getSelection()?.addRange(range)
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      })
+      await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+      await page.getByTestId('action-explain').click()
+      await scrollArea.evaluate((element) => { element.scrollTop += element.clientHeight })
+      await expect(chapterBody).not.toBeInViewport()
+      await popup.getByTestId('citation-valid').click()
+      const highlight = page.locator('.llm-reader-temporary-highlight rect').first()
+      await expect(highlight).toBeInViewport()
+      await expect(chapterBody).toBeInViewport()
+      await page.screenshot({ path: test.info().outputPath('epub-citation.png'), animations: 'disabled' })
+      await page.getByTestId(fullscreenButton).click()
+      await expect(page.getByTestId('app-shell')).toHaveAttribute('data-reading-fullscreen', 'false')
+      await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', '第二章')
+      await expect(chapterBody).toBeInViewport()
+    } finally {
+      await cleanupE2eWorkspace(application, workspace.root)
+    }
+  })
+}
 
 citationTest('uses PDF fit width and region selection in fullscreen without returning to the first page', async ({ citationEndpoint }) => {
   const workspace = await createE2eWorkspace('llm-reader-pdf-fullscreen-')

@@ -517,6 +517,7 @@ describe('EPUB adapter safety utilities', () => {
     }
     epubFactory.mockReturnValue(book)
     const host = document.createElement('div')
+    Object.defineProperties(host, { clientWidth: { value: 800 }, clientHeight: { value: 600 } })
     document.body.append(host)
     const onSelectionChanged = vi.fn()
     const onRelocated = vi.fn()
@@ -535,6 +536,9 @@ describe('EPUB adapter safety utilities', () => {
     expect(book.renderTo).toHaveBeenCalledWith(
       host,
       expect.objectContaining({
+        width: 800,
+        height: 600,
+        resizeOnOrientationChange: false,
         manager: 'continuous',
         flow: 'scrolled-doc',
         allowScriptedContent: false
