@@ -114,6 +114,9 @@ test('first explanation configures a model without an error turn and continues o
     await expect(page.locator('.turn-error')).toHaveCount(0)
     await expect(page.getByTestId('pending-selection-action')).toHaveCount(0)
     await expect(page.getByTestId('answer-guide')).toBeVisible()
+    // Streamed text settles under a resting pointer, which can open a citation preview over the guide.
+    await page.mouse.move(0, 0)
+    await expect(page.getByTestId('source-preview')).toHaveCount(0)
     await page.getByTestId('answer-guide-dismiss').click()
     await screenshot(page, 'first-answer.png')
   } finally { await cleanupE2eWorkspace(application, workspace.root) }
