@@ -10,6 +10,20 @@ const script = readFileSync(resolve(siteRoot, 'script.js'), 'utf8')
 const copySource = readFileSync(resolve('src/shared/copy.md'), 'utf8')
 const document = new JSDOM(html).window.document
 
+function startDemo() {
+  const runtime = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true })
+  const { window } = runtime
+  window.matchMedia = () => ({ matches: false }) as MediaQueryList
+  window.HTMLElement.prototype.scrollTo = vi.fn()
+  window.eval(script)
+  const get = <T extends HTMLElement = HTMLElement>(selector: string) => {
+    const element = window.document.querySelector<T>(selector)
+    if (!element) throw new Error('Missing demo element ' + selector)
+    return element
+  }
+  return { window, get }
+}
+
 describe('static product website', () => {
   it('has one semantic page heading and the expected regions', () => {
     expect(document.querySelectorAll('h1')).toHaveLength(1)
@@ -66,7 +80,8 @@ describe('static product website', () => {
     expect(demo?.querySelector('.demo-reader-column')).not.toBeNull()
     expect(demo?.querySelector('.demo-right-sidebar')).not.toBeNull()
     expect(Array.from(demo?.querySelectorAll('.demo-bookbar nav button') ?? []).map((button) => button.textContent?.trim())).toEqual(['阅读', '笔记', '对话'])
-    expect(demo?.querySelector('.demo-bookbar > .demo-book-prepare')?.textContent).toBe('本书准备')
+    expect(demo?.querySelector('.demo-book-actions .demo-book-prepare')?.textContent).toBe('本书准备')
+    expect(demo?.querySelector('button[data-demo-fullscreen]')?.getAttribute('aria-pressed')).toBe('false')
     expect(passiveControls.length).toBeGreaterThan(10)
     expect(passiveControls.every((control) => control.getAttribute('aria-disabled') === 'true')).toBe(true)
     expect(document.querySelector('[data-demo-explain]')).not.toBeNull()
@@ -75,33 +90,145 @@ describe('static product website', () => {
     expect(document.querySelector('[data-demo-explain] svg')).not.toBeNull()
     expect(document.querySelector('.demo-selection-toolbar')?.textContent).not.toContain('✦')
     expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.demo-selection-toolbar button')).map((button) => button.textContent?.trim())).toEqual(['解释这段', '联系上下文', '自由提问', '摘录这段', ''])
-    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.demo-selection-toolbar [data-demo-passive]')).every((button) => button.title === '官网演示中不可用')).toBe(true)
     expect(document.querySelector('.demo-selection-toolbar .toolbar-close')?.getAttribute('aria-label')).toBe('关闭选区工具')
     expect(document.querySelector('.demo-assistant-tabs')).toBeNull()
     expect(styles).not.toContain('.demo-assistant-tabs')
-    expect(document.querySelector('[data-demo-answer]')?.hasAttribute('hidden')).toBe(true)
-    const questionPrompt = document.querySelector<HTMLDetailsElement>('.demo-user-message .demo-question-prompt')
-    const currentExplainPrompt = copySource.match(/^\| assistant\.questionExplain \| (.+) \|\r?$/mu)?.[1]
-    expect(currentExplainPrompt).toBeTruthy()
-    expect(questionPrompt?.open).toBe(false)
-    expect(questionPrompt?.querySelector('summary')?.textContent).toBe('查看本次提示词')
-    // 官网使用精简演示提示词，保留应用默认任务与原文证据边界。
-    const demoExplainPrompt = questionPrompt?.querySelector('p')?.textContent ?? ''
-    expect(demoExplainPrompt).toContain(currentExplainPrompt!.split('。')[0])
-    expect(demoExplainPrompt).toContain('以原文为依据')
-    expect(demoExplainPrompt).toContain('区分明确表述与推断')
-    expect(document.querySelector('[data-demo-citation]')).toBeNull()
-    expect(document.querySelector('.demo-citation[data-demo-return]')).not.toBeNull()
+    expect(demo?.querySelector('[data-demo-turns]')?.childElementCount).toBe(0)
+    expect(demo?.querySelectorAll('button[data-demo-copy-session]:disabled')).toHaveLength(2)
     expect(document.querySelector('[data-demo-selection]')?.getAttribute('tabindex')).toBe('0')
     expect(scriptElement).not.toBeNull()
-    // 0.5.0 站点用 ./script.js?v=... 做缓存失效，并保持 defer。
     expect(scriptElement?.hasAttribute('defer')).toBe(true)
     expect(existsSync(resolve(siteRoot, 'script.js'))).toBe(true)
     expect(script).toContain("matchMedia('(prefers-reduced-motion: reduce)')")
-    expect(script).toContain("demo.dataset.demoState = 'answered'")
-    expect(script).toContain('[data-demo-return]')
-    expect(script).toContain("demo.dataset.demoState = 'citation'")
-    expect(script).not.toContain('模拟回答已显示')
+  })
+
+  it('previews the cited text in place and jumps only on request', () => {
+    const { window, get } = startDemo()
+    try {
+      get('[data-demo-explain]').click()
+      const prompt = get<HTMLDetailsElement>('.demo-question-prompt')
+      const currentExplainPrompt = copySource.match(/^\| assistant\.questionExplain \| (.+) \|\r?$/mu)?.[1]
+      expect(currentExplainPrompt).toBeTruthy()
+      expect(prompt.open).toBe(false)
+      expect(prompt.querySelector('summary')?.textContent).toBe('查看本次提示词')
+      expect(prompt.textContent).toContain(currentExplainPrompt!.split('。')[0])
+      expect(prompt.textContent).toContain('以原文为依据')
+      expect(prompt.textContent).toContain('区分明确表述与推断')
+
+      get('button[data-demo-view="conversation"]').click()
+      const citation = get('.demo-citation')
+      const preview = get('#demo-source-preview')
+      const reader = get('.demo-reader-surface')
+      citation.focus()
+      expect(citation.getAttribute('aria-expanded')).toBe('true')
+      expect(preview.hidden).toBe(false)
+      expect(preview.querySelector('strong')?.textContent).toBe('理解复杂概念')
+      expect(preview.querySelector('small')?.textContent).toBe('全文')
+      expect(get('.demo-preview-text').textContent).toBe(get('[data-demo-passage="P1"]').textContent)
+      citation.click()
+      expect(window.document.activeElement).toBe(get('.demo-preview-text'))
+      window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(preview.hidden).toBe(true)
+      expect(window.document.activeElement).toBe(citation)
+      get<HTMLDetailsElement>('.demo-answer-sources').open = true
+      for (const id of ['P1', 'P2', 'P3']) {
+        get(`.demo-answer-sources button[data-demo-preview="${id}"]`).click()
+        expect(get('.demo-preview-text').textContent).toBe(get(`[data-demo-passage="${id}"]`).textContent)
+        expect(get('[data-reader-demo]').dataset.demoView).toBe('conversation')
+        expect(reader.scrollTo).not.toHaveBeenCalled()
+      }
+      get('[data-demo-jump]').click()
+      expect(preview.hidden).toBe(true)
+      expect(get('[data-reader-demo]').dataset.demoView).toBe('reading')
+      expect(window.document.activeElement).toBe(get('[data-demo-passage="P3"]'))
+      expect(reader.scrollTo).toHaveBeenCalledOnce()
+    } finally {
+      window.close()
+    }
+  })
+
+  it('keeps the same draft and completed turns across views and copies only the requested content', async () => {
+    const { window, get } = startDemo()
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined)
+    Object.defineProperty(window.navigator, 'clipboard', { value: { writeText } })
+    try {
+      get('[data-demo-explain]').click()
+      const composer = get<HTMLTextAreaElement>('#demo-followup')
+      composer.value = '遇到陡坡时呢？'
+      composer.dispatchEvent(new window.Event('input'))
+      get('button[data-demo-fullscreen]').click()
+      get('[data-demo-close-assistant]').click()
+      expect(get('.demo-right-sidebar').hidden).toBe(true)
+      get('[data-demo-open-assistant]').click()
+      get('button[data-demo-view="conversation"]').click()
+      expect(get('[data-reader-demo]').dataset.demoFullscreen).toBe('false')
+      expect(composer.value).toBe('遇到陡坡时呢？')
+      get('[data-demo-send]').click()
+      expect(get('[data-demo-turns]').children).toHaveLength(2)
+      composer.value = '未发送的草稿'
+      get('.demo-answer:last-child [data-demo-copy-turn]').click()
+      get('.demo-conversation-controls [data-demo-copy-session]').click()
+      await Promise.resolve()
+      const [single, session] = writeText.mock.calls.map(([value]) => value)
+      expect(single).toContain('## 第 2 轮')
+      expect(single).not.toContain('## 第 1 轮')
+      expect(session).toContain('## 第 1 轮')
+      for (const markdown of [single, session]) {
+        expect(markdown).toContain('遇到陡坡时呢？')
+        expect(markdown).toContain(get('[data-demo-passage="P3"]').textContent)
+        expect(markdown).not.toContain(composer.value)
+      }
+      get('[data-demo-clear]').click()
+      get('[data-demo-clear-yes]').click()
+      expect(get('[data-demo-turns]').children).toHaveLength(0)
+      expect(get<HTMLButtonElement>('[data-demo-export]').disabled).toBe(true)
+    } finally {
+      window.close()
+    }
+  })
+
+  it('finds recent sessions by book, question or answer and restores their own drafts and sources', () => {
+    const { window, get } = startDemo()
+    try {
+      const composer = get<HTMLTextAreaElement>('#demo-followup')
+      const query = get<HTMLInputElement>('[data-demo-recent-query]')
+      const input = (element: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+        element.value = value
+        element.dispatchEvent(new window.Event('input'))
+      }
+      const results = () => window.document.querySelectorAll('.demo-recent-list button')
+      get('[data-demo-explain]').click()
+      input(composer, '选区里未发送的草稿')
+      get('button[data-demo-scope="book"]').click()
+      input(composer, '书中怎样划分概念？')
+      get('[data-demo-send]').click()
+      input(composer, '整本书的下一问')
+      get('.demo-assistant-header [data-demo-recent]').click()
+      expect(window.document.activeElement).toBe(query)
+      expect(results()).toHaveLength(1)
+      input(query, '理解复杂概念')
+      expect(results()).toHaveLength(2)
+      input(query, '未发送的草稿')
+      expect(results()).toHaveLength(0)
+      input(query, '重新检查结论')
+      expect(results()).toHaveLength(1)
+      expect(get('.demo-recent-match mark').textContent).toBe('重新检查结论')
+      get('.demo-recent-list button').click()
+      expect(get('#demo-recent').hidden).toBe(true)
+      expect(get('[data-reader-demo]').dataset.demoScope).toBe('selection')
+      expect(composer.value).toBe('选区里未发送的草稿')
+      expect(get('.demo-citation').dataset.demoPreview).toBe('P1')
+
+      get('button[data-demo-view="conversation"]').click()
+      get('.demo-conversation-controls [data-demo-recent]').click()
+      input(query, '划分概念')
+      get('.demo-recent-list button').click()
+      expect(get('[data-reader-demo]').dataset.demoScope).toBe('book')
+      expect(composer.value).toBe('整本书的下一问')
+      expect(get('.demo-citation').dataset.demoPreview).toBe('P3')
+    } finally {
+      window.close()
+    }
   })
 
   it('removes the old Mac-style frame and automatic stepper', () => {
@@ -119,7 +246,7 @@ describe('static product website', () => {
       vi.advanceTimersByTime(60_000)
       const runtimeDemo = runtime.window.document.querySelector('[data-reader-demo]')
       expect(runtimeDemo?.getAttribute('data-demo-state')).toBe('selected')
-      expect(runtimeDemo?.querySelector('[data-demo-answer]')?.hasAttribute('hidden')).toBe(true)
+      expect(runtimeDemo?.querySelector('[data-demo-turns]')?.childElementCount).toBe(0)
     } finally {
       runtime.window.close()
       vi.useRealTimers()
