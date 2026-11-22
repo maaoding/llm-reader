@@ -15,6 +15,7 @@ import { useSelectionToolbar } from './use-selection-toolbar'
 import { useProviderConnection, providerStatusLabel } from './use-provider-connection'
 import { useConversationRequests } from './use-conversation-requests'
 import { useReaderSearch } from './use-reader-search'
+import { ReaderSearchPanel } from './ReaderSearchPanel'
 import { useAppClose } from './use-app-close'
 import { useReadingFullscreen } from './use-reading-fullscreen'
 import { useConversationSessions } from './use-conversation-sessions'
@@ -25,7 +26,7 @@ import { isTextReadingMode, readTextReadingMode, saveTextReadingMode } from './t
 import { WebSearchControl } from './WebSearchControl'
 import { PersonaSessionControl } from './AssistantPersonaSettings'
 import { defaultPersona, MAX_PERSONAS, persistPersonaSettings, personaFromPreset, readPersonaSettings } from './assistant-personas'
-import { RecentConversations } from './RecentConversations'
+import { RecentConversations, type RecentConversationOutcome } from './RecentConversations'
 import { ReadingAssistant } from './ReadingAssistant'
 import { providerIsConfigured } from '@shared/request-settings'
 import {
@@ -57,7 +58,6 @@ import {
 import {
   type CSSProperties,
   type FormEvent,
-  Fragment,
   type ReactNode,
   useCallback,
   useEffect,
@@ -95,11 +95,6 @@ import { readableError } from './readable-error'
 import { normalizeNeedle } from './highlight'
 import { assistantActionLabel } from './assistant-actions'
 import { loadReaderAdapter } from './readers/reader-loader'
-import {
-  READER_SEARCH_QUERY_MAX_LENGTH,
-  READER_SEARCH_RESULT_LIMIT,
-  splitSearchExcerpt
-} from '@shared/reader-search'
 import {
   readerTitle,
   type ReaderAdapter,
@@ -298,10 +293,12 @@ export default function App(): ReactNode {
     activeBookRef.current = activeBook
   }, [activeBook])
 
-  const {
-    searchQuery, setSearchQuery, executedSearchQuery, searchResults, searchState, searchError,
-    searchInputRef, submitSearch, resetSearch, invalidateSearch
-  } = useReaderSearch({ adapterRef, activeBookRef, visible: page === 'reading' && leftPanelOpen && leftView === 'search' })
+  const searchAnalysis = activeBook ? analysis.states[activeBook.id] : undefined
+  const readerSearch = useReaderSearch({
+    adapterRef, activeBookRef, visible: page === 'reading' && leftPanelOpen && leftView === 'search',
+    settingsVersion: analysis.settingsVersion, documentJobId: searchAnalysis?.document?.jobId, indexStatus: searchAnalysis?.semantic?.status
+  })
+  const { resetSearch, invalidateSearch, searchInputRef } = readerSearch
 
   const pushToast = useCallback((message: string, tone: ToastState['tone'] = 'neutral'): void => {    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setToast({ id: Date.now(), tone, message })
@@ -452,7 +449,7 @@ export default function App(): ReactNode {
     loadedSessions, loadedSessionsRef, failedSessionLoads, retrySessionRestoration,
     sessionTabsRestoreState, sessionTabsRestoreError, retryTabRestoration,
     sessionSaves, tabSaves, archiveSaves, sessionTransitionsRef, changingSessions, setSessionChanging,
-    persistLiveSession, persistSessionTabs, persistArchiveHistory, flushSessionSaves, closeConversationTab
+    persistLiveSession, persistSessionTabs, persistArchiveHistory, flushSessionSaves, closeConversationTab, restoreRecentSession
   } = useConversationSessions({
     books, activeBookId: activeBook?.id, activeBookRef, libraryReady: libraryState === 'ready',
     workspaceReady, personaSettings, webSearchEnabled, closingRef, deletingBooksRef, deletingInsightsRef,
@@ -1420,7 +1417,7 @@ export default function App(): ReactNode {
     if (visibleAnalysisBookId) void refreshAnalysis(visibleAnalysisBookId)
     if (preparationBookId && preparationBookId !== visibleAnalysisBookId) void refreshAnalysis(preparationBookId)
   }, [visibleAnalysisBookId, preparationBookId, refreshAnalysis, analysis.settingsVersion])
-  const activeDocument = activeBook ? analysis.states[activeBook.id]?.document : undefined
+  const activeDocument = searchAnalysis?.document
   useEffect(() => {
     const adapter = adapterRef.current
     if (bookState === 'ready') {
@@ -1473,18 +1470,27 @@ export default function App(): ReactNode {
     if (current) await persistLiveSession(current)
     return window.readerApi.listRecentBookSessions(tab.bookId)
   }
-  const restoreRecentConversation = async (tab: ConversationTab, conversationId: string): Promise<void> => {
-    const restored = await replaceSession(tab, async () => {
-      const record = await window.readerApi.getRecentBookSession({ bookId: tab.bookId, conversationId })
-      if (!record) throw new Error(copy('assistant.sessionRestoreFailed'))
-      return { conversationId: record.conversationId, scope: record.scope, selection: record.selection, draft: record.draft, persona: record.persona ?? null, webSearch: record.webSearch ?? 'off',
-        turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })) }
-    })
-    if (!restored) throw new Error(copy('assistant.sessionRestoreFailed'))
+  const restoreRecentConversation = async (
+    bookId: string, conversationId: string, signal: AbortSignal, keepReading = false
+  ): Promise<RecentConversationOutcome> => {
+    const book = books.find((item) => item.id === bookId)
+    if (!book) return 'missing'
+    const isCurrent = () => !signal.aborted && !closingRef.current && !isHighlightEditorOpen() && !deletingBooksRef.current.has(bookId)
+    if (!isCurrent()) return 'blocked'
+    const current = conversationTabsRef.current.find((tab) => tab.id === activeTabIdRef.current)
+    if (current?.kind === 'archive') await persistSessionTabs()
+    else if (current && current.bookId !== bookId) await persistLiveSession(current)
+    const tabId = await restoreRecentSession(book, conversationId, isCurrent, hasConversationRequest)
+    if (tabId === null) return 'missing'
+    if (!tabId || !isCurrent()) return 'blocked'
     setConversationQuery(''); setPendingClearSession(false)
-    focusConversationTab(tab.id)
+    if (keepReading && activeBookRef.current?.id === bookId) focusConversationTab(tabId)
+    else await activateSessionTab(tabId)
+    requestAnimationFrame(() => { if (activeTabIdRef.current === tabId) focusAssistantComposer() })
+    return 'restored'
   }
   const conversationNeedle = normalizeNeedle(conversationQuery)
+  const activeConversationBook = books.find((book) => book.id === activeConversationTab?.bookId)
   const conversationMatches = useMemo(() => {
     if (!conversationNeedle) return 0
     return (activeConversationTab?.turns ?? []).filter((turn) => [turn.question, turn.answer, turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.quote : '']
@@ -1725,6 +1731,7 @@ export default function App(): ReactNode {
             setLibraryQuery(event.target.value)
           }}
         /></label>
+          <RecentConversations disabled={libraryState !== 'ready' || closing} onRestore={restoreRecentConversation} />
           <button className="primary-button" data-testid="import-book" type="button" disabled={importing} onClick={(event) => void importBooks(event.currentTarget)}><Import size={17} />{copy(importing ? 'library.importing' : 'library.import')}</button></header>}
         {page === 'library' && resumeBook && (
           <div className="library-resume" data-testid="library-resume">
@@ -1810,73 +1817,8 @@ export default function App(): ReactNode {
               onConfirmDelete={setPendingDeleteHighlightId} />
           )}
 
-          {page === 'reading' && leftView === 'search' && (
-            <div className="reader-search" data-testid="reader-search" aria-label={copy('reader.searchTitle')}>
-              <div className="reader-search-heading"><h2>{copy('reader.searchTitle')}</h2></div>
-              <form className="reader-search-form" onSubmit={submitSearch}>
-                <input
-                  ref={searchInputRef}
-                  data-testid="reader-search-input"
-                  value={searchQuery}
-                  aria-label={copy('reader.searchInputAria')}
-                  placeholder={copy('reader.searchPlaceholder')}
-                  onChange={(event) => {
-                    const value = Array.from(event.target.value)
-                      .slice(0, READER_SEARCH_QUERY_MAX_LENGTH)
-                      .join('')
-                    setSearchQuery(value)
-                  }}
-                />
-                <button
-                  data-testid="reader-search-submit"
-                  type="submit"
-                  aria-label={copy('reader.searchSubmit')}
-                  title={copy('reader.searchSubmit')}
-                >
-                  <Search size={15} />
-                </button>
-              </form>
-              <div className="reader-search-status" aria-live="polite">
-                {searchState === 'searching' && <><LoaderCircle className="spin" size={15} />{copy('reader.searchLoading')}</>}
-                {searchState === 'error' && <span role="alert">{searchError}</span>}
-                {searchState === 'ready' && searchResults.length > 0 && (
-                  <span>{copy(
-                    searchResults.length >= READER_SEARCH_RESULT_LIMIT
-                      ? 'reader.searchResultLimit'
-                      : 'reader.searchResultCount',
-                    { count: searchResults.length }
-                  )}</span>
-                )}
-              </div>
-              {searchState === 'ready' && searchResults.length === 0 && (
-                <EmptyState
-                  icon={<SearchX size={20} />}
-                  title={copy('reader.searchNoResultsTitle')}
-                  detail={copy('reader.searchNoResultsDetail')}
-                />
-              )}
-              <div className="reader-search-results" data-testid="reader-search-results">
-                {searchResults.map((result, index) => (
-                  <button
-                    className="reader-search-result"
-                    data-testid="reader-search-result"
-                    type="button"
-                    key={`${result.anchor}-${index}`}
-                    onClick={() => void navigateToSearchResult(result)}
-                  >
-                    <span>{readerTitle(result.chapterTitleCopy ?? result.chapterTitle, uiLanguage) || copy('common.currentChapter')}</span>
-                    <p>
-                      {splitSearchExcerpt(result.excerpt, executedSearchQuery).map((segment, segmentIndex) => (
-                        segment.hit
-                          ? <mark key={segmentIndex}>{segment.text}</mark>
-                          : <Fragment key={segmentIndex}>{segment.text}</Fragment>
-                      ))}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {page === 'reading' && leftView === 'search' && <ReaderSearchPanel search={readerSearch} uiLanguage={uiLanguage}
+            onNavigate={(result) => void navigateToSearchResult(result)} />}
         </div>
 
 
@@ -1973,11 +1915,11 @@ export default function App(): ReactNode {
         fullscreen={fullscreenReading}
         container={assistantContainer}
         inactive={page !== 'reading' || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))}
-        actions={!assistantDialogOpen && sidebarTab?.kind === 'live' && <RecentConversations
-          key={`${sidebarTab.id}:${sidebarTab.conversationId}`} currentId={sidebarTab.conversationId}
+        actions={page === 'reading' && sidebarTab?.kind === 'live' && <RecentConversations
+          key={`${sidebarTab.id}:${sidebarTab.conversationId}`}
+          current={{ bookId: sidebarTab.bookId, conversationId: sidebarTab.conversationId, onList: () => listRecentConversations(sidebarTab) }}
           disabled={!loadedSessions.has(sidebarTab.bookId) || Boolean(streamingRequestId(sidebarTab)) || changingSessions.includes(sidebarTab.id)}
-          onList={() => listRecentConversations(sidebarTab)}
-          onRestore={(conversationId) => restoreRecentConversation(sidebarTab, conversationId)} />}
+          onRestore={(bookId, conversationId, signal) => restoreRecentConversation(bookId, conversationId, signal, true)} />}
         notice={!assistantDialogOpen && pendingActionVisible && pendingSelectionAction && <section className="pending-selection-action" data-testid="pending-selection-action" role="status">
           <button className="icon-button guide-dismiss" type="button" data-testid="pending-action-dismiss" aria-label={copy('guide.cancelAction')} onClick={() => setPendingSelectionAction(null)}><X size={14} /></button>
           <p>{copy(providerIsConfigured(provider) ? 'guide.pendingReady' : 'guide.pendingModel')}</p>
@@ -1994,6 +1936,7 @@ export default function App(): ReactNode {
             onPrepare={(trigger) => { readingGuide.dismiss('reading'); if (activeBook) openPreparation(activeBook.id, trigger, true) }} /> : undefined,
           completionHint: readingGuide.showAnswer ? <AnswerGuide onDismiss={() => readingGuide.dismiss('answer')} /> : undefined,
           markdownBook: sidebarTab?.kind === 'live' ? books.find((book) => book.id === sidebarTab.bookId) : undefined,
+          bookTitle: activeBook?.title,
           scope: sidebarTab?.scope,
           controls: <AssistantContextControls tab={sidebarTab} state={sidebarTab ? analysis.states[sidebarTab.bookId] : undefined} busy={Boolean(streamingRequestId(sidebarTab)) || Boolean(sidebarTab && changingSessions.includes(sidebarTab.id))} onScope={(scope) => { if (sidebarTab) void changeConversationScope(sidebarTab, scope) }} />,
           composerControls: sidebarTab && (sidebarTab.kind !== 'live' || loadedSessions.has(sidebarTab.bookId)) && <>{webSearchControl(sidebarTab)}<PersonaSessionControl key={`${sidebarTab.id}:${sidebarTab.conversationId}`} persona={sidebarTab.persona} settings={personaSettings}
@@ -2113,10 +2056,10 @@ export default function App(): ReactNode {
               )}
               {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && <div className="conversation-markdown-slot" ref={setConversationMarkdownTarget} inert={changingSessions.includes(activeConversationTab.id)} />}
               {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && <RecentConversations
-                key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`} currentId={activeConversationTab.conversationId}
+                key={`${activeConversationTab.id}:${activeConversationTab.conversationId}`}
+                current={{ bookId: activeConversationTab.bookId, conversationId: activeConversationTab.conversationId, onList: () => listRecentConversations(activeConversationTab) }}
                 disabled={!loadedSessions.has(activeConversationTab.bookId) || Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)}
-                onList={() => listRecentConversations(activeConversationTab)}
-                onRestore={(conversationId) => restoreRecentConversation(activeConversationTab, conversationId)} />}
+                onRestore={restoreRecentConversation} />}
               {assistantDialogView === 'conversation' && activeConversationTab?.kind === 'live' && (activeConversationTab.turns.length > 0 || activeConversationTab.draft) && (
                 pendingClearSession ? (
                   <span className="assistant-session-clear is-confirming">
@@ -2151,7 +2094,8 @@ export default function App(): ReactNode {
               ) : activeConversationTab ? (
                 <ConversationPane
                   key={activeConversationTab.id + ':' + activeConversationTab.conversationId}
-                  markdownBook={activeConversationTab.kind === 'live' ? books.find((book) => book.id === activeConversationTab.bookId) : undefined}
+                  markdownBook={activeConversationTab.kind === 'live' ? activeConversationBook : undefined}
+                  bookTitle={activeConversationBook?.title}
                   markdownToolsTarget={conversationMarkdownTarget}
                   scope={activeConversationTab.scope}
                   scopeControls={<AssistantScopeControls tab={activeConversationTab} busy={Boolean(streamingRequestId(activeConversationTab)) || changingSessions.includes(activeConversationTab.id)} onScope={(scope) => void changeConversationScope(activeConversationTab, scope)} />}

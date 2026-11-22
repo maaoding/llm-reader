@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
 import { mergeRequestHeaders } from '@shared/request-settings'
-import type { Passage, SemanticIndexState, StartSemanticIndexInput } from '@shared/contracts'
+import { limitText } from '@shared/book-context'
+import type { Passage, SemanticIndexState, SemanticSearchFallbackReason, SemanticSearchInput, SemanticSearchResult, StartSemanticIndexInput } from '@shared/contracts'
 import { copy } from '@shared/copy'
 import { BookContextStore, MAX_PASSAGE_LOOKUP } from './book-context-store'
 import { AppError, toPublicError } from './errors'
@@ -11,6 +12,7 @@ import { KnowledgeHttp } from './knowledge-http'
 
 const MAX_DIMENSION = 4_096
 const MAX_VECTOR_BYTES = 128 * 1024 * 1024
+const LOOKUP_LIMIT = 24
 const embeddingResponse = z.object({ data: z.array(z.object({ index: z.number().int().nonnegative(), embedding: z.array(z.number().finite()).min(1).max(MAX_DIMENSION) })).min(1).max(16) })
 interface IndexRow { fingerprint: string; model: string; status: SemanticIndexState['status']; dimension: number | null; message: string | null }
 
@@ -32,8 +34,9 @@ export async function embed(http: KnowledgeHttp, config: EmbeddingCredentials, t
 }
 
 export class SemanticIndexService {
-  get isBusy(): boolean { return Boolean(this.active) }
+  get isBusy(): boolean { return Boolean(this.active || this.activeLookup) }
   private active?: { bookId: string; controller: AbortController }
+  private activeLookup?: { bookId: string; requestId: string; controller: AbortController }
   onChange: (bookId: string) => void = () => undefined
   constructor(private readonly store: BookContextStore, private readonly settings: KnowledgeSettingsService,
     private readonly http: KnowledgeHttp, private readonly foregroundBusy: () => boolean = () => false) {
@@ -67,6 +70,7 @@ export class SemanticIndexService {
     const fingerprint = this.fingerprint(input.bookId, config)
     if (old && old.fingerprint !== fingerprint && !input.rebuild) throw new AppError('SEMANTIC_CHANGED', copy('knowledge.indexChanged'))
     if (old?.status === 'ready' && !input.rebuild) return
+    if (this.activeLookup?.bookId === input.bookId) this.cancelSearch(this.activeLookup.requestId)
     if (!old || input.rebuild) {
       this.store.db.prepare('DELETE FROM semantic_indexes WHERE book_id = ?').run(input.bookId)
       this.store.db.prepare("INSERT INTO semantic_indexes(book_id, fingerprint, model, status) VALUES (?, ?, ?, 'paused')").run(input.bookId, fingerprint, config.model)
@@ -82,13 +86,20 @@ export class SemanticIndexService {
     }).finally(() => { if (this.active === active) this.active = undefined })
   }
   cancel(bookId: string): void {
+    if (this.activeLookup?.bookId === bookId) this.cancelSearch(this.activeLookup.requestId)
     if (this.active?.bookId !== bookId) return
     this.active.controller.abort()
     this.active = undefined
     this.store.db.prepare("UPDATE semantic_indexes SET status = 'paused' WHERE book_id = ? AND status = 'indexing'").run(bookId)
     this.onChange(bookId)
   }
-  dispose(): void { if (this.active) this.cancel(this.active.bookId) }
+  dispose(): void {
+    this.cancelSearch()
+    if (this.active) this.cancel(this.active.bookId)
+  }
+  cancelSearch(requestId?: string): void {
+    if (this.activeLookup && (requestId === undefined || this.activeLookup.requestId === requestId)) this.activeLookup.controller.abort()
+  }
   private async run(bookId: string, config: EmbeddingCredentials, signal: AbortSignal): Promise<void> {
     const pending = this.store.db.prepare(`SELECT id, ordinal, text, chapter_title, metadata_json FROM book_blocks b
       WHERE book_id = ? AND searchable = 1 AND (ordinal, id) > (?, ?)
@@ -124,13 +135,47 @@ export class SemanticIndexService {
     this.store.db.prepare("UPDATE semantic_indexes SET status = 'ready', message = NULL WHERE book_id = ?").run(bookId)
     this.onChange(bookId)
   }
-  async search(bookId: string, question: string, lexical: Passage[], signal: AbortSignal, limit = 24): Promise<Passage[]> {
-    if (this.state(bookId).status !== 'ready') return lexical
+  async lookup({ bookId, query, requestId }: SemanticSearchInput): Promise<SemanticSearchResult> {
+    this.cancelSearch()
+    if (!this.store.database.getStoredBook(bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
+    if (this.store.document(bookId)?.status !== 'ready') return { status: 'fallback', reason: 'document-not-ready' }
+    const request = { bookId, requestId, controller: new AbortController() }
+    this.activeLookup = request
+    try {
+      const passages = await this.recall(bookId, query, request.controller.signal, LOOKUP_LIMIT, 0)
+      if (request.controller.signal.aborted) return { status: 'canceled' }
+      if (typeof passages === 'string') return { status: 'fallback', reason: passages }
+      return { status: 'ready', results: passages.filter((passage) => passage.anchor.trim()).map((passage) => {
+        const excerpt = limitText(passage.text, 500)
+        const page = passage.sources?.find((source) => source.page && Number.isSafeInteger(source.page) && source.page > 0)?.page
+        return {
+          anchor: passage.anchor,
+          excerpt: excerpt.length < passage.text.length ? excerpt + '…' : excerpt,
+          chapterTitle: limitText(passage.headingPath?.join(' / ') || passage.chapterTitle || '', 160),
+          ...(page === undefined ? {} : { page })
+        }
+      }) }
+    } catch (error) {
+      if (request.controller.signal.aborted) return { status: 'canceled' }
+      throw error
+    } finally {
+      if (this.activeLookup === request) this.activeLookup = undefined
+    }
+  }
+
+  private async recall(bookId: string, question: string, signal: AbortSignal, limit: number, minimumScore = -Infinity): Promise<Passage[] | SemanticSearchFallbackReason> {
+    const status = this.state(bookId).status
+    if (status === 'disabled') return 'disabled'
+    if (status === 'stale') return 'changed'
+    if (status !== 'ready') return 'index-not-ready'
     try {
       const config = this.settings.embedding()
       const fingerprint = this.row(bookId)!.fingerprint
       const [query] = await embed(this.http, config, [question], AbortSignal.any([signal, AbortSignal.timeout(12_000)]))
-      if (this.state(bookId).status !== 'ready' || this.row(bookId)?.fingerprint !== fingerprint || this.row(bookId)?.dimension !== query.length) return lexical
+      signal.throwIfAborted()
+      const current = this.row(bookId)
+      if (this.state(bookId).status !== 'ready' || current?.fingerprint !== fingerprint) return 'changed'
+      if (current.dimension !== query.length) return 'dimension'
       const ranked: { id: string; score: number }[] = []
       const end = Math.trunc(limit) || 0
       // Passage lookups are capped; a negative slice end also depends on the total row count.
@@ -139,13 +184,13 @@ export class SemanticIndexService {
       // Iterate blobs instead of materializing the whole vector matrix in memory.
       for (const row of this.store.db.prepare('SELECT b.block_id, v.vector FROM book_vectors v JOIN book_blocks b ON b.id = v.block_rowid WHERE v.book_id = ?').iterate(bookId)) {
         const bytes = row.vector as Uint8Array
-        if (bytes.byteLength !== query.byteLength) return lexical
+        if (bytes.byteLength !== query.byteLength) return 'dimension'
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
         let score = 0
         for (let index = 0; index < query.length; index++) score += query[index] * view.getFloat32(index * 4, true)
-        if (!Number.isFinite(score)) return lexical
+        if (!Number.isFinite(score)) return 'service-error'
         count++
-        if (!maximum || ranked.length === maximum && score <= ranked[ranked.length - 1].score) continue
+        if (score <= minimumScore || !maximum || ranked.length === maximum && score <= ranked[ranked.length - 1].score) continue
         let low = 0, high = ranked.length
         while (low < high) {
           const middle = Math.floor((low + high) / 2)
@@ -156,7 +201,17 @@ export class SemanticIndexService {
         ranked.splice(low, 0, { id: String(row.block_id), score })
         if (ranked.length > maximum) ranked.pop()
       }
-      const semantic = this.store.passages(bookId, ranked.slice(0, end < 0 ? Math.max(0, count + end) : maximum).map((item) => item.id))
+      return this.store.passages(bookId, ranked.slice(0, end < 0 ? Math.max(0, count + end) : maximum).map((item) => item.id))
+    } catch (error) {
+      signal.throwIfAborted()
+      return error instanceof AppError && error.code === 'KNOWLEDGE_TIMEOUT' ? 'timeout' : 'service-error'
+    }
+  }
+
+  async search(bookId: string, question: string, lexical: Passage[], signal: AbortSignal, limit = 24): Promise<Passage[]> {
+    try {
+      const semantic = await this.recall(bookId, question, signal, limit)
+      if (typeof semantic === 'string') return lexical
       const combined = new Map<string, { passage: Passage; score: number }>()
       for (const list of [lexical, semantic]) for (const [rank, passage] of list.entries()) {
         const id = passage.blockId ?? passage.id

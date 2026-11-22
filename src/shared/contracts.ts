@@ -80,6 +80,7 @@ export const IPC_CHANNELS = {
   insightsExport: 'insights:export',
   sessionsGet: 'sessions:get',
   sessionsRecent: 'sessions:recent',
+  sessionsSearchRecent: 'sessions:search-recent',
   sessionsReadRecent: 'sessions:read-recent',
   sessionsSave: 'sessions:save',
   sessionsDelete: 'sessions:delete',
@@ -99,6 +100,8 @@ export const IPC_CHANNELS = {
   knowledgeTest: 'knowledge:test',
   semanticStart: 'semantic:start',
   semanticCancel: 'semantic:cancel',
+  semanticSearch: 'semantic:search',
+  semanticSearchCancel: 'semantic:search-cancel',
   analysisGet: 'analysis:get',
   notesIndex: 'notes:index',
   notesChapter: 'notes:chapter',
@@ -132,6 +135,20 @@ export interface PreparedDocumentSearch {
   available: boolean
   results: ReaderSearchResult[]
 }
+
+export interface SemanticSearchInput {
+  bookId: string
+  requestId: string
+  query: string
+}
+
+export type SemanticSearchFallbackReason =
+  | 'disabled' | 'document-not-ready' | 'index-not-ready' | 'changed' | 'dimension' | 'timeout' | 'service-error'
+
+export type SemanticSearchResult =
+  | { status: 'ready'; results: Array<ReaderSearchResult & { page?: number }> }
+  | { status: 'fallback'; reason: SemanticSearchFallbackReason }
+  | { status: 'canceled' }
 
 export interface BookPagePreviewInput {
   bookId: string
@@ -827,6 +844,18 @@ export interface BookSessionSummary {
   updatedAt: string
 }
 
+export interface BookSessionSearchMatch extends BookSessionSummary {
+  bookId: string
+  bookTitle: string
+  matchField: 'book' | 'question' | 'answer'
+  excerpt: string
+}
+
+export interface BookSessionSearchResult {
+  matches: BookSessionSearchMatch[]
+  hasMore: boolean
+}
+
 export const MAX_WORKBENCH_BOOKS = 5
 export const MAX_WORKBENCH_TURNS = 200
 export interface WorkbenchTurn {
@@ -861,6 +890,8 @@ export interface WorkbenchSummary extends Pick<WorkbenchRecord, 'id' | 'name' | 
 }
 
 export const RECENT_BOOK_SESSION_LIMIT = 20
+export const RECENT_BOOK_SESSION_SEARCH_LIMIT = 40
+export const RECENT_BOOK_SESSION_QUERY_LIMIT = 200
 export const MAX_SESSION_TABS = 20
 
 /** 打开的会话标签：归档标签必须带 insightId，草稿只对归档标签生效。 */
@@ -957,6 +988,7 @@ export interface ReaderApi {
   updateInsightHistory(input: UpdateInsightHistoryInput): Promise<SavedInsight>
   getBookSession(bookId: string): Promise<BookSessionRecord | null>
   listRecentBookSessions(bookId: string): Promise<BookSessionSummary[]>
+  searchRecentBookSessions(query: string): Promise<BookSessionSearchResult>
   getRecentBookSession(input: { bookId: string; conversationId: string }): Promise<BookSessionRecord | null>
   saveBookSession(input: SaveBookSessionInput): Promise<BookSessionRecord>
   deleteBookSession(bookId: string, conversationId?: string): Promise<boolean>
@@ -976,6 +1008,8 @@ export interface ReaderApi {
   testKnowledgeSettings(input: TestKnowledgeSettingsInput): Promise<ProviderTestResult>
   startSemanticIndex(input: StartSemanticIndexInput): Promise<BookAnalysisState>
   cancelSemanticIndex(bookId: string): Promise<void>
+  searchBookSemantically(input: SemanticSearchInput): Promise<SemanticSearchResult>
+  cancelSemanticSearch(requestId: string): Promise<void>
   getBookAnalysis(bookId: string): Promise<BookAnalysisState>
   getBookNotesIndex(bookId: string): Promise<BookNotesIndex>
   getBookChapterNotes(input: BookChapterNotesInput): Promise<BookChapterNotesPage>

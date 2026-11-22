@@ -3,7 +3,7 @@
 import React from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { PdfImageRegionSource, SelectionContext } from '../../src/shared/contracts'
+import type { ContextSnapshot, PdfImageRegionSource, SelectionContext } from '../../src/shared/contracts'
 import { AnswerText } from '../../src/renderer/src/AnswerText'
 import { EvidenceSources } from '../../src/renderer/src/EvidenceSources'
 import { citationExcerpt, createCitationResolver } from '../../src/renderer/src/citations'
@@ -54,7 +54,7 @@ describe('citation presentation', () => {
     fireEvent.click(screen.getByRole('button', { name: /单书证据/u }))
     expect(onNavigate).toHaveBeenLastCalledWith('pdf:2', '判断')
   })
-  it('routes identical anchors to their own books and marks deleted-book citations unavailable', () => {
+  it('routes identical anchors to their own books and keeps deleted evidence readable', () => {
     const onNavigate = vi.fn()
     const context = { scope: 'books' as const, bookId: 'first', books: [{ id: 'first', title: '甲书' }, { id: 'second', title: '乙书' }], selection: null,
       background: '', coverage: { covered: 0, total: 2 }, passages: [
@@ -63,11 +63,54 @@ describe('citation presentation', () => {
       ] }
     const view = render(<AnswerText text="比较 [P1] 与 [P2]" selection={null} context={context} onNavigate={onNavigate} availableBookIds={['first', 'second']} />)
     fireEvent.click(screen.getByRole('button', { name: /甲书/u }))
+    expect(onNavigate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('source-preview-jump'))
     fireEvent.click(screen.getByRole('button', { name: /乙书/u }))
-    expect(onNavigate.mock.calls).toEqual([['txt:0:5', 'first'], ['txt:0:5', 'second']])
+    fireEvent.click(screen.getByTestId('source-preview-jump'))
+    expect(onNavigate.mock.calls).toEqual([['txt:0:5', 'first', undefined], ['txt:0:5', 'second', undefined]])
     view.rerender(<AnswerText text="比较 [P1] 与 [P2]" selection={null} context={context} onNavigate={onNavigate} availableBookIds={['first']} />)
-    expect(screen.queryByRole('button', { name: /乙书/u })).toBeNull()
-    expect(screen.getByText(/书籍已删除/u)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /乙书.*书籍已删除/u }))
+    expect(screen.getByTestId('source-preview-text').textContent).toBe('相同原文')
+    expect(screen.getByText(copyIn('zh', 'workbench.missingSource'))).toBeTruthy()
+    expect(screen.queryByTestId('source-preview-jump')).toBeNull()
+  })
+
+  it('previews the exact passage for each turn and uses the same evidence in the source list', () => {
+    const longText = `第一轮原文\n  ${'段落内容'.repeat(400)}\n<em>原始文本</em>`
+    const first: ContextSnapshot = {
+      scope: 'book', bookId: selection.bookId, selection: null, background: '', coverage: { covered: 0, total: 0 },
+      passages: [{ id: 'P1', text: longText, anchor: 'txt:100:106', headingPath: ['第一章', '第一节'] }]
+    }
+    const second: ContextSnapshot = {
+      ...first,
+      passages: [{ id: 'P1', text: '第二轮保留的原文', anchor: '' }]
+    }
+    const onNavigate = vi.fn()
+    render(<>
+      <AnswerText text="第一轮 [P1] [P99] `[P1]`" selection={selection} context={first} bookTitle="测试书名" onNavigate={onNavigate} />
+      <AnswerText text="第二轮 [P1]" selection={selection} context={second} onNavigate={onNavigate} />
+      <EvidenceSources passages={first.passages} context={first} bookTitle="测试书名" onNavigate={onNavigate} />
+    </>)
+    const [firstRef, secondRef] = screen.getAllByTestId('citation-valid')
+    fireEvent.pointerEnter(firstRef)
+    expect(screen.getByTestId('source-preview-text').textContent).toBe(longText)
+    expect(screen.getByTestId('source-preview').textContent).toContain('第一章 / 第一节')
+    expect(screen.getByTestId('source-preview').textContent).toContain('测试书名')
+    expect(screen.getByTestId('source-preview-text').querySelector('em')).toBeNull()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByTestId('source-preview')).toBeNull()
+    expect(document.activeElement).toBe(firstRef)
+
+    fireEvent.click(secondRef)
+    expect(screen.getByTestId('source-preview-text').textContent).toBe('第二轮保留的原文')
+    expect(screen.getByText(copyIn('zh', 'sources.locationUnavailable'))).toBeTruthy()
+    expect(screen.queryByTestId('source-preview-jump')).toBeNull()
+    fireEvent.click(screen.getByLabelText(copyIn('zh', 'window.closeAria')))
+
+    fireEvent.click(screen.getByTestId('source-preview-trigger'))
+    expect(screen.getByTestId('source-preview-text').textContent).toBe(longText)
+    expect(screen.getAllByTestId('citation-unverified')).toHaveLength(1)
+    expect(onNavigate).not.toHaveBeenCalled()
   })
   it('normalizes excerpts by Unicode code point and uses a safe empty fallback', () => {
     expect(citationExcerpt(' 第一段\n  第二段 ')).toBe('第一段 第二段')

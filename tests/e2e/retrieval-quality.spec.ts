@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ContextSnapshot } from '../../src/shared/contracts'
-import { enterReading, hidePreparation, showLibrary, showPreparation } from './support/workspace'
+import { enterReading, hidePreparation, showLibrary, showPreparation, jumpToPassage } from './support/workspace'
 
 const original = 'This handbook reports no measured percentage improvement in germination.'
 
@@ -75,7 +75,7 @@ test.describe('single-book evidence', () => {
         if (mode === 'translated') {
           expect(answers[0].reference.passages.some((passage) => passage.text.includes(original))).toBe(true)
           await expect(answer.getByTestId('citation-valid')).toHaveCount(1)
-          await answer.getByTestId('citation-valid').click()
+          await jumpToPassage(answer.getByTestId('citation-valid'))
           await expect(page.getByTestId('reader-host')).toContainText(original)
           await expect(page.getByTestId('reader-return-button')).toBeEnabled()
         } else {
@@ -166,7 +166,7 @@ test('preserves cross-book evidence and saved citations when optional book IDs a
     expect(planningCalls).toBe(1)
     expect(answers).toHaveLength(1)
     expect(new Set(answers[0].passages.map((passage) => passage.bookId))).toEqual(new Set(bookIds))
-    await turn.getByTestId('citation-valid').filter({ hasText: titles[0] }).click()
+    await jumpToPassage(turn.getByTestId('citation-valid').filter({ hasText: titles[0] }))
     await expect(page.getByTestId('reader-host')).toContainText(arrival)
     await page.getByTestId('nav-archives').click()
     await page.getByTestId('nav-workbenches').click()

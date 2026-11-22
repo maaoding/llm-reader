@@ -1,4 +1,9 @@
-import { expect, type ElectronApplication, type Page } from '@playwright/test'
+import { expect, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+
+export async function jumpToPassage(reference: Locator): Promise<void> {
+  await reference.click()
+  await reference.page().getByTestId('source-preview-jump').click()
+}
 
 export async function resizeWorkspace(application: ElectronApplication, page: Page, width: number, height: number): Promise<void> {
   await application.evaluate(({ BrowserWindow }, size) => {

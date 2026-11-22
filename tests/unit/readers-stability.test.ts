@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { stabilizeContinuousManager } from '../../src/renderer/src/readers/epub-continuous-stability'
+import { deferred } from './support/deferred'
 
 describe('EPUB continuous manager compatibility', () => {
   it('uses the live native scroll position before every boundary check', async () => {
@@ -57,6 +58,40 @@ describe('EPUB continuous manager compatibility', () => {
   it('ignores non-continuous view managers', () => {
     expect(stabilizeContinuousManager({ manager: { name: 'default' } })).toBe(false)
     expect(stabilizeContinuousManager(null)).toBe(false)
+  })
+
+  it('shares an in-flight iframe display between resize restoration and scroll preloading', async () => {
+    const pending = deferred<unknown>()
+    const loadFrame = vi.fn<(request: unknown) => Promise<unknown>>()
+      .mockReturnValueOnce(pending.promise).mockResolvedValue(undefined)
+    const view = { displayed: false, display: loadFrame, show: vi.fn(), hide: vi.fn() }
+    const manager = {
+      name: 'continuous',
+      settings: {},
+      request: vi.fn(),
+      q: { enqueue: async <T>(task: () => T | Promise<T>): Promise<T> => task() },
+      views: { all: () => [view] },
+      createView: () => view,
+      addScrollListeners: vi.fn(),
+      check: vi.fn(async () => false),
+      destroy: vi.fn(),
+      bounds: () => new DOMRect(),
+      isVisible: () => true,
+      update: vi.fn(async () => undefined)
+    }
+
+    expect(stabilizeContinuousManager({ manager })).toBe(true)
+    const renderedView = manager.createView()
+    const restoring = renderedView.display(manager.request)
+    const preloading = manager.update()
+    expect(loadFrame).toHaveBeenCalledOnce()
+    const failure = expect(restoring).rejects.toThrow('chapter load failed')
+    pending.reject(new Error('chapter load failed'))
+    await failure
+    await preloading
+    expect(view.hide).toHaveBeenCalledOnce()
+    await renderedView.display(manager.request)
+    expect(loadFrame).toHaveBeenCalledTimes(2)
   })
 
   it('keeps draining the continuous queue after a task fails', async () => {

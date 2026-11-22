@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { MAX_SESSION_TABS, type BookRecord, type PersonaSelection, type PersonaSettings, type ReaderApi, type SaveBookSessionInput, type SessionTabsState } from '@shared/contracts'
 import { defaultPersona } from './assistant-personas'
-import { createArchiveTab, createLiveTab, historyFromTurns, sessionPayload, type ConversationTab, type ConversationTurn } from './conversation-session'
+import { createArchiveTab, createLiveTab, historyFromTurns, savedSessionFields, sessionPayload, type ConversationTab, type ConversationTurn } from './conversation-session'
 import { PendingSaves } from './pending-saves'
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
@@ -120,6 +120,14 @@ export function useConversationSessions({
   const loadedSessionsRef = useRef(new Set<string>())
   const [loadedSessions, setLoadedSessions] = useState<ReadonlySet<string>>(new Set())
   const [failedSessionLoads, setFailedSessionLoads] = useState<string[]>([])
+  const markSessionLoaded = useCallback((bookId: string): void => {
+    restoredSessionsRef.current.add(bookId)
+    if (!loadedSessionsRef.current.has(bookId)) {
+      loadedSessionsRef.current.add(bookId)
+      setLoadedSessions(new Set(loadedSessionsRef.current))
+    }
+    setFailedSessionLoads((current) => current.includes(bookId) ? current.filter((id) => id !== bookId) : current)
+  }, [])
   useEffect(() => {
     const selectedTab = conversationTabs.find((tab) => tab.id === activeTabId && tab.kind === 'live')
     for (const bookId of new Set([activeBookId, selectedTab?.bookId])) {
@@ -127,29 +135,25 @@ export function useConversationSessions({
       restoredSessionsRef.current.add(bookId)
       void window.readerApi.getBookSession(bookId).then(async (record) => {
         const freshMode = !record ? (await window.readerApi.getKnowledgeSettings()).webSearch.enabled ? 'auto' as const : 'off' as const : undefined
-        loadedSessionsRef.current.add(bookId)
-        setLoadedSessions(new Set(loadedSessionsRef.current))
+        if (loadedSessionsRef.current.has(bookId)) return
+        markSessionLoaded(bookId)
         const tab = conversationTabsRef.current.find((candidate) => candidate.kind === 'live' && candidate.bookId === bookId)
         if (!tab) return
         if (!record) { updateConversationTab(tab.id, (current) => ({ ...current, webSearch: freshMode ?? 'off' })); return }
         if (tab.turns.length > 0 || tab.selection || sessionTransitionsRef.current.has(tab.id)) return
         updateConversationTab(tab.id, (current) => ({
           ...current,
-          conversationId: record.conversationId,
-          persona: record.persona ?? null,
-          webSearch: record.webSearch ?? 'off',
-          scope: record.scope,
-          selection: record.selection,
-          draft: current.draft || record.draft,
-          turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined }))
+          ...savedSessionFields(record),
+          draft: current.draft || record.draft
         }))
       }).catch(() => {
+        if (loadedSessionsRef.current.has(bookId)) return
         restoredSessionsRef.current.delete(bookId)
         setFailedSessionLoads((current) => current.includes(bookId) ? current : [...current, bookId])
         onRestoreError()
       })
     }
-  }, [activeBookId, activeTabId, conversationTabs, failedSessionLoads, onRestoreError, updateConversationTab])
+  }, [activeBookId, activeTabId, conversationTabs, failedSessionLoads, markSessionLoaded, onRestoreError, updateConversationTab])
 
   // Only acknowledged snapshots are saved. Failed payloads remain available for retry.
   const [, setSaveRevision] = useState(0)
@@ -182,6 +186,35 @@ export function useConversationSessions({
     if (!current || current.conversationId !== tab.conversationId) return
     await sessionSaves.save(tab.bookId, sessionPayload(current))
   }, [deletingBooksRef, sessionSaves])
+
+  const restoreRecentSession = async (
+    book: BookRecord, conversationId: string, isCurrent: () => boolean, hasRequest: (tabId: string) => boolean
+  ): Promise<string | null | undefined> => {
+    const tabId = `live-${book.id}`
+    const getTab = () => conversationTabsRef.current.find((tab) => tab.id === tabId)
+    if (!isCurrent() || sessionTransitionsRef.current.has(tabId) || hasRequest(tabId)) return undefined
+    const previous = getTab()
+    // Let an in-flight startup read finish. Its new tab snapshot invalidates this restore.
+    const lockTab = !previous || loadedSessionsRef.current.has(book.id)
+    const canApply = () => isCurrent() && getTab() === previous && !hasRequest(tabId) &&
+      (lockTab || !sessionTransitionsRef.current.has(tabId))
+    if (lockTab) setSessionChanging(tabId, true)
+    try {
+      if (previous && previous.conversationId !== conversationId) await persistLiveSession(previous)
+      if (!canApply()) return undefined
+      // Check after saving, since adding a newly saved conversation can evict this result.
+      const record = await window.readerApi.getRecentBookSession({ bookId: book.id, conversationId })
+      if (!canApply()) return undefined
+      if (!record) return null
+      if (previous?.conversationId === conversationId) return tabId
+      ensureLiveTab(book)
+      markSessionLoaded(book.id)
+      updateConversationTab(tabId, (current) => ({ ...current, ...savedSessionFields(record) }))
+      return tabId
+    } finally {
+      if (lockTab) setSessionChanging(tabId, false)
+    }
+  }
   const persistSessionTabs = useCallback(async (): Promise<void> => {
     if (!restoredSessionTabsRef.current) {
       if (editedArchiveDraftsRef.current.size) throw new Error('Restore saved tabs before saving edited archive drafts')
@@ -316,6 +349,6 @@ export function useConversationSessions({
     loadedSessions, loadedSessionsRef, failedSessionLoads, retrySessionRestoration,
     sessionTabsRestoreState, sessionTabsRestoreError, retryTabRestoration,
     sessionSaves, tabSaves, archiveSaves, sessionTransitionsRef, changingSessions, setSessionChanging,
-    persistLiveSession, persistSessionTabs, persistArchiveHistory, flushSessionSaves, closeConversationTab
+    persistLiveSession, persistSessionTabs, persistArchiveHistory, flushSessionSaves, closeConversationTab, restoreRecentSession
   }
 }

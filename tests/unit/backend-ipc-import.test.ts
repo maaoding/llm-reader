@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH, HIGHLIGHT_EXPORT_MAX_COUNT, IPC_CHANNELS } from '../../src/shared/contracts'
+import { CONVERSATION_COPY_MAX_LENGTH, CONVERSATION_EXPORT_MAX_LENGTH, HIGHLIGHT_EXPORT_MAX_COUNT, IPC_CHANNELS, RECENT_BOOK_SESSION_QUERY_LIMIT } from '../../src/shared/contracts'
 import { pdfImageRegionAnchor } from '../../src/shared/pdf-image-region'
 
 type InvokeHandler = (event: unknown, ...values: unknown[]) => Promise<unknown>
@@ -49,7 +49,7 @@ function register(bookImporter: {
   isBusy: () => boolean
   importPaths: (paths: ReadonlyArray<string>) => Promise<unknown>
   cancel: () => void
-}, extras: { library?: unknown; llm?: unknown; storage?: unknown; database?: unknown } = {}): void {
+}, extras: { library?: unknown; llm?: unknown; storage?: unknown; database?: unknown; knowledge?: unknown; semantic?: unknown } = {}): void {
   registerIpcHandlers({
     window: {
       webContents: { id: 17 },
@@ -67,6 +67,8 @@ function register(bookImporter: {
     llm: extras.llm ?? {},
     storage: extras.storage,
     database: extras.database,
+    knowledge: extras.knowledge,
+    semantic: extras.semantic,
     allowedRendererOrigins: new Set<string>(),
     readingWindow: {
       reserveAssistantWindow: electronMocks.reserveAssistant,
@@ -78,6 +80,48 @@ function register(bookImporter: {
 }
 
 describe('book import IPC', () => {
+  it('validates semantic lookup and cancellation at the main frame and storage boundary', async () => {
+    const lookup = vi.fn(() => ({ status: 'ready', results: [] }))
+    const cancelSearch = vi.fn()
+    const storage = { locked: false }
+    register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() }, { knowledge: {}, semantic: { lookup, cancelSearch }, storage })
+    const search = electronMocks.handlers.get(IPC_CHANNELS.semanticSearch)!
+    const cancel = electronMocks.handlers.get(IPC_CHANNELS.semanticSearchCancel)!
+    const input = { bookId: randomUUID(), requestId: randomUUID(), query: ' 找相关段落 ' }
+    await expect(search({ sender: { id: 18 } }, input)).rejects.toThrow('[UNTRUSTED_SENDER]')
+    await expect(cancel({ sender: { id: 18 } }, input.requestId)).rejects.toThrow('[UNTRUSTED_SENDER]')
+    storage.locked = true
+    await expect(search(trustedEvent(), input)).rejects.toThrow('[BACKUP_BUSY]')
+    storage.locked = false
+    await expect(search(trustedEvent(), { ...input, query: '😀'.repeat(101) })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(search(trustedEvent(), { ...input, query: 'a\0b' })).rejects.toThrow('[INVALID_INPUT]')
+    await expect(cancel(trustedEvent(), 'wrong-identity')).rejects.toThrow('[INVALID_INPUT]')
+    expect(lookup).not.toHaveBeenCalled()
+    expect(cancelSearch).not.toHaveBeenCalled()
+    await expect(search(trustedEvent(), input)).resolves.toEqual({ status: 'ready', results: [] })
+    expect(lookup).toHaveBeenCalledExactlyOnceWith({ ...input, query: '找相关段落' })
+    await cancel(trustedEvent(), input.requestId)
+    expect(cancelSearch).toHaveBeenCalledExactlyOnceWith(input.requestId)
+  })
+
+  it('searches recent conversations only from the trusted main frame with bounded literal input', async () => {
+    const response = { matches: [], hasMore: false }
+    const searchRecentBookSessions = vi.fn(() => response)
+    const storage = { locked: false }
+    register({ isBusy: () => false, importPaths: vi.fn(), cancel: vi.fn() }, { library: { searchRecentBookSessions }, storage })
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.sessionsSearchRecent)!
+    await expect(handler({ sender: { id: 18 } }, '中文')).rejects.toThrow('[UNTRUSTED_SENDER]')
+    storage.locked = true
+    await expect(handler(trustedEvent(), '中文')).rejects.toThrow('[BACKUP_BUSY]')
+    storage.locked = false
+    for (const query of ['', '   ', '中\0文', ' '.repeat(RECENT_BOOK_SESSION_QUERY_LIMIT) + '字', { query: '中文' }]) {
+      await expect(handler(trustedEvent(), query)).rejects.toThrow('[INVALID_INPUT]')
+    }
+    expect(searchRecentBookSessions).not.toHaveBeenCalled()
+    await expect(handler(trustedEvent(), ' 中文 C++[1]_% ')).resolves.toEqual(response)
+    expect(searchRecentBookSessions).toHaveBeenCalledExactlyOnceWith('中文 C++[1]_%')
+  })
+
   it('validates annotation updates at the trusted window and storage boundary', async () => {
     const updateHighlight = vi.fn()
     const storage = { locked: false }

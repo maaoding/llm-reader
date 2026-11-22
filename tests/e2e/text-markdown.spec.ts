@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ContextSnapshot } from '../../src/shared/contracts'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
-import { enterReading, resizeWorkspace, showLibrary } from './support/workspace'
+import { enterReading, resizeWorkspace, showLibrary, jumpToPassage } from './support/workspace'
 
 const title = 'Markdown 阅读样本'
 const source = ['# Markdown 阅读样本', '', '## 原文与强调', '', '甲**😀乙**丙 &amp; \\*星\\*。', '',
@@ -243,7 +243,7 @@ test('keeps original anchors through Markdown selection, answering, search, per-
     await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.listInsights(id)).length, bookId)).toBe(1)
     const insight = await page.evaluate(async (id) => (await window.readerApi.listInsights(id))[0], bookId)
     expect(insight.context?.passages[0].anchor).toBe(saved.anchor)
-    await answer.getByTestId('citation-valid').click()
+    await jumpToPassage(answer.getByTestId('citation-valid'))
     await mode(page, 'plain')
     await expect(page.locator('.reader-document--txt')).toHaveAttribute('data-text-rendering', 'plain')
     await expect(page.getByTestId('reader-host')).toContainText('甲**😀乙**丙')

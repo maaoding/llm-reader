@@ -18,6 +18,7 @@ import type {
   InsightArchiveRecord,
   InsightExportScope,
   BookSessionRecord,
+  BookSessionSearchResult,
   BookSessionSummary,
   SavedInsight,
   SaveBookSessionInput,
@@ -701,8 +702,11 @@ export class LibraryService {
     return this.database.listRecentBookSessions(bookId)
   }
 
+  searchRecentBookSessions(query: string): BookSessionSearchResult {
+    return this.database.searchRecentBookSessions(query)
+  }
+
   getRecentBookSession(input: { bookId: string; conversationId: string }): BookSessionRecord | null {
-    if (!this.database.getStoredBook(input.bookId)) throw new AppError('BOOK_NOT_FOUND', copy('error.bookNotFound'))
     return this.database.getRecentBookSession(input.bookId, input.conversationId)
   }
 

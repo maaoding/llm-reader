@@ -39,6 +39,7 @@ interface ContinuousManager {
   trimTimeout?: ReturnType<typeof setTimeout>
   scrollTimeout?: ReturnType<typeof setTimeout>
   afterScrolled?: ReturnType<typeof setTimeout>
+  createView?(section: unknown, forceRight?: boolean): ContinuousView
   addScrollListeners(): void
   scrolled(): void
   check(offsetLeft?: number, offsetTop?: number): Promise<unknown>
@@ -100,6 +101,22 @@ export function stabilizeContinuousManager(rendition: unknown): boolean {
     return false
   }
   stabilizedManagers.add(manager)
+
+  const createView = manager.createView?.bind(manager)
+  if (createView) {
+    manager.createView = (section, forceRight) => {
+      const view = createView(section, forceRight)
+      const display = view.display.bind(view)
+      let pending: Promise<unknown> | undefined
+      // Resize restoration and scroll preloading can render the same iframe while it is loading.
+      // Reuse the pending display so a second call does not replace the first iframe load handler.
+      view.display = (request) => {
+        pending ??= display(request).finally(() => { pending = undefined })
+        return pending
+      }
+      return view
+    }
+  }
 
   // epub.js 的 Queue.run() 只用 .then 继续队列，没有拒绝分支：只要队列里任何一个任务
   // reject（例如某章资源加载失败），run() 就不再被调用，而 running 永远留在 true，

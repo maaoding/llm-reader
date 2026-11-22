@@ -1,4 +1,4 @@
-import { showLibrary, enterReading, togglePreparation, showReferences, showAssistant, resizeWorkspace } from './support/workspace'
+import { showLibrary, enterReading, togglePreparation, showReferences, showAssistant, resizeWorkspace, jumpToPassage } from './support/workspace'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -199,7 +199,7 @@ for (const format of ['txt', 'epub', 'epub-no-toc'] as const) {
       expect(answers.at(-1)?.sessionId).not.toBe(analysisSessions[0])
       expect(answers.at(-1)?.model).toBe('question-model')
       expect(answers.at(-1)?.context.passages.some((passage) => passage.text.includes(definition))).toBe(true)
-      await page.getByTestId('answer-current').getByTestId('citation-valid').click()
+      await jumpToPassage(page.getByTestId('answer-current').getByTestId('citation-valid'))
       await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', /第二章/u)
       if (format !== 'txt') await expect.poll(() => page.getByTestId('reader-host').evaluate((host, target) => {
         const hostRect = host.getBoundingClientRect()

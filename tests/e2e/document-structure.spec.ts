@@ -133,11 +133,14 @@ test('PDF source ranges navigate both pages, return and survive archived followu
     const table = snapshot.passages.find((passage) => passage.tableSlice)!
     expect(table.sources?.map((source) => source.page)).toEqual([3, 4])
     await page.locator('.answer-sources').last().locator('summary').click()
-    const tableSource = page.locator('.answer-source-item').filter({ hasText: '整张表所在的页面' }).first()
-    await expect(tableSource).toContainText('只能定位到整张表')
+    const tableSource = page.getByTestId('source-preview-trigger').nth(snapshot.passages.indexOf(table))
+    const preview = page.getByTestId('source-preview')
     const natural = await page.getByTestId('reader-host').evaluate((host) => host.scrollTop)
     for (const targetPage of [3, 4]) {
-      await tableSource.getByRole('button', { name: `第 ${targetPage} 页`, exact: true }).click()
+      await tableSource.click()
+      await expect(preview).toContainText('只能定位到整张表')
+      expect(await preview.getByTestId('source-preview-text').textContent()).toBe(table.text)
+      await preview.getByRole('button', { name: `第 ${targetPage} 页`, exact: true }).click()
       await expect.poll(() => page.getByTestId('reader-host').evaluate((host, number) => {
         const rect = host.querySelector(`.pdf-page[data-page-number="${number}"]`)!.getBoundingClientRect()
         const bounds = host.getBoundingClientRect()
@@ -153,10 +156,11 @@ test('PDF source ranges navigate both pages, return and survive archived followu
         await resizeWorkspace(application, page, width, height)
         await showAssistant(page)
         await showReferences(page)
-        await tableSource.scrollIntoViewIfNeeded()
-        await expect(tableSource.getByRole('button', { name: '第 4 页', exact: true })).toBeInViewport()
+        await tableSource.click()
+        await expect(preview.getByRole('button', { name: '第 4 页', exact: true })).toBeInViewport()
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
         await page.screenshot({ path: test.info().outputPath(`sources-${color}-${width}.png`) })
+        await page.keyboard.press('Escape')
       }
     }
     await page.getByTestId('answer-save').click()

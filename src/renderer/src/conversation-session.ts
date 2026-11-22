@@ -1,4 +1,4 @@
-import { isPdfImageRegion, type ArchivedChatMessage, type BookRecord, type BookSessionTurn, type ContextSnapshot, type InsightArchiveRecord, type LlmAction, type LlmUsage, type PersonaSelection, type ReaderSource, type SavedInsight, type SaveBookSessionInput } from '@shared/contracts'
+import { isPdfImageRegion, type ArchivedChatMessage, type BookRecord, type BookSessionRecord, type BookSessionTurn, type ContextSnapshot, type InsightArchiveRecord, type LlmAction, type LlmUsage, type PersonaSelection, type ReaderSource, type SavedInsight, type SaveBookSessionInput } from '@shared/contracts'
 import { copy } from '@shared/copy'
 
 type TurnStatus = 'queued' | 'streaming' | 'completed' | 'error'
@@ -94,6 +94,18 @@ export function createLiveTab(book: BookRecord, persona: PersonaSelection | null
     draft: '',
     persona,
     webSearch
+  }
+}
+
+export function savedSessionFields(record: BookSessionRecord): Pick<ConversationTab, 'conversationId' | 'scope' | 'selection' | 'draft' | 'turns' | 'persona' | 'webSearch'> {
+  return {
+    conversationId: record.conversationId,
+    scope: record.scope,
+    selection: record.selection,
+    draft: record.draft,
+    turns: record.turns.map((turn) => ({ ...turn, requestId: '', selection: turn.selection ?? null, context: turn.context ?? undefined })),
+    persona: record.persona ?? null,
+    webSearch: record.webSearch ?? 'off'
   }
 }
 

@@ -196,6 +196,9 @@
 | reader.fullscreenExit | Exit reading fullscreen (F11) |
 | reader.fullscreenFailed | Could not switch reading fullscreen. |
 | sources.wholeTable | This citation can only jump to the page containing the whole table. |
+| sources.preview | Passage preview |
+| sources.jump | Jump to passage |
+| sources.locationUnavailable | The source location is unavailable. |
 
 ## Common
 
@@ -731,8 +734,18 @@
 | ocrReading.previewAlt | Selected area of the original PDF |
 | ocrReading.previewFailed | Could not show the selected area. Select the text again. |
 | assistant.recentSessionTurns | {count} turns |
-| assistant.recentSessionsHint | Each book keeps the 20 most recent chats, up to 20 turns each. Click to restore selection, answers and drafts. |
+| assistant.recentSessionsHint | Each book keeps up to 20 recent chats, with up to 20 turns per chat. |
 | assistant.recentSessionsEmpty | No other chats yet. |
+| assistant.recentSearch | Search recent chats |
+| assistant.recentSearchPlaceholder | Search book titles, questions or answers |
+| assistant.recentSearchLoading | Searching recent chats… |
+| assistant.recentSearchEmpty | No matches in the retained chats. |
+| assistant.recentSearchFailed | Recent chats could not be loaded. |
+| assistant.recentSearchLimit | Showing the {count} newest matches. Try a more specific search. |
+| assistant.recentSearchQuestion | Question |
+| assistant.recentSearchAnswer | Answer |
+| assistant.recentSessionMissing | This chat is no longer in the retained history. |
+| assistant.recentSessionBusy | Wait for the current operation to finish, then try again. |
 | assistant.sessionRestoreFailed | Could not read or restore the chat. Try again. |
 | assistant.tabsRestoreFailed | Could not restore your open conversation tabs. Your saved tabs and drafts are preserved. Please retry. |
 | assistant.sessionLoading | Restoring chat… |
@@ -844,6 +857,25 @@
 | reader.searchNoResultsDetail | Try a different word. |
 | reader.searchFailed | Search failed. Try again. |
 | reader.searchInvalid | Enter 1–100 characters. |
+| reader.searchModeAria | Search mode |
+| reader.searchTextMode | Full text |
+| reader.searchSemanticMode | By meaning |
+| reader.searchCancel | Cancel |
+| reader.searchCanceled | Search canceled. |
+| reader.semanticPlaceholder | Describe what to find… |
+| reader.semanticDisclosure | Submitting sends the query to your configured Embedding service. |
+| reader.semanticLoading | Searching by meaning… |
+| reader.semanticResultCount | By meaning · {count} results |
+| reader.semanticEmptyDetail | Try phrasing the query differently. |
+| reader.semanticDisabled | The Embedding service is disabled. |
+| reader.semanticDocumentUnavailable | This book’s source text is still unprepared. |
+| reader.semanticIndexUnavailable | The semantic index for this book is still unprepared. |
+| reader.semanticChanged | The source text or semantic index settings have changed. |
+| reader.semanticDimensions | The query vector and the book’s index have different dimensions. |
+| reader.semanticTimeout | The Embedding request timed out. |
+| reader.semanticUnavailable | Semantic search could not retrieve results. |
+| reader.semanticFallback | Using full-text search for this query. |
+| reader.semanticRetry | The source text or semantic index settings have changed. Submit the query again. |
 | reader.pdfPage | Page {number} |
 | reader.pdfZoomOut | Zoom out |
 | reader.pdfZoomIn | Zoom in |

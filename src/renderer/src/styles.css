@@ -457,10 +457,20 @@
 .analysis-failures li { margin: 8px 0; line-height: 1.6; overflow-wrap: anywhere; }
 .analysis-failures small { color: var(--ui-muted); }
 .answer-sources { margin: 4px 0 10px; font-size: 12px; }
-.answer-sources button { display: block; width: 100%; margin-top: 6px; padding: 6px; text-align: left; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-soft); background: var(--paper); cursor: pointer; }
+.answer-sources button:where(.answer-source-item > button, .answer-source-pages button) { display: block; width: 100%; margin-top: 6px; padding: 6px; text-align: left; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-soft); background: var(--paper); cursor: pointer; }
 .answer-source-pages { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 8px; }
 .answer-source-pages small { flex-basis: 100%; color: var(--ink-soft); }
 .answer-source-pages button { width: auto; margin-top: 2px; }
+
+.source-preview { position: fixed; inset: auto; width: min(420px, calc(100vw - 24px)); margin: 0; padding: 12px; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--ui-line); border-radius: var(--radius-md); color: var(--ui-ink); background: var(--ui-surface); box-shadow: var(--ui-shadow-md); font: 400 max(12px, calc(var(--ui-small-size) * var(--interface-scale))) / 1.5 ui-sans-serif, sans-serif; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.source-preview:popover-open { display: flex; flex-direction: column; gap: 8px; }
+.source-preview-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.source-preview-header .icon-button { flex: none; }
+.source-preview-location { display: grid; gap: 2px; color: var(--ui-muted); }
+.source-preview-text { min-height: min(3lh, 25vh); overflow: auto; overscroll-behavior: contain; white-space: pre-wrap; user-select: text; padding: 8px; border: 1px solid var(--ui-line); border-radius: var(--radius-sm); background: var(--ui-panel); }
+.source-preview-text:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.source-preview small { color: var(--ui-muted); }
+.source-preview-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* 联网问答：沿用来源、纸张与外层界面的主题 token。 */
 .web-sources { margin: 6px 0; }
@@ -762,6 +772,14 @@ button:disabled {
   height: calc(28px * var(--interface-scale));
 }
 
+.reader-search-modes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; margin-bottom: 6px; }
+.reader-search-modes button { padding: 5px 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-soft); background: var(--panel-solid); font-size: max(12px, calc(12px * var(--interface-scale))); }
+.reader-search-modes button[aria-pressed="true"] { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
+.reader-semantic-hint, .reader-search-fallback { margin: 0; padding: 5px 3px 0; color: var(--muted); font-size: max(12px, calc(12px * var(--interface-scale))); }
+.reader-search-fallback { padding: 0; }
+.reader-search-progress { display: flex; align-items: center; gap: 6px; width: 100%; }
+.reader-search-progress .text-button { margin-left: auto; padding: 2px 4px; flex: none; }
+
 .reader-search-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;
@@ -795,7 +813,8 @@ button:disabled {
 .reader-search-status {
   display: flex;
   min-height: 32px;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
   padding: 5px 3px 3px;
   color: var(--muted);
@@ -857,6 +876,7 @@ button:disabled {
   line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
 }
 
 .reader-search-result mark {
@@ -5042,14 +5062,20 @@ button.citation-valid:hover {
 
 .recent-conversations { position: relative; z-index: 50; flex: 0 0 auto; -webkit-app-region: no-drag; }
 .recent-conversations > button[aria-expanded="true"] { color: var(--ui-accent); background: var(--ui-accent-soft); }
-.recent-conversations-popover { position: absolute; top: calc(100% + 8px); right: 0; display: grid; gap: 8px; width: min(320px, calc(100vw - 32px)); max-height: min(360px, calc(100vh - 120px)); overflow-y: auto; padding: 14px; color: var(--ui-ink); background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--radius-md); box-shadow: var(--ui-shadow-md); }
-.recent-conversations-popover > strong { font-size: var(--ui-label-size); }
-.recent-conversations-popover > p { margin: 0; font-size: var(--ui-small-size); }
-.recent-conversations-list { display: grid; gap: 6px; min-width: 0; }
-.recent-conversations-list > button { display: grid; gap: 4px; min-width: 0; padding: 8px; text-align: left; background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--radius-md); }
+.recent-conversations-popover { position: absolute; top: calc(100% + 8px); right: 0; display: flex; flex-direction: column; gap: 8px; width: min(392px, calc(100vw - 32px)); max-height: min(460px, calc(100vh - 166px)); overflow-y: auto; padding: 12px; color: var(--ui-ink); background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--radius-md); box-shadow: var(--ui-shadow-md); }
+.recent-conversations-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: calc(var(--ui-label-size) * var(--interface-scale)); }
+.recent-conversations-query { display: flex; align-items: center; gap: 6px; padding: 4px 8px; color: var(--ui-muted); background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: var(--radius-sm); }
+.recent-conversations-query:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.recent-conversations-query > input { flex: 1; width: 100%; min-width: 0; padding: 4px 0; border: 0; outline: none; color: var(--ui-ink); background: transparent; font-size: calc(var(--ui-label-size) * var(--interface-scale)); }
+.recent-conversations-popover > p, .recent-conversations-status { margin: 0; font-size: calc(var(--ui-small-size) * var(--interface-scale)); }
+.recent-conversations-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.recent-conversations-list { display: grid; gap: 6px; min-width: 0; min-height: 0; overflow: auto; }
+.recent-conversations-list > button { display: grid; gap: 3px; min-width: 0; padding: 8px; text-align: left; font-size: calc(var(--ui-label-size) * var(--interface-scale)); background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: var(--radius-md); }
 .recent-conversations-list > button:hover:not(:disabled), .recent-conversations-list > button:focus-visible { background: var(--ui-accent-soft); }
-.recent-conversations-list > button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.recent-conversations small { color: var(--ui-muted); font-size: var(--ui-small-size); line-height: 1.5; }
+.recent-conversations-list > button > :is(strong, span) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.recent-conversations-list > button > .recent-conversation-excerpt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ui-ink-soft); }
+.recent-conversations-list mark { color: var(--ui-ink); background: var(--ui-accent-soft); font-weight: 650; }
+.recent-conversations small { color: var(--ui-muted); font-size: calc(var(--ui-small-size) * var(--interface-scale)); line-height: 1.5; }
 
 .ocr-preview { border-top: 1px solid var(--ui-line); margin-top: 16px; padding-top: 12px; }
 .ocr-page-reader { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; gap: 12px; padding: 18px 24px; color: var(--reader-ink); background: var(--reader-paper); overflow: auto; }

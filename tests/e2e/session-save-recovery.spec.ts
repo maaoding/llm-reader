@@ -205,6 +205,47 @@ test('shows failed autosaves and retries the latest live draft before restoring 
   }
 })
 
+test('keeps the current draft when selecting a recent search hit cannot save it, then retries', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-recent-save-recovery-')
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: bookFixture })
+    application = launched.application
+    const { page } = launched
+    await showLibrary(page)
+    const bookId = (await page.getByTestId('book-item').getAttribute('data-book-id'))!
+    const { older, current } = await page.evaluate(async ({ bookId, draft }) => {
+      const older = await window.readerApi.saveBookSession({ bookId, conversationId: crypto.randomUUID(), scope: 'book',
+        draft: '旧对话的草稿', selection: null, turns: [{ id: crypto.randomUUID(), action: 'ask', actionLabel: '提问',
+          question: '历史搜索命中的旧问题', answer: '已保存的旧回答', model: 'fixture', status: 'completed' }] })
+      const current = await window.readerApi.saveBookSession({ bookId, conversationId: crypto.randomUUID(), scope: 'book',
+        draft, selection: null, turns: [] })
+      return { older, current }
+    }, { bookId, draft: baselineDraft })
+    await openSavedSession(page)
+    setSaveFailure(workspace.userData, 'book_sessions', true)
+    await page.locator(sidebarDraft).fill('保存失败也要留在原会话的草稿')
+    await expectSaveFailure(page)
+    await page.getByTestId('recent-conversations').click()
+    await page.getByTestId('recent-conversation-query').fill('历史搜索命中')
+    const match = page.getByTestId('recent-conversation-result')
+    await match.click()
+    await expect(page.locator('.recent-conversations-popover [role="alert"]')).toBeVisible()
+    await expect(page.locator(sidebarDraft)).toHaveValue('保存失败也要留在原会话的草稿')
+    expect(await page.evaluate((id) => window.readerApi.getBookSession(id).then((record) => record?.conversationId), bookId)).toBe(current.conversationId)
+
+    setSaveFailure(workspace.userData, 'book_sessions', false)
+    await match.click()
+    await expect(page.locator(sidebarDraft)).toHaveValue(older.draft)
+    await expect(page.getByTestId('answer-current')).toContainText(older.turns[0].answer)
+    expect(await page.evaluate(({ bookId, conversationId }) => window.readerApi.getRecentBookSession({ bookId, conversationId }).then((record) => record?.draft), current))
+      .toBe('保存失败也要留在原会话的草稿')
+  } finally {
+    clearSaveFailures(workspace.userData)
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
 test('preserves saved archive tabs on a failed write and retries their current draft', async () => {
   const workspace = await createE2eWorkspace('llm-reader-tab-save-recovery-')
   let application: ElectronApplication | undefined

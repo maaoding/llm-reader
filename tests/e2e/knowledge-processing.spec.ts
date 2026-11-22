@@ -1,5 +1,4 @@
-import { showPreparation, hidePreparation, showAssistant } from './support/workspace'
-import { showLibrary, enterReading, togglePreparation } from './support/workspace'
+import { showPreparation, hidePreparation, showAssistant, jumpToPassage, showLibrary, enterReading, togglePreparation, resizeWorkspace } from './support/workspace'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
 import { writeFile } from 'node:fs/promises'
@@ -256,6 +255,115 @@ test('TXT indexes completed batches, pauses across restart and retrieves synonym
   } finally { server.closeAllConnections(); await cleanupE2eWorkspace(application, workspace.root) }
 })
 
+test('finds original passages by meaning, jumps, and identifies full-text fallback', async () => {
+  const workspace = await createE2eWorkspace('llm-reader-semantic-search-')
+  const fixture = join(workspace.root, '按含义查找样本.txt')
+  await writeFile(fixture, `第一章 观察\n\n${Array.from({ length: 45 }, (_, index) => `天气记录 ${index} 记下当天温度。`).join('\n\n')}\n\n第二章 判断\n\n个体受到群体压力而改变判断。\n\n随后讨论独立判断的条件。`, 'utf8')
+  let application: ElectronApplication | undefined
+  try {
+    const launched = await launchReader({ userData: workspace.userData, importPath: fixture })
+    application = launched.application
+    const { page } = launched
+    const setEmbedding = (model: string) => page.evaluate(({ url, model }) => window.readerApi.saveKnowledgeSettings({
+      target: 'embedding', embedding: { enabled: true, baseUrl: `${url}/v1`, model, timeoutMs: 1_000 },
+      document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch' }
+    }), { url: endpoint, model })
+    await showLibrary(page)
+    await setEmbedding('lookup-fixture')
+    const bookId = await page.evaluate(async () => (await window.readerApi.listBooks())[0].id)
+    await page.getByTestId('book-item').click()
+    await enterReading(page)
+    const search = page.getByTestId('reader-search')
+    const openSearch = async () => {
+      if (!await search.isVisible()) await page.getByTestId('reader-search-button').click()
+      await expect(search).toBeVisible()
+    }
+    const result = page.getByTestId('reader-search-result')
+    const input = page.getByTestId('reader-search-input')
+    const fallback = page.getByTestId('reader-search-fallback')
+    const chooseAppearance = async (width: number, height: number, theme: string, scale: number) => {
+      await resizeWorkspace(launched.application, page, width, height)
+      await page.getByTestId('settings-button').click()
+      await page.getByTestId('settings-nav-appearance').click()
+      await page.getByTestId(`theme-${theme}`).click()
+      await page.getByTestId(`scale-${scale}`).click()
+      await page.getByTestId('settings-close').click()
+    }
+    await chooseAppearance(1180, 800, 'light', 100)
+    await openSearch()
+    await expect(page.getByTestId('reader-search-text-mode')).toHaveAttribute('aria-pressed', 'true')
+    await page.getByTestId('reader-search-semantic-mode').click()
+    await expect(search).toContainText('Embedding 服务发送查询词')
+    await input.fill('随大流')
+    await input.press('Enter')
+    await expect(fallback).toContainText('本书原文尚未准备好')
+    await expect(search).toContainText('没有找到相关内容')
+    expect(embeddingCalls).toBe(0)
+
+    await page.evaluate((id) => window.readerApi.prepareBookDocument({ bookId: id }), bookId)
+    await expect.poll(() => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.document?.status), bookId)).toBe('ready')
+    await input.press('Enter')
+    await expect(fallback).toContainText('语义索引尚未就绪')
+    expect(embeddingCalls).toBe(0)
+    await page.evaluate((id) => window.readerApi.startSemanticIndex({ bookId: id }), bookId)
+    await expect.poll(() => page.evaluate((id) => window.readerApi.getBookAnalysis(id).then((value) => value.semantic?.status), bookId)).toBe('ready')
+    const afterIndex = embeddingCalls
+    await input.fill('什么是随大流')
+    expect(embeddingCalls).toBe(afterIndex)
+    await input.press('Enter')
+    await expect(page.getByTestId('reader-semantic-result-mode')).toContainText('按含义查找')
+    await expect(result).toHaveCount(1)
+    await expect(result.first()).toContainText('群体压力')
+    await expect(result.first()).toContainText('第二章')
+    expect(embeddingCalls).toBe(afterIndex + 1)
+    expect(JSON.parse(received.filter((call) => call.path.endsWith('/embeddings')).at(-1)!.body).input).toEqual(['什么是随大流'])
+    expect(received.some((call) => call.path.endsWith('/chat/completions'))).toBe(false)
+    await expect(search).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: test.info().outputPath('semantic-search-light-1180.png'), animations: 'disabled' })
+    await result.first().click()
+    await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', /第二章/u)
+    await expect(page.getByTestId('reader-host').getByText('个体受到群体压力而改变判断。', { exact: true })).toBeInViewport()
+
+    await chooseAppearance(940, 600, 'dark', 125)
+    await openSearch()
+    holdEmbeddings = true
+    await input.fill('随大流')
+    await input.press('Enter')
+    await expect(fallback).toContainText('Embedding 请求超时')
+    await expect(fallback).toContainText('本次改用全文搜索')
+    await expect(search).toContainText('没有找到相关内容')
+    await expect(search).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: test.info().outputPath('semantic-fallback-dark-940.png'), animations: 'disabled' })
+
+    await input.press('Enter')
+    await page.getByTestId('reader-search-cancel').click()
+    await expect(search).toContainText('已取消本次查找')
+    await expect(result).toHaveCount(0)
+    await input.fill('设置改变前的查找')
+    await input.press('Enter')
+    await expect.poll(() => received.some((call) => call.path.endsWith('/embeddings') && call.body.includes('设置改变前的查找'))).toBe(true)
+    await setEmbedding('different-model')
+    holdEmbeddings = false
+    await expect(search).toContainText('请重新查找')
+    await expect(result).toHaveCount(0)
+    const beforeChanged = embeddingCalls
+    await input.fill('群体压力')
+    await input.press('Enter')
+    await expect(fallback).toContainText('索引配置已变更')
+    await expect(result.first()).toContainText('群体压力')
+    expect(embeddingCalls).toBe(beforeChanged)
+
+    await page.getByTestId('reader-search-text-mode').click()
+    await input.fill('天气记录 10')
+    await input.press('Enter')
+    await expect(result).toHaveCount(1)
+    await expect(fallback).toHaveCount(0)
+  } finally {
+    server.closeAllConnections()
+    await cleanupE2eWorkspace(application, workspace.root)
+  }
+})
+
 for (const processor of ['docling', 'mineru-local', 'mineru-cloud'] as const) {
   test(`${processor} processes PDF with page citations and resumes an existing remote job`, async () => {
     test.setTimeout(120_000)
@@ -305,7 +413,7 @@ for (const processor of ['docling', 'mineru-local', 'mineru-cloud'] as const) {
       const citedPassage = snapshot!.passages.find((passage) => passage.text.includes('群体压力'))!
       expect(citedPassage.chapterTitle).toBeTruthy()
       const naturalChapter = await page.locator('.reader-column').getAttribute('data-current-chapter-title')
-      await page.getByTestId('citation-valid').click()
+      await jumpToPassage(page.getByTestId('citation-valid'))
       await expect(page.locator('.reader-column')).toHaveAttribute('data-current-chapter-title', citedPassage.chapterTitle!)
       await expect(page.locator('.toast.is-error')).toHaveCount(0)
       await expect.poll(() => page.getByTestId('reader-host').evaluate((host, pageNumber) => {

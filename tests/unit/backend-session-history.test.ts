@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { AppDatabase } from '../../src/main/database'
 import { removeWebSearchSchema } from './support/legacy-web-search'
-import type { BookSessionRecord } from '../../src/shared/contracts'
+import { RECENT_BOOK_SESSION_SEARCH_LIMIT, type BookSessionRecord, type BookSessionTurn } from '../../src/shared/contracts'
 
 function addBook(database: AppDatabase): string {
   const id = randomUUID()
@@ -15,6 +15,59 @@ function addBook(database: AppDatabase): string {
 function session(bookId: string, index: number): BookSessionRecord {
   return { bookId, conversationId: randomUUID(), scope: 'book', selection: null, draft: `草稿 ${index}`, turns: [], updatedAt: new Date(1_800_000_000_000 + index * 1000).toISOString() }
 }
+
+function finishedTurn(question: string, answer: string): BookSessionTurn {
+  return { id: randomUUID(), action: 'ask', actionLabel: '提问', question, answer, model: 'fixture', status: 'completed' }
+}
+
+it('searches retained questions, answers and identical book titles as literal text across restart', () => {
+  const root = mkdtempSync(join(tmpdir(), 'reader-session-search-'))
+  let database = new AppDatabase(join(root, 'reader.sqlite'))
+  try {
+    const firstBook = addBook(database), secondBook = addBook(database)
+    const question = { ...session(firstBook, 1), turns: [finishedTurn('中文 C++[编号]_%', '甲回答')] }
+    const answer = { ...session(secondBook, 2), draft: '只在草稿里的字词',
+      turns: [finishedTurn('乙问题', '开头😀'.repeat(100) + '中文 c++[编号]_%' + '末尾'.repeat(100))] }
+    database.upsertBookSession(question)
+    database.upsertBookSession(answer)
+    database.close(); database = new AppDatabase(join(root, 'reader.sqlite'))
+    const found = database.searchRecentBookSessions('中文 C++[编号]_%')
+    expect(found.hasMore).toBe(false)
+    expect(found.matches).toMatchObject([
+      { bookId: secondBook, conversationId: answer.conversationId, title: '乙问题', matchField: 'answer', updatedAt: answer.updatedAt },
+      { bookId: firstBook, conversationId: question.conversationId, matchField: 'question', excerpt: question.turns[0].question }
+    ])
+    expect(found.matches[0].excerpt).toMatch(/^….*中文 c\+\+\[编号\]_%.*…$/u)
+    expect(found.matches[0]).not.toHaveProperty('turns')
+    expect(database.searchRecentBookSessions('会话样本').matches.map(({ bookId, matchField }) => [bookId, matchField]))
+      .toEqual([[secondBook, 'book'], [firstBook, 'book']])
+    expect(database.searchRecentBookSessions('只在草稿里的字词').matches).toEqual([])
+
+    expect(database.deleteBookSession(secondBook, answer.conversationId)).toBe(true)
+    expect(database.searchRecentBookSessions('中文').matches.map(({ bookId }) => bookId)).toEqual([firstBook])
+    database.connection.prepare('DELETE FROM books WHERE id = ?').run(firstBook)
+    expect(database.searchRecentBookSessions('中文').matches).toEqual([])
+  } finally { database.close(); rmSync(root, { recursive: true, force: true }) }
+})
+
+it('caps search results by recency and never includes evicted conversations', () => {
+  const root = mkdtempSync(join(tmpdir(), 'reader-session-search-limit-'))
+  const database = new AppDatabase(join(root, 'reader.sqlite'))
+  try {
+    const books = Array.from({ length: 3 }, () => addBook(database))
+    const records = books.flatMap((book, bookIndex) => Array.from({ length: 22 }, (_, index) => ({
+      ...session(book, bookIndex * 22 + index),
+      turns: [finishedTurn('共同词', index === 0 ? '只有淘汰记录里的字词' : '回答')]
+    })))
+    records.forEach((record) => database.upsertBookSession(record))
+    const result = database.searchRecentBookSessions('共同词')
+    const retainedIds = records.filter((_, index) => index % 22 >= 2).reverse()
+      .slice(0, RECENT_BOOK_SESSION_SEARCH_LIMIT).map((record) => record.conversationId)
+    expect(result.hasMore).toBe(true)
+    expect(result.matches.map((item) => item.conversationId)).toEqual(retainedIds)
+    expect(database.searchRecentBookSessions('只有淘汰记录里的字词').matches).toEqual([])
+  } finally { database.close(); rmSync(root, { recursive: true, force: true }) }
+})
 
 it('keeps bounded per-book history across restart, preserves IDs and deletes only the requested session', () => {
   const root = mkdtempSync(join(tmpdir(), 'reader-session-history-'))

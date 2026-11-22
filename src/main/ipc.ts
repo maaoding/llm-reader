@@ -34,6 +34,7 @@ import {
   startSemanticIndexSchema,
   bookIdSchema,
   bookDocumentSearchSchema,
+  semanticSearchSchema,
   bookPagePreviewSchema,
   bookOcrPageSchema,
   clipboardTextSchema,
@@ -47,6 +48,7 @@ import {
   highlightIdSchema,
   highlightSchema,
   bookSessionSchema,
+  recentBookSessionQuerySchema,
   recentBookSessionSchema,
   deleteBookSessionSchema,
   sessionTabsSchema,
@@ -353,6 +355,7 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
     return { canceled: false, fileName: await dependencies.library.exportWorkbench(id, result.filePath) }
   })
   handle(IPC_CHANNELS.sessionsRecent, dependencies, (_event, value) => dependencies.library.listRecentBookSessions(parse(bookIdSchema, value)))
+  handle(IPC_CHANNELS.sessionsSearchRecent, dependencies, (_event, value) => dependencies.library.searchRecentBookSessions(parse(recentBookSessionQuerySchema, value)))
   handle(IPC_CHANNELS.sessionsReadRecent, dependencies, (_event, value) => dependencies.library.getRecentBookSession(parse(recentBookSessionSchema, value)))
   handle(IPC_CHANNELS.sessionsSave, dependencies, (_event, value) =>
     dependencies.library.saveBookSession(parse(bookSessionSchema, value))
@@ -428,6 +431,8 @@ export function registerIpcHandlers(dependencies: IpcDependencies): void {
       return dependencies.analysis!.state(input.bookId)
     })
     handle(IPC_CHANNELS.semanticCancel, dependencies, (_event, value) => dependencies.semantic!.cancel(parse(bookIdSchema, value)))
+    handle(IPC_CHANNELS.semanticSearch, dependencies, (_event, value) => dependencies.semantic!.lookup(parse(semanticSearchSchema, value)))
+    handle(IPC_CHANNELS.semanticSearchCancel, dependencies, (_event, value) => dependencies.semantic!.cancelSearch(parse(semanticSearchSchema.shape.requestId, value)))
   }
   if (dependencies.analysis) {
     const analysis = dependencies.analysis

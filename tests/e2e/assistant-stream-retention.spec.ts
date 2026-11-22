@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BaseWindow, OpenDialogOptions } from 'electron'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
-import { resizeWorkspace } from './support/workspace'
+import { resizeWorkspace, jumpToPassage } from './support/workspace'
 
 let mockServer: Server
 let endpoint = ''
@@ -182,6 +182,15 @@ test('keeps a running answer while switching book tabs and renders the saved ans
     await expect(restored.locator('.turn-error')).toHaveCount(0)
     await expect(page.getByTestId('cancel-request')).toHaveCount(0)
 
+    await restored.getByTestId('citation-valid').hover()
+    await expect(page.getByTestId('source-preview')).toBeVisible()
+    await tabs.nth(1).click()
+    await expect(page.locator('.workspace-book-title h1')).toHaveText(TITLES[1])
+    await expect(page.getByTestId('source-preview')).toHaveCount(0)
+    await tabs.first().click()
+    await expect(page.locator('.workspace-book-title h1')).toHaveText(TITLES[0])
+    await expect(page.getByTestId('source-preview')).toHaveCount(0)
+
     await resizeWorkspace(application, page, 1180, 800)
     await page.getByTestId('settings-button').click()
     await page.getByTestId('settings-nav-appearance').click()
@@ -286,7 +295,7 @@ test('keeps the same stream and citation when the reading assistant is detached,
     await expect(popup.getByTestId('answer-current')).toContainText('第三段：回到本书时答案应当完整。')
     await expect(popup.getByTestId('cancel-request')).toHaveCount(0)
     await expect(popup.locator('.conversation-turn')).toHaveCount(1)
-    await popup.getByTestId('citation-valid').click()
+    await jumpToPassage(popup.getByTestId('citation-valid'))
     await expect.poll(() => page.evaluate(() => {
       const registry = (window.CSS as unknown as { highlights: Map<string, Iterable<Range>> }).highlights
       return Array.from(registry.get('llm-reader-temporary') ?? [], (range) => range.toString()).join('')

@@ -1,12 +1,21 @@
 import { memo, useMemo, type ReactNode } from 'react'
 import { copy, type UiLanguage } from '@shared/copy'
-import { isPdfImageRegion, type ReaderSource, type Passage, type WebSearchSource } from '@shared/contracts'
+import { isPdfImageRegion, type ContextSnapshot, type ReaderSource, type Passage, type WebSearchSource } from '@shared/contracts'
 import { parseMarkdown, type AnswerInline, type MarkdownBlock } from './answer-markdown'
 import { createCitationResolver, withoutIncompleteCitationMarker } from './citations'
 import { MarkedText } from './MarkedText'
+import { PassagePreview, type NavigatePassage } from './PassagePreview'
 import { WebCitation } from './WebSources'
 
-type CitationContext = { bookId: string; resolve: ReturnType<typeof createCitationResolver>; availableBookIds?: string[]; documentTarget?: Document }
+type CitationContext = {
+  bookId: string
+  resolve: ReturnType<typeof createCitationResolver>
+  context?: ContextSnapshot
+  bookTitle?: string
+  availableBookIds?: string[]
+  readOnly: boolean
+  documentTarget?: Document
+}
 const NO_PASSAGES: Passage[] = []
 const NO_WEB_SOURCES: WebSearchSource[] = []
 
@@ -18,7 +27,7 @@ function TextContent({
 }: {
   text: string
   selection: CitationContext
-  onNavigate: ((anchor: string, bookId?: string) => void) | null
+  onNavigate?: NavigatePassage
   highlight: string
 }): ReactNode {
   const segments = selection.resolve(withoutIncompleteCitationMarker(text))
@@ -39,7 +48,15 @@ function TextContent({
       )
     }
     if (segment.type === 'web') return <WebCitation key={index} source={segment.source} bookId={selection.bookId} documentTarget={selection.documentTarget} />
-    const missing = segment.bookId && selection.availableBookIds && !selection.availableBookIds.includes(segment.bookId)
+    const { anchor, bookId } = segment.passage
+    if (selection.context && !selection.readOnly) {
+      return (
+        <PassagePreview key={index} passage={segment.passage} context={selection.context}
+          bookTitle={selection.bookTitle} availableBookIds={selection.availableBookIds} onNavigate={onNavigate}
+          className="citation citation-valid" testId="citation-valid">{segment.label}</PassagePreview>
+      )
+    }
+    const missing = bookId && selection.availableBookIds && !selection.availableBookIds.includes(bookId)
     if (missing) return <span className="citation citation-unknown" key={index} title={copy('workbench.missingSource')}>{segment.label} · {copy('workbench.deletedBook')}</span>
     if (onNavigate) {
       return (
@@ -49,7 +66,7 @@ function TextContent({
           key={index}
           type="button"
           title={segment.title}
-          onClick={() => segment.bookId ? onNavigate(segment.anchor, segment.bookId) : onNavigate(segment.anchor)}
+          onClick={() => bookId ? onNavigate(anchor, bookId) : onNavigate(anchor)}
         >
           {segment.label}
         </button>
@@ -76,7 +93,7 @@ function InlineContent({
 }: {
   nodes: AnswerInline[]
   selection: CitationContext
-  onNavigate: ((anchor: string, bookId?: string) => void) | null
+  onNavigate?: NavigatePassage
   highlight: string
 }): ReactNode {
   return nodes.map((node, index) => {
@@ -102,7 +119,7 @@ function BlockContent({
 }: {
   block: MarkdownBlock
   selection: CitationContext
-  onNavigate: ((anchor: string, bookId?: string) => void) | null
+  onNavigate?: NavigatePassage
   highlight: string
 }): ReactNode {
   if (block.type === 'paragraph') {
@@ -156,14 +173,16 @@ export const AnswerText = memo(function AnswerText({
   readOnly = false,
   highlight = '',
   context,
+  bookTitle,
   availableBookIds,
   documentTarget
 }: {
   text: string
   selection: ReaderSource | null
   availableBookIds?: string[]
-  context?: import('@shared/contracts').ContextSnapshot
-  onNavigate?: (anchor: string, bookId?: string) => void
+  context?: ContextSnapshot
+  bookTitle?: string
+  onNavigate?: NavigatePassage
   readOnly?: boolean
   highlight?: string
   documentTarget?: Document
@@ -174,8 +193,8 @@ export const AnswerText = memo(function AnswerText({
   const passages = context?.passages ?? (selection && !isPdfImageRegion(selection) ? selection.passages : NO_PASSAGES)
   const webSources = context?.webSearch?.sources ?? NO_WEB_SOURCES
   const resolveCitations = useMemo(() => createCitationResolver(passages, webSources), [passages, webSources])
-  const navigate = readOnly ? null : (onNavigate ?? null)
-  const source: CitationContext = { availableBookIds, resolve: resolveCitations, documentTarget, bookId: context?.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context?.bookId ?? selection?.bookId ?? '' }
+  const navigate = readOnly ? undefined : onNavigate
+  const source: CitationContext = { context, bookTitle, availableBookIds, readOnly, resolve: resolveCitations, documentTarget, bookId: context?.books?.find((book) => !availableBookIds || availableBookIds.includes(book.id))?.id ?? context?.bookId ?? selection?.bookId ?? '' }
   return (
     <div className="answer-text answer-md">
       {blocks.map((block, index) => (

@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
 import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
-import { RECENT_BOOK_SESSION_LIMIT, type BookSessionSummary } from '@shared/contracts'
+import { RECENT_BOOK_SESSION_LIMIT, RECENT_BOOK_SESSION_SEARCH_LIMIT, type BookSessionSearchMatch, type BookSessionSearchResult, type BookSessionSummary } from '@shared/contracts'
 import type {
   ArchivedChatMessage,
   BookFormat,
@@ -1005,6 +1005,59 @@ export class AppDatabase {
       json_array_length(turns_json) AS turn_count
       FROM book_session_history WHERE book_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?`).all(bookId, RECENT_BOOK_SESSION_LIMIT)
     return rows.map((row) => ({ conversationId: String(row.conversation_id), scope: row.scope as 'selection' | 'book', title: String(row.title), turnCount: Number(row.turn_count), updatedAt: String(row.updated_at) }))
+  }
+
+  searchRecentBookSessions(query: string): BookSessionSearchResult {
+    // instr() treats brackets, percent signs and other punctuation as ordinary text.
+    const search = this.connection.prepare(`
+      WITH candidate AS MATERIALIZED (
+        SELECT h.rowid AS session_row, h.updated_at, b.title AS book_title,
+          CASE WHEN instr(lower(b.title), lower($query)) > 0 THEN -1
+            ELSE (SELECT turn.key FROM json_each(h.turns_json) AS turn
+              WHERE instr(lower(json_extract(turn.value, '$.question')), lower($query)) > 0
+                 OR instr(lower(json_extract(turn.value, '$.answer')), lower($query)) > 0
+              ORDER BY turn.key DESC LIMIT 1)
+          END AS turn_index
+        FROM book_session_history AS h JOIN books AS b ON b.id = h.book_id
+        WHERE h.rowid = $rowId
+      ), details AS (
+        SELECT m.*, h.book_id, h.conversation_id, h.scope,
+          substr(COALESCE(NULLIF(json_extract(h.selection_json, '$.quote'), ''), NULLIF(json_extract(h.turns_json, '$[0].question'), ''), h.draft), 1, 80) AS title,
+          json_array_length(h.turns_json) AS turn_count,
+          CASE WHEN m.turn_index >= 0 THEN json_extract(h.turns_json, '$[' || m.turn_index || '].question') END AS question,
+          CASE WHEN m.turn_index >= 0 THEN json_extract(h.turns_json, '$[' || m.turn_index || '].answer') END AS answer
+        FROM candidate AS m JOIN book_session_history AS h ON h.rowid = m.session_row
+        WHERE m.turn_index IS NOT NULL
+      ), fields AS (
+        SELECT *, CASE WHEN turn_index = -1 THEN 'book'
+          WHEN instr(lower(question), lower($query)) > 0 THEN 'question' ELSE 'answer' END AS match_field
+        FROM details
+      ), excerpts AS (
+        SELECT *, CASE match_field WHEN 'book' THEN book_title WHEN 'question' THEN question ELSE answer END AS match_text
+        FROM fields
+      ), positions AS (
+        SELECT *, instr(lower(match_text), lower($query)) AS match_start FROM excerpts
+      )
+      SELECT book_id, conversation_id, scope, title, turn_count, updated_at, match_field, substr(book_title, 1, 160) AS book_title,
+        CASE WHEN match_start > 29 THEN '…' ELSE '' END ||
+        substr(match_text, max(1, match_start - 28), min(28, match_start - 1) + length($query) + 48) ||
+        CASE WHEN length(match_text) >= match_start + length($query) + 48 THEN '…' ELSE '' END AS excerpt
+      FROM positions
+    `)
+    // Sort identifiers first and stop reading conversation bodies once the result limit is reached.
+    const newest = this.connection.prepare('SELECT rowid FROM book_session_history ORDER BY updated_at DESC, rowid DESC')
+    const matches: BookSessionSearchMatch[] = []
+    for (const { rowid } of newest.iterate()) {
+      const row = search.get({ query, rowId: rowid })
+      if (!row) continue
+      if (matches.length === RECENT_BOOK_SESSION_SEARCH_LIMIT) return { matches, hasMore: true }
+      matches.push({
+        bookId: String(row.book_id), bookTitle: String(row.book_title), conversationId: String(row.conversation_id),
+        scope: row.scope as BookSessionSummary['scope'], title: String(row.title), turnCount: Number(row.turn_count),
+        updatedAt: String(row.updated_at), matchField: row.match_field as BookSessionSearchMatch['matchField'], excerpt: String(row.excerpt)
+      })
+    }
+    return { matches, hasMore: false }
   }
 
   getRecentBookSession(bookId: string, conversationId: string): BookSessionRecord | null {

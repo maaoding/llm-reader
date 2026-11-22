@@ -281,6 +281,25 @@ describe('preload ReaderApi', () => {
     expect(electronMocks.invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.sessionsDelete, bookId)
   })
 
+  it('sends the literal recent-conversation query through its own IPC channel', async () => {
+    const result = { matches: [], hasMore: false }
+    electronMocks.invoke.mockResolvedValueOnce(result)
+    await expect(readerApi.searchRecentBookSessions('中文 C++[编号]_%')).resolves.toEqual(result)
+    expect(electronMocks.invoke).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.sessionsSearchRecent, '中文 C++[编号]_%')
+  })
+
+  it('invokes semantic lookup and cancels it by request identity', async () => {
+    const input = { bookId: 'book', requestId: 'request', query: '含义' }
+    const response = { status: 'fallback', reason: 'index-not-ready' }
+    electronMocks.invoke.mockResolvedValueOnce(response).mockResolvedValueOnce(undefined)
+    await expect(readerApi.searchBookSemantically(input)).resolves.toEqual(response)
+    await expect(readerApi.cancelSemanticSearch(input.requestId)).resolves.toBeUndefined()
+    expect(electronMocks.invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.semanticSearch, input],
+      [IPC_CHANNELS.semanticSearchCancel, input.requestId]
+    ])
+  })
+
   it('exposes the open session tabs list through its dedicated IPC channels', async () => {
     const state = {
       activeIndex: 1,

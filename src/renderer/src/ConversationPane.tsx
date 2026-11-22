@@ -58,17 +58,18 @@ export function AssistantScopeControls({ tab, busy, onScope }: { tab: Conversati
   </div>
 }
 
-const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNavigate, highlight, uiLanguage, documentTarget }: {
+const ConversationAnswer = memo(function ConversationAnswer({ turn, model, bookTitle, onNavigate, highlight, uiLanguage, documentTarget }: {
   turn: ConversationTurn
   model: string
+  bookTitle?: string
   onNavigate: (anchor: string, chapterTitle?: string) => void
   highlight: string
   uiLanguage: UiLanguage
   documentTarget: Document
 }) {
   const context = turn.context
-  const navigate = useCallback((anchor: string): void => {
-    onNavigate(anchor, context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ??
+  const navigate = useCallback((anchor: string, _bookId?: string, chapterTitle?: string): void => {
+    onNavigate(anchor, chapterTitle ?? context?.passages.find((passage) => passage.anchor === anchor)?.chapterTitle ??
       (turn.selection && !isPdfImageRegion(turn.selection) ? turn.selection.chapterTitle : undefined))
   }, [context, onNavigate, turn.selection])
   return <>
@@ -77,10 +78,10 @@ const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNav
       {context.webSearch && <strong>{copy('webSearch.bookSourcesTitle')}</strong>}
       {context.coverage.total > 0 && <p className="field-hint">{copy('analysis.coverage', context.coverage)}</p>}
       {context.rerank && <p className="field-hint" data-testid="rerank-result">{copy(context.rerank.status === 'applied' ? 'rerank.applied' : context.rerank.status === 'fallback' ? 'rerank.fallback' : 'rerank.skipped')}</p>}
-      <EvidenceSources passages={context.passages} onNavigate={onNavigate} uiLanguage={uiLanguage} />
+      <EvidenceSources passages={context.passages} context={context} bookTitle={bookTitle} onNavigate={onNavigate} uiLanguage={uiLanguage} />
     </>}</DeferredDetails>}
     {turn.context?.webSearch && <WebSources context={turn.context} uiLanguage={uiLanguage} />}
-    {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} onNavigate={navigate} highlight={highlight} uiLanguage={uiLanguage} documentTarget={documentTarget} />
+    {turn.answer ? <AnswerText text={turn.answer} selection={turn.selection} context={turn.context} bookTitle={bookTitle} onNavigate={navigate} highlight={highlight} uiLanguage={uiLanguage} documentTarget={documentTarget} />
       : turn.status === 'streaming' ? <div className="answer-thinking"><i /><i /><i /><span>{copy(turn.webSearchPhase === 'deciding' ? 'webSearch.deciding' : turn.webSearchPhase === 'searching' ? 'webSearch.searching' : 'assistant.thinking')}</span></div>
         : turn.status === 'queued' ? <div className="answer-thinking is-queued"><span>{copy('assistant.queued')}</span></div> : null}
     {turn.status === 'streaming' && turn.answer && <span className="stream-caret" aria-label={copy('assistant.generatingAria')} />}
@@ -89,11 +90,12 @@ const ConversationAnswer = memo(function ConversationAnswer({ turn, model, onNav
 })
 
 const ConversationTurnCard = memo(function ConversationTurnCard({
-  turn, model, isLatest, searchNeedle, uiLanguage, documentTarget, onNavigate,
+  turn, model, bookTitle, isLatest, searchNeedle, uiLanguage, documentTarget, onNavigate,
   onSave, onRegenerate, onEditQuestion, canRegenerate, onCopy, canCopy
 }: {
   turn: ConversationTurn
   model: string
+  bookTitle?: string
   isLatest: boolean
   searchNeedle: string
   uiLanguage: UiLanguage
@@ -110,7 +112,7 @@ const ConversationTurnCard = memo(function ConversationTurnCard({
     <article className={`conversation-turn is-${turn.status}`}>
       <QuestionBubble action={turn.action} label={turn.actionLabel} question={turn.question} needle={searchNeedle} />
       <div className="answer-card" data-testid={isLatest ? 'answer-current' : undefined}>
-        <ConversationAnswer turn={turn} model={model} onNavigate={onNavigate} highlight={searchNeedle} uiLanguage={uiLanguage} documentTarget={documentTarget} />
+        <ConversationAnswer turn={turn} model={model} bookTitle={bookTitle} onNavigate={onNavigate} highlight={searchNeedle} uiLanguage={uiLanguage} documentTarget={documentTarget} />
         {turn.status === 'error' && onRegenerate && (
           <div className="answer-retry-actions">
             <button data-testid="answer-regenerate" type="button" disabled={!canRegenerate} onClick={() => onRegenerate(turn.id)}><RefreshCw size={13} />{copy('assistant.regenerate')}</button>
@@ -141,6 +143,7 @@ const ConversationTurnCard = memo(function ConversationTurnCard({
 
 export function ConversationPane({
   markdownBook,
+  bookTitle = markdownBook?.title,
   markdownToolsTarget,
   documentTarget = document,
   conversationSelection,
@@ -172,6 +175,7 @@ export function ConversationPane({
 }: {
   conversationSelection: ReaderSource | null
   markdownBook?: MarkdownBook
+  bookTitle?: string
   markdownToolsTarget?: HTMLElement | null
   documentTarget?: Document
   scope?: 'selection' | 'book'
@@ -254,7 +258,7 @@ export function ConversationPane({
           {turns.map((turn, index) => {
             const isLatest = index === turns.length - 1
             const canEdit = isLatest && !activeRequestId
-            return <ConversationTurnCard key={turn.id} turn={turn} isLatest={isLatest} model={provider.model}
+            return <ConversationTurnCard key={turn.id} turn={turn} isLatest={isLatest} model={provider.model} bookTitle={bookTitle}
               uiLanguage={uiLanguage} documentTarget={documentTarget} searchNeedle={searchNeedle}
               onNavigate={onNavigate} onSave={showSave ? onSave : undefined}
               onRegenerate={canEdit ? onRegenerate : undefined} onEditQuestion={canEdit ? onEditQuestion : undefined}

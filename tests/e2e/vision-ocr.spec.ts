@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http'
 import { resolve } from 'node:path'
 import type { ContextSnapshot } from '../../src/shared/contracts'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
-import { enterReading, hidePreparation, resizeWorkspace, showLibrary, showPreparation } from './support/workspace'
+import { enterReading, hidePreparation, resizeWorkspace, showLibrary, showPreparation, jumpToPassage } from './support/workspace'
 
 let server: Server, endpoint = '', holdPages = false
 let failNextPage = false, pageText = '扫描原文：独立复核是必要条件。'
@@ -182,7 +182,7 @@ test('selects, reviews and cites PaddleOCR words on the original scan across zoo
     await expect(page.getByTestId('action-explain')).toHaveText('Explain this')
     await page.getByTestId('action-explain').click()
     await expect(page.getByTestId('answer-current')).toContainText('这是所选文字')
-    await page.getByTestId('citation-valid').click()
+    await jumpToPassage(page.getByTestId('citation-valid'))
     const citation = sheet.locator('.pdf-region-overlay.is-temporary')
     await expect(citation).toBeInViewport()
     await expect(citation).toHaveAttribute('data-region-anchor', /^pdfrect:1:0\.1048/u)
@@ -266,7 +266,7 @@ test('reads cached OCR text, selects passages for cited questions and restores t
     await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.listInsights(id)).length, bookId)).toBe(1)
     const archived = await page.evaluate(async (id) => (await window.readerApi.listInsights(id))[0], bookId)
     expect(archived.selection).toMatchObject({ quote: '独立复核是必要条件', chapterTitle: '第 1 页', anchor: expect.stringMatching(/^pdfocr:1:/u) })
-    await page.getByTestId('citation-valid').click()
+    await jumpToPassage(page.getByTestId('citation-valid'))
     await expect(page.getByTestId('ocr-page-reader')).toHaveCount(0)
     await expect(page.getByTestId('reader-host')).not.toHaveAttribute('inert')
     await expect(noTextBanner).toBeHidden()
@@ -393,7 +393,7 @@ test('vision settings recognize scanned PDF images and support cited, archived q
     await page.getByTestId('followup-input').fill('扫描书中提到什么必要条件？')
     await page.getByTestId('followup-input').press('Enter')
     await expect(page.getByTestId('answer-current')).toContainText('书中要求独立复核')
-    await page.getByTestId('citation-valid').click()
+    await jumpToPassage(page.getByTestId('citation-valid'))
     await expect(page.locator('.toast.is-error')).toHaveCount(0)
     await page.getByTestId('answer-save').click()
     await expect.poll(() => page.evaluate(async (id) => (await window.readerApi.listInsights(id)).length, bookId)).toBe(1)

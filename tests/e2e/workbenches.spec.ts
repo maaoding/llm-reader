@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { ContextSnapshot } from '../../src/shared/contracts'
 import type {} from '../../src/renderer/src/global'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
-import { enterReading, resizeWorkspace, showLibrary } from './support/workspace'
+import { enterReading, resizeWorkspace, showLibrary, jumpToPassage } from './support/workspace'
 import { createCoveredEpubFixture } from './fixtures/covered-epub'
 
 let server: Server, endpoint = ''
@@ -306,7 +306,7 @@ test('creates an independent workbench, cites two books, keeps reading drafts an
     await expect(persona).toBeDisabled()
     expect(new Set(answers.at(-1)!.context.passages.map((passage) => passage.bookId))).toEqual(new Set(ids.map((book) => book.id)))
 
-    await page.getByTestId('workbench-turn').getByTestId('citation-valid').filter({ hasText: titles[1] }).first().click()
+    await jumpToPassage(page.getByTestId('workbench-turn').getByTestId('citation-valid').filter({ hasText: titles[1] }).first())
     await expect(page.locator('.workspace-shell')).toHaveAttribute('data-page', 'reading')
     await expect(page.getByTestId('reader-host')).toContainText('证据比人数更重要')
     await expect(page.getByTestId('return-workbench')).toHaveCount(0)

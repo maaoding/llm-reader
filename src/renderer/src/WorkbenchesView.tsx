@@ -51,9 +51,9 @@ const WorkbenchAnswer = memo(function WorkbenchAnswer({ turn, model, bookTitles,
   uiLanguage: UiLanguage
 }) {
   const context = turn.context
-  const navigate = useCallback((anchor: string, bookId?: string): void => {
-    if (bookId) onNavigate(bookId, anchor, context?.passages.find((passage) => passage.bookId === bookId && passage.anchor === anchor)?.chapterTitle)
-  }, [context, onNavigate])
+  const navigate = useCallback((anchor: string, bookId?: string, title?: string): void => {
+    if (bookId) onNavigate(bookId, anchor, title)
+  }, [onNavigate])
   const navigateSource = useCallback((anchor: string, title?: string, bookId?: string): void => {
     if (bookId) onNavigate(bookId, anchor, title)
   }, [onNavigate])
@@ -61,7 +61,7 @@ const WorkbenchAnswer = memo(function WorkbenchAnswer({ turn, model, bookTitles,
     <div className="answer-label"><span><Sparkles size={13} /></span><strong className="answer-model" title={turn.model || model}>{turn.model || model || copy('assistant.modelUnavailable')}</strong></div>
     <small className="workbench-turn-books">{copy('workbench.sources')}: {(turn.context?.books?.map((book) => book.title) ?? turn.bookIds.map((id) => bookTitles.get(id) ?? copy('workbench.deletedBook'))).join(' · ')}</small>
     {context && context.passages.length > 0 && <DeferredDetails className="answer-sources" summary={copy('analysis.sourceCount', { count: context.passages.length })}>{() =>
-      <EvidenceSources passages={context.passages} availableBookIds={availableBookIds} onNavigate={navigateSource} uiLanguage={uiLanguage} />
+      <EvidenceSources passages={context.passages} context={context} availableBookIds={availableBookIds} onNavigate={navigateSource} uiLanguage={uiLanguage} />
     }</DeferredDetails>}
     {turn.context?.webSearch && <WebSources context={turn.context} availableBookIds={availableBookIds} uiLanguage={uiLanguage} />}
     {turn.answer ? <AnswerText text={turn.answer} selection={null} context={turn.context} availableBookIds={availableBookIds} onNavigate={navigate} uiLanguage={uiLanguage} />

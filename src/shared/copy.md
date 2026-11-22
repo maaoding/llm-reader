@@ -196,6 +196,9 @@
 | reader.fullscreenExit | 退出阅读全屏（F11） |
 | reader.fullscreenFailed | 无法切换阅读全屏。 |
 | sources.wholeTable | 此处只能定位到整张表所在的页面。 |
+| sources.preview | 原文预览 |
+| sources.jump | 跳转到原文 |
+| sources.locationUnavailable | 此处没有可用的原文位置。 |
 
 本文件是应用自有用户可见文案的唯一来源。`key` 不可重复，动态内容使用 `{name}` 占位符。
 
@@ -733,8 +736,18 @@
 | ocrReading.previewAlt | 原 PDF 选区图像 |
 | ocrReading.previewFailed | 无法显示原页选区，请重新划选。 |
 | assistant.recentSessionTurns | {count} 轮对话 |
-| assistant.recentSessionsHint | 每本书保留最近 20 个对话，每个最多 20 轮。点击可恢复选区、回答和草稿。 |
+| assistant.recentSessionsHint | 每本书最多保留最近 20 个对话，每个最多 20 轮。 |
 | assistant.recentSessionsEmpty | 还没有其他对话。 |
+| assistant.recentSearch | 最近对话搜索 |
+| assistant.recentSearchPlaceholder | 搜索书名、问题或回答 |
+| assistant.recentSearchLoading | 正在搜索最近对话… |
+| assistant.recentSearchEmpty | 最近保留的对话中没有匹配结果。 |
+| assistant.recentSearchFailed | 无法读取最近的对话。 |
+| assistant.recentSearchLimit | 显示最新的 {count} 个匹配结果，可输入更具体的关键词。 |
+| assistant.recentSearchQuestion | 问题 |
+| assistant.recentSearchAnswer | 回答 |
+| assistant.recentSessionMissing | 这条对话已不在最近保留的记录中。 |
+| assistant.recentSessionBusy | 暂时无法切换对话，请等待当前操作结束后重试。 |
 | assistant.sessionRestoreFailed | 无法读取或恢复对话，请重试。 |
 | assistant.tabsRestoreFailed | 未能恢复上次打开的对话标签。原有标签和草稿已保留，请重试。 |
 | assistant.sessionLoading | 正在恢复对话… |
@@ -846,6 +859,25 @@
 | reader.searchNoResultsDetail | 换一个词再试试。 |
 | reader.searchFailed | 搜索失败，请重试。 |
 | reader.searchInvalid | 请输入 1–100 个字符。 |
+| reader.searchModeAria | 查找方式 |
+| reader.searchTextMode | 全文搜索 |
+| reader.searchSemanticMode | 按含义查找 |
+| reader.searchCancel | 取消 |
+| reader.searchCanceled | 已取消本次查找。 |
+| reader.semanticPlaceholder | 输入想找的内容… |
+| reader.semanticDisclosure | 提交时会向配置的 Embedding 服务发送查询词。 |
+| reader.semanticLoading | 正在按含义查找… |
+| reader.semanticResultCount | 按含义查找 · {count} 处 |
+| reader.semanticEmptyDetail | 试试换一种表述。 |
+| reader.semanticDisabled | Embedding 服务尚未启用。 |
+| reader.semanticDocumentUnavailable | 本书原文尚未准备好。 |
+| reader.semanticIndexUnavailable | 本书语义索引尚未就绪。 |
+| reader.semanticChanged | 原文或语义索引配置已变更。 |
+| reader.semanticDimensions | 查询向量与本书索引的维度不一致。 |
+| reader.semanticTimeout | Embedding 请求超时。 |
+| reader.semanticUnavailable | 未能取得语义查找结果。 |
+| reader.semanticFallback | 本次改用全文搜索。 |
+| reader.semanticRetry | 原文或语义索引配置已变更，请重新查找。 |
 | reader.pdfPage | 第 {number} 页 |
 | reader.pdfZoomOut | 缩小 |
 | reader.pdfZoomIn | 放大 |

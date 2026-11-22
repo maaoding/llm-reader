@@ -8,7 +8,7 @@ const CITATION_EXCERPT_LENGTH = 24
 
 export type CitationSegment =
   | { type: 'text'; text: string }
-  | { type: 'valid'; label: string; title: string; anchor: string; bookId?: string }
+  | { type: 'valid'; label: string; title: string; passage: Passage }
   | { type: 'web'; source: WebSearchSource }
   | { type: 'unverified'; label: string; title: string }
 
@@ -61,8 +61,7 @@ export function createCitationResolver(passages: Passage[], webSources: WebSearc
         type: 'valid',
         label: `${passage.bookTitle ? `《${passage.bookTitle}》 ` : ''}${copy('assistant.citationExcerpt', { excerpt })}`,
         title: `${passage.bookTitle ? `《${passage.bookTitle}》 ` : ''}${copy('assistant.citationJumpTitle', { excerpt })}`,
-        anchor: passage.anchor,
-        ...(passage.bookId ? { bookId: passage.bookId } : {})
+        passage
       }
     }
     if (INTERNAL_PASSAGE_ID.test(match[1])) {

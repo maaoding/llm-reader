@@ -1,6 +1,6 @@
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { createServer, type Server } from 'node:http'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { BaseWindow, OpenDialogOptions } from 'electron'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader, restartReader } from './support/electron-app'
@@ -468,5 +468,119 @@ test('restores separate selection conversations with drafts across restart and c
     await expect(page.getByTestId('recent-conversation')).toHaveCount(1)
     await expect(page.getByTestId('recent-conversation')).toContainText(firstQuote.slice(0, 20))
     await page.screenshot({ path: test.info().outputPath('recent-conversations.png') })
+  } finally { await cleanupE2eWorkspace(application, workspace.root) }
+})
+
+test('searches retained conversations across same-titled books and restores the exact saved conversation', async () => {
+  test.setTimeout(120_000)
+  const workspace = await createE2eWorkspace('llm-reader-recent-search-')
+  let application: ElectronApplication | undefined
+  try {
+    const title = '同名的阅读样本'
+    const paths = await Promise.all(['first', 'second'].map(async (name) => {
+      const directory = join(workspace.root, name)
+      await mkdir(directory)
+      const path = join(directory, title + '.txt')
+      await writeFile(path, `${title}\n\n合成正文 ${name}，用于区分两本同名书。\n\n另一段正文。`, 'utf8')
+      return path
+    }))
+    const launched = await launchReader({ userData: workspace.userData })
+    application = launched.application
+    let page = launched.page
+    await showLibrary(page)
+    await stubImportDialog(application, paths)
+    await page.getByTestId('import-book').click()
+    await expect(page.getByTestId('book-import-summary')).toContainText('已导入 2 本')
+    await page.getByTestId('book-import-close').click()
+    const records = await page.evaluate(async () => {
+      const [source, target] = await window.readerApi.listBooks()
+      async function save(bookId: string, question: string, answer: string, draft = '') {
+        return window.readerApi.saveBookSession({ bookId, conversationId: crypto.randomUUID(), scope: 'book',
+          selection: null, draft, turns: [{ id: crypto.randomUUID(), action: 'ask', actionLabel: '提问',
+            question, answer, model: 'fixture', status: 'completed' }] })
+      }
+      const sourceRecord = await save(source.id, '正在读的书的提问', '正在读的书的回答')
+      const targetRecord = await save(target.id, '从未打开的同名书里的旧问题', '旧回答含有中文 C++[试题]_% 作为定位词。', '恢复后的目标书草稿')
+      const removed = await save(target.id, '即将删除的会话', '待清理字词')
+      const newest = await save(target.id, '同名书最后一个会话', '这条会话打开得更晚')
+      return { sourceRecord, targetRecord, removed, newest }
+    })
+    const { sourceRecord, targetRecord, removed, newest } = records
+    const activeConversation = () => page.getByTestId('assistant-dialog')
+    const results = () => page.getByTestId('recent-conversation-result')
+    const query = () => page.getByTestId('recent-conversation-query')
+    const libraryEntry = () => page.getByTestId('library-recent-conversations')
+
+    await resizeWorkspace(application, page, 1180, 800)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-appearance').click()
+    await page.getByTestId('theme-light').click()
+    await page.getByTestId('scale-100').click()
+    await page.getByTestId('settings-close').click()
+    await libraryEntry().click()
+    await expect(query()).toBeFocused()
+    await query().fill(title)
+    await expect(results()).toHaveCount(4)
+    await expect(results().filter({ hasText: targetRecord.turns[0].question })).toHaveCount(1)
+    await expect(page.locator('.recent-conversations-popover')).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: test.info().outputPath('recent-search-library-light-1180.png'), animations: 'disabled' })
+    await query().press('Escape')
+    await expect(libraryEntry()).toBeFocused()
+
+    await page.getByTestId('book-item').and(page.locator(`[data-book-id="${sourceRecord.bookId}"]`)).click()
+    await enterReading(page)
+    await expect(page.getByTestId('answer-current')).toContainText(sourceRecord.turns[0].answer)
+    await expect(page.getByTestId('book-tab')).toHaveCount(1)
+    await page.getByTestId('followup-input').fill('切换前保留的输入草稿')
+    await page.getByTestId('recent-conversations').click()
+    await query().fill('待清理字词')
+    await expect(results()).toHaveCount(1)
+    await page.evaluate(({ bookId, conversationId }) => window.readerApi.deleteBookSession(bookId, conversationId), removed)
+    await results().click()
+    await expect(page.locator('.recent-conversations-popover [role="alert"]')).toContainText('不在最近保留的记录中')
+    await expect(results()).toHaveCount(0)
+    await expect(page.getByTestId('followup-input')).toHaveValue('切换前保留的输入草稿')
+
+    await query().fill('中文 c++[试题]_%')
+    await expect(results()).toHaveCount(1)
+    await expect(results().locator('mark')).toHaveText('中文 C++[试题]_%')
+    await results().click()
+    await expect(activeConversation().getByTestId('answer-current')).toContainText(targetRecord.turns[0].answer)
+    await expect(activeConversation().getByTestId('followup-input')).toHaveValue(targetRecord.draft)
+    expect(await page.evaluate(() => window.readerApi.listBooks().then((books) => books.map((book) => book.title)))).toEqual([title, title])
+    await expect(page.getByTestId('book-tab')).toHaveCount(2)
+    await expect.poll(() => page.evaluate((bookId) => window.readerApi.getBookSession(bookId).then((chat) => chat?.conversationId), targetRecord.bookId))
+      .toBe(targetRecord.conversationId)
+    expect(await page.evaluate(({ bookId, conversationId }) => window.readerApi.getRecentBookSession({ bookId, conversationId }).then((chat) => chat?.draft), sourceRecord))
+      .toBe('切换前保留的输入草稿')
+    expect(await page.evaluate(({ bookId, conversationId }) => window.readerApi.getRecentBookSession({ bookId, conversationId }).then((chat) => chat?.conversationId), newest))
+      .toBe(newest.conversationId)
+    expect(streamCount).toBe(0)
+
+    const restarted = await restartReader(application, { userData: workspace.userData })
+    application = restarted.application
+    page = restarted.page
+    await showLibrary(page)
+    await resizeWorkspace(application, page, 940, 600)
+    await page.getByTestId('settings-button').click()
+    await page.getByTestId('settings-nav-appearance').click()
+    await page.getByTestId('theme-dark').click()
+    await page.getByTestId('scale-125').click()
+    await page.getByTestId('settings-close').click()
+    await libraryEntry().click()
+    await query().fill('旧回答含有')
+    await expect(results()).toHaveCount(1)
+    await expect(results()).toContainText(targetRecord.turns[0].answer)
+    await expect(page.locator('.recent-conversations-popover')).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: test.info().outputPath('recent-search-library-dark-940.png'), animations: 'disabled' })
+    await results().click()
+    await expect(activeConversation().getByTestId('answer-current')).toContainText(targetRecord.turns[0].answer)
+    await expect(activeConversation().getByTestId('followup-input')).toHaveValue(targetRecord.draft)
+    expect(streamCount).toBe(0)
+    await activeConversation().getByTestId('recent-conversations').click()
+    await query().fill('正在读的书的提问')
+    await expect(results()).toHaveCount(1)
+    await results().click()
+    await expect(activeConversation().getByTestId('followup-input')).toHaveValue('切换前保留的输入草稿')
   } finally { await cleanupE2eWorkspace(application, workspace.root) }
 })

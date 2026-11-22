@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { join, resolve } from 'node:path'
 import { createSearchLinksEpubFixture } from './fixtures/search-links-epub'
 import { cleanupE2eWorkspace, createE2eWorkspace, launchReader } from './support/electron-app'
-import { resizeWorkspace, showContents } from './support/workspace'
+import { jumpToPassage, resizeWorkspace, showContents } from './support/workspace'
 
 const txt = resolve('tests/fixtures/complex-reading.txt')
 const pdf = resolve('tests/e2e/fixtures/text-reader.pdf')
@@ -35,9 +35,11 @@ async function openFullscreen(application: ElectronApplication, page: Page): Pro
   return popup
 }
 
-const citationTest = test.extend<{ citationEndpoint: string }>({
+const citationTest = test.extend<{ citationEndpoint: { url: string; requests: () => number } }>({
   citationEndpoint: async ({}, use) => { // eslint-disable-line no-empty-pattern -- Playwright requires a destructured fixture argument.
+    let requests = 0
     const server = createServer((request, response) => {
+      requests++
       request.resume()
       response.writeHead(200, { 'content-type': 'text/event-stream' })
       response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: '原文依据 [P1]' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`)
@@ -49,7 +51,7 @@ const citationTest = test.extend<{ citationEndpoint: string }>({
     try {
       const address = server.address()
       if (!address || typeof address === 'string') throw new Error('Mock provider did not expose a TCP port')
-      await use(`http://127.0.0.1:${address.port}/v1`)
+      await use({ url: `http://127.0.0.1:${address.port}/v1`, requests: () => requests })
     } finally {
       await new Promise<void>((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()))
     }
@@ -267,7 +269,7 @@ for (const [width, height, theme, scale] of [[1180, 800, 'light', 100], [940, 60
       const launched = await launchReader({ userData: workspace.userData, importPath: bookPath })
       application = launched.application
       const { page } = launched
-      await activateCitationProvider(page, citationEndpoint)
+      await activateCitationProvider(page, citationEndpoint.url)
       await resizeWorkspace(application, page, width, height)
       await page.getByTestId('settings-button').click()
       await page.getByTestId(`theme-${theme}`).click()
@@ -310,10 +312,38 @@ for (const [width, height, theme, scale] of [[1180, 800, 'light', 100], [940, 60
         element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
       })
       await expect(page.getByTestId('selection-toolbar')).toBeVisible()
+      await page.evaluate(() => window.readerApi.onLlmEvent((event) => {
+        if (event.type === 'context') (window as Window & { fullscreenEvidence?: string }).fullscreenEvidence = event.context.passages[0]?.text
+      }))
       await page.getByTestId('action-explain').click()
       await scrollArea.evaluate((element) => { element.scrollTop += element.clientHeight })
       await expect(chapterBody).not.toBeInViewport()
-      await popup.getByTestId('citation-valid').click()
+      const citation = popup.getByTestId('citation-valid')
+      const preview = popup.getByTestId('source-preview')
+      const previewText = preview.getByTestId('source-preview-text')
+      await expect(citation).toBeVisible()
+      const beforePreview = await readScrollTop()
+      const requestsBeforePreview = citationEndpoint.requests()
+      await citation.hover()
+      await expect(preview).toBeVisible()
+      await expect(preview).toBeInViewport({ ratio: 1 })
+      const expected = await page.evaluate(() => (window as Window & { fullscreenEvidence?: string }).fullscreenEvidence)
+      expect(expected).toBeTruthy()
+      expect(await previewText.textContent()).toBe(expected)
+      await expect(preview).toContainText('第二章')
+      await expect(page.getByTestId('source-preview')).toHaveCount(0)
+      await previewText.hover()
+      await expect(preview).toBeVisible()
+      expect(await readScrollTop()).toBe(beforePreview)
+      await popup.keyboard.press('Escape')
+      await expect(preview).toHaveCount(0)
+      await expect(citation).toBeFocused()
+      await citation.press('Enter')
+      await expect(previewText).toBeFocused()
+      expect(citationEndpoint.requests()).toBe(requestsBeforePreview)
+      await popup.screenshot({ path: test.info().outputPath('passage-preview.png'), animations: 'disabled' })
+      await preview.getByTestId('source-preview-jump').click()
+      await expect(preview).toHaveCount(0)
       const highlight = page.locator('.llm-reader-temporary-highlight rect').first()
       await expect(highlight).toBeInViewport()
       await expect(chapterBody).toBeInViewport()
@@ -335,7 +365,7 @@ citationTest('uses PDF fit width and region selection in fullscreen without retu
     const launched = await launchReader({ userData: workspace.userData, importPath: pdf })
     application = launched.application
     const { page } = launched
-    await activateCitationProvider(page, citationEndpoint)
+    await activateCitationProvider(page, citationEndpoint.url)
     await page.getByTestId('book-item').click()
     await expect(page.getByTestId('pdf-reader')).toBeVisible()
     const sheet = page.locator('.pdf-page[data-page-number="3"]')
@@ -377,7 +407,7 @@ citationTest('uses PDF fit width and region selection in fullscreen without retu
     const reopening = application.waitForEvent('window')
     await page.getByTestId('action-explain').click()
     const assistant = await reopening
-    await assistant.getByTestId('citation-valid').click()
+    await jumpToPassage(assistant.getByTestId('citation-valid'))
     await expect(sheet.locator('.pdf-region-overlay.is-temporary')).toBeVisible()
     await page.getByTestId(fullscreenButton).click()
     await expect(page.getByTestId('app-shell')).toHaveAttribute('data-reading-fullscreen', 'false')

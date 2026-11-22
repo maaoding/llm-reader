@@ -1,4 +1,4 @@
-import { showLibrary, enterReading, resizeWorkspace } from './support/workspace'
+import { showLibrary, enterReading, resizeWorkspace, jumpToPassage } from './support/workspace'
 import {
   expect,
   test,
@@ -578,7 +578,7 @@ test('persists reading, conversation and insight deletion after restart', async 
     await expect
       .poll(() => validCitation.evaluate((element) => element.scrollWidth <= element.clientWidth))
       .toBe(true)
-    await validCitation.click()
+    await jumpToPassage(validCitation)
     await expect
       .poll(() => page.evaluate(() => {
         const highlights = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights
@@ -625,6 +625,15 @@ test('persists reading, conversation and insight deletion after restart', async 
     await expect(assistantDialog.getByText('CURRENT READING')).toHaveCount(0)
     await expect.poll(() => assistantDialog.locator('.modal-header h2').evaluate((element) => getComputedStyle(element).fontSize)).toBe('16.25px')
     await expect(assistantDialog.getByTestId('answer-current')).toContainText('适用边界')
+    const dialogCitation = assistantDialog.getByTestId('answer-current').getByTestId('citation-valid')
+    const preview = assistantDialog.getByTestId('source-preview')
+    await dialogCitation.focus()
+    await expect(preview.getByTestId('source-preview-text')).toBeVisible()
+    await page.keyboard.press('Tab')
+    await expect(preview.getByRole('button', { name: '关闭', exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(preview).toHaveCount(0)
+    await expect(dialogCitation).toBeFocused()
     if (visualDirectory) {
       await page.waitForTimeout(200)
       await page.screenshot({ path: join(visualDirectory, 'assistant-dialog-dark-1536x864.png') })
@@ -1135,11 +1144,27 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
       expect(passage.id).toBe(`P${paragraphCount + 1}`)
       expect(passage.anchor).toMatch(/^epubcfi\(/u)
       expect(Array.from(passage.text)).toHaveLength(6_000)
-      await page.getByTestId('answer-current').getByTestId('citation-valid').click()
+      const evidence = session!.turns[0].context?.passages
+      const citation = page.getByTestId('answer-current').getByTestId('citation-valid')
+      const preview = page.getByTestId('source-preview')
+      const body = preview.getByTestId('source-preview-text')
+      await citation.click()
+      expect(await body.textContent()).toBe(evidence?.find((candidate) => candidate.id === 'P1')?.text)
+      await preview.getByTestId('source-preview-jump').click()
       await expect.poll(() => page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').count()).toBeGreaterThan(0)
       const sources = page.getByTestId('answer-current').locator('.answer-sources')
       await sources.locator('summary').click()
-      await sources.locator('.answer-source-item > button').filter({ hasText: Array.from(expectedPassage).slice(0, 12).join('') }).click()
+      const prefixText = Array.from(expectedPassage).slice(0, 12).join('')
+      const expectedSource = evidence?.find((candidate) => candidate.anchor === passage.anchor && candidate.text.startsWith(prefixText))
+      await sources.getByTestId('source-preview-trigger').filter({ hasText: prefixText }).click()
+      await expect(preview).toBeInViewport({ ratio: 1 })
+      await expect(preview).toContainText(selection.chapterTitle)
+      expect(await body.textContent() === expectedSource?.text, 'shows the entire passage from the corresponding source row').toBe(true)
+      await expect(body).toBeFocused()
+      await body.press('PageDown')
+      await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+      await page.screenshot({ path: test.info().outputPath('long-passage-preview.png'), animations: 'disabled' })
+      await preview.getByTestId('source-preview-jump').click()
       await expect(page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').first()).toHaveAttribute('data-epubcfi', passage.anchor)
       const visualDirectory = process.env.LLM_READER_VISUAL_DIR
       if (visualDirectory) {
@@ -1174,11 +1199,11 @@ for (const [theme, width, height, scale] of [['light', 1180, 800, 100], ['dark',
         if (!latest || !('passages' in latest)) throw new Error('Expected an updated EPUB selection')
         expect(latest.quote).toBe(quote)
         expect(latest.passages[0].text).toBe(expectedPassage)
-        await page.getByTestId('answer-current').getByTestId('citation-valid').click()
+        await jumpToPassage(page.getByTestId('answer-current').getByTestId('citation-valid'))
         await expect(page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').first()).toHaveAttribute('data-epubcfi', latest.anchor)
         const updatedSources = page.getByTestId('answer-current').locator('.answer-sources')
         await updatedSources.locator('summary').click()
-        await updatedSources.locator('.answer-source-item > button').filter({ hasText: Array.from(expectedPassage).slice(0, 12).join('') }).click()
+        await jumpToPassage(updatedSources.getByTestId('source-preview-trigger').filter({ hasText: Array.from(expectedPassage).slice(0, 12).join('') }))
         await expect(page.getByTestId('reader-host').locator('.llm-reader-temporary-highlight').first()).toHaveAttribute('data-epubcfi', latest.passages[0].anchor)
         if (visualDirectory) {
           await page.screenshot({ path: join(visualDirectory, `epub-range-${theme}-${width}x${height}-${scale}-reindexed.png`) })

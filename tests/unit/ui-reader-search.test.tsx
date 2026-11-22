@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { BookRecord, PreparedDocumentSearch, ReaderApi } from '../../src/shared/contracts'
+import type { BookRecord, PreparedDocumentSearch, ReaderApi, SemanticSearchResult } from '../../src/shared/contracts'
 import { readerTitle, type ReaderAdapter, type ReaderSearchResult } from '../../src/renderer/src/readers'
 import { useReaderSearch } from '../../src/renderer/src/use-reader-search'
 import { deferred } from './support/deferred'
@@ -15,10 +15,13 @@ function hit(excerpt: string): ReaderSearchResult {
 function setup(format: 'txt' | 'pdf' = 'txt') {
   const search = vi.fn<ReaderAdapter['search']>().mockResolvedValue([])
   const searchBookDocument = vi.fn<ReaderApi['searchBookDocument']>().mockResolvedValue({ available: false, results: [] })
-  Object.defineProperty(window, 'readerApi', { configurable: true, value: { searchBookDocument } })
+  const searchBookSemantically = vi.fn<ReaderApi['searchBookSemantically']>()
+  const cancelSemanticSearch = vi.fn<ReaderApi['cancelSemanticSearch']>().mockResolvedValue(undefined)
+  Object.defineProperty(window, 'readerApi', { configurable: true, value: { searchBookDocument, searchBookSemantically, cancelSemanticSearch } })
   const adapterRef = { current: { format, search } as unknown as ReaderAdapter }
   const activeBookRef = { current: { id: 'book' } as BookRecord }
-  return { ...renderHook(() => useReaderSearch({ adapterRef, activeBookRef, visible: false })), search, searchBookDocument, adapterRef, activeBookRef }
+  return { ...renderHook(({ settingsVersion }) => useReaderSearch({ adapterRef, activeBookRef, visible: false, settingsVersion }),
+    { initialProps: { settingsVersion: 0 } }), search, searchBookDocument, searchBookSemantically, cancelSemanticSearch, adapterRef, activeBookRef }
 }
 
 it('keeps the newest query when an earlier search finishes later', async () => {
@@ -92,4 +95,38 @@ it('keeps validation errors when a previous search rejects and accepts Unicode w
   await act(async () => view.result.current.runSearch('😀'.repeat(100)))
   expect(view.search).toHaveBeenCalledTimes(2)
   expect(view.result.current.searchState).toBe('ready')
+})
+
+it('sends semantic queries on submission and preserves the fallback reason with an empty full-text result', async () => {
+  const view = setup()
+  act(() => { view.result.current.setSearchMode('semantic'); view.result.current.setSearchQuery('同义问题') })
+  expect(view.searchBookSemantically).not.toHaveBeenCalled()
+  view.searchBookSemantically.mockResolvedValueOnce({ status: 'fallback', reason: 'timeout' })
+  await act(async () => view.result.current.runSearch(view.result.current.searchQuery))
+  expect(view.searchBookSemantically).toHaveBeenCalledExactlyOnceWith({ bookId: 'book', query: '同义问题', requestId: expect.any(String) })
+  expect(view.search).toHaveBeenCalledExactlyOnceWith('同义问题')
+  expect(view.result.current).toMatchObject({ resultMode: 'text', fallbackReason: 'timeout', searchResults: [], searchState: 'ready' })
+})
+
+it.each(['edit', 'settings', 'cancel', 'switch'] as const)('cancels semantic lookup on %s and ignores late results', async (action) => {
+  const view = setup()
+  const pending = deferred<SemanticSearchResult>()
+  view.searchBookSemantically.mockReturnValueOnce(pending.promise)
+  act(() => view.result.current.setSearchMode('semantic'))
+  let task!: Promise<void>
+  act(() => { task = view.result.current.runSearch('上一条') })
+  const [{ requestId }] = view.searchBookSemantically.mock.calls[0]
+  if (action === 'settings') view.rerender({ settingsVersion: 1 })
+  else act(() => {
+    if (action === 'edit') view.result.current.setSearchQuery('下一条')
+    if (action === 'cancel') view.result.current.cancelSearch()
+    if (action === 'switch') {
+      view.activeBookRef.current = { id: 'another' } as BookRecord
+      view.result.current.resetSearch()
+    }
+  })
+  await act(async () => { pending.resolve({ status: 'fallback', reason: 'timeout' }); await task })
+  expect(view.cancelSemanticSearch).toHaveBeenCalledExactlyOnceWith(requestId)
+  expect(view.search).not.toHaveBeenCalled()
+  expect(view.result.current).toMatchObject({ searchResults: [], searchState: 'idle', fallbackReason: null })
 })

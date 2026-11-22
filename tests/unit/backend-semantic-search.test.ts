@@ -44,6 +44,63 @@ async function setup(scores: number[]) {
 }
 
 describe('bounded semantic recall', () => {
+  it('looks up original passages directly and sends only the submitted query', async () => {
+    const state = await setup([0, 1])
+    const result = await state.service.lookup({ bookId: state.bookId, requestId: randomUUID(), query: '检索问题' })
+    expect(result).toEqual({ status: 'ready', results: [
+      { anchor: 'txt:50:70', excerpt: '原文 p1', chapterTitle: '正文' }
+    ] })
+    expect(state.fetcher).toHaveBeenCalledOnce()
+    expect(JSON.parse(String(state.fetcher.mock.calls[0][1]?.body)).input).toEqual(['检索问题'])
+  })
+
+  it('returns an empty semantic result when vectors do not positively align with the query', async () => {
+    const state = await setup([0, -0.5])
+    await expect(state.service.lookup({ bookId: state.bookId, requestId: randomUUID(), query: '检索问题' }))
+      .resolves.toEqual({ status: 'ready', results: [] })
+  })
+
+  it('reports missing and changed indexes without sending the lookup', async () => {
+    const state = await setup([0, 1])
+    const input = { bookId: state.bookId, requestId: randomUUID(), query: '检索问题' }
+    state.store.db.prepare("UPDATE semantic_indexes SET status = 'paused' WHERE book_id = ?").run(state.bookId)
+    await expect(state.service.lookup(input)).resolves.toEqual({ status: 'fallback', reason: 'index-not-ready' })
+    state.settings.save({ embedding: { enabled: true, baseUrl: 'http://127.0.0.1/v1', model: 'changed' },
+      document: { processor: 'none', baseUrl: '', ocr: true, language: 'ch' }, target: 'embedding' })
+    await expect(state.service.lookup(input)).resolves.toEqual({ status: 'fallback', reason: 'changed' })
+    state.store.prepare(state.bookId, randomUUID(), 'new-document')
+    await expect(state.service.lookup(input)).resolves.toEqual({ status: 'fallback', reason: 'document-not-ready' })
+    expect(state.fetcher).not.toHaveBeenCalled()
+  })
+
+  it('reports lookup dimension mismatch and cancels only the matching active request', async () => {
+    const state = await setup([0.5, 1])
+    const input = { bookId: state.bookId, requestId: randomUUID(), query: '检索问题' }
+    state.fetcher.mockResolvedValueOnce(Response.json({ data: [{ index: 0, embedding: [1, 0] }] }))
+    await expect(state.service.lookup(input)).resolves.toEqual({ status: 'fallback', reason: 'dimension' })
+    state.fetcher.mockImplementationOnce(() => new Promise<Response>(() => undefined))
+    const pending = state.service.lookup(input)
+    const signal = state.fetcher.mock.calls.at(-1)?.[1]?.signal
+    state.service.cancelSearch(randomUUID())
+    expect(signal?.aborted).toBe(false)
+    state.service.cancelSearch(input.requestId)
+    await expect(pending).resolves.toEqual({ status: 'canceled' })
+    expect(signal?.aborted).toBe(true)
+    expect(state.service.isBusy).toBe(false)
+  })
+
+  it('distinguishes a lookup deadline from explicit cancellation', async () => {
+    const state = await setup([0.5, 1])
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(deadline.signal)
+    try {
+      state.fetcher.mockImplementationOnce(() => new Promise<Response>(() => undefined))
+      const pending = state.service.lookup({ bookId: state.bookId, requestId: randomUUID(), query: '检索问题' })
+      deadline.abort(new DOMException('Fixture deadline', 'TimeoutError'))
+      await expect(pending).resolves.toEqual({ status: 'fallback', reason: 'timeout' })
+    } finally { timeout.mockRestore() }
+  })
+
   it.each([24, 40])('retains late high scores and stable ties for the top %i matches', async (limit) => {
     const state = await setup(Array.from({ length: 160 }, (_, index) => index < 120 ? [-0.5, 0, 0.25, 0.5, 0.75][index % 5] : 1))
     // Equal scores retain the vector scan order, independent of the blocks' reading ordinals.

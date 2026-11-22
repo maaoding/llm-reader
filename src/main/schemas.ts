@@ -1,5 +1,5 @@
 import { copy } from '@shared/copy'
-import { MAX_SESSION_TABS, MAX_WORKBENCH_BOOKS, MAX_WORKBENCH_TURNS } from '@shared/contracts'
+import { MAX_SESSION_TABS, MAX_WORKBENCH_BOOKS, MAX_WORKBENCH_TURNS, RECENT_BOOK_SESSION_QUERY_LIMIT } from '@shared/contracts'
 import { z } from 'zod'
 import { requestSettingsFields } from '@shared/request-settings'
 import { searchDomainsSchema } from '@shared/web-search-settings'
@@ -31,10 +31,15 @@ export const uiLanguageSchema = z.enum(['zh', 'en'])
 export const bookOcrPageSchema = z.object({ bookId: idSchema, pageNumber: z.number().int().min(1).max(OCR_MAX_PAGES) }).strict()
 export const bookIdSchema = idSchema
 export const recentBookSessionSchema = z.object({ bookId: idSchema, conversationId: z.uuid({ version: 'v4' }) }).strict()
+export const recentBookSessionQuerySchema = z.string().max(RECENT_BOOK_SESSION_QUERY_LIMIT).trim().min(1).refine((query) => !query.includes('\0'))
 export const deleteBookSessionSchema = z.union([bookIdSchema.transform((bookId) => ({ bookId, conversationId: undefined })), recentBookSessionSchema])
 export const bookDocumentSearchSchema = z.object({
   bookId: idSchema,
   query: z.string().max(200).trim().refine((value) => normalizeReaderSearchQuery(value) !== null)
+}).strict()
+export const semanticSearchSchema = bookDocumentSearchSchema.extend({
+  requestId: idSchema,
+  query: bookDocumentSearchSchema.shape.query.refine((value) => !value.includes('\0'))
 }).strict()
 export const bookPagePreviewSchema = z.object({
   bookId: idSchema,
