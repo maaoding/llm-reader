@@ -170,7 +170,11 @@ GitHub 后续只发布源码标签，`vX.Y.Z` 对应商店 AppX `X.Y.Z.0`。已�
 
 ## 持续集成与商店验收
 
-[应用 CI](../.github/workflows/ci.yml) 在推送到 `main`、提交 Pull Request 或手动触发时运行：先在 Linux 执行 lint、typecheck、完整单元测试与应用构建，再在 Windows Server 2025 的 1920×1080 桌面执行完整 Electron E2E。CI 从 `package.json` 安装固定版本的 pnpm，按锁文件安装依赖，并安装 Electron 与 Calibre；桌面测试报告、截图及失败 trace 保留 7 天。测试使用隔离书库、合成资料与本机模拟服务，不调用真实付费接口；需要私有 PDF 的用例仍按原条件跳过。CI 检查源码构建与桌面行为，Windows 安装包、覆盖升级及真实服务质量仍需单独验收。
+推送到 `main`、提交 Pull Request 或手动触发时，Linux 作业都会执行 lint、typecheck、完整单元测试与应用构建。[应用 CI 工作流](../.github/workflows/ci.yml)
+
+Linux 检查通过后，Windows Server 2025 会在 1920×1080 桌面执行完整 Electron E2E。只有能确认整个推送或 PR 的改动都属于工作流列出的文档和官网路径时，才跳过 Windows 回归。应用文案 `src/shared/copy*.md`、随包许可 `THIRD_PARTY_NOTICES.md` 和工作区依赖清单都会触发回归。手动运行或无法确定比较基线时也会执行 Windows 回归。
+
+CI 从 `package.json` 安装固定版本的 pnpm，按锁文件安装依赖。Windows 作业安装 Electron 与 Calibre，桌面测试报告、截图及失败 trace 保留 7 天。测试使用隔离书库、合成资料与本机模拟服务，不调用真实付费接口。需要私有 PDF 的用例按原条件跳过。CI 检查源码构建与桌面行为，Windows 安装包、覆盖升级及真实服务质量仍需单独验收。
 
 [Windows AppX 验证工作流](../.github/workflows/windows-package-validation.yml)在相关 PR 或手动触发时打包并核对 AppX 的身份、发布者、四段版本、x64 架构、图标、许可证及更新元数据。工作流上传检查报告和截图。
 
