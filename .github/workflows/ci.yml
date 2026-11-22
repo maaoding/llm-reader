@@ -19,9 +19,31 @@ jobs:
     name: Code checks and build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      skip_desktop: ${{ steps.changes.outputs.skip_desktop }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check whether Windows desktop regression is needed
+        id: changes
+        env:
+          # On pull requests HEAD is the merge commit that CI tests.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          skip_desktop=false
+          if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch && -n "$BASE_SHA" ]] &&
+             git rev-parse --verify --quiet "${BASE_SHA}^{commit}" >/dev/null &&
+             git diff --quiet --no-renames "$BASE_SHA" HEAD -- . \
+               ':(exclude)README.md' ':(exclude)PRODUCT.md' ':(exclude)AGENTS.md' \
+               ':(exclude)resources/README.md' ':(exclude,glob)docs/**/*.md' \
+               ':(exclude)docs/manual/' ':(exclude)docs/.vitepress/' ':(exclude)site/' \
+               ':(exclude)scripts/prepare-site.mjs' ':(exclude)scripts/check-site.mjs' \
+               ':(exclude)tests/unit/site.test.ts' ':(exclude).github/workflows/pages.yml'; then
+            skip_desktop=true
+          fi
+          echo "skip_desktop=$skip_desktop" >> "$GITHUB_OUTPUT"
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -45,6 +67,7 @@ jobs:
   desktop:
     name: Windows desktop regression
     needs: checks
+    if: needs.checks.outputs.skip_desktop != 'true'
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
