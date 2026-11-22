@@ -32,7 +32,7 @@ pnpm build:app && electron-builder --win appx --x64 --publish never --config.dir
 
 ## 商店商品页文案
 
-保留商品描述主体，将末尾的许可与源码段落替换为以下对应语言。
+源码标签公开并核对匿名下载后，保留商品描述主体，将末尾的许可与源码段落替换为以下对应语言。
 
 **简体中文**
 
@@ -42,9 +42,7 @@ LLM Reader 按 GPL-3.0-or-later 许可提供源码。商店包 1.4.0.0 对应源
 
 LLM Reader source code is available under GPL-3.0-or-later. The source tag for Microsoft Store package 1.4.0.0 is store-v1.4.0.0. You can download and build that version from source. Microsoft Store installs and updates the Store edition.
 
-[对应源码标签](https://github.com/maaoding/llm-reader/tree/store-v1.4.0.0) · [构建说明](https://llm-reader.maaoding.icu/docs/build-from-source.html)
-
-在商品描述的源码段落后附上源码标签的完整 URL。标签公开并验证后再保存商品页。
+届时在商品描述的源码段落后附上完整地址 `https://github.com/maaoding/llm-reader/tree/store-v1.4.0.0`。[构建说明](https://llm-reader.maaoding.icu/docs/build-from-source.html)
 
 ## 分发切换的本地验证
 

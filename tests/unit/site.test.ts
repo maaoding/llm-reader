@@ -60,7 +60,14 @@ describe('static product website', () => {
       expect(source).toContain(store)
       expect(source).toMatch(/build-from-source\.(html|md)/u)
     }
-    expect(readFileSync(resolve('docs/manual/build-from-source.md'), 'utf8')).toContain('/tree/store-v1.4.0.0')
+    const sourceGuide = readFileSync(resolve('docs/manual/build-from-source.md'), 'utf8')
+    const releaseRecord = readFileSync(resolve('docs/releases/store-v1.4.0.0.md'), 'utf8')
+    const pendingTag = '`store-v1.4.0.0`（待公开）'
+    const tagIsPending = releaseRecord.includes(pendingTag)
+    const tagLink = '](https://github.com/maaoding/llm-reader/tree/store-v1.4.0.0)'
+    expect(sourceGuide).toContain('](https://github.com/maaoding/llm-reader/tags)')
+    expect(sourceGuide.includes(pendingTag)).toBe(tagIsPending)
+    expect(sourceGuide.includes(tagLink)).toBe(!tagIsPending)
   })
 
   it('ships a desktop-shaped Reader demo built from markup instead of screenshots', () => {

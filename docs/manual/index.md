@@ -7,7 +7,7 @@ description: 按开始使用、问答与笔记、可选增强、帮助与更新�
 
 连续阅读，用原文核对每次理解。
 
-这份手册按 Windows x64 **v1.4.0** 的界面编写。你可以先导入书籍直接阅读，再按需要配置 AI 服务。
+第一次使用 Windows 商店版（AppX **1.4.0.0**），可以先导入一本书直接阅读，再按需配置 AI 服务。手册中标为“开发版”的操作随开发进度更新，具体入口取决于所用构建。[查看开发进展和已发布版本](./changelog.md)
 
 [商店购买](https://apps.microsoft.com/detail/9PL7FB24VJMV) · [从源码构建](./build-from-source.md)
 

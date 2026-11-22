@@ -1,6 +1,6 @@
 ---
 title: 从源码构建
-description: 下载与 Microsoft Store 版本对应的 LLM Reader 源码，在 Windows 上运行或自行打包。
+description: 核对 Microsoft Store 包对应的源码版本，在 Windows 上运行或自行打包已公开的源码。
 ---
 
 # 从源码构建
@@ -11,14 +11,16 @@ LLM Reader 的源码按 GPL-3.0-or-later 提供。Windows x64 官方预编译版
 
 | Microsoft Store 包 | 源码标签 |
 | --- | --- |
-| `1.4.0.0` | [`store-v1.4.0.0`](https://github.com/maaoding/llm-reader/tree/store-v1.4.0.0) |
+| `1.4.0.0` | `store-v1.4.0.0`（待公开） |
 | 后续 `X.Y.Z.0` | `vX.Y.Z` |
 
-在 [GitHub 标签列表](https://github.com/maaoding/llm-reader/tags)找到所需版本并下载 ZIP，或用 Git 检出同名标签。历史 `v1.4.0` 标签对应当时的 GitHub 安装版，商店首版使用上表中的独立源码快照。
+商店首版使用独立源码快照，历史标签 `v1.4.0` 对应旧 GitHub 安装版。快照的源码树与校验值见[商店首版源码记录](https://github.com/maaoding/llm-reader/blob/main/docs/releases/store-v1.4.0.0.md)。
+
+要构建已公开的版本，可从 [GitHub 标签列表](https://github.com/maaoding/llm-reader/tags)下载 ZIP，或用 Git 检出对应标签。要运行开发版，可下载[主分支源码](https://github.com/maaoding/llm-reader/tree/main)。
 
 ## 安装依赖并运行
 
-按所下载标签的 `package.json` 准备 Node.js 和 Corepack。在源码目录打开 PowerShell，获取项目固定版本的 pnpm 并安装锁定的依赖。
+按所下载源码中的 `package.json` 准备 Node.js 和 Corepack。在源码目录打开 PowerShell，获取项目固定版本的 pnpm 并安装锁定的依赖。
 
 ```powershell
 corepack enable
