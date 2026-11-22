@@ -16,7 +16,7 @@
   <a href="https://llm-reader.maaoding.icu/docs/">使用文档</a>
 </p>
 
-已发布的 **v1.4.0** 支持摘录整理、会话 Markdown 导出与书库备份。[v1.4.0 发布说明](https://llm-reader.maaoding.icu/docs/releases/v1.4.0.html)
+当前 Microsoft Store 版（AppX **1.4.0.0**）支持摘录整理、会话 Markdown 导出与书库备份。[历史 GitHub 安装版 v1.4.0 发布说明](https://llm-reader.maaoding.icu/docs/releases/v1.4.0.html)
 
 开发版已加入书内引用预览、跨书搜索最近对话和阅读页按含义查找。[开发进展与使用方法](https://llm-reader.maaoding.icu/docs/changelog.html#开发版)
 

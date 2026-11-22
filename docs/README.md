@@ -4,7 +4,8 @@
 
 ## 开发与验证
 
-- [开发与验证](development.md)：启动应用、按影响范围验证、定向命令、完整回归、Windows 打包、CI 和官网构建。
+- [开发与验证](development.md)涵盖启动应用、按影响范围验证、定向命令、完整回归、Windows 打包和 CI。
+- 本地文档预览、站点构建和 GitHub Pages 部署见[官网预览与部署](development.md#官网与使用文档)。
 - [云端 Linux 开发环境](development-environment.md)：pnpm、Xvfb、Wine 与代理环境初始化。
 - [质量评测](evaluation.md)：全书问答、重排、文档结构与独立阅读的可重复评测入口。
 
@@ -47,7 +48,7 @@
 | [site/](../site/) | 产品介绍、交互演示和安装入口 | [官网首页](https://llm-reader.maaoding.icu/) |
 | [docs/manual/](manual/index.md) | 安装、阅读、模型配置、问答、PDF、隐私和排错教程 | [官网使用文档](https://llm-reader.maaoding.icu/docs/) |
 | `docs/` 下的开发与协议指南 | 开发命令、接口细节与质量评测 | 本页各专题入口 |
-| [docs/releases/](releases/) | 按版本保存的发布说明与验收记录 | 本页发布记录；当前版本说明同时展示在官网 |
+| [docs/releases/](releases/) | 按版本保存的发布说明与验收记录 | 本页发布记录，部分发布说明也在官网展示 |
 | [PRODUCT.md](../PRODUCT.md) | 当前产品行为约定 | 仓库内阅读 |
 | [LICENSE](../LICENSE) / [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) | 项目与第三方许可 | 仓库与应用内许可入口 |
 
@@ -55,7 +56,7 @@
 
 - 用户操作说明维护在 `docs/manual/`；README 与官网首页提供入口。手册首页与[侧栏配置](.vitepress/config.mts)使用相同分组：开始使用、问答与笔记、可选增强、帮助与更新。
 - 新增或调整教程时，同时检查手册首页、侧栏和相关页面的链接。公开页面使用 `/docs/*.html` 地址；调整分组时保留已有文件名和 URL。
-- 发布说明以 `docs/releases/` 为原文，官网的[版本页面](manual/releases/v1.4.0.md)通过 include 引用。发布新版时同步版本入口、官网更新日志、手册首页与本页版本表。
+- 发布说明原文维护在 `docs/releases/`，由 `docs/manual/releases/` 下的页面通过 include 引用。发布新版时同步版本入口、官网更新日志、手册首页与本页版本表。[v1.4.0 线上版本页](https://llm-reader.maaoding.icu/docs/releases/v1.4.0.html)
 - VitePress 只构建 `docs/manual/`。开发指南、协议参考和验收记录留在仓库，由官网“开发者资料”入口访问；主题与配置位于 `docs/.vitepress/`。
-- 官网页面、导航、资源、被手册 include 引用的内容或网站构建配置变化时，运行 `pnpm site:build` 检查页面、站内链接、资源、锚点与站点地图。仅修改产品契约、项目约定或仓库开发指南时核对内容、相对链接、编码和最终差异，运行 `git diff --check`，不默认构建官网；被忽略的本地文档另做修改前后比较。完整规则见[按影响范围验证](development.md#按影响范围验证)，预览与部署见[官网与使用文档](development.md#官网与使用文档)。本地验证选择不改变现有 CI 的路径触发规则。
+- 官网页面、导航、资源、被手册 include 引用的内容或网站构建配置变化时，运行 `pnpm site:build` 检查页面、站内链接、资源、锚点与站点地图。仅修改产品契约、项目约定或仓库开发指南时核对内容、相对链接、编码和最终差异，运行 `git diff --check`，不默认构建官网。被忽略的本地文档另做修改前后比较。完整规则见[按影响范围验证](development.md#按影响范围验证)。本地验证选择不改变现有 CI 的路径触发规则。
 - 单次任务日志、截图和阶段报告放在忽略目录 `output/` 或 `tmp/`，交付摘要记录在 PR 或对应版本验收中。
