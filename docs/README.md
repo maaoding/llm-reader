@@ -17,7 +17,7 @@
 
 ## 发布记录
 
-阅读全屏、扫描页原图划词及正在开发的阅读操作见[手册更新日志](manual/changelog.md#开发中)。
+开发版新增的阅读操作（阅读全屏、扫描页原图划词、书内引用预览等）见[手册更新日志](manual/changelog.md#开发版)。
 
 官方预编译版通过 [Microsoft Store](https://apps.microsoft.com/detail/9PL7FB24VJMV) 分发。GitHub 后续只发布源码标签 `vX.Y.Z`，对应商店包 `X.Y.Z.0`。发布说明记录版本变化，验收记录说明当时执行的检查及限制。历史安装包保存在 [GitHub Releases](https://github.com/maaoding/llm-reader/releases)。
 
